@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block title %}仿真结果 · RFLP-Lite{% endblock %}{% block content %}
+<div class="page-heading"><div><span class="eyebrow">Simulation</span><h1>仿真结果</h1><p>确定性事件排序、资源指标和约束门禁。</p></div><span class="status-badge {{ 'passed' if simulation.passed else 'failed' }}">{{ 'passed' if simulation.passed else 'failed' }}</span></div>
+<section class="panel"><div class="hash-row"><span>trace_hash</span><code>{{ simulation.trace_hash }}</code></div><div class="metric-row">{% for metric in simulation.metrics %}<article><span>{{ metric[0] }}</span><strong>{{ metric[1] }}</strong></article>{% endfor %}</div></section>
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Event trace</span><h2>{{ events|length }} 个事件</h2></div></div><div class="timeline">{% for event in events %}<article><span>{{ event.time }}</span><div><strong>{{ event.kind }}</strong><small>{{ event.target }} · priority {{ event.priority }} · sequence {{ event.sequence }}</small></div></article>{% endfor %}</div></section>
+{% endblock %}
