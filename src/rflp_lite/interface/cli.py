@@ -7,6 +7,7 @@ from pathlib import Path
 
 from rflp_lite import __version__
 from rflp_lite.application.demo import PROJECT_ROOT, run_demo
+from rflp_lite.application.workspaces import initialize_workspace
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import RflpError
 from rflp_lite.governance.profile import Profile
@@ -31,15 +32,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     try:
         if args.command == "init":
-            workspace = args.workspace.resolve()
-            workspace.mkdir(parents=True, exist_ok=True)
-            profile = Profile()
-            validate_json(
-                profile.as_dict(), PROJECT_ROOT / "schemas" / "profile.schema.json"
+            workspace = initialize_workspace(args.workspace)
+            print(
+                canonical_json(
+                    {"profile": str(workspace.profile_path), "status": "initialized"}
+                )
             )
-            profile_path = workspace / "profile.json"
-            profile_path.write_text(canonical_json(profile.as_dict()) + "\n", encoding="utf-8")
-            print(canonical_json({"profile": str(profile_path), "status": "initialized"}))
             return 0
         if args.command == "demo":
             profile = Profile(
