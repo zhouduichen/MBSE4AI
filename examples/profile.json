@@ -1,0 +1,8 @@
+{
+  "name": "local-demo",
+  "solver": "heuristic",
+  "seed": 42,
+  "candidate_limit": 3,
+  "timeout_seconds": 5
+}
+

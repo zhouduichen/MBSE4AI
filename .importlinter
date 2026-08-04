@@ -1,0 +1,32 @@
+[importlinter]
+root_package = rflp_lite
+
+[importlinter:contract:application-layers]
+name = Interface and application depend inward
+type = layers
+layers =
+    rflp_lite.interface
+    rflp_lite.application
+    rflp_lite.ports
+    rflp_lite.domain
+
+[importlinter:contract:adapter-layers]
+name = Adapters depend on ports and domain
+type = layers
+layers =
+    rflp_lite.adapters
+    rflp_lite.ports
+    rflp_lite.domain
+
+[importlinter:contract:domain-independence]
+name = Domain does not depend on outer modules
+type = forbidden
+source_modules =
+    rflp_lite.domain
+forbidden_modules =
+    rflp_lite.adapters
+    rflp_lite.application
+    rflp_lite.governance
+    rflp_lite.interface
+    rflp_lite.ports
+

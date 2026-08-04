@@ -1,0 +1,2 @@
+"""Replaceable technology adapters."""
+
