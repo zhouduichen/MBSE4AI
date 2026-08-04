@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rflp-lite"
+version = "0.1.0"
+description = "Deterministic local RFLP vertical slice for AI-agent software engineering"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "hypothesis>=6.112",
+  "import-linter>=2.1",
+  "check-jsonschema>=0.30",
+]
+schema = ["jsonschema>=4.23"]
+evidence = ["prance>=23.6.21", "junitparser>=3.2"]
+opt = ["ortools>=9.11"]
+
+[project.scripts]
+rflp = "rflp_lite.interface.cli:entrypoint"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
