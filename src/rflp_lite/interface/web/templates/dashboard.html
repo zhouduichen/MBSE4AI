@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}系统驾驶舱 · RFLP-Lite{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><span class="eyebrow">System overview</span><h1>系统驾驶舱</h1><p>从需求声明到证据审计的本地闭环。</p></div>
+  {% if workspace %}<a class="button primary" href="/w/{{ workspace.name }}/runs">＋ 启动新运行</a>{% endif %}
+</div>
+{% if not workspace %}
+<section class="empty-state">
+  <span class="empty-icon">◇</span><h2>尚无工作区</h2><p>创建第一个本地工作区后，即可运行完整 RFLP 链路。</p>
+  <form method="post" action="/workspaces" class="inline-form"><label>工作区名称<input name="name" value="demo-workspace" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" required></label><button class="button primary" type="submit">创建工作区</button></form>
+</section>
+{% elif not latest_run %}
+<section class="empty-state"><span class="empty-icon">→</span><h2>工作区已经就绪</h2><p>当前没有运行数据。进入运行中心，选择求解器并启动链路。</p><a class="button primary" href="/w/{{ workspace.name }}/runs">前往运行中心</a></section>
+{% else %}
+<section class="metric-grid">
+  <article class="metric"><span>链路状态</span><strong class="success">{{ latest_run.manifest.status|upper }}</strong><small>结果 {{ short_hash(latest_run.result_hash) }}</small></article>
+  <article class="metric"><span>RFLP 元素</span><strong>{{ counts.R + counts.F + counts.L + counts.P }}</strong><small>R {{ counts.R }} · F {{ counts.F }} · L {{ counts.L }} · P {{ counts.P }}</small></article>
+  <article class="metric"><span>候选方案</span><strong>{{ counts.candidates }}</strong><small>{{ latest_run.manifest.profile.solver }} solver</small></article>
+  <article class="metric"><span>证据记录</span><strong>{{ counts.evidence }}</strong><small>{{ counts.tasks }} 个任务契约</small></article>
+</section>
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Traceability</span><h2>端到端链路</h2></div><a href="/w/{{ workspace.name }}/runs/{{ latest_run.result_hash }}">查看运行详情 →</a></div>
+  <div class="pipeline"><div><span>ARTIFACT</span><strong>01</strong></div><i>›</i><div><span>CLAIM</span><strong>{{ counts.claims }}</strong></div><i>›</i><div><span>R / F / L / P</span><strong>{{ counts.R + counts.F + counts.L + counts.P }}</strong></div><i>›</i><div><span>EVIDENCE</span><strong>{{ counts.evidence }}</strong></div></div>
+  <div class="hash-row"><span>Baseline</span><code>{{ latest_run.manifest.baseline_hash }}</code></div>
+</section>
+{% endif %}
+{% endblock %}

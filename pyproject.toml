@@ -19,6 +19,13 @@ dev = [
 schema = ["jsonschema>=4.23"]
 evidence = ["prance>=23.6.21", "junitparser>=3.2"]
 opt = ["ortools>=9.11"]
+web = [
+  "fastapi>=0.116,<1",
+  "uvicorn>=0.35,<1",
+  "jinja2>=3.1,<4",
+  "python-multipart>=0.0.20,<1",
+  "httpx>=0.28,<1",
+]
 
 [project.scripts]
 rflp = "rflp_lite.interface.cli:entrypoint"
@@ -26,7 +33,14 @@ rflp = "rflp_lite.interface.cli:entrypoint"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"rflp_lite.interface.web" = [
+  "templates/*.html",
+  "static/*.css",
+  "static/vendor/*.js",
+  "static/vendor/*.txt",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-
