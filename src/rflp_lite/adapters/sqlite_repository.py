@@ -17,14 +17,17 @@ from rflp_lite.domain.models import (
     Relation,
     SimulationRun,
     TaskContract,
+    TextSpan,
 )
 
 
 class SQLiteRepository:
     _TABLES = (
         "artifacts",
+        "spans",
         "claims",
         "elements",
+        "relations",
         "candidates",
         "simulations",
         "tasks",
@@ -87,11 +90,17 @@ class SQLiteRepository:
     def save_artifacts(self, values: tuple[Artifact, ...]) -> None:
         self._save_many("artifacts", values)
 
+    def save_spans(self, values: tuple[TextSpan, ...]) -> None:
+        self._save_many("spans", values)
+
     def save_claims(self, values: tuple[Claim, ...]) -> None:
         self._save_many("claims", values)
 
     def save_elements(self, values: tuple[ModelElement, ...]) -> None:
         self._save_many("elements", values)
+
+    def save_relations(self, values: tuple[Relation, ...]) -> None:
+        self._save_many("relations", values)
 
     def save_candidates(self, values: tuple[Candidate, ...]) -> None:
         self._save_many("candidates", values)
@@ -157,4 +166,3 @@ class SQLiteRepository:
                 (kind,),
             ).fetchall()
         return tuple({"kind": row[0], "payload": json.loads(row[1])} for row in rows)
-

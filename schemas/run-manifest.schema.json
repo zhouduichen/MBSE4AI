@@ -3,11 +3,12 @@
   "$id": "https://rflp-lite.local/schemas/run-manifest.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["profile", "python", "platform", "fixture_hashes", "stage_hashes", "baseline_hash", "result_hash", "status"],
+  "required": ["profile", "python", "platform", "dependencies", "fixture_hashes", "stage_hashes", "baseline_hash", "result_hash", "status"],
   "properties": {
     "profile": {"type": "object"},
     "python": {"type": "string"},
     "platform": {"type": "string"},
+    "dependencies": {"type": "object"},
     "fixture_hashes": {"type": "object"},
     "stage_hashes": {"type": "object"},
     "baseline_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -15,4 +16,3 @@
     "status": {"enum": ["passed", "failed"]}
   }
 }
-
