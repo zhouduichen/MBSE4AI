@@ -15,6 +15,7 @@ dev = [
   "hypothesis>=6.112",
   "import-linter>=2.1",
   "check-jsonschema>=0.30",
+  "build>=1.2",
 ]
 schema = ["jsonschema>=4.23"]
 evidence = ["prance>=23.6.21", "junitparser>=3.2"]

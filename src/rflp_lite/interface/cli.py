@@ -26,11 +26,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     demo_parser.add_argument("--solver", choices=("heuristic", "cp-sat"), default="heuristic")
     demo_parser.add_argument("--candidate-limit", type=int, default=3)
     demo_parser.add_argument("--timeout-seconds", type=int, default=5)
+    web_parser = subparsers.add_parser("web", help="start the local Web UI")
+    web_parser.add_argument("--host", default="127.0.0.1")
+    web_parser.add_argument("--port", type=int, default=8000)
+    web_parser.add_argument(
+        "--workspace-root", type=Path, default=PROJECT_ROOT / "workspaces"
+    )
     args = parser.parse_args(argv)
     if args.command == "version":
         print(f"rflp-lite {__version__}")
         return 0
     try:
+        if args.command == "web":
+            try:
+                serve_web(args.host, args.port, args.workspace_root.resolve())
+            except ModuleNotFoundError:
+                print(
+                    "Web dependencies are missing. Install with: "
+                    "pip install -e '.[web]'",
+                    file=sys.stderr,
+                )
+                return 1
+            return 0
         if args.command == "init":
             workspace = initialize_workspace(args.workspace)
             print(
@@ -73,6 +90,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 1
     return 2
+
+
+def serve_web(host: str, port: int, workspace_root: Path) -> None:
+    import uvicorn
+
+    from rflp_lite.interface.web.app import create_app
+
+    uvicorn.run(create_app(workspace_root=workspace_root), host=host, port=port)
 
 
 def entrypoint() -> None:
