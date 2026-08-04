@@ -130,9 +130,12 @@ def run_demo(
         )
         validate_json(manifest, PROJECT_ROOT / "schemas" / "run-manifest.schema.json")
         outputs = {
+            "artifacts.json": (artifact,),
+            "spans.json": spans,
             "claims.json": claims,
             "rflp.json": {"elements": elements, "relations": relations},
             "candidates.json": candidates,
+            "decision.json": decision,
             "simulation.json": selected_simulation,
             "baseline.json": baseline,
             "delta.json": delta,
@@ -160,4 +163,3 @@ def run_demo(
         )
     finally:
         repository.close()
-

@@ -16,9 +16,27 @@ def test_demo_runs_complete_chain(tmp_path):
     assert Path(result.manifest_path).is_file()
 
 
+def test_demo_exports_complete_web_read_model(tmp_path):
+    result = run_demo(tmp_path, Profile())
+    run_dir = Path(result.manifest_path).parent
+    assert {path.name for path in run_dir.iterdir()} == {
+        "artifacts.json",
+        "spans.json",
+        "claims.json",
+        "rflp.json",
+        "candidates.json",
+        "decision.json",
+        "simulation.json",
+        "baseline.json",
+        "delta.json",
+        "task-contracts.json",
+        "evidence.json",
+        "run-manifest.json",
+    }
+
+
 def test_demo_is_reproducible_across_workspaces(tmp_path):
     first = run_demo(tmp_path / "first", Profile())
     second = run_demo(tmp_path / "second", Profile())
     assert first.result_hash == second.result_hash
     assert first.baseline.hash == second.baseline.hash
-

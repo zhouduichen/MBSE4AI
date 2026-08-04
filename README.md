@@ -34,9 +34,12 @@ OR-Tools CP-SAT 第二实现：
 
 CLI 在标准输出返回一行规范化 JSON。完整结果位于工作目录的 `.rflp/runs/<result_hash>/`，包括：
 
+- `artifacts.json`
+- `spans.json`
 - `claims.json`
 - `rflp.json`
 - `candidates.json`
+- `decision.json`
 - `simulation.json`
 - `baseline.json`
 - `delta.json`
@@ -59,4 +62,3 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 ## 当前边界
 
 当前未启用 LLM、Ollama/llama.cpp、Docling、MLflow、SysON、Web UI、向量模型或远程插件运行时。这些能力后续只能通过 Port/Profile 和可选依赖加入，不改变领域内核和 Baseline 更新规则。
-
