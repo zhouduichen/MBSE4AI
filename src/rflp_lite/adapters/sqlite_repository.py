@@ -69,6 +69,14 @@ class SQLiteRepository:
             )
             """
         )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS workbench (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL
+            )
+            """
+        )
 
     @contextmanager
     def transaction(self):
@@ -126,6 +134,18 @@ class SQLiteRepository:
 
     def save_evidence(self, values: tuple[Evidence, ...]) -> None:
         self._save_many("evidence", values)
+
+    def save_workbench(self, value: dict[str, object]) -> None:
+        self._connection.execute(
+            "INSERT OR REPLACE INTO workbench(id, payload) VALUES ('current', ?)",
+            (canonical_json(value),),
+        )
+
+    def load_workbench(self) -> dict[str, object] | None:
+        row = self._connection.execute(
+            "SELECT payload FROM workbench WHERE id = 'current'"
+        ).fetchone()
+        return json.loads(row[0]) if row else None
 
     def latest_baseline(self) -> Baseline | None:
         row = self._connection.execute(
