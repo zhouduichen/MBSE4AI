@@ -1,5 +1,7 @@
 # RFLP-Lite 本地链路验证记录
 
+> 历史验证记录：本文反映 2026-08-04 的状态。需求工作台和最小 LLM 候选接口已于 2026-08-05 完成，最新状态见 `docs/DEVELOPMENT_STATUS.md`。
+
 **验证日期：** 2026-08-04  
 **平台：** macOS 26.5（arm64）  
 **Python：** 3.12.13  
@@ -57,7 +59,6 @@
 
 每个目录都包含 Claims、RFLP、Candidates、Simulation、Baseline、Delta、TaskContracts、Evidence 和 Run Manifest 的规范化 JSON。
 
-## 延后能力
+## 延后能力（截至 2026-08-04）
 
-LLM/Ollama/llama.cpp、Docling、MLflow、SysON、向量模型、Web UI 和远程插件 Runtime 仍按设计延后，未进入本次本地闭环。
-
+当时 LLM/Ollama/llama.cpp、Docling、MLflow、SysON、向量模型、Web UI 和远程插件 Runtime 均未进入本地闭环；后续完成情况以 `docs/DEVELOPMENT_STATUS.md` 为准。

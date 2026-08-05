@@ -4,6 +4,8 @@ RFLP-Lite 是一个本地、确定性、可审计的 MBSE 研究原型。当前�
 
 `Artifact -> Stakeholder / Concern / Need -> Claim -> R/F/L/P -> Candidate -> Simulation -> Baseline -> Delta -> TaskContract -> Evidence`
 
+开发资料：[当前完成状态](docs/DEVELOPMENT_STATUS.md) · [需求工作台设计](docs/superpowers/specs/2026-08-04-rflp-lite-requirements-workbench-design.md) · [实施计划](docs/superpowers/plans/2026-08-04-rflp-lite-requirements-workbench.md)
+
 ## 本地安装
 
 需要 Python 3.11 或更高版本；不需要 Docker、GPU、PostgreSQL 或外部服务。

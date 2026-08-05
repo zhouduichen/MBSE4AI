@@ -1,5 +1,7 @@
 # RFLP-Lite 本地 Web UI 验证记录
 
+> 历史验证记录：本文反映 2026-08-04 的状态。需求工作台已于 2026-08-05 完成，最新状态见 `docs/DEVELOPMENT_STATUS.md`。
+
 **日期：** 2026-08-04
 
 ## 环境
@@ -69,10 +71,10 @@
 - FastAPI 的 OpenAPI、Swagger 和 ReDoc 入口默认关闭。
 - 服务默认监听 `127.0.0.1`，没有登录或公网暴露。
 
-## 已知限制
+## 已知限制（截至 2026-08-04）
 
 - 当前运行同步执行；长耗时 LLM、Docling 和远程 Solver 需要未来的持久化任务队列。
-- Web 页面只读展示模型和 Baseline，不提供直接编辑或批准。
+- 当时的运行结果页面只读展示模型和 Baseline；需求工作台的候选编辑与审核功能于 2026-08-05 增加。
 - 当前自动浏览器验收使用 Codex 内置浏览器；Safari/WebKit 需要在本机手工打开相同地址复核基础布局。
 - FastAPI 0.141.1 的 TestClient 会发出一条关于未来 `httpx2` 的弃用提示；测试行为正常，待上游迁移成熟后再调整测试依赖。
 - 本次没有配置 Git remote，也没有向 `https://github.com/zhouduichen/MBSE4AI` 推送。

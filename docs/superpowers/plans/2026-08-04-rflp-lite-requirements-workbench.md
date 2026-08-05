@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.11+ standard library, existing FastAPI/Jinja/SQLite, pytest.
 
+**Status:** Completed and verified on 2026-08-05. See `docs/DEVELOPMENT_STATUS.md`.
+
 ## Global Constraints
 
 - Add no runtime dependency.
@@ -32,7 +34,7 @@
 - Consumes: uploaded filename/bytes and the existing canonical hash/JSON helpers.
 - Produces: `analyze_artifact(filename: str, content: bytes) -> dict[str, object]`, `review_item(state, group, item_id, status, value) -> dict`, `accept_traceable(state) -> dict`, `generate_model(state) -> dict`, `add_llm_suggestions(state) -> dict`, and `render_rflp_svg(elements, relations) -> str`.
 
-- [ ] **Step 1: Write the failing core test**
+- [x] **Step 1: Write the failing core test**
 
 ```python
 def test_reviewed_stakeholders_generate_stable_dynamic_rflp(tmp_path):
@@ -46,13 +48,13 @@ def test_reviewed_stakeholders_generate_stable_dynamic_rflp(tmp_path):
     assert state["svg"] == generate_model(state)["svg"]
 ```
 
-- [ ] **Step 2: Run the core test and verify failure**
+- [x] **Step 2: Run the core test and verify failure**
 
 Run: `pytest tests/application/test_requirements_workbench.py -q`
 
 Expected: FAIL because `requirements_workbench` does not exist.
 
-- [ ] **Step 3: Add generic artifact parsing and bilingual claim extraction**
+- [x] **Step 3: Add generic artifact parsing and bilingual claim extraction**
 
 Implement in `readers.py`:
 
@@ -73,11 +75,11 @@ def read_artifact(filename: str, content: bytes) -> tuple[Artifact, tuple[TextSp
 
 For `.py`, call `ast.parse(text)` and add class/function/test names as spans before returning. Extend `_OBLIGATION` to accept `MUST NOT|MUST|SHALL|SHOULD|必须|应当|不得|禁止|需要|可以` while preserving existing English behavior.
 
-- [ ] **Step 4: Make existing RFLP synthesis dynamic**
+- [x] **Step 4: Make existing RFLP synthesis dynamic**
 
 Replace the fixed three-item synthesis with content-hash IDs and one R/F/L chain per claim. Reuse physical nodes named `Web/API`, `SQLite Repository`, and `Python Service`; create only the physical nodes actually referenced. Every R has one `satisfiedBy`, every F one `allocatedTo`, and every L one `realizedBy`.
 
-- [ ] **Step 5: Implement one canonical workbench document**
+- [x] **Step 5: Implement one canonical workbench document**
 
 Add a `workbench` SQLite table and these concrete methods:
 
@@ -92,17 +94,17 @@ def load_workbench(self) -> dict[str, object] | None:
 
 In `requirements_workbench.py`, use a longest-first role dictionary, source-span IDs, candidate statuses, exact aliases only, and `ponytail:` comments on heuristic grouping. `accept_traceable` accepts explicit stakeholders and their linked concerns/needs/claims but leaves inferred candidates pending. `generate_model` rejects missing accepted claims or broken stakeholder/need provenance.
 
-- [ ] **Step 6: Add the optional LLM call**
+- [x] **Step 6: Add the optional LLM call**
 
 Read `RFLP_LLM_BASE_URL`, `RFLP_LLM_MODEL`, and `RFLP_LLM_API_KEY`; if any is absent, raise `AdapterFailure("LLM 未配置")`. Use `urllib.request` with a 20-second timeout, parse `choices[0].message.content` as JSON, allow only stakeholder/concern/need/source_span_id fields, and append every result with `candidate_type=inferred`, `producer=llm`, `status=candidate`.
 
-- [ ] **Step 7: Run the core tests**
+- [x] **Step 7: Run the core tests**
 
 Run: `pytest tests/application/test_requirements_workbench.py tests/application/test_ingest_compile.py tests/application/test_demo_workflow.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit the core**
+- [x] **Step 8: Commit the core**
 
 ```bash
 git add src/rflp_lite/adapters/readers.py src/rflp_lite/adapters/sqlite_repository.py src/rflp_lite/application/synthesize.py src/rflp_lite/application/requirements_workbench.py tests/application/test_requirements_workbench.py
@@ -123,7 +125,7 @@ git commit -m "feat: add reviewed requirements workbench core"
 - Consumes: Task 1 workbench functions and `SQLiteRepository.save_workbench/load_workbench`.
 - Produces: GET `/w/{workspace}/requirements`; POST endpoints `/analyze`, `/review`, `/accept-traceable`, `/generate`, `/ai`; downloads `/requirements/model.json` and `/requirements/model.svg`.
 
-- [ ] **Step 1: Write the failing Web test**
+- [x] **Step 1: Write the failing Web test**
 
 ```python
 def test_requirements_page_runs_reviewed_rflp_flow(client):
@@ -141,31 +143,31 @@ def test_requirements_page_runs_reviewed_rflp_flow(client):
     assert client.get("/w/demo/requirements/model.svg").status_code == 200
 ```
 
-- [ ] **Step 2: Run the Web test and verify failure**
+- [x] **Step 2: Run the Web test and verify failure**
 
 Run: `pytest tests/interface/web/test_pages.py::test_requirements_page_runs_reviewed_rflp_flow -q`
 
 Expected: FAIL with 404.
 
-- [ ] **Step 3: Add facade operations and routes**
+- [x] **Step 3: Add facade operations and routes**
 
 `WebFacade` opens `{workspace}/.rflp/model.db`, delegates to the Task 1 functions inside a transaction, saves the returned workbench, and closes the repository. Routes validate the uploaded size/type through the core, use POST/303 redirects, return actionable 422 errors, and send JSON/SVG with explicit media types.
 
-- [ ] **Step 4: Build the one-page template**
+- [x] **Step 4: Build the one-page template**
 
 The page contains: textarea/file form; rule and AI buttons; stakeholder, concern, need, and claim review rows with editable value plus accept/reject buttons; one “接受全部可追溯候选” action; provenance checklist; Generate button; four-layer SVG; coverage cards; JSON/SVG download links. Use existing colors, cards, buttons, labels, focus states, and semantic form labels.
 
-- [ ] **Step 5: Add the navigation entry and minimum CSS**
+- [x] **Step 5: Add the navigation entry and minimum CSS**
 
 Add “需求建模” under Model whenever a workspace exists. Add only workbench grid, review row, input textarea, source-chain, and SVG overflow styles; reuse every existing component class that fits.
 
-- [ ] **Step 6: Run Web and core tests**
+- [x] **Step 6: Run Web and core tests**
 
 Run: `pytest tests/interface/web/test_pages.py tests/application/test_requirements_workbench.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit the Web workflow**
+- [x] **Step 7: Commit the Web workflow**
 
 ```bash
 git add src/rflp_lite/application/web_facade.py src/rflp_lite/interface/web/routes.py src/rflp_lite/interface/web/templates/base.html src/rflp_lite/interface/web/templates/requirements-workbench.html src/rflp_lite/interface/web/static/app.css tests/interface/web/test_pages.py
@@ -181,25 +183,25 @@ git commit -m "feat: expose local requirements modeling workflow"
 - Consumes: completed workbench and current full test/build checks.
 - Produces: a locally verified page and clean regression result.
 
-- [ ] **Step 1: Run all tests and import contracts**
+- [x] **Step 1: Run all tests and import contracts**
 
 Run: `pytest -q && lint-imports`
 
 Expected: all tests and all import contracts pass.
 
-- [ ] **Step 2: Build the package**
+- [x] **Step 2: Build the package**
 
 Run: `python -m build`
 
 Expected: wheel and source distribution build successfully.
 
-- [ ] **Step 3: Start and smoke-test the local server**
+- [x] **Step 3: Start and smoke-test the local server**
 
 Run: `rflp serve --host 127.0.0.1 --port 8000`
 
 Verify: create/select a workspace, open “需求建模”, paste the VersionedContentService sample, accept traceable candidates, generate RFLP, inspect stakeholder source chain, and download JSON/SVG.
 
-- [ ] **Step 4: Commit verification fixes if any**
+- [x] **Step 4: Commit verification fixes if any**
 
 ```bash
 git add src/rflp_lite tests
