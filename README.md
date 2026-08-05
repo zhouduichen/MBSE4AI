@@ -2,7 +2,7 @@
 
 RFLP-Lite 是一个本地、确定性、可审计的 MBSE 研究原型。当前版本先跑通以下最小垂直链路：
 
-`Artifact -> TextSpan -> Claim -> R/F/L/P -> Candidate -> Simulation -> Baseline -> Delta -> TaskContract -> Evidence`
+`Artifact -> Stakeholder / Concern / Need -> Claim -> R/F/L/P -> Candidate -> Simulation -> Baseline -> Delta -> TaskContract -> Evidence`
 
 ## 本地安装
 
@@ -55,7 +55,25 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 .venv/bin/rflp web --host 127.0.0.1 --port 8000
 ```
 
-浏览器打开 `http://127.0.0.1:8000`。首次使用时在页面创建工作区，然后进入“运行中心”，选择 Heuristic 或 CP-SAT，保持 Seed 为 `42` 并启动完整链路。完成后可以沿左侧导航查看工件与声明、RFLP 模型、候选与权衡、仿真、Baseline/Delta、TaskContract、Evidence/Audit，并下载规范化 JSON。
+浏览器打开 `http://127.0.0.1:8000`。首次使用时在页面创建工作区，然后进入“需求建模”：
+
+1. 粘贴需求，或上传 TXT、Markdown、DOCX、Python、JSON、YAML、TOML；
+2. 点击“规则分析”；
+3. 审核 Stakeholder、Concern、Need 和 Requirement 候选，或点击“接受全部可追溯候选”；
+4. 点击“生成 RFLP 规划图”；
+5. 查看来源链和 R/F/L/P 覆盖率，并下载确定性 JSON/SVG。
+
+“运行中心”继续提供 Heuristic 或 CP-SAT 的完整 Candidate、Simulation、Baseline、Delta、TaskContract 和 Evidence 链路。
+
+可选 AI 分析使用 OpenAI-compatible API，只产生待审核候选：
+
+```bash
+export RFLP_LLM_BASE_URL=http://127.0.0.1:11434/v1
+export RFLP_LLM_MODEL=your-model
+export RFLP_LLM_API_KEY=local-key
+```
+
+不设置这些环境变量时，规则分析和人工审核仍可完整运行。
 
 Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机地址。按 `Ctrl+C` 停止服务；SQLite 和已完成产物会保留。
 
@@ -71,4 +89,4 @@ Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机�
 
 ## 当前边界
 
-当前未启用 LLM、Ollama/llama.cpp、Docling、MLflow、SysML v2 编辑、向量模型、登录权限或远程插件运行时。Web UI 的“能力中心”会展示这些规划项及启用条件，但按钮保持禁用，不生成伪造结果。这些能力后续只能通过 Port/Profile 和可选依赖加入，不改变领域内核和 Baseline 更新规则。
+当前已提供最小 OpenAI-compatible LLM 候选接口，但尚未提供模型管理、流式对话或专用 Ollama/llama.cpp 运行时。Docling、MLflow、SysML v2 编辑、向量模型、登录权限和远程插件运行时仍未启用；“能力中心”只展示这些扩展的启用条件，不生成伪造结果。
