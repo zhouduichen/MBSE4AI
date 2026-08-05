@@ -326,6 +326,26 @@ def generate_model(state: dict[str, object]) -> dict[str, object]:
         "elements": [asdict(item) for item in elements],
         "relations": [asdict(item) for item in relations],
     }
+    spans = {item["id"]: item for item in result["spans"]}
+    stakeholders = {item["id"]: item for item in result["stakeholders"]}
+    concerns = {item["id"]: item for item in result["concerns"]}
+    result["traceability"] = []
+    for item in result["claims"]:
+        if item["status"] != "accepted":
+            continue
+        need = accepted_needs.get(item.get("need_id"))
+        stakeholder = stakeholders.get(need["stakeholder_id"]) if need else None
+        concern = concerns.get(need["concern_id"]) if need else None
+        span = spans.get(item["span_id"])
+        result["traceability"].append(
+            {
+                "requirement": item["object"],
+                "stakeholder": stakeholder["name"] if stakeholder else "法规 / 系统约束",
+                "concern": concern["name"] if concern else "约束完整性",
+                "need": need["statement"] if need else item["object"],
+                "source": span["locator"] if span else item["span_id"],
+            }
+        )
     result["coverage"] = _coverage(elements, relations)
     result["svg"] = render_rflp_svg(elements, relations, stakeholder_names)
     return result
@@ -358,15 +378,11 @@ def add_llm_suggestions(state: dict[str, object]) -> dict[str, object]:
         },
         "spans": spans,
     }
-    payload = canonical_json(
-        {
-            "model": model,
-            "temperature": 0,
-            "messages": (("role", "user"),),
-        }
-    )
-    body = json.loads(payload)
-    body["messages"] = [{"role": "user", "content": canonical_json(prompt)}]
+    body = {
+        "model": model,
+        "temperature": 0,
+        "messages": [{"role": "user", "content": canonical_json(prompt)}],
+    }
     call = request.Request(
         f"{base_url}/chat/completions",
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),

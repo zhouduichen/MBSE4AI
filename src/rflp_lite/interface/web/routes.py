@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
@@ -41,6 +41,10 @@ def _run_error(request: Request, message: object, status_code: int = 422) -> HTM
     )
 
 
+def _requirements_location(workspace_name: str) -> str:
+    return f"/w/{workspace_name}/requirements"
+
+
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request) -> HTMLResponse:
     view = _facade(request).dashboard(None)
@@ -75,6 +79,112 @@ def workspace_dashboard(request: Request, workspace_name: str) -> HTMLResponse:
         audit=view["audit"],
     )
     return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
+
+
+@router.get("/w/{workspace_name}/requirements", response_class=HTMLResponse)
+def requirements_page(request: Request, workspace_name: str) -> HTMLResponse:
+    facade = _facade(request)
+    workspace = facade.workspace(workspace_name)
+    runs = facade.runs(workspace_name)
+    context = page_context(
+        workspace,
+        active="requirements",
+        nav_result_hash=runs[0].result_hash if runs else None,
+        state=facade.requirements(workspace_name),
+    )
+    return templates.TemplateResponse(
+        request=request, name="requirements-workbench.html", context=context
+    )
+
+
+@router.post("/w/{workspace_name}/requirements/analyze")
+async def analyze_requirements(
+    request: Request,
+    workspace_name: str,
+    text: Annotated[str, Form()] = "",
+    artifact: UploadFile | None = File(default=None),
+) -> Response:
+    try:
+        if artifact is not None and artifact.filename:
+            filename, content = artifact.filename, await artifact.read()
+        else:
+            filename, content = "requirements.txt", text.encode("utf-8")
+        _facade(request).analyze_requirements(workspace_name, filename, content)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/review")
+def review_requirement(
+    request: Request,
+    workspace_name: str,
+    group: Annotated[str, Form()],
+    item_id: Annotated[str, Form()],
+    status: Annotated[str, Form()],
+    value: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        _facade(request).review_requirement_item(
+            workspace_name, group, item_id, status, value
+        )
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/accept-traceable")
+def accept_traceable_requirements(request: Request, workspace_name: str) -> Response:
+    try:
+        _facade(request).accept_traceable_requirements(workspace_name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/generate")
+def generate_requirements(request: Request, workspace_name: str) -> Response:
+    try:
+        _facade(request).generate_requirements_model(workspace_name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/ai")
+def analyze_requirements_with_ai(request: Request, workspace_name: str) -> Response:
+    try:
+        _facade(request).analyze_requirements_with_ai(workspace_name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+
+
+@router.get("/w/{workspace_name}/requirements/model.json")
+def requirements_json(request: Request, workspace_name: str) -> Response:
+    state = _facade(request).requirements(workspace_name)
+    if not state or not state.get("rflp"):
+        return HTMLResponse("RFLP model not generated", status_code=404)
+    content = __import__("json").dumps(
+        state["rflp"], ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return Response(
+        content=content + "\n",
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="rflp-model.json"'},
+    )
+
+
+@router.get("/w/{workspace_name}/requirements/model.svg")
+def requirements_svg(request: Request, workspace_name: str) -> Response:
+    state = _facade(request).requirements(workspace_name)
+    if not state or not state.get("svg"):
+        return HTMLResponse("RFLP SVG not generated", status_code=404)
+    return Response(
+        content=state["svg"],
+        media_type="image/svg+xml",
+        headers={"Content-Disposition": 'attachment; filename="rflp-model.svg"'},
+    )
 
 
 @router.get("/w/{workspace_name}/runs", response_class=HTMLResponse)

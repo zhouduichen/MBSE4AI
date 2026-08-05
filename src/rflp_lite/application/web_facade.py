@@ -5,6 +5,13 @@ from pathlib import Path
 from rflp_lite.adapters.sqlite_repository import SQLiteRepository
 from rflp_lite.application.demo import run_demo
 from rflp_lite.application.run_catalog import RunRecord, list_runs, load_run
+from rflp_lite.application.requirements_workbench import (
+    accept_traceable,
+    add_llm_suggestions,
+    analyze_artifact,
+    generate_model,
+    review_item,
+)
 from rflp_lite.application.workspaces import (
     WorkspaceRef,
     create_managed_workspace,
@@ -60,6 +67,89 @@ class WebFacade:
         )
         result = run_demo(workspace.path, profile, fixture_root=self.fixture_root)
         return load_run(workspace.path, result.result_hash)
+
+    def requirements(self, workspace_name: str) -> dict[str, object] | None:
+        workspace = self.workspace(workspace_name)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            return repository.load_workbench()
+        finally:
+            repository.close()
+
+    def analyze_requirements(
+        self, workspace_name: str, filename: str, content: bytes
+    ) -> dict[str, object]:
+        workspace = self.workspace(workspace_name)
+        state = analyze_artifact(Path(filename).name, content)
+        safe_name = state["artifact"]["path"]
+        inputs = workspace.path / "inputs"
+        inputs.mkdir(parents=True, exist_ok=True)
+        (inputs / f'{state["artifact"]["sha256"][:12]}-{safe_name}').write_bytes(content)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            with repository.transaction():
+                repository.save_workbench(state)
+                repository.record_audit(
+                    "requirements.analyzed",
+                    {"artifact": safe_name, "sha256": state["artifact"]["sha256"]},
+                )
+        finally:
+            repository.close()
+        return state
+
+    def review_requirement_item(
+        self,
+        workspace_name: str,
+        group: str,
+        item_id: str,
+        status: str,
+        value: str,
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name,
+            review_item(current, group, item_id, status, value),
+            "requirements.reviewed",
+        )
+
+    def accept_traceable_requirements(self, workspace_name: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name, accept_traceable(current), "requirements.accepted"
+        )
+
+    def generate_requirements_model(self, workspace_name: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name, generate_model(current), "requirements.generated"
+        )
+
+    def analyze_requirements_with_ai(self, workspace_name: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name, add_llm_suggestions(current), "requirements.ai_suggested"
+        )
+
+    def _save_requirements(
+        self, workspace_name: str, state: dict[str, object], event: str
+    ) -> dict[str, object]:
+        workspace = self.workspace(workspace_name)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            with repository.transaction():
+                repository.save_workbench(state)
+                repository.record_audit(event, {"artifact": state["artifact"]["path"]})
+        finally:
+            repository.close()
+        return state
 
     def dashboard(self, workspace_name: str | None) -> dict[str, object]:
         workspaces = self.workspaces()

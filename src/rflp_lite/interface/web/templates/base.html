@@ -18,6 +18,7 @@
         <a class="nav-item {% if active == 'dashboard' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}{% else %}/{% endif %}">驾驶舱</a>
         <a class="nav-item {% if active == 'runs' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}/runs{% else %}/{% endif %}">运行中心</a>
         <p class="nav-label">Model</p>
+        {% if workspace %}<a class="nav-item {% if active == 'requirements' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements">需求建模</a>{% else %}<span class="nav-item muted">需求建模</span>{% endif %}
         {% if workspace and nav_result_hash %}
         <a class="nav-item {% if active == 'artifacts' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/model/artifacts">工件与声明</a>
         <a class="nav-item {% if active == 'rflp' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/model/rflp">RFLP 模型</a>

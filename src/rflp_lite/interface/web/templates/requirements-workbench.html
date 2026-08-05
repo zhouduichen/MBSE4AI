@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% macro review_group(title, group, items, field) %}
+<section class="panel review-panel">
+  <div class="panel-head"><div><span class="eyebrow">Human review</span><h2>{{ title }}</h2></div><span class="count-badge">{{ items|length }}</span></div>
+  {% if items %}<div class="review-list">{% for item in items %}
+    <form method="post" action="/w/{{ workspace.name }}/requirements/review" class="review-row">
+      <input type="hidden" name="group" value="{{ group }}"><input type="hidden" name="item_id" value="{{ item.id }}">
+      <label><span class="sr-only">{{ title }}内容</span><input name="value" value="{{ item[field] }}" required></label>
+      <small>{{ item.source_span_id if item.source_span_id else item.span_id }}{% if item.candidate_type %} · {{ item.candidate_type }}{% endif %}</small>
+      <span class="status-badge {{ item.status }}">{{ item.status }}</span>
+      <button class="button compact" name="status" value="accepted" type="submit">接受</button>
+      <button class="button compact danger" name="status" value="rejected" type="submit">驳回</button>
+    </form>
+  {% endfor %}</div>{% else %}<div class="mini-empty">暂无候选。</div>{% endif %}
+</section>
+{% endmacro %}
+{% block title %}需求建模 · RFLP-Lite{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">Requirements workbench</span><h1>需求建模</h1><p>来源证据 → 利益相关方 → Concern → Need → Requirement → RFLP。</p></div></div>
+<section class="panel intake-panel">
+  <div class="panel-head"><div><span class="eyebrow">Model intake</span><h2>输入需求与工程资料</h2></div><span class="count-badge">本地处理</span></div>
+  <form method="post" action="/w/{{ workspace.name }}/requirements/analyze" enctype="multipart/form-data" class="intake-form">
+    <label class="field">直接粘贴<textarea name="text" rows="7" placeholder="例如：管理员必须恢复历史版本。审计人员必须查看恢复记录。"></textarea></label>
+    <label class="field">或上传文件<input type="file" name="artifact" accept=".txt,.md,.markdown,.docx,.py,.json,.yaml,.yml,.toml"></label>
+    <button class="button primary" type="submit">规则分析</button>
+  </form>
+</section>
+{% if state %}
+<section class="panel source-summary"><div class="panel-head"><div><span class="eyebrow">Source artifact</span><h2>{{ state.artifact.path }}</h2></div><code>{{ short_hash(state.artifact.sha256) }}</code></div><p>{{ state.spans|length }} 个 TextSpan，所有候选均保留来源定位。</p></section>
+<div class="workbench-actions"><form method="post" action="/w/{{ workspace.name }}/requirements/accept-traceable"><button class="button primary" type="submit">接受全部可追溯候选</button></form><form method="post" action="/w/{{ workspace.name }}/requirements/ai"><button class="button" type="submit">AI 辅助分析</button></form></div>
+{{ review_group("利益相关方", "stakeholders", state.stakeholders, "name") }}
+<div class="review-columns">{{ review_group("Concern", "concerns", state.concerns, "name") }}{{ review_group("Stakeholder Need", "needs", state.needs, "statement") }}</div>
+{{ review_group("Requirement 候选", "claims", state.claims, "object") }}
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Coverage prompts</span><h2>利益相关方补漏检查</h2></div></div><div class="checklist-grid">{% for question in state.checklist %}<span>{{ question }}</span>{% endfor %}</div></section>
+<form method="post" action="/w/{{ workspace.name }}/requirements/generate" class="generate-action"><button class="button primary" type="submit">生成 RFLP 规划图</button></form>
+{% if state.rflp %}
+<section class="metric-row coverage-row">{% for label, value in state.coverage.items() %}<article><span>{{ label }} 覆盖率</span><strong>{{ value }}%</strong></article>{% endfor %}<article><span>未审核推断角色</span><strong>{{ state.stakeholders|selectattr('candidate_type', 'equalto', 'inferred')|selectattr('status', 'equalto', 'candidate')|list|length }}</strong></article></section>
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Deterministic SVG</span><h2>RFLP 规划图</h2></div><div class="download-actions"><a href="/w/{{ workspace.name }}/requirements/model.json">JSON</a><a href="/w/{{ workspace.name }}/requirements/model.svg">SVG</a></div></div><div class="svg-canvas">{{ state.svg|safe }}</div></section>
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Requirement provenance</span><h2>需求来源链</h2></div><span class="count-badge">{{ state.traceability|length }}</span></div><div class="trace-list">{% for item in state.traceability %}<details><summary>{{ item.requirement }}</summary><dl><dt>提出者</dt><dd>{{ item.stakeholder }}</dd><dt>Concern</dt><dd>{{ item.concern }}</dd><dt>Need</dt><dd>{{ item.need }}</dd><dt>原始来源</dt><dd>{{ item.source }}</dd></dl></details>{% endfor %}</div></section>
+{% endif %}
+{% endif %}
+{% endblock %}

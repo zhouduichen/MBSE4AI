@@ -92,3 +92,29 @@ def test_capability_center_has_disabled_honest_placeholders(client: TestClient) 
     assert response.text.count("尚未启用") >= 9
     assert "disabled" in response.text
     assert "模拟结果" not in response.text
+
+
+def test_requirements_page_runs_reviewed_rflp_flow(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    analyzed = client.post(
+        "/w/demo/requirements/analyze",
+        data={
+            "text": "管理员必须恢复历史版本。\n审计人员必须查看恢复记录。"
+        },
+        follow_redirects=False,
+    )
+    assert analyzed.status_code == 303
+    client.post("/w/demo/requirements/accept-traceable")
+    generated = client.post(
+        "/w/demo/requirements/generate", follow_redirects=False
+    )
+    assert generated.status_code == 303
+
+    page = client.get("/w/demo/requirements")
+
+    assert page.status_code == 200
+    assert "利益相关方" in page.text
+    assert "RFLP 规划图" in page.text
+    assert "<svg" in page.text
+    assert client.get("/w/demo/requirements/model.json").status_code == 200
+    assert client.get("/w/demo/requirements/model.svg").status_code == 200
