@@ -59,7 +59,7 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 
 浏览器打开 `http://127.0.0.1:8000`。首次使用时在页面创建工作区，然后进入“需求建模”：
 
-1. 粘贴需求，或上传 TXT、Markdown、DOCX、Python、JSON、YAML、TOML；
+1. 粘贴需求，或上传 TXT、Markdown、DOCX、Python、JSON、YAML、TOML；勾选“并入现有工作台”可把多份文档追加到同一工作台并保留已审核项；
 2. 点击“规则分析”；
 3. 审核 Stakeholder、Concern、Need 和 Requirement 候选，或点击“接受全部可追溯候选”；
 4. 点击“生成 RFLP 规划图”；
@@ -91,7 +91,7 @@ CLI 等效操作：
 .venv/bin/rflp assess --workspace <workspace> --requirements <file> --source <project-dir> [--timeout 60]
 ```
 
-`assess` 一步完成 需求工作台 → 批准基线 → 分析项目 → 运行测试 并输出汇总，适合脚本/CI 断言。需求接入支持 DOCX 表格行（每行按 “ID | 义务句” 合并为一条 span）。
+`assess` 一步完成 需求工作台 → 批准基线 → 分析项目 → 运行测试 并输出汇总，适合脚本/CI 断言。`workbench build` 接受多个 `--requirements` 文件完成多文档合并。需求接入支持 DOCX 表格行（每行按 “ID | 义务句” 合并为一条 span）。
 
 可选 AI 分析使用 OpenAI-compatible API，只产生待审核候选：
 

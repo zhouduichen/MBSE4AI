@@ -48,7 +48,7 @@ Artifact
 
 操作流程：
 
-1. 粘贴需求或上传工程资料。
+1. 粘贴需求或上传工程资料；勾选“并入现有工作台”可把多份文档追加到同一工作台并保留已审核项。
 2. 点击“规则分析”。
 3. 审核 Stakeholder、Concern、Need 和 Requirement 候选。
 4. 点击“接受全部可追溯候选”，或逐条编辑、接受、驳回。
@@ -103,7 +103,7 @@ rflp project approve --workspace <path>
 rflp project analyze --workspace <path> --source <dir>
 rflp project verify --workspace <path> --source <dir>
 rflp project test --workspace <path> --source <dir> [--timeout 60]
-rflp workbench build --workspace <path> --requirements <file>
+rflp workbench build --workspace <path> --requirements <file> [<file> ...]
 rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 60]
 ```
 
@@ -179,12 +179,12 @@ export RFLP_LLM_API_KEY=local-key
 
 2026-08-06（测试执行沙箱 + 落地收尾）：
 
-- `pytest`：108 passed；Import Linter：3 contracts kept；`python -m build` 成功。
+- `pytest`：112 passed；Import Linter：3 contracts kept；`python -m build` 成功。
 - 端到端：需求 + 含一过一败测试的项目，`project test` 如实报告 `returncode=1`、`tests_passed=1`、`tests_failed=1`、`timed_out=false`。
 - 沙箱：固定 pytest 命令、60s 超时 kill、临时目录隔离、归一化 JUnit 字节级确定；stdout/stderr 写入上限（默认 5 MiB）；失败/超时透出失败用例与输出尾部诊断。
-- CLI 无 Web 全自动：`workbench build`（需求文件建工作台）与 `assess`（一步汇总报告）。
-- DOCX 表格行按 “ID | 义务句” 合并为一条 span。
-- 审计事件新增 `project.tested`。
+- CLI 无 Web 全自动：`workbench build`（需求文件建工作台，支持多文件合并）与 `assess`（一步汇总报告）。
+- DOCX 表格行按 “ID | 义务句” 合并为一条 span；verify/test 后同步刷新 delta/matches。
+- 审计事件新增 `project.tested`、`requirements.merged`。
 
 复现命令：
 
