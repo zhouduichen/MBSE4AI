@@ -123,6 +123,20 @@ def test_test_requires_analyzed_project(client: TestClient) -> None:
     assert "请先在项目接入中分析项目" in response.text
 
 
+def test_analyze_merge_accumulates_candidates(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze", data={"text": "管理员必须恢复历史版本。\n"}
+    )
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "审计人员必须查看恢复记录。\n", "merge": "on"},
+    )
+    page = client.get("/w/demo/requirements").text
+    assert "管理员" in page
+    assert "审计人员" in page
+
+
 def test_test_runs_pytest_on_project(client: TestClient, tmp_path: Path) -> None:
     _prepare_workbench(client)
     client.post("/w/demo/project/approve-baseline")

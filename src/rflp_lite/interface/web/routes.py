@@ -104,13 +104,16 @@ async def analyze_requirements(
     workspace_name: str,
     text: Annotated[str, Form()] = "",
     artifact: UploadFile | None = File(default=None),
+    merge: Annotated[str, Form()] = "",
 ) -> Response:
     try:
         if artifact is not None and artifact.filename:
             filename, content = artifact.filename, await artifact.read()
         else:
             filename, content = "requirements.txt", text.encode("utf-8")
-        _facade(request).analyze_requirements(workspace_name, filename, content)
+        _facade(request).analyze_requirements(
+            workspace_name, filename, content, merge=bool(merge)
+        )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
     return RedirectResponse(_requirements_location(workspace_name), status_code=303)

@@ -17,6 +17,7 @@ from rflp_lite.application.requirements_workbench import (
     add_llm_suggestions,
     analyze_artifact,
     generate_model,
+    merge_artifact,
     review_item,
 )
 from rflp_lite.application.workspaces import (
@@ -84,10 +85,19 @@ class WebFacade:
             repository.close()
 
     def analyze_requirements(
-        self, workspace_name: str, filename: str, content: bytes
+        self,
+        workspace_name: str,
+        filename: str,
+        content: bytes,
+        merge: bool = False,
     ) -> dict[str, object]:
         workspace = self.workspace(workspace_name)
-        state = analyze_artifact(Path(filename).name, content)
+        filename = Path(filename).name
+        current = self.requirements(workspace_name) if merge else None
+        if current is not None:
+            state = merge_artifact(current, filename, content)
+        else:
+            state = analyze_artifact(filename, content)
         safe_name = state["artifact"]["path"]
         inputs = workspace.path / "inputs"
         inputs.mkdir(parents=True, exist_ok=True)
@@ -97,7 +107,7 @@ class WebFacade:
             with repository.transaction():
                 repository.save_workbench(state)
                 repository.record_audit(
-                    "requirements.analyzed",
+                    "requirements.merged" if merge else "requirements.analyzed",
                     {"artifact": safe_name, "sha256": state["artifact"]["sha256"]},
                 )
         finally:
