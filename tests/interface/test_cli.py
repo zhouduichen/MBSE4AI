@@ -149,3 +149,45 @@ def test_project_test_without_baseline_fails(tmp_path, capsys):
         ["project", "test", "--workspace", str(workspace), "--source", str(project)]
     ) == 1
     assert "请先批准基线" in capsys.readouterr().err
+
+
+def test_workbench_build_then_project_chain(tmp_path, capsys):
+    workspace = tmp_path / "ws"
+    initialize_workspace(workspace)
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text(
+        "管理员必须恢复历史版本。\n"
+        "The service shall restore a historical version.\n"
+        "审计人员必须查看恢复记录。",
+        encoding="utf-8",
+    )
+
+    assert main(
+        ["workbench", "build", "--workspace", str(workspace), "--requirements", str(requirements)]
+    ) == 0
+    out = capsys.readouterr().out
+    assert '"status":"ok"' in out
+    assert '"rflp_elements"' in out
+
+    assert main(["project", "approve", "--workspace", str(workspace)]) == 0
+    capsys.readouterr()
+    assert main(
+        ["project", "analyze", "--workspace", str(workspace), "--source", str(EXAMPLE)]
+    ) == 0
+    capsys.readouterr()
+    assert main(
+        ["project", "verify", "--workspace", str(workspace), "--source", str(EXAMPLE)]
+    ) == 0
+    capsys.readouterr()
+
+
+def test_workbench_build_without_obligations_fails(tmp_path, capsys):
+    workspace = tmp_path / "ws"
+    initialize_workspace(workspace)
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("没有任何义务句的内容。", encoding="utf-8")
+
+    assert main(
+        ["workbench", "build", "--workspace", str(workspace), "--requirements", str(requirements)]
+    ) == 1
+    assert "请先接受至少一条可追溯需求" in capsys.readouterr().err

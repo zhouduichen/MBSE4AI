@@ -15,6 +15,11 @@ from rflp_lite.application.project_bridge import (
     execute_tests_state,
     verify_contracts_state,
 )
+from rflp_lite.application.requirements_workbench import (
+    accept_traceable,
+    analyze_artifact,
+    generate_model,
+)
 from rflp_lite.application.workspaces import initialize_workspace
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import ContractViolation, RflpError
@@ -64,6 +69,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     project_test.add_argument("--workspace", type=Path, required=True)
     project_test.add_argument("--source", required=True)
     project_test.add_argument("--timeout", type=int, default=DEFAULT_TEST_TIMEOUT)
+    workbench_parser = subparsers.add_parser(
+        "workbench", help="build the requirements workbench headlessly"
+    )
+    workbench_commands = workbench_parser.add_subparsers(
+        dest="workbench_command", required=True
+    )
+    workbench_build = workbench_commands.add_parser(
+        "build", help="analyze + accept + generate RFLP from a requirements file"
+    )
+    workbench_build.add_argument("--workspace", type=Path, required=True)
+    workbench_build.add_argument("--requirements", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.command == "version":
         print(f"rflp-lite {__version__}")
@@ -115,6 +131,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "project":
             return _run_project(args)
+        if args.command == "workbench":
+            return _run_workbench(args)
     except (RflpError, OSError) as exc:
         print(
             canonical_json(
@@ -124,6 +142,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 1
     return 2
+
+
+def _run_workbench(args: argparse.Namespace) -> int:
+    workspace = args.workspace.resolve()
+    content = args.requirements.read_bytes()
+    state = analyze_artifact(args.requirements.name, content)
+    state = accept_traceable(state)
+    state = generate_model(state)
+    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    try:
+        with repository.transaction():
+            repository.save_workbench(state)
+            for event in ("requirements.analyzed", "requirements.accepted", "requirements.generated"):
+                repository.record_audit(event, {"artifact": state["artifact"]["path"]})
+    finally:
+        repository.close()
+    print(
+        canonical_json(
+            {
+                "status": "ok",
+                "artifact": state["artifact"]["path"],
+                "requirements": len(state["claims"]),
+                "rflp_elements": len(state["rflp"]["elements"]),
+                "rflp_relations": len(state["rflp"]["relations"]),
+            }
+        )
+    )
+    return 0
 
 
 def _run_project(args: argparse.Namespace) -> int:
