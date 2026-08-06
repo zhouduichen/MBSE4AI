@@ -19,6 +19,7 @@ from rflp_lite.application.requirements_workbench import (
     accept_traceable,
     analyze_artifact,
     generate_model,
+    merge_artifact,
 )
 from rflp_lite.application.workspaces import initialize_workspace
 from rflp_lite.domain.canonical import canonical_json
@@ -79,7 +80,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "build", help="analyze + accept + generate RFLP from a requirements file"
     )
     workbench_build.add_argument("--workspace", type=Path, required=True)
-    workbench_build.add_argument("--requirements", type=Path, required=True)
+    workbench_build.add_argument(
+        "--requirements", type=Path, nargs="+", required=True,
+        help="一个或多个需求文件；首个创建，其余并入",
+    )
     assess_parser = subparsers.add_parser(
         "assess", help="one-shot: requirements + project -> baseline/delta/tasks/test report"
     )
@@ -155,8 +159,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _run_workbench(args: argparse.Namespace) -> int:
     workspace = args.workspace.resolve()
-    content = args.requirements.read_bytes()
-    state = analyze_artifact(args.requirements.name, content)
+    state = None
+    for path in args.requirements:
+        content = path.read_bytes()
+        if state is None:
+            state = analyze_artifact(path.name, content)
+        else:
+            state = merge_artifact(state, path.name, content)
     state = accept_traceable(state)
     state = generate_model(state)
     repository = SQLiteRepository(workspace / ".rflp" / "model.db")

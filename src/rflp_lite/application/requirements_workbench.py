@@ -160,6 +160,26 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
     }
 
 
+def merge_artifact(
+    state: dict[str, object], filename: str, content: bytes
+) -> dict[str, object]:
+    """把另一份需求文档的候选并入现有工作台（按 id 去重），并作废旧模型输出。"""
+    fresh = analyze_artifact(filename, content)
+    result = _clone(state)
+    result["artifact"] = fresh["artifact"]
+    for group in ("spans", "stakeholders", "concerns", "needs", "claims"):
+        existing_ids = {item["id"] for item in result[group]}
+        result[group] = sorted(
+            result[group]
+            + [item for item in fresh[group] if item["id"] not in existing_ids],
+            key=lambda item: item["id"],
+        )
+    result["checklist"] = fresh["checklist"]
+    result["rflp"], result["coverage"], result["svg"] = None, {}, ""
+    result["baseline"], result["project"] = None, None
+    return result
+
+
 def review_item(
     state: dict[str, object],
     group: str,

@@ -5,6 +5,7 @@ from rflp_lite.application.requirements_workbench import (
     add_llm_suggestions,
     analyze_artifact,
     generate_model,
+    merge_artifact,
 )
 from rflp_lite.domain.errors import AdapterFailure
 
@@ -58,3 +59,19 @@ def test_inferred_stakeholder_is_not_automatically_accepted():
     accepted = accept_traceable(state)
 
     assert accepted["stakeholders"][-1]["status"] == "candidate"
+
+
+def test_merge_artifact_accumulates_candidates_and_dedups():
+    first = analyze_artifact("a.txt", "管理员必须恢复历史版本。\n".encode())
+    second_fresh = analyze_artifact("b.txt", "审计人员必须查看恢复记录。\n".encode())
+
+    merged = merge_artifact(first, "b.txt", "审计人员必须查看恢复记录。\n".encode())
+    assert {item["name"] for item in merged["stakeholders"]} >= {"管理员", "审计人员"}
+    assert {item["id"] for item in merged["spans"]} == {item["id"] for item in first["spans"]} | {
+        item["id"] for item in second_fresh["spans"]
+    }
+    assert merged["rflp"] is None
+    assert merged["baseline"] is None
+
+    again = merge_artifact(merged, "a.txt", "管理员必须恢复历史版本。\n".encode())
+    assert len(again["spans"]) == len(merged["spans"])

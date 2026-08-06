@@ -181,6 +181,30 @@ def test_workbench_build_then_project_chain(tmp_path, capsys):
     capsys.readouterr()
 
 
+def test_workbench_build_merges_multiple_requirements(tmp_path, capsys):
+    workspace = tmp_path / "ws"
+    initialize_workspace(workspace)
+    first = tmp_path / "a.txt"
+    first.write_text("管理员必须恢复历史版本。\n", encoding="utf-8")
+    second = tmp_path / "b.txt"
+    second.write_text("审计人员必须查看恢复记录。\n", encoding="utf-8")
+
+    assert main(
+        [
+            "workbench",
+            "build",
+            "--workspace",
+            str(workspace),
+            "--requirements",
+            str(first),
+            str(second),
+        ]
+    ) == 0
+    out = capsys.readouterr().out
+    assert '"status":"ok"' in out
+    assert '"requirements":2' in out
+
+
 def test_workbench_build_without_obligations_fails(tmp_path, capsys):
     workspace = tmp_path / "ws"
     initialize_workspace(workspace)
