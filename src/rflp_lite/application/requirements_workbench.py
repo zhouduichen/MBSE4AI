@@ -179,11 +179,13 @@ def review_item(
         item[field] = value.strip()
     item["status"] = status
     result["rflp"], result["coverage"], result["svg"] = None, {}, ""
+    result["baseline"], result["project"] = None, None
     return result
 
 
 def accept_traceable(state: dict[str, object]) -> dict[str, object]:
     result = _clone(state)
+    result["baseline"], result["project"] = None, None
     for stakeholder in result["stakeholders"]:
         if stakeholder["candidate_type"] == "explicit" and stakeholder["status"] == "candidate":
             stakeholder["status"] = "accepted"
@@ -284,6 +286,7 @@ def render_rflp_svg(
 
 def generate_model(state: dict[str, object]) -> dict[str, object]:
     result = _clone(state)
+    result["baseline"], result["project"] = None, None
     accepted_stakeholders = {
         item["id"] for item in result["stakeholders"] if item["status"] == "accepted"
     }

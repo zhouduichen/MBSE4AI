@@ -4,6 +4,13 @@ from pathlib import Path
 
 from rflp_lite.adapters.sqlite_repository import SQLiteRepository
 from rflp_lite.application.demo import run_demo
+from rflp_lite.application.project_bridge import (
+    analyze_project_state,
+    approve_workbench_baseline,
+    execute_tests_state,
+    verify_contracts_state,
+)
+from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
 from rflp_lite.application.run_catalog import RunRecord, list_runs, load_run
 from rflp_lite.application.requirements_workbench import (
     accept_traceable,
@@ -137,6 +144,113 @@ class WebFacade:
         return self._save_requirements(
             workspace_name, add_llm_suggestions(current), "requirements.ai_suggested"
         )
+
+    def approve_requirements_baseline(self, workspace_name: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        state, baseline = approve_workbench_baseline(current)
+        workspace = self.workspace(workspace_name)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            with repository.transaction():
+                repository.save_workbench(state)
+                repository.save_baseline(baseline)
+                repository.record_audit(
+                    "baseline.approved", {"baseline_hash": baseline.hash}
+                )
+        finally:
+            repository.close()
+        return state
+
+    def analyze_workspace_project(
+        self, workspace_name: str, source: str
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        state, artifacts = analyze_project_state(current, source)
+        workspace = self.workspace(workspace_name)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            with repository.transaction():
+                repository.save_workbench(state)
+                repository.save_baseline(artifacts.baseline)
+                repository.save_evidence(artifacts.evidence)
+                repository.save_tasks(artifacts.tasks)
+                repository.record_audit(
+                    "project.analyzed",
+                    {
+                        "source": str(state["project"]["source"]),
+                        "missing": sum(
+                            1 for item in artifacts.delta.items if item.kind == "MISSING"
+                        ),
+                        "extra": sum(
+                            1 for item in artifacts.delta.items if item.kind == "EXTRA"
+                        ),
+                        "tasks": len(artifacts.tasks),
+                    },
+                )
+        finally:
+            repository.close()
+        return state
+
+    def verify_workspace_project(
+        self, workspace_name: str, source: str
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        state, verify = verify_contracts_state(current, source)
+        summary = state["project"]["execution"]["summary"]
+        workspace = self.workspace(workspace_name)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            with repository.transaction():
+                repository.save_workbench(state)
+                repository.save_evidence(verify.evidence)
+                repository.record_audit(
+                    "project.executed",
+                    {
+                        "source": str(state["project"]["execution"]["source"]),
+                        "resolved": summary["resolved"],
+                        "unresolved": summary["unresolved"],
+                        "missing": summary["missing"],
+                        "extra": summary["extra"],
+                    },
+                )
+        finally:
+            repository.close()
+        return state
+
+    def test_workspace_project(self, workspace_name: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        project = current.get("project")
+        if not project or not project.get("source"):
+            raise ContractViolation("请先在项目接入中分析项目")
+        state, verify = execute_tests_state(current, project["source"])
+        test_run = state["project"]["execution"]["summary"]["test_run"]
+        workspace = self.workspace(workspace_name)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            with repository.transaction():
+                repository.save_workbench(state)
+                repository.save_evidence(verify.evidence)
+                repository.record_audit(
+                    "project.tested",
+                    {
+                        "source": str(state["project"]["execution"]["source"]),
+                        "returncode": test_run["returncode"],
+                        "timed_out": test_run["timed_out"],
+                        "tests_passed": test_run["tests_passed"],
+                        "tests_failed": test_run["tests_failed"],
+                    },
+                )
+        finally:
+            repository.close()
+        return state
 
     def _save_requirements(
         self, workspace_name: str, state: dict[str, object], event: str

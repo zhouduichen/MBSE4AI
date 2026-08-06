@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -184,6 +185,94 @@ def requirements_svg(request: Request, workspace_name: str) -> Response:
         content=state["svg"],
         media_type="image/svg+xml",
         headers={"Content-Disposition": 'attachment; filename="rflp-model.svg"'},
+    )
+
+
+_PROJECT_DOWNLOADS = {
+    "baseline.json": lambda state: state.get("baseline"),
+    "actual-model.json": lambda state: (state.get("project") or {}).get("actual"),
+    "matches.json": lambda state: (state.get("project") or {}).get("matches"),
+    "delta.json": lambda state: (state.get("project") or {}).get("delta"),
+    "task-contracts.json": lambda state: (state.get("project") or {}).get("tasks"),
+    "evidence.json": lambda state: (state.get("project") or {}).get("evidence"),
+    "project.json": lambda state: state.get("project"),
+}
+
+
+@router.get("/w/{workspace_name}/project", response_class=HTMLResponse)
+def project_page(request: Request, workspace_name: str) -> HTMLResponse:
+    facade = _facade(request)
+    workspace = facade.workspace(workspace_name)
+    runs = facade.runs(workspace_name)
+    context = page_context(
+        workspace,
+        active="project",
+        nav_result_hash=runs[0].result_hash if runs else None,
+        state=facade.requirements(workspace_name),
+    )
+    return templates.TemplateResponse(
+        request=request, name="project-bridge.html", context=context
+    )
+
+
+@router.post("/w/{workspace_name}/project/approve-baseline")
+def approve_baseline(request: Request, workspace_name: str) -> Response:
+    try:
+        _facade(request).approve_requirements_baseline(workspace_name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(f"/w/{workspace_name}/project", status_code=303)
+
+
+@router.post("/w/{workspace_name}/project/analyze")
+def analyze_project(
+    request: Request,
+    workspace_name: str,
+    source: Annotated[str, Form()],
+) -> Response:
+    try:
+        _facade(request).analyze_workspace_project(workspace_name, source.strip())
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(f"/w/{workspace_name}/project", status_code=303)
+
+
+@router.post("/w/{workspace_name}/project/verify")
+def verify_project(
+    request: Request,
+    workspace_name: str,
+    source: Annotated[str, Form()],
+) -> Response:
+    try:
+        _facade(request).verify_workspace_project(workspace_name, source.strip())
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(f"/w/{workspace_name}/project", status_code=303)
+
+
+@router.post("/w/{workspace_name}/project/test")
+def test_project(request: Request, workspace_name: str) -> Response:
+    try:
+        _facade(request).test_workspace_project(workspace_name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(f"/w/{workspace_name}/project", status_code=303)
+
+
+@router.get("/w/{workspace_name}/project/download/{filename}")
+def project_download(
+    request: Request, workspace_name: str, filename: str
+) -> Response:
+    state = _facade(request).requirements(workspace_name)
+    if not state or filename not in _PROJECT_DOWNLOADS:
+        return HTMLResponse("project output not available", status_code=404)
+    content = _PROJECT_DOWNLOADS[filename](state)
+    if content is None:
+        return HTMLResponse("project output not available", status_code=404)
+    return Response(
+        content=json.dumps(content, ensure_ascii=False, sort_keys=True) + "\n",
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

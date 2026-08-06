@@ -67,6 +67,28 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 
 “运行中心”继续提供 Heuristic 或 CP-SAT 的完整 Candidate、Simulation、Baseline、Delta、TaskContract 和 Evidence 链路。
 
+### 连接本地 Python 项目
+
+需求建模生成 RFLP 后，进入“项目接入”，把已批准基线（人工批准）与一个本地 Python 项目目录对接：
+
+1. 在“项目接入”页面点击“人工批准基线”；
+2. 填写本地项目目录的绝对路径，点击“分析项目”；
+3. 查看 ActualModel、基线→实际匹配、MISSING/EXTRA 差异、任务契约与证据；
+4. 对项目作出修改后，点击“执行验证”重扫描判定每条任务契约是否已满足（RESOLVED/UNRESOLVED）；
+5. 点击“运行项目测试（pytest）”在超时与隔离沙箱中实际运行测试，回填客观 Evidence 并查看通过/失败；
+6. 下载规范化 JSON：baseline、actual-model、matches、delta、task-contracts、evidence、project。
+
+扫描只读 `.py`（AST）、OpenAPI JSON 与 JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件；不复制、不写入、不上传项目。测试运行使用固定 `pytest` 命令、默认 60s 超时并 kill，产物写入临时目录后清理。
+
+CLI 等效操作：
+
+```bash
+.venv/bin/rflp project approve --workspace <workspace>
+.venv/bin/rflp project analyze --workspace <workspace> --source <project-dir>
+.venv/bin/rflp project verify --workspace <workspace> --source <project-dir>
+.venv/bin/rflp project test --workspace <workspace> --source <project-dir> [--timeout 60]
+```
+
 可选 AI 分析使用 OpenAI-compatible API，只产生待审核候选：
 
 ```bash
@@ -91,4 +113,4 @@ Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机�
 
 ## 当前边界
 
-当前已提供最小 OpenAI-compatible LLM 候选接口，但尚未提供模型管理、流式对话或专用 Ollama/llama.cpp 运行时。Docling、MLflow、SysML v2 编辑、向量模型、登录权限和远程插件运行时仍未启用；“能力中心”只展示这些扩展的启用条件，不生成伪造结果。
+当前已提供最小 OpenAI-compatible LLM 候选接口，但尚未提供模型管理、流式对话或专用 Ollama/llama.cpp 运行时。项目接入扫描只读 `.py` / OpenAPI JSON / JUnit XML，匹配按分词交集进行（中英文义务句之间无法用关键词对齐，会如实标为 MISSING）。“执行验证”是确定性重扫描——只读重算与已批准基线的差异并判定任务契约是否满足。测试执行沙箱只运行固定 `pytest` 命令（默认 60s 超时），测试结果作为独立客观 Evidence 呈现，不改变契约状态；pytest 以外的运行器、资源上限与并行执行尚未实现。Docling、MLflow、SysML v2 编辑、向量模型、登录权限和远程插件运行时仍未启用；“能力中心”只展示这些扩展的启用条件，不生成伪造结果。

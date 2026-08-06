@@ -1,8 +1,8 @@
 # RFLP-Lite 开发状态
 
-**最后更新：** 2026-08-05  
+**最后更新：** 2026-08-06  
 **当前版本：** 0.1.0  
-**状态：** 本地最小链路已跑通，需求工作台已完成首版
+**状态：** 本地最小链路已跑通，需求工作台、Python 项目接入、任务契约执行与测试执行沙箱均已完成首版
 
 ## 当前完成度
 
@@ -16,7 +16,9 @@
 | 动态 RFLP | 已完成首版 | 不再要求固定三条需求；按审核结果生成 R/F/L/P 和正式关系 |
 | RFLP 图形 | 已完成首版 | 服务端确定性 SVG，支持 JSON/SVG 下载和需求来源链查看 |
 | LLM API | 代码已完成，待真实模型实测 | 手动调用 OpenAI-compatible API，只生成待审核 inferred 候选 |
-| Python ActualModel / Delta / Evidence 接入 | 未开始 | 当前 Python 只用于文本/AST 角色线索和已有 Evidence 示例 |
+| Python ActualModel / Delta / Evidence 接入 | 已完成首版 | 工作台 RFLP 人工批准为基线，扫描本地 Python 项目（AST/OpenAPI/JUnit）生成 ActualModel 与 Evidence，计算 MISSING/EXTRA Delta，派生 TaskContract；Web 页面与 CLI 均可操作 |
+| 任务契约执行 | 已完成首版 | 重扫描项目目录，逐条判定 TaskContract 是否已满足（RESOLVED/UNRESOLVED），确定性、只读、不执行用户代码 |
+| 测试执行沙箱 | 已完成首版 | 固定 pytest 命令、带超时与隔离地运行项目测试，归一化 JUnit 回填为 Evidence，如实报告通过/失败 |
 | 拖拽图编辑、复杂文档版面、多人权限 | 延后 | 首版不实现 |
 
 ## 已实现链路
@@ -67,6 +69,48 @@ Artifact
 | GET | `/w/{workspace}/requirements/model.json` | 下载 RFLP JSON |
 | GET | `/w/{workspace}/requirements/model.svg` | 下载 RFLP SVG |
 
+## 项目接入
+
+入口：`/w/{workspace}/project`（Web）或 `rflp project approve/analyze`（CLI）。
+
+操作流程：
+
+1. 在需求建模中生成 RFLP 规划图。
+2. 在“项目接入”页面点击“人工批准基线”（基线只能由人批准，规范：`approve_baseline` 要求元素全部 `approved`）。
+3. 填写本地 Python 项目目录的绝对路径，点击“分析项目”。
+4. 查看 ActualModel 元素、基线→实际匹配、MISSING/EXTRA 差异、任务契约与证据。
+5. 对项目作出修改后，点击“执行验证”重扫描判定每条任务契约是否已满足（RESOLVED/UNRESOLVED）。
+6. 点击“运行项目测试（pytest）”在超时与隔离沙箱中实际运行测试，回填客观 Evidence 并查看通过/失败。
+7. 下载规范化 JSON：baseline、actual-model、matches、delta、task-contracts、evidence、project 汇总。
+
+扫描规则：只读 `.py`（AST）、OpenAPI JSON、JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件（单文件 1 MiB、最多 400 文件、深度 6）；不复制、不写入、不上传项目。
+
+主要路由：
+
+| 方法 | 路由 | 用途 |
+|---|---|---|
+| GET | `/w/{workspace}/project` | 项目接入页面 |
+| POST | `/w/{workspace}/project/approve-baseline` | 人工批准基线 |
+| POST | `/w/{workspace}/project/analyze` | 扫描项目并生成 Delta/TaskContract/Evidence |
+| POST | `/w/{workspace}/project/verify` | 重扫描并判定任务契约是否已满足 |
+| POST | `/w/{workspace}/project/test` | 运行 pytest 沙箱并回填测试 Evidence（默认 60s 超时） |
+| GET | `/w/{workspace}/project/download/{filename}` | 白名单下载规范化 JSON |
+
+CLI：
+
+```bash
+rflp project approve --workspace <path>
+rflp project analyze --workspace <path> --source <dir>
+rflp project verify --workspace <path> --source <dir>
+rflp project test --workspace <path> --source <dir> [--timeout 60]
+```
+
+匹配边界：基线 R/F 层的义务句与实际的 class/function/api-operation 按分词交集匹配；中英文之间无法用关键词对齐时，明确义务如实标为 `MISSING`，不猜测。
+
+“执行验证”是确定性重扫描循环：只读重扫项目目录并重算与已批准基线的差异，判定每条任务契约 RESOLVED/UNRESOLVED，不运行任何用户代码或子进程。
+
+“运行项目测试”是唯一的子进程边界：固定执行 `pytest --junitxml <临时目录>`，强制超时（默认 60s）并 kill，产物写入临时目录后清理，归一化 JUnit（去计时/主机元数据、按名称排序）保证相同测试结果字节级确定；测试结果以独立客观 Evidence 呈现，不改变 R/F 匹配与契约状态。
+
 ## 代码位置
 
 | 文件 | 职责 |
@@ -78,6 +122,11 @@ Artifact
 | `src/rflp_lite/application/web_facade.py` | Web 用例编排与事务边界 |
 | `src/rflp_lite/interface/web/routes.py` | HTTP 路由、上传和下载 |
 | `src/rflp_lite/interface/web/templates/requirements-workbench.html` | 单页需求建模界面 |
+| `src/rflp_lite/adapters/project_scanner.py` | 本地项目目录扫描（Python AST / OpenAPI / JUnit） |
+| `src/rflp_lite/adapters/test_executor.py` | 固定 pytest 命令、超时与隔离的测试执行沙箱，JUnit 归一化 |
+| `src/rflp_lite/application/project_bridge.py` | 基线批准、ActualModel→Evidence→Delta→TaskContract 编排 |
+| `src/rflp_lite/application/diff.py` | `compare_baseline_with_actual` 分词匹配与 MISSING/EXTRA |
+| `src/rflp_lite/interface/web/templates/project-bridge.html` | 项目接入页面 |
 
 ## 数据与安全
 
@@ -110,6 +159,27 @@ export RFLP_LLM_API_KEY=local-key
 - 浏览器控制台：0 error，0 warning。
 - LLM 已验证“未配置时安全失败”和 inferred 隔离；尚未使用真实模型端点完成联调。
 
+2026-08-05（Python 项目接入）：
+
+- `pytest`：76 passed（新增 27）；Import Linter：3 contracts kept。
+- `python -m build`：sdist 和 wheel 构建成功。
+- 端到端：连接 `examples/versioned-content-service`，扫描 3 文件、matched=4、MISSING=4、EXTRA=5，派生 3 条链式任务契约；二次分析字节级确定。
+- 扫描边界：跳过隐藏/依赖/符号链接/超大文件，坏文件记入 parse_errors 不中断。
+- 失效语义：编辑、批量接受、重新生成 RFLP 均清空已批准基线与差异结果。
+
+2026-08-05（任务契约执行）：
+
+- `pytest`：85 passed（新增 9）；Import Linter：3 contracts kept；`python -m build` 成功。
+- 端到端：单条英文义务未实现 → 2 条 MISSING 契约全 `UNRESOLVED`；补上符号后重扫 → 全 `RESOLVED`、`missing=0`、`extra=0`；重复验证字节级确定。
+- 门禁：未批准基线 / 无任务契约时“执行验证”明确报错；重新生成 RFLP 后执行结果随项目一并失效。
+
+2026-08-06（测试执行沙箱）：
+
+- `pytest`：99 passed（新增 14）；Import Linter：3 contracts kept；`python -m build` 成功。
+- 端到端：需求 + 含一过一败测试的项目，`project test` 如实报告 `returncode=1`、`tests_passed=1`、`tests_failed=1`、`timed_out=false`。
+- 沙箱：固定 pytest 命令、60s 超时 kill、临时目录隔离、归一化 JUnit 字节级确定；缺 pytest / 目录缺失 / 超时均有明确结果。
+- 审计事件新增 `project.tested`。
+
 复现命令：
 
 ```bash
@@ -117,6 +187,10 @@ export RFLP_LLM_API_KEY=local-key
 .venv/bin/lint-imports
 .venv/bin/python -m build
 .venv/bin/rflp web --host 127.0.0.1 --port 8000 --workspace-root workspaces
+.venv/bin/rflp project approve --workspace <path>
+.venv/bin/rflp project analyze --workspace <path> --source <dir>
+.venv/bin/rflp project verify --workspace <path> --source <dir>
+.venv/bin/rflp project test --workspace <path> --source <dir> [--timeout 60]
 ```
 
 ## 关键提交
@@ -133,4 +207,7 @@ export RFLP_LLM_API_KEY=local-key
 - 角色、Concern、Need 和 L/P 分组使用轻量启发式规则，需要用更多工程样本校准。
 - SVG 是稳定只读图，不支持拖拽和自由连线。
 - LLM 尚无模型管理、流式交互、重试队列和本地模型生命周期管理。
-- 下一独立子项目是 Python 项目接入：ActualModel → Delta → TaskContract → Evidence；尚未宣称完成。
+- 匹配只在基线 R/F 与 actual class/function/api-operation 之间按分词交集进行；中英文、缩写与长句义务的匹配需要更多工程样本校准。
+- 项目扫描只读 `.py` / OpenAPI JSON / JUnit XML；测试执行沙箱只运行固定 `pytest` 命令（60s 超时），不覆盖 pytest 以外的运行器。
+- 测试结果作为独立客观 Evidence 呈现，不改变实现符号层面的 R/F 匹配与契约 RESOLVED/UNRESOLVED。
+- 下一独立子项目是“多运行器与资源上限”：支持非 pytest 测试命令配置、内存/文件句柄上限、结果缓存与并行执行，并把测试证据纳入契约验收判定；尚未宣称完成。

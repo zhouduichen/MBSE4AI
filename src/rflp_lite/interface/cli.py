@@ -6,10 +6,18 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from rflp_lite import __version__
+from rflp_lite.adapters.sqlite_repository import SQLiteRepository
+from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
 from rflp_lite.application.demo import PROJECT_ROOT, run_demo
+from rflp_lite.application.project_bridge import (
+    analyze_project_state,
+    approve_workbench_baseline,
+    execute_tests_state,
+    verify_contracts_state,
+)
 from rflp_lite.application.workspaces import initialize_workspace
 from rflp_lite.domain.canonical import canonical_json
-from rflp_lite.domain.errors import RflpError
+from rflp_lite.domain.errors import ContractViolation, RflpError
 from rflp_lite.governance.profile import Profile
 from rflp_lite.governance.validation import validate_json
 
@@ -32,6 +40,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     web_parser.add_argument(
         "--workspace-root", type=Path, default=PROJECT_ROOT / "workspaces"
     )
+    project_parser = subparsers.add_parser(
+        "project", help="connect a local Python project to the approved baseline"
+    )
+    project_commands = project_parser.add_subparsers(dest="project_command", required=True)
+    project_approve = project_commands.add_parser(
+        "approve", help="approve the workbench RFLP as the baseline"
+    )
+    project_approve.add_argument("--workspace", type=Path, required=True)
+    project_analyze = project_commands.add_parser(
+        "analyze", help="scan a local Python project and diff it against the approved baseline"
+    )
+    project_analyze.add_argument("--workspace", type=Path, required=True)
+    project_analyze.add_argument("--source", required=True)
+    project_verify = project_commands.add_parser(
+        "verify", help="re-scan the project and report which task contracts are satisfied"
+    )
+    project_verify.add_argument("--workspace", type=Path, required=True)
+    project_verify.add_argument("--source", required=True)
+    project_test = project_commands.add_parser(
+        "test", help="run the project's pytest suite in a timeout-and-isolation sandbox"
+    )
+    project_test.add_argument("--workspace", type=Path, required=True)
+    project_test.add_argument("--source", required=True)
+    project_test.add_argument("--timeout", type=int, default=DEFAULT_TEST_TIMEOUT)
     args = parser.parse_args(argv)
     if args.command == "version":
         print(f"rflp-lite {__version__}")
@@ -81,6 +113,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
             print(canonical_json(summary))
             return 0
+        if args.command == "project":
+            return _run_project(args)
     except (RflpError, OSError) as exc:
         print(
             canonical_json(
@@ -90,6 +124,127 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 1
     return 2
+
+
+def _run_project(args: argparse.Namespace) -> int:
+    workspace = args.workspace.resolve()
+    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    try:
+        state = repository.load_workbench()
+        if state is None:
+            raise ContractViolation("需求工作台为空，请先在需求建模中生成并批准 RFLP")
+        if args.project_command == "approve":
+            state, baseline = approve_workbench_baseline(state)
+            with repository.transaction():
+                repository.save_workbench(state)
+                repository.save_baseline(baseline)
+                repository.record_audit(
+                    "baseline.approved", {"baseline_hash": baseline.hash}
+                )
+            print(
+                canonical_json(
+                    {
+                        "status": "ok",
+                        "baseline_id": baseline.id,
+                        "baseline_hash": baseline.hash,
+                    }
+                )
+            )
+            return 0
+        if args.project_command == "verify":
+            state, verify = verify_contracts_state(state, args.source)
+            summary = state["project"]["execution"]["summary"]
+            with repository.transaction():
+                repository.save_workbench(state)
+                repository.save_evidence(verify.evidence)
+                repository.record_audit(
+                    "project.executed",
+                    {
+                        "source": str(state["project"]["execution"]["source"]),
+                        "resolved": summary["resolved"],
+                        "unresolved": summary["unresolved"],
+                        "missing": summary["missing"],
+                        "extra": summary["extra"],
+                    },
+                )
+            print(
+                canonical_json(
+                    {
+                        "status": "ok",
+                        "actual_model_id": verify.model.id,
+                        "resolved": summary["resolved"],
+                        "unresolved": summary["unresolved"],
+                        "missing": summary["missing"],
+                        "extra": summary["extra"],
+                    }
+                )
+            )
+            return 0
+        if args.project_command == "test":
+            state, verify = execute_tests_state(state, args.source, args.timeout)
+            execution_summary = state["project"]["execution"]["summary"]
+            test_run = execution_summary["test_run"]
+            with repository.transaction():
+                repository.save_workbench(state)
+                repository.save_evidence(verify.evidence)
+                repository.record_audit(
+                    "project.tested",
+                    {
+                        "source": str(state["project"]["execution"]["source"]),
+                        "returncode": test_run["returncode"],
+                        "timed_out": test_run["timed_out"],
+                        "tests_passed": test_run["tests_passed"],
+                        "tests_failed": test_run["tests_failed"],
+                    },
+                )
+            print(
+                canonical_json(
+                    {
+                        "status": "ok",
+                        "actual_model_id": verify.model.id,
+                        "returncode": test_run["returncode"],
+                        "timed_out": test_run["timed_out"],
+                        "tests_passed": test_run["tests_passed"],
+                        "tests_failed": test_run["tests_failed"],
+                        "resolved": execution_summary["resolved"],
+                        "unresolved": execution_summary["unresolved"],
+                    }
+                )
+            )
+            return 0
+        state, artifacts = analyze_project_state(state, args.source)
+        summary = state["project"]["summary"]
+        with repository.transaction():
+            repository.save_workbench(state)
+            repository.save_baseline(artifacts.baseline)
+            repository.save_evidence(artifacts.evidence)
+            repository.save_tasks(artifacts.tasks)
+            repository.record_audit(
+                "project.analyzed",
+                {
+                    "source": str(state["project"]["source"]),
+                    "missing": summary["missing"],
+                    "extra": summary["extra"],
+                    "tasks": len(artifacts.tasks),
+                },
+            )
+        print(
+            canonical_json(
+                {
+                    "status": "ok",
+                    "baseline_hash": artifacts.baseline.hash,
+                    "actual_model_id": artifacts.actual.id,
+                    "files_used": summary["files_used"],
+                    "matched": summary["matched"],
+                    "missing": summary["missing"],
+                    "extra": summary["extra"],
+                    "tasks": len(artifacts.tasks),
+                }
+            )
+        )
+        return 0
+    finally:
+        repository.close()
 
 
 def serve_web(host: str, port: int, workspace_root: Path) -> None:

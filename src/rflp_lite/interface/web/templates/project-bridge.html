@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}项目接入 · RFLP-Lite{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">Project bridge</span><h1>项目接入</h1><p>已批准基线 → 本地 Python 项目 → ActualModel → Delta → TaskContract → Evidence。</p></div></div>
+{% if not state %}
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Empty workbench</span><h2>先建立需求模型</h2></div></div><p>请先在<a href="/w/{{ workspace.name }}/requirements">需求建模</a>中输入需求、完成审核并生成 RFLP 规划图，再回到这里批准基线、连接项目。</p></section>
+{% else %}
+<section class="panel">
+  <div class="panel-head"><div><span class="eyebrow">Baseline gate</span><h2>批准基线</h2></div>{% if state.baseline %}<span class="status-badge accepted">已批准</span>{% else %}<span class="status-badge candidate">待批准</span>{% endif %}</div>
+  {% if state.rflp %}
+    {% if state.baseline %}
+    <dl class="hash-row"><dt>基线</dt><dd>{{ state.baseline.id }}</dd><dt>哈希</dt><dd><code>{{ state.baseline.hash }}</code></dd><dt>元素</dt><dd>{{ state.baseline.elements|length }}</dd><dt>关系</dt><dd>{{ state.baseline.relations|length }}</dd></dl>
+    <p>基线已批准，可连接本地项目进行差异分析。修改需求会作废旧基线与差异结果。</p>
+    {% else %}
+    <p>已生成 RFLP（{{ state.rflp.elements|length }} 个元素、{{ state.rflp.relations|length }} 条关系）。批准后，它将作为“应有模型”基线参与项目对比。基线只能由人工批准，AI 与规则流程不会自动批准。</p>
+    <form method="post" action="/w/{{ workspace.name }}/project/approve-baseline" class="generate-action"><button class="button primary" type="submit">人工批准基线</button></form>
+    {% endif %}
+  {% else %}
+  <p>尚未生成 RFLP 规划图，请先到需求建模页面完成“生成 RFLP 规划图”。</p>
+  {% endif %}
+</section>
+<section class="panel">
+  <div class="panel-head"><div><span class="eyebrow">Project source</span><h2>连接本地 Python 项目</h2></div><span class="count-badge">只读</span></div>
+  {% if not state.baseline %}
+  <div class="mini-empty">请先批准基线。</div>
+  {% else %}
+  <form method="post" action="/w/{{ workspace.name }}/project/analyze" class="intake-form">
+    <label class="field">本地项目目录（绝对路径）<input type="text" name="source" placeholder="/absolute/path/to/project" required></label>
+    <button class="button primary" type="submit">分析项目</button>
+  </form>
+  {% if state.project and state.project.tasks %}
+  <form method="post" action="/w/{{ workspace.name }}/project/verify" class="intake-form">
+    <label class="field">重扫描并判定任务契约是否已满足<small>对当前项目目录复跑验证，不执行任何代码</small><input type="text" name="source" value="{{ state.project.source }}" required></label>
+    <button class="button" type="submit">执行验证</button>
+  </form>
+  <form method="post" action="/w/{{ workspace.name }}/project/test" class="generate-action">
+    <button class="button danger" type="submit">运行项目测试（pytest，默认 60s 超时）</button>
+  </form>
+  {% endif %}
+  <p>扫描 .py（AST）、OpenAPI JSON 与 JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件；不写入项目目录，不上传任何内容。</p>
+  {% endif %}
+</section>
+{% if state.project %}
+<section class="metric-row">
+  <article><span>扫描文件</span><strong>{{ state.project.summary.files_used }}/{{ state.project.summary.files_seen }}</strong></article>
+  <article><span>实现元素</span><strong>{{ state.project.actual.elements|length }}</strong></article>
+  <article><span>匹配</span><strong>{{ state.project.summary.matched }}</strong></article>
+  <article><span>MISSING</span><strong>{{ state.project.summary.missing }}</strong></article>
+  <article><span>EXTRA</span><strong>{{ state.project.summary.extra }}</strong></article>
+  <article><span>测试通过/失败</span><strong>{{ state.project.summary.tests_passed }}/{{ state.project.summary.tests_failed }}</strong></article>
+</section>
+<section class="panel">
+  <div class="panel-head"><div><span class="eyebrow">Deterministic delta</span><h2>基线与实际差异</h2></div><span class="count-badge">{{ (state.project.delta["items"])|length }}</span></div>
+  {% if state.project.delta["items"] %}
+  <div class="review-list">{% for item in state.project.delta["items"] %}<div class="review-row"><strong class="status-badge {{ item.kind|lower }}">{{ item.kind }}</strong><span>{{ item.description }}</span><code>{{ item.target_id }}</code></div>{% endfor %}</div>
+  {% else %}<div class="mini-empty">没有差异：基线义务全部找到实现证据。</div>{% endif %}
+</section>
+{% if state.project.matches %}
+<section class="panel">
+  <div class="panel-head"><div><span class="eyebrow">Traceability</span><h2>基线 → 实际匹配</h2></div><span class="count-badge">{{ state.project.matches|length }}</span></div>
+  <div class="trace-list">{% for match in state.project.matches %}<details><summary>{{ match.baseline_name }} <span class="status-badge">{{ match.layer }}</span> → {{ match.actual_name }}</summary><dl><dt>基线元素</dt><dd>{{ match.baseline_id }}</dd><dt>实际元素</dt><dd>{{ match.actual_id }}（{{ match.actual_kind }}：{{ match.actual_name }}）</dd><dt>共享关键词</dt><dd>{{ match.shared|join(' · ') }}</dd></dl></details>{% endfor %}</div>
+</section>
+{% endif %}
+<section class="panel">
+  <div class="panel-head"><div><span class="eyebrow">Execution contracts</span><h2>任务契约</h2></div><span class="count-badge">{{ state.project.tasks|length }}</span></div>
+  {% if state.project.tasks %}
+  <div class="task-grid">{% for task in state.project.tasks %}<article class="task-card"><div><span class="eyebrow">TaskContract</span><h2>{{ task.id }}</h2></div><dl><dt>目标</dt><dd>{{ task.target_ids|join(', ') }}</dd><dt>Depends on</dt><dd>{{ task.depends_on|join(', ') if task.depends_on else 'root' }}</dd><dt>Read set</dt><dd>{{ task.read_set|join(', ') }}</dd><dt>Write set</dt><dd>{{ task.write_set|join(', ') }}</dd><dt>Invariants</dt><dd>{{ task.invariants|join(' · ') }}</dd><dt>Acceptance</dt><dd>{{ task.acceptance|join(' · ') }}</dd></dl></article>{% endfor %}</div>
+  {% else %}<div class="mini-empty">没有需要修复的差异，因此没有任务契约。</div>{% endif %}
+</section>
+<section class="panel">
+  <div class="panel-head"><div><span class="eyebrow">Observed evidence</span><h2>证据与下载</h2></div><span class="count-badge">{{ state.project.evidence|length }}</span></div>
+  {% if state.project.evidence %}
+  <div class="table-wrap"><table><thead><tr><th>证据类型</th><th>数量</th></tr></thead><tbody>{% for kind, items in state.project.evidence|groupby('kind') %}<tr><td>{{ kind }}</td><td>{{ items|length }}</td></tr>{% endfor %}</tbody></table></div>
+  {% endif %}
+  <div class="download-actions"><a href="/w/{{ workspace.name }}/project/download/project.json">project.json</a><a href="/w/{{ workspace.name }}/project/download/baseline.json">baseline.json</a><a href="/w/{{ workspace.name }}/project/download/actual-model.json">actual-model.json</a><a href="/w/{{ workspace.name }}/project/download/matches.json">matches.json</a><a href="/w/{{ workspace.name }}/project/download/delta.json">delta.json</a><a href="/w/{{ workspace.name }}/project/download/task-contracts.json">task-contracts.json</a><a href="/w/{{ workspace.name }}/project/download/evidence.json">evidence.json</a></div>
+</section>
+{% if state.project.execution %}
+<section class="panel">
+  <div class="panel-head"><div><span class="eyebrow">Contract execution</span><h2>任务契约执行验证</h2></div><code>{{ short_hash(state.project.execution.hash) }}</code></div>
+  <div class="metric-row">
+    <article><span>已满足</span><strong>{{ state.project.execution.summary.resolved }}</strong></article>
+    <article><span>未满足</span><strong>{{ state.project.execution.summary.unresolved }}</strong></article>
+    <article><span>剩余 MISSING</span><strong>{{ state.project.execution.summary.missing }}</strong></article>
+    <article><span>剩余 EXTRA</span><strong>{{ state.project.execution.summary.extra }}</strong></article>
+    <article><span>测试通过/失败</span><strong>{{ state.project.execution.summary.tests_passed }}/{{ state.project.execution.summary.tests_failed }}</strong></article>
+  </div>
+  <div class="review-list">{% for item in state.project.execution.contract_statuses %}<div class="review-row"><strong class="status-badge {{ item.status|lower }}">{{ item.status }}</strong><span>{{ item.task_id }}</span><code>{{ item.target }}</code></div>{% endfor %}</div>
+  {% if state.project.execution.summary.test_run %}
+  <div class="metric-row">
+    <article><span>退出码</span><strong>{{ state.project.execution.summary.test_run.returncode }}</strong></article>
+    <article><span>超时</span><strong>{{ state.project.execution.summary.test_run.timed_out }}</strong></article>
+    <article><span>测试通过</span><strong>{{ state.project.execution.summary.test_run.tests_passed }}</strong></article>
+    <article><span>测试失败</span><strong>{{ state.project.execution.summary.test_run.tests_failed }}</strong></article>
+    <article><span>测试证据</span><strong>{{ state.project.execution.summary.test_run.junit_evidence }}</strong></article>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

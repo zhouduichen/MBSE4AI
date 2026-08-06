@@ -136,6 +136,25 @@ class Evidence:
 
 
 @dataclass(frozen=True, slots=True)
+class ActualElement:
+    id: str
+    kind: str
+    name: str
+    source: str
+    artifact_hash: str
+    status: str = "observed"
+    details: tuple[KeyValue, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ActualModel:
+    id: str
+    source_root: str
+    elements: tuple[ActualElement, ...]
+    hash: str
+
+
+@dataclass(frozen=True, slots=True)
 class DemoResult:
     artifacts: tuple[Artifact, ...]
     spans: tuple[TextSpan, ...]
