@@ -304,3 +304,28 @@ def test_execute_tests_records_stderr_tail_on_failure(tmp_path: Path):
     test_run = state["project"]["execution"]["summary"]["test_run"]
     assert test_run["returncode"] != 0
     assert test_run["stderr_tail"] != ""
+
+
+def test_execute_tests_refreshes_delta_and_matches(tmp_path: Path):
+    state = analyze_artifact(
+        "requirements.txt", "The service shall restore a historical version.".encode()
+    )
+    state = _single_obligation_rflp(state)
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "proj.py").write_text("# placeholder\n", encoding="utf-8")
+    state, _ = analyze_project_state(state, str(project))
+    assert state["project"]["summary"]["missing"] == 2
+
+    (project / "proj.py").write_text(
+        "def restore_historical_version():\n    pass\n", encoding="utf-8"
+    )
+    state, _ = verify_contracts_state(state, str(project))
+
+    summary = state["project"]["execution"]["summary"]
+    assert summary["missing"] == 0
+    missing_in_delta = sum(
+        1 for item in state["project"]["delta"]["items"] if item["kind"] == "MISSING"
+    )
+    assert missing_in_delta == 0
+    assert state["project"]["matches"], "matches should be refreshed after verify"

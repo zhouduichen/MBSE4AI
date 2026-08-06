@@ -283,6 +283,8 @@ def _build_execution(
     result = _clone(state)
     result["project"]["execution"] = execution
     result["project"]["evidence"] = [asdict(item) for item in evidence]
+    result["project"]["delta"] = asdict(delta)
+    result["project"]["matches"] = list(matches)
     return result, VerifyResult(
         model=model,
         evidence=evidence,
