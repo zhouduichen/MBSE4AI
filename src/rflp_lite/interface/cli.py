@@ -80,6 +80,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     workbench_build.add_argument("--workspace", type=Path, required=True)
     workbench_build.add_argument("--requirements", type=Path, required=True)
+    assess_parser = subparsers.add_parser(
+        "assess", help="one-shot: requirements + project -> baseline/delta/tasks/test report"
+    )
+    assess_parser.add_argument("--workspace", type=Path, required=True)
+    assess_parser.add_argument("--requirements", type=Path, required=True)
+    assess_parser.add_argument("--source", required=True)
+    assess_parser.add_argument("--timeout", type=int, default=DEFAULT_TEST_TIMEOUT)
     args = parser.parse_args(argv)
     if args.command == "version":
         print(f"rflp-lite {__version__}")
@@ -133,6 +140,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_project(args)
         if args.command == "workbench":
             return _run_workbench(args)
+        if args.command == "assess":
+            return _run_assess(args)
     except (RflpError, OSError) as exc:
         print(
             canonical_json(
@@ -166,6 +175,64 @@ def _run_workbench(args: argparse.Namespace) -> int:
                 "requirements": len(state["claims"]),
                 "rflp_elements": len(state["rflp"]["elements"]),
                 "rflp_relations": len(state["rflp"]["relations"]),
+            }
+        )
+    )
+    return 0
+
+
+def _run_assess(args: argparse.Namespace) -> int:
+    workspace = args.workspace.resolve()
+    content = args.requirements.read_bytes()
+    state = analyze_artifact(args.requirements.name, content)
+    state = accept_traceable(state)
+    state = generate_model(state)
+    state, baseline = approve_workbench_baseline(state)
+    state, artifacts = analyze_project_state(state, args.source)
+    state, verify = execute_tests_state(state, args.source, args.timeout)
+    execution_summary = state["project"]["execution"]["summary"]
+    test_run = execution_summary["test_run"]
+    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    try:
+        with repository.transaction():
+            repository.save_workbench(state)
+            repository.save_baseline(baseline)
+            repository.save_tasks(artifacts.tasks)
+            repository.save_evidence(verify.evidence)
+            for event, payload in (
+                ("requirements.analyzed", {"artifact": state["artifact"]["path"]}),
+                ("requirements.generated", {"artifact": state["artifact"]["path"]}),
+                ("baseline.approved", {"baseline_hash": baseline.hash}),
+                ("project.analyzed", {"source": str(state["project"]["source"])}),
+                (
+                    "project.tested",
+                    {
+                        "source": str(state["project"]["execution"]["source"]),
+                        "returncode": test_run["returncode"],
+                        "timed_out": test_run["timed_out"],
+                        "tests_passed": test_run["tests_passed"],
+                        "tests_failed": test_run["tests_failed"],
+                    },
+                ),
+            ):
+                repository.record_audit(event, payload)
+    finally:
+        repository.close()
+    print(
+        canonical_json(
+            {
+                "status": "ok",
+                "baseline_hash": baseline.hash,
+                "actual_model_id": artifacts.actual.id,
+                "matched": execution_summary["matched"],
+                "missing": execution_summary["missing"],
+                "extra": execution_summary["extra"],
+                "tasks": len(artifacts.tasks),
+                "resolved": execution_summary["resolved"],
+                "unresolved": execution_summary["unresolved"],
+                "tests_passed": test_run["tests_passed"],
+                "tests_failed": test_run["tests_failed"],
+                "timed_out": test_run["timed_out"],
             }
         )
     )

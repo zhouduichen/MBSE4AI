@@ -191,3 +191,34 @@ def test_workbench_build_without_obligations_fails(tmp_path, capsys):
         ["workbench", "build", "--workspace", str(workspace), "--requirements", str(requirements)]
     ) == 1
     assert "请先接受至少一条可追溯需求" in capsys.readouterr().err
+
+
+def test_assess_one_shot_report(tmp_path, capsys):
+    workspace = tmp_path / "ws"
+    initialize_workspace(workspace)
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text(
+        "The service shall restore a historical version.\n", encoding="utf-8"
+    )
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "test_ok.py").write_text(
+        "def test_passes():\n    assert True\n", encoding="utf-8"
+    )
+
+    assert main(
+        [
+            "assess",
+            "--workspace",
+            str(workspace),
+            "--requirements",
+            str(requirements),
+            "--source",
+            str(project),
+        ]
+    ) == 0
+    out = capsys.readouterr().out
+    assert '"status":"ok"' in out
+    assert '"baseline_hash"' in out
+    assert '"tests_passed":1' in out
+    assert '"missing"' in out
