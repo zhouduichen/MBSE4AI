@@ -80,3 +80,23 @@ def test_run_project_tests_reports_missing_pytest(tmp_path: Path, monkeypatch):
     project = _make_project(tmp_path)
     with pytest.raises(AdapterFailure, match="无法启动 pytest"):
         run_project_tests(project, timeout=5)
+
+
+def test_run_project_tests_caps_run_output(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("rflp_lite.adapters.test_executor.MAX_RUN_OUTPUT_BYTES", 8192)
+    project = _make_project(
+        tmp_path,
+        body=(
+            "def test_spam():\n"
+            "    for _ in range(100000):\n"
+            "        print('x' * 100)\n"
+            "    assert False\n"
+        ),
+    )
+    run = run_project_tests(project, timeout=120)
+    try:
+        assert run.returncode != 0
+        assert run.stdout_path.stat().st_size <= 8192
+        assert run.stderr_path.stat().st_size <= 8192
+    finally:
+        shutil.rmtree(run.temp_dir, ignore_errors=True)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -30,6 +31,16 @@ _EVIDENCE_KINDS = {
     "api-operation": "openapi-operation",
     "test-case": "test-case",
 }
+_TIMING_LINE = re.compile(r" in \d+\.\d+s$")
+
+
+def _output_tail(path: Path, max_lines: int = 15, max_chars: int = 2000) -> str:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    kept = [line for line in lines[-max_lines:] if not _TIMING_LINE.search(line.strip())]
+    return "\n".join(kept).strip()[:max_chars]
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,6 +341,9 @@ def execute_tests_state(
             for item in test_evidence
             if item.status == "failed"
         )
+        stderr_tail = ""
+        if run.returncode != 0 or run.timed_out:
+            stderr_tail = _output_tail(run.stderr_path) or _output_tail(run.stdout_path)
         extra_summary = {
             "test_run": {
                 "returncode": run.returncode,
@@ -338,6 +352,7 @@ def execute_tests_state(
                 "tests_failed": tests_failed,
                 "junit_evidence": len(test_evidence),
                 "failed_tests": failed_tests,
+                "stderr_tail": stderr_tail,
             }
         }
         return _build_execution(

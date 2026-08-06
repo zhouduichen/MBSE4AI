@@ -239,6 +239,7 @@ def test_execute_tests_runs_and_records_test_run(tmp_path: Path):
     assert test_run["tests_passed"] == 1
     assert test_run["tests_failed"] == 0
     assert test_run["junit_evidence"] == 1
+    assert test_run["stderr_tail"] == ""
     assert any(item.kind == "test-case" for item in verify.evidence)
 
 
@@ -284,3 +285,22 @@ def test_execute_tests_populates_evidence_and_failed_tests(tmp_path: Path):
     assert test_run["tests_failed"] == 1
     assert test_run["failed_tests"] == ["test_broken"]
     assert any(item["kind"] == "test-case" for item in state["project"]["evidence"])
+
+
+def test_execute_tests_records_stderr_tail_on_failure(tmp_path: Path):
+    state = analyze_artifact(
+        "requirements.txt", "The service shall restore a historical version.".encode()
+    )
+    state = _single_obligation_rflp(state)
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "test_broken.py").write_text(
+        "import nonexistent_module_xyz\n", encoding="utf-8"
+    )
+    state, _ = analyze_project_state(state, str(project))
+
+    state, _ = execute_tests_state(state, str(project), timeout=120)
+
+    test_run = state["project"]["execution"]["summary"]["test_run"]
+    assert test_run["returncode"] != 0
+    assert test_run["stderr_tail"] != ""

@@ -252,6 +252,7 @@ def _run_project(args: argparse.Namespace) -> int:
                         "timed_out": test_run["timed_out"],
                         "tests_passed": test_run["tests_passed"],
                         "tests_failed": test_run["tests_failed"],
+                        "failed_tests": test_run["failed_tests"],
                         "resolved": execution_summary["resolved"],
                         "unresolved": execution_summary["unresolved"],
                     }

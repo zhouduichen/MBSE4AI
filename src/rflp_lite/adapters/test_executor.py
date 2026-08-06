@@ -7,12 +7,14 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Thread
 from xml.etree import ElementTree
 
 from rflp_lite.domain.errors import AdapterFailure, ContractViolation
 
 
 DEFAULT_TEST_TIMEOUT = 60
+MAX_RUN_OUTPUT_BYTES = 5 * 1024 * 1024
 _JUNIT_ATTRS = ("time", "timestamp", "hostname", "id")
 
 
@@ -24,6 +26,20 @@ class TestRun:
     temp_dir: Path
     returncode: int | None
     timed_out: bool
+
+
+def _pump(stream: object, path: Path, limit: int) -> None:
+    """把 stdout/stderr 读入文件，最多保留 limit 字节，超出丢弃而不杀进程。"""
+    with path.open("wb") as handle:
+        written = 0
+        while True:
+            chunk = stream.read(65536)
+            if not chunk:
+                break
+            if written < limit:
+                take = chunk[: limit - written]
+                handle.write(take)
+                written += len(take)
 
 
 def _normalize_junit(path: Path) -> None:
@@ -80,20 +96,33 @@ def run_project_tests(
     timed_out = False
     returncode: int | None = None
     try:
-        with stdout_file.open("wb") as out_f, stderr_file.open("wb") as err_f:
-            try:
-                process = subprocess.Popen(
-                    command, cwd=resolved, stdout=out_f, stderr=err_f, env=env
-                )
-            except FileNotFoundError as exc:
-                raise AdapterFailure("无法启动 pytest") from exc
-            try:
-                returncode = process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-                timed_out = True
-                returncode = process.returncode
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=resolved,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+            )
+        except FileNotFoundError as exc:
+            raise AdapterFailure("无法启动 pytest") from exc
+        stdout_thread = Thread(
+            target=_pump, args=(process.stdout, stdout_file, MAX_RUN_OUTPUT_BYTES)
+        )
+        stderr_thread = Thread(
+            target=_pump, args=(process.stderr, stderr_file, MAX_RUN_OUTPUT_BYTES)
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+        try:
+            returncode = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            timed_out = True
+            returncode = process.returncode
+        stdout_thread.join()
+        stderr_thread.join()
         junit_path = junit if junit.is_file() else None
         if junit_path is not None:
             _normalize_junit(junit_path)

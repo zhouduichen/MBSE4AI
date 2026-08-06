@@ -96,6 +96,9 @@
   {% if state.project.execution.summary.test_run.failed_tests %}
   <div class="review-list"><strong class="status-badge failed">失败用例</strong><span>{{ state.project.execution.summary.test_run.failed_tests|join(' · ') }}</span></div>
   {% endif %}
+  {% if state.project.execution.summary.test_run.stderr_tail %}
+  <div class="trace-list"><details><summary>测试输出（尾部）</summary><pre>{{ state.project.execution.summary.test_run.stderr_tail }}</pre></details></div>
+  {% endif %}
   {% endif %}
 </section>
 {% endif %}
