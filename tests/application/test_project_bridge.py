@@ -260,3 +260,27 @@ def test_execute_tests_is_deterministic(tmp_path: Path):
     second = canonical_json(state["project"]["execution"])
 
     assert first == second
+
+
+def test_execute_tests_populates_evidence_and_failed_tests(tmp_path: Path):
+    state = analyze_artifact(
+        "requirements.txt", "The service shall restore a historical version.".encode()
+    )
+    state = _single_obligation_rflp(state)
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "test_ok.py").write_text(
+        "def test_passes():\n    assert True\n", encoding="utf-8"
+    )
+    (project / "test_bad.py").write_text(
+        "def test_broken():\n    assert False\n", encoding="utf-8"
+    )
+    state, _ = analyze_project_state(state, str(project))
+
+    state, _ = execute_tests_state(state, str(project), timeout=120)
+
+    test_run = state["project"]["execution"]["summary"]["test_run"]
+    assert test_run["tests_passed"] == 1
+    assert test_run["tests_failed"] == 1
+    assert test_run["failed_tests"] == ["test_broken"]
+    assert any(item["kind"] == "test-case" for item in state["project"]["evidence"])

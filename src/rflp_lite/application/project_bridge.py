@@ -271,6 +271,7 @@ def _build_execution(
     execution["hash"] = canonical_hash(execution)
     result = _clone(state)
     result["project"]["execution"] = execution
+    result["project"]["evidence"] = [asdict(item) for item in evidence]
     return result, VerifyResult(
         model=model,
         evidence=evidence,
@@ -324,6 +325,11 @@ def execute_tests_state(
         )
         tests_passed = sum(1 for item in test_evidence if item.status == "passed")
         tests_failed = sum(1 for item in test_evidence if item.status == "failed")
+        failed_tests = sorted(
+            item.source.rsplit("/", 1)[-1]
+            for item in test_evidence
+            if item.status == "failed"
+        )
         extra_summary = {
             "test_run": {
                 "returncode": run.returncode,
@@ -331,6 +337,7 @@ def execute_tests_state(
                 "tests_passed": tests_passed,
                 "tests_failed": tests_failed,
                 "junit_evidence": len(test_evidence),
+                "failed_tests": failed_tests,
             }
         }
         return _build_execution(

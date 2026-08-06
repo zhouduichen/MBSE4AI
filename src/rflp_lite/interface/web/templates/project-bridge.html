@@ -93,6 +93,9 @@
     <article><span>测试失败</span><strong>{{ state.project.execution.summary.test_run.tests_failed }}</strong></article>
     <article><span>测试证据</span><strong>{{ state.project.execution.summary.test_run.junit_evidence }}</strong></article>
   </div>
+  {% if state.project.execution.summary.test_run.failed_tests %}
+  <div class="review-list"><strong class="status-badge failed">失败用例</strong><span>{{ state.project.execution.summary.test_run.failed_tests|join(' · ') }}</span></div>
+  {% endif %}
   {% endif %}
 </section>
 {% endif %}
