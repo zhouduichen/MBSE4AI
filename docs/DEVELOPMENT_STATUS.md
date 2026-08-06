@@ -2,7 +2,7 @@
 
 **最后更新：** 2026-08-06  
 **当前版本：** 0.1.0  
-**状态：** 本地最小链路已跑通，需求工作台、Python 项目接入、任务契约执行与测试执行沙箱均已完成首版
+**状态：** 本地最小链路已跑通，需求工作台、Python 项目接入、任务契约执行与测试执行沙箱均已完成首版；CLI 已可无 Web 全自动跑通
 
 ## 当前完成度
 
@@ -18,7 +18,7 @@
 | LLM API | 代码已完成，待真实模型实测 | 手动调用 OpenAI-compatible API，只生成待审核 inferred 候选 |
 | Python ActualModel / Delta / Evidence 接入 | 已完成首版 | 工作台 RFLP 人工批准为基线，扫描本地 Python 项目（AST/OpenAPI/JUnit）生成 ActualModel 与 Evidence，计算 MISSING/EXTRA Delta，派生 TaskContract；Web 页面与 CLI 均可操作 |
 | 任务契约执行 | 已完成首版 | 重扫描项目目录，逐条判定 TaskContract 是否已满足（RESOLVED/UNRESOLVED），确定性、只读、不执行用户代码 |
-| 测试执行沙箱 | 已完成首版 | 固定 pytest 命令、带超时与隔离地运行项目测试，归一化 JUnit 回填为 Evidence，如实报告通过/失败 |
+| 测试执行沙箱 | 已完成首版 | 固定 pytest 命令、带超时与隔离地运行项目测试，归一化 JUnit 回填为 Evidence，如实报告通过/失败与失败用例/输出尾部；stdout/stderr 写入有上限 |
 | 拖拽图编辑、复杂文档版面、多人权限 | 延后 | 首版不实现 |
 
 ## 已实现链路
@@ -103,7 +103,11 @@ rflp project approve --workspace <path>
 rflp project analyze --workspace <path> --source <dir>
 rflp project verify --workspace <path> --source <dir>
 rflp project test --workspace <path> --source <dir> [--timeout 60]
+rflp workbench build --workspace <path> --requirements <file>
+rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 60]
 ```
+
+`assess` 一步完成 需求工作台 → 批准基线 → 分析项目 → 运行测试 并输出汇总，适合脚本/CI 断言。
 
 匹配边界：基线 R/F 层的义务句与实际的 class/function/api-operation 按分词交集匹配；中英文之间无法用关键词对齐时，明确义务如实标为 `MISSING`，不猜测。
 
@@ -173,11 +177,13 @@ export RFLP_LLM_API_KEY=local-key
 - 端到端：单条英文义务未实现 → 2 条 MISSING 契约全 `UNRESOLVED`；补上符号后重扫 → 全 `RESOLVED`、`missing=0`、`extra=0`；重复验证字节级确定。
 - 门禁：未批准基线 / 无任务契约时“执行验证”明确报错；重新生成 RFLP 后执行结果随项目一并失效。
 
-2026-08-06（测试执行沙箱）：
+2026-08-06（测试执行沙箱 + 落地收尾）：
 
-- `pytest`：99 passed（新增 14）；Import Linter：3 contracts kept；`python -m build` 成功。
+- `pytest`：108 passed；Import Linter：3 contracts kept；`python -m build` 成功。
 - 端到端：需求 + 含一过一败测试的项目，`project test` 如实报告 `returncode=1`、`tests_passed=1`、`tests_failed=1`、`timed_out=false`。
-- 沙箱：固定 pytest 命令、60s 超时 kill、临时目录隔离、归一化 JUnit 字节级确定；缺 pytest / 目录缺失 / 超时均有明确结果。
+- 沙箱：固定 pytest 命令、60s 超时 kill、临时目录隔离、归一化 JUnit 字节级确定；stdout/stderr 写入上限（默认 5 MiB）；失败/超时透出失败用例与输出尾部诊断。
+- CLI 无 Web 全自动：`workbench build`（需求文件建工作台）与 `assess`（一步汇总报告）。
+- DOCX 表格行按 “ID | 义务句” 合并为一条 span。
 - 审计事件新增 `project.tested`。
 
 复现命令：
@@ -191,6 +197,7 @@ export RFLP_LLM_API_KEY=local-key
 .venv/bin/rflp project analyze --workspace <path> --source <dir>
 .venv/bin/rflp project verify --workspace <path> --source <dir>
 .venv/bin/rflp project test --workspace <path> --source <dir> [--timeout 60]
+.venv/bin/rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 60]
 ```
 
 ## 关键提交
@@ -203,7 +210,7 @@ export RFLP_LLM_API_KEY=local-key
 
 ## 已知限制与下一步
 
-- 当前 DOCX 只读取基础段落，不恢复表格、图形和复杂版面；真实样本需要时再接入 Docling。
+- 当前 DOCX 读取基础段落与表格行（行内单元格以 “|” 连接），不恢复图形与复杂版面；真实样本需要时再接入 Docling。
 - 角色、Concern、Need 和 L/P 分组使用轻量启发式规则，需要用更多工程样本校准。
 - SVG 是稳定只读图，不支持拖拽和自由连线。
 - LLM 尚无模型管理、流式交互、重试队列和本地模型生命周期管理。

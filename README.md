@@ -87,7 +87,11 @@ CLI 等效操作：
 .venv/bin/rflp project analyze --workspace <workspace> --source <project-dir>
 .venv/bin/rflp project verify --workspace <workspace> --source <project-dir>
 .venv/bin/rflp project test --workspace <workspace> --source <project-dir> [--timeout 60]
+.venv/bin/rflp workbench build --workspace <workspace> --requirements <file>
+.venv/bin/rflp assess --workspace <workspace> --requirements <file> --source <project-dir> [--timeout 60]
 ```
+
+`assess` 一步完成 需求工作台 → 批准基线 → 分析项目 → 运行测试 并输出汇总，适合脚本/CI 断言。需求接入支持 DOCX 表格行（每行按 “ID | 义务句” 合并为一条 span）。
 
 可选 AI 分析使用 OpenAI-compatible API，只产生待审核候选：
 
