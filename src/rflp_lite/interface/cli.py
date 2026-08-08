@@ -7,6 +7,7 @@ from pathlib import Path
 
 from rflp_lite import __version__
 from rflp_lite.adapters.sqlite_repository import SQLiteRepository
+from rflp_lite.adapters.test_execution_config import build_limits
 from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
 from rflp_lite.application.demo import PROJECT_ROOT, run_demo
 from rflp_lite.application.project_bridge import (
@@ -70,6 +71,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     project_test.add_argument("--workspace", type=Path, required=True)
     project_test.add_argument("--source", required=True)
     project_test.add_argument("--timeout", type=int, default=DEFAULT_TEST_TIMEOUT)
+    _add_test_options(project_test)
     workbench_parser = subparsers.add_parser(
         "workbench", help="build the requirements workbench headlessly"
     )
@@ -91,6 +93,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     assess_parser.add_argument("--requirements", type=Path, required=True)
     assess_parser.add_argument("--source", required=True)
     assess_parser.add_argument("--timeout", type=int, default=DEFAULT_TEST_TIMEOUT)
+    _add_test_options(assess_parser)
     args = parser.parse_args(argv)
     if args.command == "version":
         print(f"rflp-lite {__version__}")
@@ -198,7 +201,9 @@ def _run_assess(args: argparse.Namespace) -> int:
     state = generate_model(state)
     state, baseline = approve_workbench_baseline(state)
     state, artifacts = analyze_project_state(state, args.source)
-    state, verify = execute_tests_state(state, args.source, args.timeout)
+    state, verify = execute_tests_state(
+        state, args.source, args.timeout, **_test_options(args, workspace)
+    )
     execution_summary = state["project"]["execution"]["summary"]
     test_run = execution_summary["test_run"]
     repository = SQLiteRepository(workspace / ".rflp" / "model.db")
@@ -221,6 +226,8 @@ def _run_assess(args: argparse.Namespace) -> int:
                         "timed_out": test_run["timed_out"],
                         "tests_passed": test_run["tests_passed"],
                         "tests_failed": test_run["tests_failed"],
+                        "runner": test_run["runner"],
+                        "cache_hit": test_run["cache_hit"],
                     },
                 ),
             ):
@@ -242,6 +249,11 @@ def _run_assess(args: argparse.Namespace) -> int:
                 "tests_passed": test_run["tests_passed"],
                 "tests_failed": test_run["tests_failed"],
                 "timed_out": test_run["timed_out"],
+                "runner": test_run["runner"],
+                "runners": test_run["runners"],
+                "jobs": test_run["jobs"],
+                "cache_hit": test_run["cache_hit"],
+                "resource_limits": test_run["resource_limits"],
             }
         )
     )
@@ -303,7 +315,9 @@ def _run_project(args: argparse.Namespace) -> int:
             )
             return 0
         if args.project_command == "test":
-            state, verify = execute_tests_state(state, args.source, args.timeout)
+            state, verify = execute_tests_state(
+                state, args.source, args.timeout, **_test_options(args, workspace)
+            )
             execution_summary = state["project"]["execution"]["summary"]
             test_run = execution_summary["test_run"]
             with repository.transaction():
@@ -317,6 +331,8 @@ def _run_project(args: argparse.Namespace) -> int:
                         "timed_out": test_run["timed_out"],
                         "tests_passed": test_run["tests_passed"],
                         "tests_failed": test_run["tests_failed"],
+                        "runner": test_run["runner"],
+                        "cache_hit": test_run["cache_hit"],
                     },
                 )
             print(
@@ -331,6 +347,11 @@ def _run_project(args: argparse.Namespace) -> int:
                         "failed_tests": test_run["failed_tests"],
                         "resolved": execution_summary["resolved"],
                         "unresolved": execution_summary["unresolved"],
+                        "runner": test_run["runner"],
+                        "runners": test_run["runners"],
+                        "jobs": test_run["jobs"],
+                        "cache_hit": test_run["cache_hit"],
+                        "resource_limits": test_run["resource_limits"],
                     }
                 )
             )
@@ -376,6 +397,35 @@ def serve_web(host: str, port: int, workspace_root: Path) -> None:
     from rflp_lite.interface.web.app import create_app
 
     uvicorn.run(create_app(workspace_root=workspace_root), host=host, port=port)
+
+
+def _add_test_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--runner",
+        action="append",
+        choices=("pytest", "unittest"),
+        help="测试运行器，可重复指定；默认 pytest",
+    )
+    parser.add_argument("--jobs", type=int, default=1)
+    parser.add_argument("--memory-mib", type=int, default=1024)
+    parser.add_argument("--max-open-files", type=int, default=1024)
+    parser.add_argument("--output-mib", type=int, default=5)
+    parser.add_argument("--no-cache", action="store_true")
+
+
+def _test_options(args: argparse.Namespace, workspace: Path) -> dict[str, object]:
+    limits = build_limits(
+        timeout_seconds=args.timeout,
+        memory_mib=args.memory_mib,
+        max_open_files=args.max_open_files,
+        output_mib=args.output_mib,
+    )
+    return {
+        "runners": tuple(args.runner or ("pytest",)),
+        "limits": limits,
+        "cache_dir": None if args.no_cache else workspace / ".rflp" / "test-cache",
+        "jobs": args.jobs,
+    }
 
 
 def entrypoint() -> None:

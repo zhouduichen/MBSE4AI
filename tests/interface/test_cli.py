@@ -141,6 +141,43 @@ def test_project_test_runs(tmp_path, capsys):
     assert '"tests_passed":1' in out
 
 
+def test_project_test_accepts_unittest_and_cache(tmp_path, capsys):
+    workspace = _workspace_with_generated_rflp(tmp_path)
+    assert main(["project", "approve", "--workspace", str(workspace)]) == 0
+    capsys.readouterr()
+    project = tmp_path / "unittest-project"
+    project.mkdir()
+    (project / "test_case.py").write_text(
+        "import unittest\n\n"
+        "class Case(unittest.TestCase):\n"
+        "    def test_passes(self):\n"
+        "        self.assertTrue(True)\n",
+        encoding="utf-8",
+    )
+    assert main(
+        ["project", "analyze", "--workspace", str(workspace), "--source", str(project)]
+    ) == 0
+    capsys.readouterr()
+
+    command = [
+        "project",
+        "test",
+        "--workspace",
+        str(workspace),
+        "--source",
+        str(project),
+        "--runner",
+        "unittest",
+    ]
+    assert main(command) == 0
+    first = capsys.readouterr().out
+    assert '"runner":"unittest"' in first
+    assert '"tests_passed":1' in first
+    assert main(command) == 0
+    second = capsys.readouterr().out
+    assert '"cache_hit":true' in second
+
+
 def test_project_test_without_baseline_fails(tmp_path, capsys):
     workspace = _workspace_with_generated_rflp(tmp_path)
     project = tmp_path / "proj"
