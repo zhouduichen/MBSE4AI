@@ -6,12 +6,13 @@ import re
 from dataclasses import asdict
 from html import escape
 
+from rflp_lite.adapters.document_intelligence import LocalDocumentParser
 from rflp_lite.adapters.readers import RuleClaimExtractor, read_artifact
 from rflp_lite.adapters.llm_client import chat_completion
 from rflp_lite.application.synthesize import synthesize_rflp
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import AdapterFailure, InvariantViolation
-from rflp_lite.domain.models import Claim, ModelElement, Relation
+from rflp_lite.domain.models import Artifact, Claim, ModelElement, Relation, TextSpan
 
 
 _ROLE_ALIASES = {
@@ -227,7 +228,38 @@ def _free_form_claim(span: object, system_context: dict[str, object]) -> dict[st
 
 
 def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
-    artifact, spans = read_artifact(filename, content)
+    # Keep the original reader for source-code and structured data while the
+    # document parser provides page-aware regions for customer documents.
+    if os.path.splitext(filename)[1].lower() in {".txt", ".md", ".markdown", ".docx", ".pdf"}:
+        parsed = LocalDocumentParser().parse(filename, content)
+        artifact = parsed.artifact
+        spans = tuple(
+            TextSpan(region.id.replace("region-", "span-", 1), region.artifact_id, region.locator, region.text)
+            for region in parsed.regions
+        )
+        document_pages = [
+            {"number": page.number, "width": page.width, "height": page.height}
+            for page in parsed.pages
+        ]
+        document_regions = [asdict(region) for region in parsed.regions]
+        diagnostics = [asdict(item) for item in parsed.diagnostics]
+    else:
+        artifact, spans = read_artifact(filename, content)
+        document_pages = [{"number": 1, "width": None, "height": None}]
+        document_regions = [
+            {
+                "id": span.id.replace("span-", "region-", 1),
+                "artifact_id": span.artifact_id,
+                "page": 1,
+                "kind": "text",
+                "locator": span.locator,
+                "text": span.text,
+                "bbox": [],
+                "confidence": 1.0,
+            }
+            for span in spans
+        ]
+        diagnostics = []
     extracted_claims = RuleClaimExtractor().extract(spans)
     system_context = _system_context(spans, bool(extracted_claims))
     stakeholders: list[dict[str, object]] = []
@@ -317,9 +349,17 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
         if role not in present_roles
     )
     return {
+        "schema_version": 2,
         "artifact": asdict(artifact),
         "system_context": system_context,
         "spans": [asdict(span) for span in spans],
+        "document_pages": document_pages,
+        "document_regions": document_regions,
+        "entities": [],
+        "structured_requirements": [],
+        "trace_links": [],
+        "diagnostics": diagnostics,
+        "mbse": {},
         "stakeholders": sorted(stakeholders, key=lambda item: (item["name"], item["id"])),
         "concerns": sorted(concerns, key=lambda item: item["id"]),
         "needs": sorted(needs, key=lambda item: item["id"]),
@@ -342,6 +382,7 @@ def empty_workbench() -> dict[str, object]:
     """Create a minimal local workbench for starting with a stakeholder."""
     digest = canonical_hash(("manual-workbench", "rflp-lite"))
     return {
+        "schema_version": 2,
         "artifact": {
             "id": f"artifact-{digest[:12]}",
             "kind": "manual",
@@ -350,6 +391,13 @@ def empty_workbench() -> dict[str, object]:
         },
         "system_context": None,
         "spans": [],
+        "document_pages": [],
+        "document_regions": [],
+        "entities": [],
+        "structured_requirements": [],
+        "trace_links": [],
+        "diagnostics": [],
+        "mbse": {},
         "stakeholders": [],
         "concerns": [],
         "needs": [],
