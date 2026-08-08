@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}项目需求概览 · RFLP-Lite{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">Project requirement ledger</span><h1>项目需求概览</h1><p>这里是整个项目的需求台账，不会因为你换了一次当前输入就丢失历史记录。</p></div><div class="workbench-actions"><a class="button" href="/w/{{ workspace.name }}/requirements">需求规划</a><a class="button primary" href="/w/{{ workspace.name }}/requirements/input">提交新需求 →</a></div></div>
+
+<section class="metric-row overview-metrics">
+  <article><span>累计提交</span><strong>{{ requirement_overview.submitted }}</strong><small>项目中已登记的需求</small></article>
+  <article><span>待确认</span><strong>{{ requirement_overview.counts.candidate }}</strong><small>仍需要人工判断</small></article>
+  <article><span>已接受</span><strong>{{ requirement_overview.counts.accepted }}</strong><small>可用于正式 RFLP</small></article>
+  <article><span>已驳回</span><strong>{{ requirement_overview.counts.rejected }}</strong><small>保留记录，不再进入当前模型</small></article>
+</section>
+
+{% if requirement_overview["items"] %}
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">All submitted requirements</span><h2>需求台账</h2></div><span class="count-badge">当前工作台 {{ requirement_overview.current }} 条</span></div><div class="table-wrap"><table><thead><tr><th>状态</th><th>需求</th><th>来源</th><th>当前版本</th><th>最近更新</th></tr></thead><tbody>{% for item in requirement_overview["items"] %}<tr><td><span class="status-badge {{ item.status }}">{{ item.status_label }}</span></td><td><strong>{{ item.subject }} {{ item.predicate }} {{ item.object }}</strong><small class="table-secondary">{{ item.id }}</small></td><td><span>{{ item.source_label }}</span><small class="table-secondary">{{ item.source_text }}</small></td><td>{% if item.is_current %}<span class="status-badge accepted">当前</span>{% else %}<span class="muted-inline">历史记录</span>{% endif %}</td><td><span>#{{ item.last_seen_sequence }}</span><small class="table-secondary">{{ item.updated_at }}</small></td></tr>{% endfor %}</tbody></table></div></section>
+{% else %}
+<section class="empty-state"><span class="empty-icon">◇</span><h2>项目还没有需求记录</h2><p>输入一句自然语言需求后，这里会登记提交记录和状态。</p><a class="button primary" href="/w/{{ workspace.name }}/requirements/input">开始提交需求</a></section>
+{% endif %}
+
+{% if state and state.rflp %}<section class="callout success"><strong>当前系统已有 RFLP 输出图。</strong><span>需求台账与 RFLP 图是分开的：台账记录项目全量需求，规划图展示当前模型。</span><a href="/w/{{ workspace.name }}/requirements/graph">打开当前 RFLP 图 →</a></section>{% endif %}
+{% endblock %}

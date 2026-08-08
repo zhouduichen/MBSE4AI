@@ -38,7 +38,7 @@ def _draft_system_scenario(result: dict[str, object]) -> dict[str, object]:
     claim_ids = tuple(
         str(claim["id"])
         for claim in result.get("claims", ())
-        if claim.get("source_type") == "provisional"
+        if claim.get("source_type") not in {"constraint", "need"}
     )
     return {
         "title": f"{system_name}定义",

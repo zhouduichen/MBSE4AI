@@ -32,6 +32,27 @@ _SYSTEM_INTENT = re.compile(
     r"^(?:设置|建立|创建|构建|设计|开发|建设|规划|做|我想要|希望|期望|想做)"
     r"(?:一个|一套|一款)?\s*(?P<name>.+)$"
 )
+_QUALITY_ATTRIBUTES = (
+    "鲁棒性",
+    "可靠性",
+    "可用性",
+    "安全性",
+    "性能",
+    "低延迟",
+    "可扩展性",
+    "可维护性",
+    "易用性",
+    "兼容性",
+    "准确性",
+    "实时性",
+    "容错性",
+    "稳定性",
+)
+_QUALITY_PATTERN = re.compile(
+    r"(?P<value>(?:极高|极低|高|低|强|弱)?(?:"
+    + "|".join(re.escape(item) for item in _QUALITY_ATTRIBUTES)
+    + r"))"
+)
 
 
 def _clone(value: dict[str, object]) -> dict[str, object]:
@@ -116,6 +137,52 @@ def _system_context(spans: tuple[object, ...], has_formal_claims: bool) -> dict[
     }
 
 
+def _quality_claim(span: object, system_context: dict[str, object]) -> dict[str, object] | None:
+    text = str(getattr(span, "text", "")).strip().rstrip("。.!！?？")
+    match = _QUALITY_PATTERN.search(text)
+    if match is None:
+        return None
+    attribute = match.group("value")
+    subject = "系统" if "系统" in text else str(system_context["name"])
+    return {
+        "id": _id("quality-claim", getattr(span, "id", ""), attribute),
+        "span_id": getattr(span, "id", ""),
+        "subject": subject,
+        "predicate": "应具备",
+        "object": attribute if attribute in text else text,
+        "confidence": 0.78,
+        "status": "candidate",
+        "source_type": "constraint",
+        "candidate_type": "quality-attribute",
+        "interpretation": "质量属性候选",
+        "need_id": None,
+    }
+
+
+def _free_form_claim(span: object, system_context: dict[str, object]) -> dict[str, object]:
+    text = str(getattr(span, "text", "")).strip()
+    lowered = text.casefold()
+    if any(word in lowered for word in ("无法", "不能", "经常", "失败", "问题", "痛点", "担心")):
+        candidate_type, predicate, interpretation = "problem", "待解决", "问题或痛点候选"
+    elif any(word in lowered for word in ("希望", "想要", "设置", "建立", "创建", "做一个", "支持", "提供")):
+        candidate_type, predicate, interpretation = "goal", "系统目标", "目标或能力候选"
+    else:
+        candidate_type, predicate, interpretation = "provisional", "待确认", "待分类候选"
+    return {
+        "id": _id("draft-claim", getattr(span, "id", "")),
+        "span_id": getattr(span, "id", ""),
+        "subject": system_context["name"],
+        "predicate": predicate,
+        "object": text,
+        "confidence": 0.35,
+        "status": "candidate",
+        "source_type": candidate_type,
+        "candidate_type": candidate_type,
+        "interpretation": interpretation,
+        "need_id": None,
+    }
+
+
 def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
     artifact, spans = read_artifact(filename, content)
     extracted_claims = RuleClaimExtractor().extract(spans)
@@ -174,18 +241,18 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
             need_id=need_id,
         )
         claims.append(value)
-    if not extracted_claims:
+    extracted_span_ids = {claim.span_id for claim in extracted_claims}
+    for span in spans:
+        if span.id in extracted_span_ids:
+            continue
+        quality_claim = _quality_claim(span, system_context)
+        if quality_claim is not None:
+            claims.append(quality_claim)
+    if not claims:
         for span in spans:
             claims.append(
                 {
-                    "id": _id("draft-claim", span.id),
-                    "span_id": span.id,
-                    "subject": system_context["name"],
-                    "predicate": "待确认",
-                    "object": span.text,
-                    "confidence": 0.35,
-                    "status": "candidate",
-                    "source_type": "provisional",
+                    **_free_form_claim(span, system_context),
                     "need_id": need_by_span.get(span.id),
                 }
             )
@@ -649,9 +716,9 @@ def generate_draft_model(state: dict[str, object]) -> dict[str, object]:
         "这是快速草稿图，尚未经过人工审核。",
         "确认需求后可生成正式模型并批准基线。",
     ]
-    if not any(item.get("source_type") != "provisional" for item in state["claims"]):
+    if not any(item.get("source_type") in {"constraint", "need"} for item in state["claims"]):
         result["draft_warnings"].insert(
-            0, "原文没有明确的必须/应当等规则词，图中的节点均需人工确认。"
+            0, "原文没有明确的必须/应当等规则词；输入已保留为目标、问题或质量属性候选，图中的节点仍需人工确认和补充验证指标。"
         )
     return result
 

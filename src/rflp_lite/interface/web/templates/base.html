@@ -18,6 +18,7 @@
         <a class="nav-item {% if active == 'dashboard' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}{% else %}/{% endif %}">开始项目</a>
         {% if workspace %}<a class="nav-item {% if active.startswith('requirements') %}active{% endif %}" href="/w/{{ workspace.name }}/requirements">需求规划</a>
         <div class="nav-subnav" aria-label="需求规划模块">
+          <a class="nav-subitem {% if active == 'requirements-overview' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/overview">项目需求概览</a>
           <a class="nav-subitem {% if active == 'requirements-input' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/input">需求输入</a>
           <a class="nav-subitem {% if active == 'requirements-stakeholders' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/stakeholders">利益相关方</a>
           <a class="nav-subitem {% if active == 'requirements-review' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/review">需求确认</a>

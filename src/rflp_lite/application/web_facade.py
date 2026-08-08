@@ -202,6 +202,90 @@ class WebFacade:
         finally:
             repository.close()
 
+    @staticmethod
+    def _requirement_records_for_state(
+        state: dict[str, object], event: str
+    ) -> tuple[dict[str, object], ...]:
+        artifact = state.get("artifact") or {}
+        spans = {
+            str(item.get("id")): item for item in state.get("spans", ())
+        }
+        records = []
+        for claim in state.get("claims", ()):
+            span = spans.get(str(claim.get("span_id")), {})
+            records.append(
+                {
+                    "id": str(claim["id"]),
+                    "subject": claim.get("subject", ""),
+                    "predicate": claim.get("predicate", ""),
+                    "object": claim.get("object", ""),
+                    "status": claim.get("status", "candidate"),
+                    "source_type": claim.get("source_type", "provisional"),
+                    "candidate_type": claim.get("candidate_type", ""),
+                    "interpretation": claim.get("interpretation", ""),
+                    "confidence": claim.get("confidence", 0.0),
+                    "span_id": claim.get("span_id", ""),
+                    "source_text": span.get("text", claim.get("object", "")),
+                    "source_locator": span.get("locator", claim.get("span_id", "")),
+                    "artifact": artifact.get("path", ""),
+                    "artifact_sha256": artifact.get("sha256", ""),
+                    "last_event": event,
+                }
+            )
+        return tuple(records)
+
+    def requirement_overview(self, workspace_name: str) -> dict[str, object]:
+        """Return the project-level requirement ledger and status counts."""
+        workspace = self.workspace(workspace_name)
+        state = self.requirements(workspace_name)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            records = repository.requirement_records()
+        finally:
+            repository.close()
+
+        # Workspaces created before the ledger table existed still get a useful
+        # overview immediately; the next write permanently backfills the rows.
+        if not records and state is not None:
+            records = self._requirement_records_for_state(state, "requirements.current")
+        current_ids = {
+            str(item["id"]) for item in (state or {}).get("claims", ())
+        }
+        labels = {
+            "candidate": "待确认",
+            "accepted": "已接受",
+            "rejected": "已驳回",
+        }
+        source_labels = {
+            "need": "利益相关方需求",
+            "constraint": "约束 / 质量属性",
+            "goal": "系统目标",
+            "problem": "问题 / 痛点",
+            "provisional": "待分类输入",
+        }
+        items = []
+        for item in records:
+            record = dict(item)
+            status = str(record.get("status", "candidate"))
+            record["status_label"] = labels.get(status, status)
+            record["source_label"] = source_labels.get(
+                str(record.get("source_type", "")), "自然语言输入"
+            )
+            record["is_current"] = str(record.get("id")) in current_ids
+            items.append(record)
+        counts = {status: 0 for status in ("candidate", "accepted", "rejected")}
+        for item in items:
+            status = str(item.get("status", "candidate"))
+            if status in counts:
+                counts[status] += 1
+        return {
+            "total": len(items),
+            "submitted": len(items),
+            "current": sum(bool(item["is_current"]) for item in items),
+            "counts": counts,
+            "items": tuple(items),
+        }
+
     def analyze_requirements(
         self,
         workspace_name: str,
@@ -236,6 +320,10 @@ class WebFacade:
                     state["stakeholders"],
                     key=lambda item: (item["name"], item["id"]),
                 )
+        if state.get("spans"):
+            # Always leave a visible, local RFLP draft after submission. The
+            # draft is intentionally separate from formal review/baselining.
+            state = generate_draft_model(state)
         safe_name = state["artifact"]["path"]
         inputs = workspace.path / "inputs"
         inputs.mkdir(parents=True, exist_ok=True)
@@ -244,9 +332,13 @@ class WebFacade:
         try:
             with repository.transaction():
                 repository.save_workbench(state)
-                repository.record_audit(
-                    "requirements.merged" if merge else "requirements.analyzed",
+                event = "requirements.merged" if merge else "requirements.analyzed"
+                sequence = repository.record_audit(
+                    event,
                     {"artifact": safe_name, "sha256": state["artifact"]["sha256"]},
+                )
+                repository.save_requirement_records(
+                    self._requirement_records_for_state(state, event), sequence, event
                 )
         finally:
             repository.close()
@@ -547,9 +639,12 @@ class WebFacade:
         try:
             with repository.transaction():
                 repository.save_workbench(state)
-                repository.record_audit(
+                sequence = repository.record_audit(
                     event,
                     audit_payload or {"artifact": state["artifact"]["path"]},
+                )
+                repository.save_requirement_records(
+                    self._requirement_records_for_state(state, event), sequence, event
                 )
         finally:
             repository.close()
@@ -565,6 +660,13 @@ class WebFacade:
                     "latest_run": None,
                     "counts": {},
                     "audit": (),
+                    "requirements_overview": {
+                        "total": 0,
+                        "submitted": 0,
+                        "current": 0,
+                        "counts": {"candidate": 0, "accepted": 0, "rejected": 0},
+                        "items": (),
+                    },
                 }
             workspace_name = workspaces[0].name
         workspace = self.workspace(workspace_name)
@@ -592,4 +694,5 @@ class WebFacade:
             "latest_run": latest,
             "counts": counts,
             "audit": self.audit(workspace_name),
+            "requirements_overview": self.requirement_overview(workspace_name),
         }

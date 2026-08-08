@@ -117,6 +117,8 @@ def approve_workbench_baseline(
     """人工显式批准工作台 RFLP 为基线。"""
     if not state.get("rflp"):
         raise ContractViolation("请先生成 RFLP 规划图")
+    if state.get("draft"):
+        raise ContractViolation("请先生成 RFLP 规划图；当前输出仍是快速草稿")
     elements, relations = reconstruct_rflp(state)
     baseline = approve_baseline(elements, relations)
     result = _clone(state)

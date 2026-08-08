@@ -179,6 +179,65 @@ def test_requirements_page_runs_one_click_flow_from_current_input(client: TestCl
     assert "<svg" in client.get("/w/demo/requirements/graph").text
 
 
+def test_project_requirement_overview_keeps_submitted_history_and_statuses(
+    client: TestClient,
+) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+    first = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]
+    first_id = first["claims"][0]["id"]
+    client.post(
+        "/w/demo/requirements/review",
+        data={
+            "group": "claims",
+            "item_id": first_id,
+            "status": "rejected",
+            "value": "管理员必须恢复历史版本。",
+        },
+    )
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "系统要有高鲁棒性。"},
+    )
+
+    overview = client.get("/api/v1/workspaces/demo/requirements/overview")
+    assert overview.status_code == 200
+    body = overview.json()["overview"]
+    assert body["submitted"] == 2
+    assert body["counts"]["rejected"] == 1
+    assert body["counts"]["candidate"] == 1
+    assert any(item["id"] == first_id and item["status"] == "rejected" for item in body["items"])
+
+    page = client.get("/w/demo/requirements/overview")
+    assert page.status_code == 200
+    assert "项目需求概览" in page.text
+    assert "管理员必须恢复历史版本" in page.text
+    assert "系统要有高鲁棒性" in page.text
+    assert "已驳回" in page.text
+
+
+def test_system_input_produces_visible_rflp_svg_on_project_dashboard(
+    client: TestClient,
+) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "设置一个航天系统"},
+    )
+
+    dashboard = client.get("/w/demo")
+    assert dashboard.status_code == 200
+    assert "航天系统 · RFLP 图像" in dashboard.text
+    assert "<svg" in dashboard.text
+    svg = client.get("/w/demo/requirements/model.svg")
+    assert svg.status_code == 200
+    assert svg.headers["content-type"].startswith("image/svg+xml")
+    assert "航天系统" in svg.text
+
+
 def test_stakeholder_page_adds_role_and_shows_related_requirements(client: TestClient) -> None:
     client.post("/workspaces", data={"name": "demo"})
     client.post(

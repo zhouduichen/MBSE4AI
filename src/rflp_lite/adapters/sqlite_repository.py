@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -73,6 +74,18 @@ class SQLiteRepository:
             """
             CREATE TABLE IF NOT EXISTS workbench (
                 id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS requirement_records (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                first_sequence INTEGER NOT NULL,
+                last_sequence INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
                 payload TEXT NOT NULL
             )
             """
@@ -169,11 +182,81 @@ class SQLiteRepository:
             hash=value["hash"],
         )
 
-    def record_audit(self, kind: str, payload: dict[str, object]) -> None:
-        self._connection.execute(
+    def record_audit(self, kind: str, payload: dict[str, object]) -> int:
+        cursor = self._connection.execute(
             "INSERT INTO audit_events(kind, payload) VALUES (?, ?)",
             (kind, canonical_json(payload)),
         )
+        return int(cursor.lastrowid)
+
+    def save_requirement_records(
+        self,
+        values: tuple[dict[str, object], ...],
+        sequence: int,
+        event: str,
+    ) -> None:
+        """Persist the latest version of each submitted requirement.
+
+        The workbench intentionally keeps only the current editing state. This
+        table is the durable project ledger, so replacing the current input
+        does not make earlier requirements disappear from the project view.
+        """
+        updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        for value in values:
+            record = dict(value)
+            record_id = str(record["id"])
+            previous_row = self._connection.execute(
+                "SELECT first_sequence, payload FROM requirement_records WHERE id = ?",
+                (record_id,),
+            ).fetchone()
+            first_sequence = sequence if previous_row is None else int(previous_row[0])
+            previous = json.loads(previous_row[1]) if previous_row is not None else {}
+            history = list(previous.get("history", ()))
+            history.append(
+                {
+                    "sequence": sequence,
+                    "event": event,
+                    "status": record.get("status", "candidate"),
+                    "object": record.get("object", ""),
+                }
+            )
+            record["first_seen_sequence"] = first_sequence
+            record["last_seen_sequence"] = sequence
+            record["updated_at"] = updated_at
+            record["history"] = history[-20:]
+            self._connection.execute(
+                """
+                INSERT OR REPLACE INTO requirement_records(
+                    id, status, first_sequence, last_sequence, updated_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record_id,
+                    str(record.get("status", "candidate")),
+                    first_sequence,
+                    sequence,
+                    updated_at,
+                    canonical_json(record),
+                ),
+            )
+
+    def requirement_records(self) -> tuple[dict[str, object], ...]:
+        rows = self._connection.execute(
+            """
+            SELECT status, first_sequence, last_sequence, updated_at, payload
+            FROM requirement_records
+            ORDER BY last_sequence DESC, id
+            """
+        ).fetchall()
+        records = []
+        for status, first_sequence, last_sequence, updated_at, payload in rows:
+            record = json.loads(payload)
+            record.setdefault("status", status)
+            record.setdefault("first_seen_sequence", first_sequence)
+            record.setdefault("last_seen_sequence", last_sequence)
+            record.setdefault("updated_at", updated_at)
+            records.append(record)
+        return tuple(records)
 
     def audit_events(self, kind: str | None = None) -> tuple[dict[str, object], ...]:
         if kind is None:

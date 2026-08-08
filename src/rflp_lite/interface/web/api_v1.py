@@ -100,6 +100,14 @@ def requirements(request: Request, workspace_name: str) -> JSONResponse | dict[s
         return _error(exc, 404)
 
 
+@api_v1.get("/workspaces/{workspace_name}/requirements/overview", response_model=None)
+def requirements_overview(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        return {"status": "ok", "overview": _facade(request).requirement_overview(workspace_name)}
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
 @api_v1.post("/workspaces/{workspace_name}/requirements/run-flow", response_model=None)
 def run_requirements_flow(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
     try:

@@ -63,11 +63,24 @@ def test_draft_model_accepts_plain_language_as_provisional_nodes():
     draft = generate_draft_model(state)
 
     assert len(state["claims"]) == 1
-    assert state["claims"][0]["source_type"] == "provisional"
+    assert state["claims"][0]["source_type"] == "goal"
     assert state["claims"][0]["status"] == "candidate"
     assert draft["draft"] is True
     assert "没有明确的必须/应当" in draft["draft_warnings"][0]
     assert any("历史版本恢复" in item["name"] for item in draft["rflp"]["elements"])
+
+
+def test_quality_attribute_phrase_becomes_a_traceable_requirement_candidate():
+    state = analyze_artifact("requirements.txt", "要有高鲁棒性".encode())
+
+    assert len(state["claims"]) == 1
+    assert state["claims"][0]["subject"] == "待命名系统"
+    assert state["claims"][0]["predicate"] == "应具备"
+    assert state["claims"][0]["object"] == "高鲁棒性"
+    assert state["claims"][0]["source_type"] == "constraint"
+
+    accepted = accept_traceable(state)
+    assert accepted["claims"][0]["status"] == "accepted"
 
 
 def test_inferred_stakeholder_is_not_automatically_accepted():

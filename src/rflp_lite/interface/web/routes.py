@@ -83,6 +83,7 @@ def _requirements_context(
         active=active,
         nav_result_hash=runs[0].result_hash if runs else None,
         state=facade.requirements(workspace_name),
+        requirement_overview=facade.requirement_overview(workspace_name),
         active_llm=active_llm,
         llm_ready=llm_ready,
         **values,
@@ -143,6 +144,7 @@ def dashboard(request: Request) -> HTMLResponse:
         counts=view["counts"],
         audit=view["audit"],
         requirements=state,
+        requirement_overview=view["requirements_overview"],
     )
     return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
 
@@ -166,6 +168,7 @@ def workspace_dashboard(request: Request, workspace_name: str) -> HTMLResponse:
         counts=view["counts"],
         audit=view["audit"],
         requirements=state,
+        requirement_overview=view["requirements_overview"],
     )
     return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
 
@@ -174,6 +177,14 @@ def workspace_dashboard(request: Request, workspace_name: str) -> HTMLResponse:
 def requirements_page(request: Request, workspace_name: str) -> HTMLResponse:
     context = _requirements_context(request, workspace_name, "requirements")
     return templates.TemplateResponse(request=request, name="requirements-hub.html", context=context)
+
+
+@router.get("/w/{workspace_name}/requirements/overview", response_class=HTMLResponse)
+def requirements_overview_page(request: Request, workspace_name: str) -> HTMLResponse:
+    context = _requirements_context(request, workspace_name, "requirements-overview")
+    return templates.TemplateResponse(
+        request=request, name="requirements-overview.html", context=context
+    )
 
 
 @router.get("/w/{workspace_name}/requirements/input", response_class=HTMLResponse)
