@@ -8,27 +8,47 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Thread
+from typing import IO
 from xml.etree import ElementTree
 
+from rflp_lite.adapters.test_execution_config import (
+    DEFAULT_MAX_OUTPUT_BYTES,
+    DEFAULT_RESOURCE_LIMITS,
+    DEFAULT_TEST_TIMEOUT,
+    ResourceLimits,
+)
+from rflp_lite.adapters.test_limits import make_preexec_fn, resource_report
+from rflp_lite.adapters.test_runners import parse_runner_evidence, runner_spec
 from rflp_lite.domain.errors import AdapterFailure, ContractViolation
+from rflp_lite.domain.models import Evidence
 
 
-DEFAULT_TEST_TIMEOUT = 60
-MAX_RUN_OUTPUT_BYTES = 5 * 1024 * 1024
+# Kept as a compatibility hook for existing callers/tests that cap this value.
+MAX_RUN_OUTPUT_BYTES = DEFAULT_MAX_OUTPUT_BYTES
 _JUNIT_ATTRS = ("time", "timestamp", "hostname", "id")
 
 
 @dataclass(frozen=True, slots=True)
-class TestRun:
-    junit_path: Path | None
-    stdout_path: Path
-    stderr_path: Path
-    temp_dir: Path
+class RunnerResult:
+    runner: str
+    command: tuple[str, ...]
     returncode: int | None
     timed_out: bool
+    junit_path: Path | None
+    stdout_path: Path | None
+    stderr_path: Path | None
+    temp_dir: Path | None
+    evidence: tuple[Evidence, ...]
+    diagnostics: dict[str, object]
+    resource_limits: dict[str, object]
+    cache_hit: bool = False
 
 
-def _pump(stream: object, path: Path, limit: int) -> None:
+# Historical name retained for callers that imported the old result type.
+TestRun = RunnerResult
+
+
+def _pump(stream: IO[bytes], path: Path, limit: int) -> None:
     """把 stdout/stderr 读入文件，最多保留 limit 字节，超出丢弃而不杀进程。"""
     with path.open("wb") as handle:
         written = 0
@@ -40,6 +60,16 @@ def _pump(stream: object, path: Path, limit: int) -> None:
                 take = chunk[: limit - written]
                 handle.write(take)
                 written += len(take)
+
+
+def _tail(path: Path | None, max_lines: int = 15, max_chars: int = 2000) -> str:
+    if path is None:
+        return ""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    return "\n".join(lines[-max_lines:]).strip()[:max_chars]
 
 
 def _normalize_junit(path: Path) -> None:
@@ -54,10 +84,16 @@ def _normalize_junit(path: Path) -> None:
     if root.tag.rsplit("}", 1)[-1] == "testsuite":
         suites = [root]
     else:
-        suites = [element for element in list(root) if element.tag.rsplit("}", 1)[-1] == "testsuite"]
+        suites = [
+            element
+            for element in list(root)
+            if element.tag.rsplit("}", 1)[-1] == "testsuite"
+        ]
     for suite in suites:
         cases = [
-            child for child in list(suite) if child.tag.rsplit("}", 1)[-1] == "testcase"
+            child
+            for child in list(suite)
+            if child.tag.rsplit("}", 1)[-1] == "testcase"
         ]
         cases.sort(
             key=lambda child: (
@@ -72,50 +108,69 @@ def _normalize_junit(path: Path) -> None:
     tree.write(path, encoding="utf-8", xml_declaration=True)
 
 
+def _limits_for_call(timeout: int, limits: ResourceLimits | None) -> ResourceLimits:
+    if limits is not None:
+        return limits
+    timeout_seconds = DEFAULT_TEST_TIMEOUT if timeout <= 0 else timeout
+    return ResourceLimits(
+        timeout_seconds=timeout_seconds,
+        memory_bytes=DEFAULT_RESOURCE_LIMITS.memory_bytes,
+        max_open_files=DEFAULT_RESOURCE_LIMITS.max_open_files,
+        max_output_bytes=MAX_RUN_OUTPUT_BYTES,
+    )
+
+
 def run_project_tests(
-    project_dir: Path, timeout: int = DEFAULT_TEST_TIMEOUT
-) -> TestRun:
-    """在项目目录内运行固定 `pytest` 命令，超时隔离，产物写入临时目录。"""
+    project_dir: Path,
+    timeout: int = DEFAULT_TEST_TIMEOUT,
+    *,
+    runner: str = "pytest",
+    limits: ResourceLimits | None = None,
+    cache_dir: Path | None = None,
+) -> RunnerResult:
+    """运行一个内置测试运行器，超时隔离，产物写入临时目录。"""
+    del cache_dir  # Cache lookup is added by the matrix layer; one-run stays stateless.
     resolved = Path(project_dir).expanduser().resolve()
     if not resolved.is_dir():
         raise ContractViolation("项目目录不存在或不是目录")
-    if timeout <= 0:
-        timeout = DEFAULT_TEST_TIMEOUT
+    effective_limits = _limits_for_call(timeout, limits)
     temp_dir = Path(tempfile.mkdtemp(prefix="rflp-testrun-"))
     junit = temp_dir / "junit.xml"
     stdout_file = temp_dir / "stdout.log"
     stderr_file = temp_dir / "stderr.log"
+    spec = runner_spec(runner, junit)
     env = dict(os.environ)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    pytest_bin = shutil.which("pytest")
-    command = (
-        [pytest_bin, "--junitxml", str(junit)]
-        if pytest_bin
-        else [sys.executable, "-m", "pytest", "--junitxml", str(junit)]
-    )
     timed_out = False
     returncode: int | None = None
     try:
         try:
             process = subprocess.Popen(
-                command,
+                spec.argv,
                 cwd=resolved,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=env,
+                shell=False,
+                preexec_fn=make_preexec_fn(effective_limits),
             )
         except FileNotFoundError as exc:
-            raise AdapterFailure("无法启动 pytest") from exc
+            message = "无法启动 pytest" if runner == "pytest" else "无法启动 unittest"
+            raise AdapterFailure(message) from exc
+        assert process.stdout is not None
+        assert process.stderr is not None
         stdout_thread = Thread(
-            target=_pump, args=(process.stdout, stdout_file, MAX_RUN_OUTPUT_BYTES)
+            target=_pump,
+            args=(process.stdout, stdout_file, effective_limits.max_output_bytes),
         )
         stderr_thread = Thread(
-            target=_pump, args=(process.stderr, stderr_file, MAX_RUN_OUTPUT_BYTES)
+            target=_pump,
+            args=(process.stderr, stderr_file, effective_limits.max_output_bytes),
         )
         stdout_thread.start()
         stderr_thread.start()
         try:
-            returncode = process.wait(timeout=timeout)
+            returncode = process.wait(timeout=effective_limits.timeout_seconds)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
@@ -126,7 +181,33 @@ def run_project_tests(
         junit_path = junit if junit.is_file() else None
         if junit_path is not None:
             _normalize_junit(junit_path)
-        return TestRun(junit_path, stdout_file, stderr_file, temp_dir, returncode, timed_out)
+        evidence = parse_runner_evidence(spec, stdout_file, junit_path)
+        failed_tests = sorted(
+            item.target_id.removeprefix("verification-")
+            for item in evidence
+            if item.status == "failed"
+        )
+        diagnostics = {
+            "stdout_tail": _tail(stdout_file),
+            "stderr_tail": _tail(stderr_file),
+            "failed_tests": failed_tests,
+            "tests_passed": sum(1 for item in evidence if item.status == "passed"),
+            "tests_failed": sum(1 for item in evidence if item.status == "failed"),
+            "unparsed_output": runner == "unittest" and not evidence,
+        }
+        return RunnerResult(
+            runner=runner,
+            command=spec.argv,
+            returncode=returncode,
+            timed_out=timed_out,
+            junit_path=junit_path,
+            stdout_path=stdout_file,
+            stderr_path=stderr_file,
+            temp_dir=temp_dir,
+            evidence=tuple(sorted(evidence, key=lambda item: item.id)),
+            diagnostics=diagnostics,
+            resource_limits=resource_report(effective_limits),
+        )
     except BaseException:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
