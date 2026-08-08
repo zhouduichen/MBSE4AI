@@ -118,3 +118,31 @@ def test_requirements_page_runs_reviewed_rflp_flow(client: TestClient) -> None:
     assert "<svg" in page.text
     assert client.get("/w/demo/requirements/model.json").status_code == 200
     assert client.get("/w/demo/requirements/model.svg").status_code == 200
+
+
+def test_requirements_page_creates_and_exports_scenario(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+    response = client.post(
+        "/w/demo/requirements/scenarios",
+        data={
+            "title": "管理员恢复历史版本",
+            "description": "管理员在版本存在时恢复历史内容。",
+            "actors": "管理员\n内容服务",
+            "preconditions": "历史版本存在",
+            "steps": "选择历史版本\n确认恢复",
+            "expected_outcomes": "内容恢复\n写入审计记录",
+            "faults": "恢复失败时重试一次",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    page = client.get("/w/demo/requirements")
+    assert "管理员恢复历史版本" in page.text
+    assert "场景描述" in page.text
+    exported = client.get("/w/demo/requirements/scenarios.json")
+    assert exported.status_code == 200
+    assert "管理员恢复历史版本" in exported.text

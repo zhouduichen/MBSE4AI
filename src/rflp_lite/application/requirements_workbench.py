@@ -153,6 +153,7 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
         "concerns": sorted(concerns, key=lambda item: item["id"]),
         "needs": sorted(needs, key=lambda item: item["id"]),
         "claims": sorted(claims, key=lambda item: item["id"]),
+        "scenarios": [],
         "checklist": checklist,
         "rflp": None,
         "coverage": {},

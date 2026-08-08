@@ -120,6 +120,49 @@ async def analyze_requirements(
     return RedirectResponse(_requirements_location(workspace_name), status_code=303)
 
 
+@router.post("/w/{workspace_name}/requirements/scenarios")
+def create_requirement_scenario(
+    request: Request,
+    workspace_name: str,
+    title: Annotated[str, Form()],
+    description: Annotated[str, Form()],
+    steps: Annotated[str, Form()],
+    expected_outcomes: Annotated[str, Form()],
+    actors: Annotated[str, Form()] = "",
+    preconditions: Annotated[str, Form()] = "",
+    faults: Annotated[str, Form()] = "",
+    requirement_ids: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        _facade(request).add_requirement_scenario(
+            workspace_name,
+            title=title,
+            description=description,
+            actors=actors,
+            preconditions=preconditions,
+            steps=steps,
+            expected_outcomes=expected_outcomes,
+            faults=faults,
+            requirement_ids=requirement_ids,
+        )
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/scenarios/delete")
+def delete_requirement_scenario(
+    request: Request,
+    workspace_name: str,
+    scenario_id: Annotated[str, Form()],
+) -> Response:
+    try:
+        _facade(request).delete_requirement_scenario(workspace_name, scenario_id)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+
+
 @router.post("/w/{workspace_name}/requirements/review")
 def review_requirement(
     request: Request,
@@ -180,6 +223,19 @@ def requirements_json(request: Request, workspace_name: str) -> Response:
     )
 
 
+@router.get("/w/{workspace_name}/requirements/scenarios.json")
+def requirements_scenarios_json(request: Request, workspace_name: str) -> Response:
+    state = _facade(request).requirements(workspace_name)
+    if not state:
+        return HTMLResponse("requirements workbench not found", status_code=404)
+    content = json.dumps(
+        state.get("scenarios", ()), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return Response(
+        content=content + "\n",
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="scenarios.json"'},
+    )
 @router.get("/w/{workspace_name}/requirements/model.svg")
 def requirements_svg(request: Request, workspace_name: str) -> Response:
     state = _facade(request).requirements(workspace_name)

@@ -63,7 +63,8 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 2. 点击“规则分析”；
 3. 审核 Stakeholder、Concern、Need 和 Requirement 候选，或点击“接受全部可追溯候选”；
 4. 点击“生成 RFLP 规划图”；
-5. 查看来源链和 R/F/L/P 覆盖率，并下载确定性 JSON/SVG。
+5. 在“场景描述”中记录参与者、前置条件、步骤、预期结果和故障/异常；
+6. 查看来源链和 R/F/L/P 覆盖率，并下载确定性 JSON/SVG 与场景 JSON。
 
 “运行中心”继续提供 Heuristic 或 CP-SAT 的完整 Candidate、Simulation、Baseline、Delta、TaskContract 和 Evidence 链路。
 
@@ -75,10 +76,12 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 2. 填写本地项目目录的绝对路径，点击“分析项目”；
 3. 查看 ActualModel、基线→实际匹配、MISSING/EXTRA 差异、任务契约与证据；
 4. 对项目作出修改后，点击“执行验证”重扫描判定每条任务契约是否已满足（RESOLVED/UNRESOLVED）；
-5. 点击“运行项目测试（pytest）”在超时与隔离沙箱中实际运行测试，回填客观 Evidence 并查看通过/失败；
+5. 点击“运行项目测试”，选择 pytest/unittest、资源上限、并行度和缓存策略，在超时与隔离沙箱中运行并查看每个 runner 的结果；
 6. 下载规范化 JSON：baseline、actual-model、matches、delta、task-contracts、evidence、project。
 
-扫描只读 `.py`（AST）、OpenAPI JSON 与 JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件；不复制、不写入、不上传项目。测试运行使用固定 `pytest` 命令、默认 60s 超时并 kill，产物写入临时目录后清理。
+场景描述保存在现有工作台 JSON 中，不新增数据库表；步骤和预期结果按行记录，可选关联 Requirement ID，并可通过 `/w/{workspace}/requirements/scenarios.json` 下载。
+
+扫描只读 `.py`（AST）、OpenAPI JSON 与 JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件；不复制、不写入、不上传项目。测试运行支持 allowlist 中的 `pytest` 与 `unittest`，默认 60s 超时并 kill，可配置 POSIX 内存/文件句柄上限、输出上限、结果缓存和多 runner 并行。
 
 CLI 等效操作：
 
@@ -86,12 +89,14 @@ CLI 等效操作：
 .venv/bin/rflp project approve --workspace <workspace>
 .venv/bin/rflp project analyze --workspace <workspace> --source <project-dir>
 .venv/bin/rflp project verify --workspace <workspace> --source <project-dir>
-.venv/bin/rflp project test --workspace <workspace> --source <project-dir> [--timeout 60]
+.venv/bin/rflp project test --workspace <workspace> --source <project-dir> [--timeout 60] [--runner pytest|unittest] [--jobs 2]
 .venv/bin/rflp workbench build --workspace <workspace> --requirements <file>
 .venv/bin/rflp assess --workspace <workspace> --requirements <file> --source <project-dir> [--timeout 60]
 ```
 
 `assess` 一步完成 需求工作台 → 批准基线 → 分析项目 → 运行测试 并输出汇总，适合脚本/CI 断言。`workbench build` 接受多个 `--requirements` 文件完成多文档合并。需求接入支持 DOCX 表格行（每行按 “ID | 义务句” 合并为一条 span）。
+
+测试命令还支持 `--memory-mib`、`--max-open-files`、`--output-mib` 和 `--no-cache`。多个 `--runner` 配合 `--jobs 2` 可并行运行 pytest/unittest；测试结果仍作为独立客观 Evidence，不改变 R/F 匹配。
 
 可选 AI 分析使用 OpenAI-compatible API，只产生待审核候选：
 
@@ -117,4 +122,4 @@ Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机�
 
 ## 当前边界
 
-当前已提供最小 OpenAI-compatible LLM 候选接口，但尚未提供模型管理、流式对话或专用 Ollama/llama.cpp 运行时。项目接入扫描只读 `.py` / OpenAPI JSON / JUnit XML，匹配按分词交集进行（中英文义务句之间无法用关键词对齐，会如实标为 MISSING）。“执行验证”是确定性重扫描——只读重算与已批准基线的差异并判定任务契约是否满足。测试执行沙箱只运行固定 `pytest` 命令（默认 60s 超时），测试结果作为独立客观 Evidence 呈现，不改变契约状态；pytest 以外的运行器、资源上限与并行执行尚未实现。Docling、MLflow、SysML v2 编辑、向量模型、登录权限和远程插件运行时仍未启用；“能力中心”只展示这些扩展的启用条件，不生成伪造结果。
+当前已提供最小 OpenAI-compatible LLM 候选接口，但尚未提供模型管理、流式对话或专用 Ollama/llama.cpp 运行时。场景目前是结构化描述与 JSON 导出，不自动执行场景或生成仿真轨迹。项目接入扫描只读 `.py` / OpenAPI JSON / JUnit XML，匹配按分词交集进行（中英文义务句之间无法用关键词对齐，会如实标为 MISSING）。“执行验证”是确定性重扫描——只读重算与已批准基线的差异并判定任务契约是否满足。测试结果作为独立客观 Evidence 呈现，不改变契约状态；运行器仅允许 pytest/unittest，POSIX 资源限制在平台不支持时会明确报告。Docling、MLflow、SysML v2 编辑、向量模型、登录权限和远程插件运行时仍未启用；“能力中心”只展示这些扩展的启用条件，不生成伪造结果。

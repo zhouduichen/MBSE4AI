@@ -21,6 +21,7 @@ from rflp_lite.application.requirements_workbench import (
     merge_artifact,
     review_item,
 )
+from rflp_lite.application.scenarios import add_scenario, delete_scenario
 from rflp_lite.application.workspaces import (
     WorkspaceRef,
     create_managed_workspace,
@@ -154,6 +155,49 @@ class WebFacade:
             raise ContractViolation("requirements workbench is empty")
         return self._save_requirements(
             workspace_name, add_llm_suggestions(current), "requirements.ai_suggested"
+        )
+
+    def add_requirement_scenario(
+        self,
+        workspace_name: str,
+        *,
+        title: str,
+        description: str,
+        actors: str = "",
+        preconditions: str = "",
+        steps: str,
+        expected_outcomes: str,
+        faults: str = "",
+        requirement_ids: str = "",
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        state = add_scenario(
+            current,
+            title=title,
+            description=description,
+            actors=actors,
+            preconditions=preconditions,
+            steps=steps,
+            expected_outcomes=expected_outcomes,
+            faults=faults,
+            requirement_ids=requirement_ids,
+        )
+        return self._save_requirements(
+            workspace_name, state, "scenario.created"
+        )
+
+    def delete_requirement_scenario(
+        self, workspace_name: str, scenario_id: str
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name,
+            delete_scenario(current, scenario_id),
+            "scenario.deleted",
         )
 
     def approve_requirements_baseline(self, workspace_name: str) -> dict[str, object]:
