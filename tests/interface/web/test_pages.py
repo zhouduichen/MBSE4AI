@@ -120,7 +120,7 @@ def test_requirements_page_runs_reviewed_rflp_flow(client: TestClient) -> None:
     assert "RFLP 规划图" in page.text
     input_page = client.get("/w/demo/requirements/input")
     assert "规则分析已完成" in input_page.text
-    assert "识别 2 条 Requirement 候选" in input_page.text
+    assert "识别 2 条需求候选" in input_page.text
     graph_page = client.get("/w/demo/requirements/graph")
     assert "<svg" in graph_page.text
     assert client.get("/w/demo/requirements/model.json").status_code == 200
@@ -144,6 +144,19 @@ def test_requirements_page_can_generate_draft_without_review(client: TestClient)
     page = client.get("/w/demo/requirements/graph")
     assert "快速草稿图" in page.text
     assert "尚未经过人工确认" in page.text
+
+
+def test_requirements_input_keeps_plain_language_as_a_candidate(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "希望系统支持历史版本恢复。"},
+    )
+
+    page = client.get("/w/demo/requirements/input")
+
+    assert "识别 1 条需求候选" in page.text
+    assert "待确认需求候选" in page.text
 
 
 def test_requirements_page_runs_one_click_flow_from_current_input(client: TestClient) -> None:

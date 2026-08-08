@@ -131,6 +131,21 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
             need_id=need_id,
         )
         claims.append(value)
+    if not extracted_claims:
+        for span in spans:
+            claims.append(
+                {
+                    "id": _id("draft-claim", span.id),
+                    "span_id": span.id,
+                    "subject": "需求描述",
+                    "predicate": "待确认",
+                    "object": span.text,
+                    "confidence": 0.35,
+                    "status": "candidate",
+                    "source_type": "provisional",
+                    "need_id": need_by_span.get(span.id),
+                }
+            )
 
     present_roles = {item["name"] for item in stakeholders}
     checklist = tuple(
@@ -582,7 +597,7 @@ def generate_draft_model(state: dict[str, object]) -> dict[str, object]:
         "这是快速草稿图，尚未经过人工审核。",
         "确认需求后可生成正式模型并批准基线。",
     ]
-    if not state["claims"]:
+    if not any(item.get("source_type") != "provisional" for item in state["claims"]):
         result["draft_warnings"].insert(
             0, "原文没有明确的必须/应当等规则词，图中的节点均需人工确认。"
         )

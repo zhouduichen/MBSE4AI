@@ -62,7 +62,9 @@ def test_draft_model_accepts_plain_language_as_provisional_nodes():
 
     draft = generate_draft_model(state)
 
-    assert state["claims"] == []
+    assert len(state["claims"]) == 1
+    assert state["claims"][0]["source_type"] == "provisional"
+    assert state["claims"][0]["status"] == "candidate"
     assert draft["draft"] is True
     assert "没有明确的必须/应当" in draft["draft_warnings"][0]
     assert any("历史版本恢复" in item["name"] for item in draft["rflp"]["elements"])

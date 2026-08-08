@@ -41,7 +41,7 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
     """
     result = accept_traceable(state)
     result["flow"] = None
-    if not result.get("claims"):
+    if not any(item.get("status") == "accepted" for item in result.get("claims", ())):
         result = generate_draft_model(result)
         result["flow"] = {
             "status": "draft_only",
@@ -51,7 +51,7 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
                 {"key": "formal_model", "status": "waiting_for_requirement_review"},
                 {"key": "project_validation", "status": "waiting_for_project_path"},
             ],
-            "warning": "原文没有识别出正式 Requirement，因此只生成了待确认草稿。",
+            "warning": "原文已保留为待确认需求候选，但没有识别出正式约束，因此只生成了待确认草稿。",
         }
         return result
 
