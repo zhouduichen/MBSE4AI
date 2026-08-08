@@ -30,6 +30,7 @@ from rflp_lite.application.requirements_workbench import (
     stakeholder_category_label,
     stakeholder_bundle,
 )
+from rflp_lite.application.workbench_schema import migrate_workbench_state
 from rflp_lite.application.requirements_flow import run_requirements_flow
 from rflp_lite.application.jobs import JobService
 from rflp_lite.application.llm_profiles import LLMProfileService
@@ -203,6 +204,7 @@ class WebFacade:
         try:
             state = repository.load_workbench()
             if state is not None:
+                state = migrate_workbench_state(state)
                 state.setdefault("scenarios", [])
                 state.setdefault("scenario_runs", [])
                 state.setdefault("flow", None)
