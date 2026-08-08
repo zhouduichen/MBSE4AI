@@ -159,6 +159,9 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
         "rflp": None,
         "coverage": {},
         "svg": "",
+        "traceability": [],
+        "draft": False,
+        "draft_warnings": [],
     }
 
 
@@ -179,6 +182,7 @@ def merge_artifact(
     result["checklist"] = fresh["checklist"]
     result["rflp"], result["coverage"], result["svg"] = None, {}, ""
     result["baseline"], result["project"] = None, None
+    result["draft"], result["draft_warnings"] = False, []
     return result
 
 
@@ -373,6 +377,55 @@ def generate_model(state: dict[str, object]) -> dict[str, object]:
         )
     result["coverage"] = _coverage(elements, relations)
     result["svg"] = render_rflp_svg(elements, relations, stakeholder_names)
+    result["draft"] = False
+    result["draft_warnings"] = []
+    return result
+
+
+def generate_draft_model(state: dict[str, object]) -> dict[str, object]:
+    """Generate a viewable model without changing the review decisions.
+
+    A draft is deliberately useful before formal review: it turns the rule
+    claims that are already available into a graph, while keeping the source
+    state as candidate data and clearly marking the output as provisional.
+    """
+    candidate_state = _clone(state)
+    if not candidate_state["claims"]:
+        # Keep the formal extractor conservative, but still make the minimum
+        # viable path useful for plain-language notes that lack an obligation
+        # keyword. These transient claims never become formal requirements.
+        candidate_state["claims"] = [
+            {
+                "id": _id("draft-claim", span["id"]),
+                "span_id": span["id"],
+                "subject": "需求文档",
+                "predicate": "待确认",
+                "object": span["text"],
+                "confidence": 0.35,
+                "status": "accepted",
+                "source_type": "constraint",
+                "need_id": None,
+            }
+            for span in candidate_state["spans"]
+        ]
+    for group in _GROUPS:
+        for item in candidate_state[group]:
+            if item["status"] == "candidate":
+                item["status"] = "accepted"
+    generated = generate_model(candidate_state)
+    result = _clone(state)
+    for field in ("rflp", "coverage", "svg", "traceability"):
+        result[field] = generated[field]
+    result["baseline"], result["project"] = None, None
+    result["draft"] = True
+    result["draft_warnings"] = [
+        "这是快速草稿图，尚未经过人工审核。",
+        "确认需求后可生成正式模型并批准基线。",
+    ]
+    if not state["claims"]:
+        result["draft_warnings"].insert(
+            0, "原文没有明确的必须/应当等规则词，图中的节点均需人工确认。"
+        )
     return result
 
 
@@ -402,6 +455,8 @@ def add_llm_suggestions(
         }
     if not config.get("base_url") or not config.get("model"):
         raise AdapterFailure("LLM 未配置")
+    if config.get("kind", "remote") == "remote" and not config.get("api_key"):
+        raise AdapterFailure("当前远程 LLM 档案未配置 API Key，请到 LLM 设置保存并启用")
     result = _clone(state)
     spans = result["spans"]
     prompt = {

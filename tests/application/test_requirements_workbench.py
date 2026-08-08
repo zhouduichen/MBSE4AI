@@ -4,6 +4,7 @@ from rflp_lite.application.requirements_workbench import (
     accept_traceable,
     add_llm_suggestions,
     analyze_artifact,
+    generate_draft_model,
     generate_model,
     merge_artifact,
 )
@@ -39,6 +40,29 @@ def test_reviewed_stakeholders_generate_stable_dynamic_rflp(monkeypatch):
     monkeypatch.delenv("RFLP_LLM_API_KEY", raising=False)
     with pytest.raises(AdapterFailure, match="LLM 未配置"):
         add_llm_suggestions(state)
+
+
+def test_draft_model_is_available_before_review_without_mutating_candidates():
+    state = analyze_artifact("requirements.txt", "管理员必须恢复历史版本。".encode())
+
+    draft = generate_draft_model(state)
+
+    assert draft["draft"] is True
+    assert draft["rflp"]["elements"]
+    assert draft["svg"].startswith("<svg")
+    assert all(item["status"] == "candidate" for item in draft["claims"])
+    assert state["rflp"] is None
+
+
+def test_draft_model_accepts_plain_language_as_provisional_nodes():
+    state = analyze_artifact("requirements.txt", "希望系统支持历史版本恢复。".encode())
+
+    draft = generate_draft_model(state)
+
+    assert state["claims"] == []
+    assert draft["draft"] is True
+    assert "没有明确的必须/应当" in draft["draft_warnings"][0]
+    assert any("历史版本恢复" in item["name"] for item in draft["rflp"]["elements"])
 
 
 def test_inferred_stakeholder_is_not_automatically_accepted():

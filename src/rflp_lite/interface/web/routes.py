@@ -35,6 +35,13 @@ def _facade(request: Request) -> WebFacade:
 
 
 def _run_error(request: Request, message: object, status_code: int = 422) -> HTMLResponse:
+    if request.headers.get("HX-Request") != "true":
+        return templates.TemplateResponse(
+            request=request,
+            name="error.html",
+            context={"message": str(message), "status_code": status_code, "workspace": None},
+            status_code=status_code,
+        )
     return templates.TemplateResponse(
         request=request,
         name="_run-error.html",
@@ -92,6 +99,7 @@ def _llm_context(
 def dashboard(request: Request) -> HTMLResponse:
     view = _facade(request).dashboard(None)
     latest = view["latest_run"]
+    state = _facade(request).requirements(view["workspace"].name) if view["workspace"] else None
     context = page_context(
         view["workspace"],
         workspaces=view["workspaces"],
@@ -99,6 +107,7 @@ def dashboard(request: Request) -> HTMLResponse:
         nav_result_hash=latest.result_hash if latest else None,
         counts=view["counts"],
         audit=view["audit"],
+        requirements=state,
     )
     return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
 
@@ -113,6 +122,7 @@ def create_workspace(request: Request, name: Annotated[str, Form()]) -> Response
 def workspace_dashboard(request: Request, workspace_name: str) -> HTMLResponse:
     view = _facade(request).dashboard(workspace_name)
     latest = view["latest_run"]
+    state = _facade(request).requirements(workspace_name)
     context = page_context(
         view["workspace"],
         workspaces=view["workspaces"],
@@ -120,6 +130,7 @@ def workspace_dashboard(request: Request, workspace_name: str) -> HTMLResponse:
         nav_result_hash=latest.result_hash if latest else None,
         counts=view["counts"],
         audit=view["audit"],
+        requirements=state,
     )
     return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
 
@@ -129,11 +140,25 @@ def requirements_page(request: Request, workspace_name: str) -> HTMLResponse:
     facade = _facade(request)
     workspace = facade.workspace(workspace_name)
     runs = facade.runs(workspace_name)
+    llm = facade.llm_snapshot()
+    active_llm = next(
+        (item for item in llm["profiles"] if item["id"] == llm.get("active_id")),
+        None,
+    )
+    llm_ready = bool(
+        active_llm
+        and (
+            active_llm["kind"] == "local"
+            or active_llm.get("api_key_configured", False)
+        )
+    )
     context = page_context(
         workspace,
         active="requirements",
         nav_result_hash=runs[0].result_hash if runs else None,
         state=facade.requirements(workspace_name),
+        active_llm=active_llm,
+        llm_ready=llm_ready,
     )
     return templates.TemplateResponse(
         request=request, name="requirements-workbench.html", context=context
@@ -282,6 +307,15 @@ def generate_requirements(request: Request, workspace_name: str) -> Response:
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
     return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/generate-draft")
+def generate_requirements_draft(request: Request, workspace_name: str) -> Response:
+    try:
+        _facade(request).generate_requirements_draft(workspace_name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_location(workspace_name) + "#graph", status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/ai")

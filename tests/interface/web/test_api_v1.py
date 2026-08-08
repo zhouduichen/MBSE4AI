@@ -203,6 +203,18 @@ def test_api_v1_exports_and_imports_sysml_v2_subset(client: TestClient) -> None:
     assert imported.json()["rflp"]["elements"]
 
 
+def test_api_v1_generates_draft_without_review(client: TestClient) -> None:
+    _workbench(client)
+
+    generated = client.post(
+        "/api/v1/workspaces/demo/requirements/generate-draft"
+    )
+
+    assert generated.status_code == 200
+    assert generated.json()["draft"] is True
+    assert generated.json()["rflp"]["elements"]
+
+
 def test_api_v1_mlflow_endpoint_reports_real_or_missing_sdk(client: TestClient) -> None:
     client.post("/workspaces", data={"name": "demo"})
     started = client.post(

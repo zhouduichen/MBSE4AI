@@ -182,6 +182,15 @@ def rflp(request: Request, workspace_name: str) -> JSONResponse | dict[str, obje
         return _error(exc, 404)
 
 
+@api_v1.post("/workspaces/{workspace_name}/requirements/generate-draft", response_model=None)
+def generate_requirements_draft(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        state = _facade(request).generate_requirements_draft(workspace_name)
+        return {"status": "ok", "draft": True, "rflp": state["rflp"]}
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc)
+
+
 @api_v1.put("/workspaces/{workspace_name}/rflp", response_model=None)
 async def update_rflp(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
     try:

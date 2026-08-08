@@ -18,6 +18,7 @@ from rflp_lite.application.requirements_workbench import (
     accept_traceable,
     add_llm_suggestions,
     analyze_artifact,
+    generate_draft_model,
     generate_model,
     merge_artifact,
     review_item,
@@ -257,6 +258,16 @@ class WebFacade:
             raise ContractViolation("requirements workbench is empty")
         return self._save_requirements(
             workspace_name, generate_model(current), "requirements.generated"
+        )
+
+    def generate_requirements_draft(self, workspace_name: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name,
+            generate_draft_model(current),
+            "requirements.draft_generated",
         )
 
     def analyze_requirements_with_ai(self, workspace_name: str) -> dict[str, object]:

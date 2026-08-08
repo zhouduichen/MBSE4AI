@@ -14,28 +14,26 @@
     <aside class="sidebar">
       <a class="brand" href="/"><span class="brand-mark">RL</span><span>RFLP-Lite<small>LOCAL CONSOLE</small></span></a>
       <nav aria-label="主导航">
-        <p class="nav-label">Overview</p>
-        <a class="nav-item {% if active == 'dashboard' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}{% else %}/{% endif %}">驾驶舱</a>
-        <a class="nav-item {% if active == 'runs' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}/runs{% else %}/{% endif %}">运行中心</a>
-        <p class="nav-label">Model</p>
-        {% if workspace %}<a class="nav-item {% if active == 'requirements' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements">需求建模</a>{% else %}<span class="nav-item muted">需求建模</span>{% endif %}
-        {% if workspace %}<a class="nav-item {% if active == 'project' %}active{% endif %}" href="/w/{{ workspace.name }}/project">项目接入</a>{% else %}<span class="nav-item muted">项目接入</span>{% endif %}
-        {% if workspace and nav_result_hash %}
-        <a class="nav-item {% if active == 'artifacts' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/model/artifacts">工件与声明</a>
-        <a class="nav-item {% if active == 'rflp' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/model/rflp">RFLP 模型</a>
-        {% else %}<span class="nav-item muted">工件与声明</span><span class="nav-item muted">RFLP 模型</span>{% endif %}
-        <p class="nav-label">Decision</p>
+        <p class="nav-label">开始</p>
+        <a class="nav-item {% if active == 'dashboard' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}{% else %}/{% endif %}">开始项目</a>
+        {% if workspace %}<a class="nav-item {% if active == 'requirements' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements">需求规划</a>{% else %}<span class="nav-item muted">需求规划</span>{% endif %}
+        {% if workspace %}<a class="nav-item {% if active == 'project' %}active{% endif %}" href="/w/{{ workspace.name }}/project">项目验证 <span class="planned-dot">可选</span></a>{% else %}<span class="nav-item muted">项目验证</span>{% endif %}
+        <p class="nav-label">高级工具</p>
+        <a class="nav-item {% if active == 'runs' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}/runs{% else %}/{% endif %}">运行记录</a>
+        {% if workspace %}<a class="nav-item {% if active == 'artifacts' %}active{% endif %}" href="{% if nav_result_hash %}/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/model/artifacts{% else %}/w/{{ workspace.name }}/requirements{% endif %}">工件与声明</a>{% else %}<span class="nav-item muted">工件与声明</span>{% endif %}
+        {% if workspace and nav_result_hash %}<a class="nav-item {% if active == 'rflp' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/model/rflp">RFLP 模型</a>{% else %}<span class="nav-item muted">RFLP 模型</span>{% endif %}
+        <p class="nav-label">决策与治理</p>
         {% if workspace and nav_result_hash %}
         <a class="nav-item {% if active == 'candidates' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/decision/candidates">候选与权衡</a>
         <a class="nav-item {% if active == 'simulation' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/decision/simulation">仿真结果</a>
         {% else %}<span class="nav-item muted">候选与权衡</span><span class="nav-item muted">仿真结果</span>{% endif %}
-        <p class="nav-label">Governance</p>
+        <p class="nav-label">治理</p>
         {% if workspace and nav_result_hash %}
         <a class="nav-item {% if active == 'baselines' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/governance/baselines">基线与差异</a>
         <a class="nav-item {% if active == 'tasks' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/governance/tasks">任务契约</a>
         <a class="nav-item {% if active == 'evidence' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/governance/evidence">证据与审计</a>
         {% else %}<span class="nav-item muted">基线与差异</span><span class="nav-item muted">任务契约</span><span class="nav-item muted">证据与审计</span>{% endif %}
-        <p class="nav-label">Extensions</p>
+        <p class="nav-label">配置</p>
         <a class="nav-item {% if active == 'settings' %}active{% endif %}" href="/settings/llm">LLM 设置</a>
         <a class="nav-item {% if active == 'capabilities' %}active{% endif %}" href="/capabilities">能力中心 <span class="planned-dot">规划中</span></a>
       </nav>

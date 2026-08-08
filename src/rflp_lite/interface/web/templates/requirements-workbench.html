@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% macro review_group(title, group, items, field) %}
 <section class="panel review-panel">
-  <div class="panel-head"><div><span class="eyebrow">Human review</span><h2>{{ title }}</h2></div><span class="count-badge">{{ items|length }}</span></div>
+  <div class="panel-head"><div><span class="eyebrow">可选人工确认</span><h2>{{ title }}</h2></div><span class="count-badge">{{ items|length }}</span></div>
   {% if items %}<div class="review-list">{% for item in items %}
     <form method="post" action="/w/{{ workspace.name }}/requirements/review" class="review-row">
       <input type="hidden" name="group" value="{{ group }}"><input type="hidden" name="item_id" value="{{ item.id }}">
@@ -11,25 +11,59 @@
       <button class="button compact" name="status" value="accepted" type="submit">接受</button>
       <button class="button compact danger" name="status" value="rejected" type="submit">驳回</button>
     </form>
-  {% endfor %}</div>{% else %}<div class="mini-empty">暂无候选。</div>{% endif %}
+  {% endfor %}</div>{% else %}<div class="mini-empty">暂无候选，不影响其他步骤。</div>{% endif %}
 </section>
 {% endmacro %}
-{% block title %}需求建模 · RFLP-Lite{% endblock %}
+{% block title %}需求规划 · RFLP-Lite{% endblock %}
 {% block content %}
-<div class="page-heading"><div><span class="eyebrow">Requirements workbench</span><h1>需求建模</h1><p>来源证据 → 利益相关方 → Concern → Need → Requirement → RFLP。</p></div></div>
-<section class="panel intake-panel">
-  <div class="panel-head"><div><span class="eyebrow">Model intake</span><h2>输入需求与工程资料</h2></div><span class="count-badge">本地处理</span></div>
+<div class="page-heading">
+  <div><span class="eyebrow">Start here</span><h1>需求规划</h1><p>输入一句话或一份文件，系统会先给出可修改的分析结果和 RFLP 规划图。</p></div>
+  {% if state %}<a class="button" href="#input">重新输入</a>{% endif %}
+</div>
+
+<nav class="workflow-steps" aria-label="需求规划步骤">
+  <a class="workflow-step" href="#input"><span>1</span><strong>输入需求</strong><small>{% if state %}已提交{% else %}从一句话开始{% endif %}</small></a>
+  <a class="workflow-step" href="#analysis"><span>2</span><strong>查看分析</strong><small>{% if state %}{{ state.claims|length }} 条候选{% else %}提交后自动出现{% endif %}</small></a>
+  <a class="workflow-step" href="#review"><span>3</span><strong>确认需求</strong><small>可跳过</small></a>
+  <a class="workflow-step" href="#graph"><span>4</span><strong>生成规划图</strong><small>{% if state and state.rflp %}{% if state.draft %}已生成草稿{% else %}已生成正式图{% endif %}{% else %}有文本即可草稿{% endif %}</small></a>
+  <a class="workflow-step" href="{% if workspace %}/w/{{ workspace.name }}/project{% else %}#{% endif %}"><span>5</span><strong>项目验证</strong><small>可选</small></a>
+</nav>
+<p class="workflow-note">不必按顺序完成。第 4 步允许直接生成草稿图；第 3 步的审核、基线和第 5 步验证只在需要正式交付时再做。</p>
+
+{% if state %}
+<section id="analysis" class="analysis-result {% if state.claims %}success{% else %}warning{% endif %}" role="status">
+  <strong>规则分析已完成</strong>
+  <span>读取 {{ state.spans|length }} 个文本片段 · 识别 {{ state.claims|length }} 条 Requirement 候选 · {{ state.stakeholders|length }} 个利益相关方候选</span>
+  {% if state.claims or state.spans %}
+  <span>现在可以直接生成草稿图，也可以先确认候选再生成正式图。</span>
+  <div class="workbench-actions">
+    <form method="post" action="/w/{{ workspace.name }}/requirements/generate-draft"><button class="button primary" type="submit">立即生成草稿图</button></form>
+    {% if state.claims|selectattr('status', 'equalto', 'accepted')|list|length %}<form method="post" action="/w/{{ workspace.name }}/requirements/generate"><button class="button" type="submit">生成正式图</button></form>{% endif %}
+  </div>
+  {% else %}
+  <span>暂未识别出规则化需求，但仍可按原文生成待确认草稿图。也可以补充“必须、应当、需要、不得”或 “MUST、SHALL”，再生成正式图。</span>
+  {% endif %}
+</section>
+{% if active_llm and not llm_ready %}<div class="callout warning">当前启用的 {{ active_llm.label }} 还没有 API Key，AI 辅助分析暂不可用。规则分析和草稿图不受影响。<a href="/settings/llm">去 LLM 设置填写并保存</a></div>{% endif %}
+{% endif %}
+
+<section id="input" class="panel intake-panel">
+  <div class="panel-head"><div><span class="eyebrow">Step 1 · Input</span><h2>输入需求</h2></div><span class="count-badge">本地规则分析</span></div>
+  <p class="form-hint">不用准备完整规格书。先写下目标、约束或一句业务要求即可；后面可以继续补充、修改和审核。</p>
   <form method="post" action="/w/{{ workspace.name }}/requirements/analyze" enctype="multipart/form-data" class="intake-form">
-    <label class="field">直接粘贴<textarea name="text" rows="7" placeholder="例如：管理员必须恢复历史版本。审计人员必须查看恢复记录。"></textarea></label>
+    <label class="field">直接粘贴<textarea name="text" rows="7" placeholder="例如：管理员必须恢复历史版本。\n审计人员必须查看恢复记录。"></textarea></label>
     <label class="field">或上传文件<input type="file" name="artifact" accept=".txt,.md,.markdown,.docx,.py,.json,.yaml,.yml,.toml"></label>
     <label class="field checkbox-line"><input type="checkbox" name="merge" value="on"> 并入现有工作台（追加候选，保留已审核项）</label>
-    <button class="button primary" type="submit">规则分析</button>
+    <button class="button primary" type="submit">提交并分析</button>
   </form>
 </section>
+
 {% if state %}
-<section class="panel source-summary"><div class="panel-head"><div><span class="eyebrow">Source artifact</span><h2>{{ state.artifact.path }}</h2></div><code>{{ short_hash(state.artifact.sha256) }}</code></div><p>{{ state.spans|length }} 个 TextSpan，所有候选均保留来源定位。</p></section>
-<section class="panel">
-  <div class="panel-head"><div><span class="eyebrow">Scenario description</span><h2>场景描述</h2></div><div class="download-actions"><a href="/w/{{ workspace.name }}/requirements/scenarios.json">JSON</a><a href="/w/{{ workspace.name }}/requirements/scenario-runs.json">执行记录</a></div></div>
+<section class="panel source-summary"><div class="panel-head"><div><span class="eyebrow">Source</span><h2>{{ state.artifact.path }}</h2></div><code>{{ short_hash(state.artifact.sha256) }}</code></div><p>{{ state.spans|length }} 个文本片段，候选均保留来源定位。</p></section>
+
+<section class="panel optional-panel" id="scenario">
+  <div class="panel-head"><div><span class="eyebrow">Optional · Scenario</span><h2>场景描述</h2></div><div class="download-actions"><a href="/w/{{ workspace.name }}/requirements/scenarios.json">JSON</a><a href="/w/{{ workspace.name }}/requirements/scenario-runs.json">执行记录</a></div></div>
+  <p class="form-hint">有具体业务流程时再填写；没有场景也不影响生成规划图。</p>
   <form method="post" action="/w/{{ workspace.name }}/requirements/scenarios" class="intake-form">
     <label class="field">场景标题<input name="title" placeholder="例如：管理员恢复历史版本" required></label>
     <label class="field">场景描述<textarea name="description" rows="3" placeholder="描述参与者在什么目标下触发该场景。" required></textarea></label>
@@ -39,20 +73,32 @@
     <label class="field">预期结果（每行一个，必填）<textarea name="expected_outcomes" rows="3" placeholder="内容恢复成功&#10;写入审计记录" required></textarea></label>
     <label class="field">故障/异常（每行一个）<textarea name="faults" rows="2" placeholder="恢复失败时重试一次"></textarea></label>
     <label class="field">关联 Requirement ID（每行一个，可选）<textarea name="requirement_ids" rows="2" placeholder="req-..."></textarea></label>
-    <button class="button primary" type="submit">保存场景</button>
+    <button class="button" type="submit">保存场景</button>
   </form>
-  {% if state.scenarios %}<div class="trace-list">{% for scenario in state.scenarios %}<details open><summary>{{ scenario.title }} <code>{{ scenario.id }}</code></summary><dl><dt>描述</dt><dd>{{ scenario.description }}</dd><dt>参与者</dt><dd>{{ scenario.actors|join(' · ') if scenario.actors else '未填写' }}</dd><dt>前置条件</dt><dd>{{ scenario.preconditions|join(' · ') if scenario.preconditions else '未填写' }}</dd><dt>步骤</dt><dd><ol>{% for step in scenario.steps %}<li>{{ step }}</li>{% endfor %}</ol></dd><dt>预期结果</dt><dd><ul>{% for outcome in scenario.expected_outcomes %}<li>{{ outcome }}</li>{% endfor %}</ul></dd><dt>故障/异常</dt><dd>{{ scenario.faults|join(' · ') if scenario.faults else '未填写' }}</dd><dt>关联需求</dt><dd>{{ scenario.requirement_ids|join(' · ') if scenario.requirement_ids else '未关联' }}</dd></dl><div class="workbench-actions"><form method="post" action="/w/{{ workspace.name }}/requirements/scenarios/execute"><input type="hidden" name="scenario_id" value="{{ scenario.id }}"><button class="button compact primary" type="submit">生成执行轨迹</button></form><form method="post" action="/w/{{ workspace.name }}/requirements/scenarios/delete"><input type="hidden" name="scenario_id" value="{{ scenario.id }}"><button class="button compact danger" type="submit">删除场景</button></form></div>{% for run in state.scenario_runs|selectattr('scenario_id', 'equalto', scenario.id)|reverse %}<div class="mini-empty">最近执行：{{ run.status }} · {{ run.verification }} · {{ run.events|length }} 个事件 · assertions={{ run.assertions|length }} · <code>{{ short_hash(run.trace_hash) }}</code></div>{% endfor %}</details>{% endfor %}</div>{% else %}<div class="mini-empty">还没有场景描述。</div>{% endif %}
+  {% if state.scenarios %}<div class="trace-list">{% for scenario in state.scenarios %}<details open><summary>{{ scenario.title }} <code>{{ scenario.id }}</code></summary><dl><dt>描述</dt><dd>{{ scenario.description }}</dd><dt>参与者</dt><dd>{{ scenario.actors|join(' · ') if scenario.actors else '未填写' }}</dd><dt>前置条件</dt><dd>{{ scenario.preconditions|join(' · ') if scenario.preconditions else '未填写' }}</dd><dt>步骤</dt><dd><ol>{% for step in scenario.steps %}<li>{{ step }}</li>{% endfor %}</ol></dd><dt>预期结果</dt><dd><ul>{% for outcome in scenario.expected_outcomes %}<li>{{ outcome }}</li>{% endfor %}</ul></dd><dt>故障/异常</dt><dd>{{ scenario.faults|join(' · ') if scenario.faults else '未填写' }}</dd><dt>关联需求</dt><dd>{{ scenario.requirement_ids|join(' · ') if scenario.requirement_ids else '未关联' }}</dd></dl><div class="workbench-actions"><form method="post" action="/w/{{ workspace.name }}/requirements/scenarios/execute"><input type="hidden" name="scenario_id" value="{{ scenario.id }}"><button class="button compact primary" type="submit">生成执行轨迹</button></form><form method="post" action="/w/{{ workspace.name }}/requirements/scenarios/delete"><input type="hidden" name="scenario_id" value="{{ scenario.id }}"><button class="button compact danger" type="submit">删除场景</button></form></div>{% for run in state.scenario_runs|selectattr('scenario_id', 'equalto', scenario.id)|reverse %}<div class="mini-empty">最近执行：{{ run.status }} · {{ run.verification }} · {{ run.events|length }} 个事件 · assertions={{ run.assertions|length }} · <code>{{ short_hash(run.trace_hash) }}</code></div>{% endfor %}</details>{% endfor %}</div>{% else %}<div class="mini-empty">还没有场景描述，可稍后再补。</div>{% endif %}
 </section>
-<div class="workbench-actions"><form method="post" action="/w/{{ workspace.name }}/requirements/accept-traceable"><button class="button primary" type="submit">接受全部可追溯候选</button></form><form method="post" action="/w/{{ workspace.name }}/requirements/ai"><button class="button" type="submit">AI 辅助分析</button></form></div>
-{{ review_group("利益相关方", "stakeholders", state.stakeholders, "name") }}
-<div class="review-columns">{{ review_group("Concern", "concerns", state.concerns, "name") }}{{ review_group("Stakeholder Need", "needs", state.needs, "statement") }}</div>
-{{ review_group("Requirement 候选", "claims", state.claims, "object") }}
-<section class="panel"><div class="panel-head"><div><span class="eyebrow">Coverage prompts</span><h2>利益相关方补漏检查</h2></div></div><div class="checklist-grid">{% for question in state.checklist %}<span>{{ question }}</span>{% endfor %}</div></section>
-<form method="post" action="/w/{{ workspace.name }}/requirements/generate" class="generate-action"><button class="button primary" type="submit">生成 RFLP 规划图</button></form>
-{% if state.rflp %}
-<section class="metric-row coverage-row">{% for label, value in state.coverage.items() %}<article><span>{{ label }} 覆盖率</span><strong>{{ value }}%</strong></article>{% endfor %}<article><span>未审核推断角色</span><strong>{{ state.stakeholders|selectattr('candidate_type', 'equalto', 'inferred')|selectattr('status', 'equalto', 'candidate')|list|length }}</strong></article></section>
-<section class="panel"><div class="panel-head"><div><span class="eyebrow">Deterministic SVG</span><h2>RFLP 规划图</h2></div><div class="download-actions"><a href="/w/{{ workspace.name }}/requirements/model.json">JSON</a><a href="/w/{{ workspace.name }}/requirements/model.svg">SVG</a><a href="/w/{{ workspace.name }}/requirements/model.sysml">SysML v2</a></div></div><div class="svg-canvas">{{ state.svg|safe }}</div></section>
-<section class="panel"><div class="panel-head"><div><span class="eyebrow">Requirement provenance</span><h2>需求来源链</h2></div><span class="count-badge">{{ state.traceability|length }}</span></div><div class="trace-list">{% for item in state.traceability %}<details><summary>{{ item.requirement }}</summary><dl><dt>提出者</dt><dd>{{ item.stakeholder }}</dd><dt>Concern</dt><dd>{{ item.concern }}</dd><dt>Need</dt><dd>{{ item.need }}</dd><dt>原始来源</dt><dd>{{ item.source }}</dd></dl></details>{% endfor %}</div></section>
-{% endif %}
+
+<section id="review" class="review-section">
+  <div class="section-heading"><div><span class="eyebrow">Step 3 · Optional review</span><h2>确认需求</h2><p>这是正式交付前的质量检查，不是生成草稿图的前置条件。</p></div></div>
+  <div class="workbench-actions"><form method="post" action="/w/{{ workspace.name }}/requirements/accept-traceable"><button class="button primary" type="submit">接受全部可追溯候选</button></form><form method="post" action="/w/{{ workspace.name }}/requirements/ai"><button class="button" type="submit">AI 辅助分析</button></form></div>
+  {{ review_group("利益相关方", "stakeholders", state.stakeholders, "name") }}
+  <div class="review-columns">{{ review_group("Concern", "concerns", state.concerns, "name") }}{{ review_group("Stakeholder Need", "needs", state.needs, "statement") }}</div>
+  {{ review_group("Requirement 候选", "claims", state.claims, "object") }}
+  <section class="panel"><div class="panel-head"><div><span class="eyebrow">Coverage prompts</span><h2>利益相关方补漏检查</h2></div></div><div class="checklist-grid">{% for question in state.checklist %}<span>{{ question }}</span>{% endfor %}</div></section>
+</section>
+
+<section id="graph" class="graph-section">
+  <div class="section-heading"><div><span class="eyebrow">Step 4 · RFLP</span><h2>生成规划图</h2><p>只要识别出至少一条 Requirement 候选，就可以直接生成。</p></div></div>
+  {% if state.rflp %}
+  {% if state.draft %}<div class="callout warning"><strong>快速草稿图</strong>：可以先用于讨论和修改，尚未经过人工确认，也不能作为正式基线。{% for warning in state.draft_warnings %}<span>{{ warning }}</span>{% endfor %}</div>{% else %}<div class="callout success"><strong>正式 RFLP 图</strong>：当前模型已通过需求确认，可继续批准基线。</div>{% endif %}
+  <section class="metric-row coverage-row">{% for label, value in state.coverage.items() %}<article><span>{{ label }} 覆盖率</span><strong>{{ value }}%</strong></article>{% endfor %}<article><span>未审核推断角色</span><strong>{{ state.stakeholders|selectattr('candidate_type', 'equalto', 'inferred')|selectattr('status', 'equalto', 'candidate')|list|length }}</strong></article></section>
+  <section class="panel"><div class="panel-head"><div><span class="eyebrow">Deterministic SVG</span><h2>RFLP 规划图</h2></div><div class="download-actions"><a href="/w/{{ workspace.name }}/requirements/model.json">JSON</a><a href="/w/{{ workspace.name }}/requirements/model.svg">SVG</a><a href="/w/{{ workspace.name }}/requirements/model.sysml">SysML v2</a></div></div><div class="svg-canvas">{{ state.svg|safe }}</div></section>
+  <section class="panel"><div class="panel-head"><div><span class="eyebrow">Requirement provenance</span><h2>需求来源链</h2></div><span class="count-badge">{{ state.traceability|length }}</span></div><div class="trace-list">{% for item in state.traceability %}<details><summary>{{ item.requirement }}</summary><dl><dt>提出者</dt><dd>{{ item.stakeholder }}</dd><dt>Concern</dt><dd>{{ item.concern }}</dd><dt>Need</dt><dd>{{ item.need }}</dd><dt>原始来源</dt><dd>{{ item.source }}</dd></dl></details>{% endfor %}</div></section>
+  {% else %}
+  <div class="mini-empty">{% if state.spans %}还没有图。点击上方“立即生成草稿图”即可直接查看；确认需求后再生成正式图。{% else %}当前没有可建图的文本，请先回到第 1 步输入需求。{% endif %}</div>
+  {% endif %}
+</section>
+
+<section class="next-step panel"><div><span class="eyebrow">Step 5 · Optional</span><h2>项目验证</h2><p>如果已经有本地 Python 项目，可以继续扫描实现、生成差异和任务契约；没有项目也可以停在这里。</p></div><a class="button" href="/w/{{ workspace.name }}/project">进入项目验证</a></section>
 {% endif %}
 {% endblock %}
