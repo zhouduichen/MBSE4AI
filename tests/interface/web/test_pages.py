@@ -146,6 +146,25 @@ def test_requirements_page_can_generate_draft_without_review(client: TestClient)
     assert "不是正式 RFLP" in page.text
 
 
+def test_plain_language_can_confirm_and_generate_formal_rflp_directly(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "设置一个航天系统"},
+    )
+
+    generated = client.post(
+        "/w/demo/requirements/confirm-and-generate", follow_redirects=False
+    )
+
+    assert generated.status_code == 303
+    assert generated.headers["location"].endswith("/requirements/graph")
+    page = client.get("/w/demo/requirements/graph")
+    assert "正式 RFLP 模型已生成" in page.text
+    assert "需求理解图" not in page.text
+    assert "R" in page.text and "F" in page.text and "L" in page.text and "P" in page.text
+
+
 def test_requirements_input_keeps_plain_language_as_a_candidate(client: TestClient) -> None:
     client.post("/workspaces", data={"name": "demo"})
     client.post(
@@ -157,6 +176,21 @@ def test_requirements_input_keeps_plain_language_as_a_candidate(client: TestClie
 
     assert "识别 1 条需求候选" in page.text
     assert "待确认需求候选" in page.text
+    assert "确认并生成 RFLP" in page.text
+
+
+def test_requirement_review_uses_local_row_updates_and_direct_generation(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+
+    page = client.get("/w/demo/requirements/review")
+
+    assert "hx-post=\"/w/demo/requirements/review\"" in page.text
+    assert "hx-target=\"this\"" in page.text
+    assert "确认并生成 RFLP" in page.text
 
 
 def test_requirements_page_runs_one_click_flow_from_current_input(client: TestClient) -> None:

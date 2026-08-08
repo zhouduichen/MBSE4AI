@@ -863,6 +863,9 @@ def add_llm_suggestions(
     if not isinstance(suggestions, list):
         raise AdapterFailure("LLM 输出必须是 JSON 数组")
     span_ids = {item["id"] for item in spans}
+    existing_stakeholder_ids = {item["id"] for item in result["stakeholders"]}
+    existing_concern_ids = {item["id"] for item in result["concerns"]}
+    existing_need_ids = {item["id"] for item in result["needs"]}
     for suggestion in suggestions:
         if not isinstance(suggestion, dict):
             raise AdapterFailure("LLM 候选格式无效")
@@ -872,35 +875,41 @@ def add_llm_suggestions(
         stakeholder_id = _id("stkc", "llm", suggestion["stakeholder"], suggestion["source_span_id"])
         concern_id = _id("concern", stakeholder_id, suggestion["concern"])
         need_id = _id("need", stakeholder_id, suggestion["need"])
-        result["stakeholders"].append(
-            {
-                "id": stakeholder_id,
-                "name": str(suggestion["stakeholder"]),
-                "candidate_type": "inferred",
-                "source_span_id": suggestion["source_span_id"],
-                "confidence": 0.5,
-                "reason": "LLM 根据责任或关注点提出",
-                "producer": "llm",
-                "status": "candidate",
-            }
-        )
-        result["concerns"].append(
-            {
-                "id": concern_id,
-                "name": str(suggestion["concern"]),
-                "stakeholder_id": stakeholder_id,
-                "source_span_id": suggestion["source_span_id"],
-                "status": "candidate",
-            }
-        )
-        result["needs"].append(
-            {
-                "id": need_id,
-                "statement": str(suggestion["need"]),
-                "stakeholder_id": stakeholder_id,
-                "concern_id": concern_id,
-                "source_span_id": suggestion["source_span_id"],
-                "status": "candidate",
-            }
-        )
+        if stakeholder_id not in existing_stakeholder_ids:
+            result["stakeholders"].append(
+                {
+                    "id": stakeholder_id,
+                    "name": str(suggestion["stakeholder"]),
+                    "candidate_type": "inferred",
+                    "source_span_id": suggestion["source_span_id"],
+                    "confidence": 0.5,
+                    "reason": "LLM 根据责任或关注点提出",
+                    "producer": "llm",
+                    "status": "candidate",
+                }
+            )
+            existing_stakeholder_ids.add(stakeholder_id)
+        if concern_id not in existing_concern_ids:
+            result["concerns"].append(
+                {
+                    "id": concern_id,
+                    "name": str(suggestion["concern"]),
+                    "stakeholder_id": stakeholder_id,
+                    "source_span_id": suggestion["source_span_id"],
+                    "status": "candidate",
+                }
+            )
+            existing_concern_ids.add(concern_id)
+        if need_id not in existing_need_ids:
+            result["needs"].append(
+                {
+                    "id": need_id,
+                    "statement": str(suggestion["need"]),
+                    "stakeholder_id": stakeholder_id,
+                    "concern_id": concern_id,
+                    "source_span_id": suggestion["source_span_id"],
+                    "status": "candidate",
+                }
+            )
+            existing_need_ids.add(need_id)
     return result

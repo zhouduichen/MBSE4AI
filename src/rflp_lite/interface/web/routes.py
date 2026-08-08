@@ -376,11 +376,25 @@ def review_requirement(
     value: Annotated[str, Form()] = "",
 ) -> Response:
     try:
-        _facade(request).review_requirement_item(
+        state = _facade(request).review_requirement_item(
             workspace_name, group, item_id, status, value
         )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
+    if request.headers.get("HX-Request") == "true":
+        field = {"stakeholders": "name", "concerns": "name", "needs": "statement", "claims": "object"}[group]
+        item = next(item for item in state[group] if item["id"] == item_id)
+        return templates.TemplateResponse(
+            request=request,
+            name="_requirement-review-row.html",
+            context={
+                "workspace": _facade(request).workspace(workspace_name),
+                "group": group,
+                "item": item,
+                "field": field,
+                "title": {"stakeholders": "利益相关方", "concerns": "Concern", "needs": "Stakeholder Need", "claims": "Requirement 候选"}[group],
+            },
+        )
     return RedirectResponse(_requirements_module_location(workspace_name, "review"), status_code=303)
 
 
@@ -391,6 +405,15 @@ def accept_traceable_requirements(request: Request, workspace_name: str) -> Resp
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
     return RedirectResponse(_requirements_module_location(workspace_name, "review"), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/confirm-and-generate")
+def confirm_and_generate_requirements(request: Request, workspace_name: str) -> Response:
+    try:
+        _facade(request).confirm_and_generate_requirements(workspace_name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_module_location(workspace_name, "graph"), status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/generate")

@@ -1,0 +1,9 @@
+<form method="post" action="/w/{{ workspace.name }}/requirements/review" class="review-row" hx-post="/w/{{ workspace.name }}/requirements/review" hx-target="this" hx-swap="outerHTML">
+  <input type="hidden" name="group" value="{{ group }}">
+  <input type="hidden" name="item_id" value="{{ item.id }}">
+  <label><span class="sr-only">{{ title }}内容</span><input name="value" value="{{ item[field] }}" required></label>
+  <small>{{ item.source_span_id if item.source_span_id else item.span_id }}{% if item.candidate_type %} · {{ item.candidate_type }}{% endif %}</small>
+  <span class="status-badge {{ item.status }}">{{ item.status }}</span>
+  <button class="button compact" name="status" value="accepted" type="submit">接受</button>
+  <button class="button compact danger" name="status" value="rejected" type="submit">驳回</button>
+</form>

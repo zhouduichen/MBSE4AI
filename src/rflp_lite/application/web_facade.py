@@ -472,8 +472,20 @@ class WebFacade:
         current = self.requirements(workspace_name)
         if current is None:
             raise ContractViolation("requirements workbench is empty")
+        current = confirm_requirements(current)
         return self._save_requirements(
             workspace_name, generate_model(current), "requirements.generated"
+        )
+
+    def confirm_and_generate_requirements(self, workspace_name: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        confirmed = confirm_requirements(current)
+        return self._save_requirements(
+            workspace_name,
+            generate_model(confirmed),
+            "requirements.confirmed_and_generated",
         )
 
     def generate_requirements_draft(self, workspace_name: str) -> dict[str, object]:
