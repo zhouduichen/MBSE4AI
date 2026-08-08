@@ -15,6 +15,7 @@ def test_structured_requirement_id_is_deterministic_and_provenance_aware():
         object="需求捕获",
     )
     assert first == second
-    assert first.id.startswith("REQ-")
+    assert first.id.startswith("requirement-")
+    assert first.source_region_id == "region-1"
+    assert first.statement == "需求捕获"
     assert first.status == "candidate"
-

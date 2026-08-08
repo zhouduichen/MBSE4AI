@@ -18,7 +18,7 @@ _V2_DEFAULTS: dict[str, object] = {
     "structured_requirements": [],
     "trace_links": [],
     "diagnostics": [],
-    "mbse": {},
+    "mbse": None,
 }
 
 
@@ -28,9 +28,11 @@ def empty_document_state() -> dict[str, object]:
     return json.loads(canonical_json(_V2_DEFAULTS))
 
 
-def migrate_workbench_state(state: dict[str, Any]) -> dict[str, Any]:
+def migrate_workbench_state(state: dict[str, Any] | None) -> dict[str, Any] | None:
     """Normalize legacy state to schema v2 without mutating repository data."""
 
+    if state is None:
+        return None
     if not isinstance(state, dict):
         raise ContractViolation("workbench state must be an object")
     normalized = json.loads(canonical_json(state))
@@ -59,4 +61,3 @@ def migrate_workbench_state(state: dict[str, Any]) -> dict[str, Any]:
             for span in normalized.get("spans", [])
         ]
     return normalized
-

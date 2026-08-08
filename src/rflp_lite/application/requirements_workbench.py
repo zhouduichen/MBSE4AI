@@ -10,9 +10,16 @@ from rflp_lite.adapters.document_intelligence import LocalDocumentParser
 from rflp_lite.adapters.readers import RuleClaimExtractor, read_artifact
 from rflp_lite.adapters.llm_client import chat_completion
 from rflp_lite.application.synthesize import synthesize_rflp
+from rflp_lite.application.requirement_semantics import (
+    entity_payloads,
+    extract_requirement_candidates,
+    requirement_payload,
+)
+from rflp_lite.application.requirement_inference import inferred_requirement_payloads
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import AdapterFailure, InvariantViolation
-from rflp_lite.domain.models import Artifact, Claim, ModelElement, Relation, TextSpan
+from rflp_lite.domain.models import Claim, ModelElement, Relation, TextSpan
+from rflp_lite.domain.requirements import DocumentRegion
 
 
 _ROLE_ALIASES = {
@@ -261,6 +268,9 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
         ]
         diagnostics = []
     extracted_claims = RuleClaimExtractor().extract(spans)
+    structured_candidates = extract_requirement_candidates(
+        {"document_regions": document_regions}
+    )
     system_context = _system_context(spans, bool(extracted_claims))
     stakeholders: list[dict[str, object]] = []
     concerns: list[dict[str, object]] = []
@@ -318,6 +328,33 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
             need_id=need_id,
         )
         claims.append(value)
+    structured_requirements = [requirement_payload(item) for item in structured_candidates]
+    claims_by_span = {item.get("span_id"): item for item in claims}
+    for item in structured_requirements:
+        claim = claims_by_span.get(item["source_region_id"].replace("region-", "span-", 1))
+        if claim is not None:
+            claim["structured_requirement_id"] = item["id"]
+            claim["producer"] = "rule"
+            claim["bulk_approvable"] = item["bulk_approvable"]
+        elif extracted_claims:
+            claims.append(
+                {
+                    "id": _id("claim", item["id"]),
+                    "span_id": item["source_region_id"].replace("region-", "span-", 1),
+                    "subject": item["subject"],
+                    "predicate": item["predicate"],
+                    "object": item["statement"],
+                    "confidence": item["confidence"],
+                    "status": item["status"],
+                    "source_type": "constraint" if item["constraints"] else "need",
+                    "candidate_type": "explicit",
+                    "interpretation": "结构化需求候选",
+                    "need_id": None,
+                    "structured_requirement_id": item["id"],
+                    "producer": "rule",
+                    "bulk_approvable": item["bulk_approvable"],
+                }
+            )
     extracted_span_ids = {claim.span_id for claim in extracted_claims}
     for span in spans:
         if span.id in extracted_span_ids:
@@ -355,11 +392,11 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
         "spans": [asdict(span) for span in spans],
         "document_pages": document_pages,
         "document_regions": document_regions,
-        "entities": [],
-        "structured_requirements": [],
+        "entities": entity_payloads({"document_regions": document_regions}),
+        "structured_requirements": structured_requirements,
         "trace_links": [],
         "diagnostics": diagnostics,
-        "mbse": {},
+        "mbse": None,
         "stakeholders": sorted(stakeholders, key=lambda item: (item["name"], item["id"])),
         "concerns": sorted(concerns, key=lambda item: item["id"]),
         "needs": sorted(needs, key=lambda item: item["id"]),
@@ -397,7 +434,7 @@ def empty_workbench() -> dict[str, object]:
         "structured_requirements": [],
         "trace_links": [],
         "diagnostics": [],
-        "mbse": {},
+        "mbse": None,
         "stakeholders": [],
         "concerns": [],
         "needs": [],
@@ -439,6 +476,53 @@ def merge_artifact(
     result["baseline"], result["project"] = None, None
     result["draft"], result["draft_warnings"] = False, []
     result["flow"] = None
+    return result
+
+
+def suggest_implicit_constraints(
+    state: dict[str, object],
+    config: dict[str, object],
+    complete: object = None,
+) -> dict[str, object]:
+    """Append LLM-generated implicit constraints as individually reviewable candidates."""
+
+    result = _clone(state)
+    regions = tuple(
+        DocumentRegion(
+            id=str(item.get("id", "")),
+            artifact_id=str(item.get("artifact_id", "")),
+            page=item.get("page"),
+            kind=str(item.get("kind", "paragraph")),
+            locator=str(item.get("locator", "")),
+            text=str(item.get("text", "")),
+            bbox=tuple(item.get("bbox", ())),
+            confidence=float(item.get("confidence", 1.0)),
+        )
+        for item in result.get("document_regions", ())
+    )
+    values = inferred_requirement_payloads(regions, config, complete)  # type: ignore[arg-type]
+    existing = {item.get("id") for item in result.get("structured_requirements", ())}
+    result.setdefault("structured_requirements", [])
+    result["structured_requirements"].extend(
+        item for item in values if item.get("id") not in existing
+    )
+    result["structured_requirements"] = sorted(
+        result["structured_requirements"], key=lambda item: item.get("id", "")
+    )
+    result["diagnostics"] = [
+        item for item in result.get("diagnostics", ())
+        if item.get("code") != "implicit-requirements-suggested"
+    ]
+    result["diagnostics"].append(
+        {
+            "id": _id("diagnostic", "implicit-requirements-suggested", len(values)),
+            "scope": "structured_requirements",
+            "code": "implicit-requirements-suggested",
+            "message": f"已生成 {len(values)} 条隐含约束候选，需逐条人工确认",
+            "source_id": "",
+            "severity": "info",
+        }
+    )
     return result
 
 
@@ -633,6 +717,9 @@ def accept_traceable(state: dict[str, object]) -> dict[str, object]:
             continue
         if claim["source_type"] == "constraint" or claim.get("need_id") in accepted_needs:
             claim["status"] = "accepted"
+    for requirement in result.get("structured_requirements", ()):
+        if requirement.get("status") == "candidate" and requirement.get("bulk_approvable", requirement.get("source_type") != "inferred"):
+            requirement["status"] = "accepted"
     return result
 
 
@@ -642,6 +729,9 @@ def confirm_requirements(state: dict[str, object]) -> dict[str, object]:
     for claim in result["claims"]:
         if claim["status"] == "candidate" and claim.get("source_type") != "need":
             claim["status"] = "accepted"
+    for requirement in result.get("structured_requirements", ()):
+        if requirement.get("status") == "candidate" and requirement.get("source_type") != "inferred" and requirement.get("producer") != "llm":
+            requirement["status"] = "accepted"
     return result
 
 

@@ -20,6 +20,7 @@ from rflp_lite.application.requirements_workbench import (
     confirm_requirements,
     add_stakeholder,
     add_llm_suggestions,
+    suggest_implicit_constraints,
     analyze_artifact,
     generate_draft_model,
     generate_model,
@@ -56,7 +57,7 @@ from rflp_lite.application.workspaces import (
     list_managed_workspaces,
     managed_workspace,
 )
-from rflp_lite.domain.errors import ContractViolation, InvariantViolation
+from rflp_lite.domain.errors import AdapterFailure, ContractViolation, InvariantViolation
 from rflp_lite.governance.profile import Profile
 
 
@@ -532,6 +533,19 @@ class WebFacade:
             workspace_name,
             add_llm_suggestions(current, self.llm.active_config()),
             "requirements.ai_suggested",
+        )
+
+    def suggest_implicit_requirements(self, workspace_name: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        config = self.llm.active_config()
+        if config is None:
+            raise AdapterFailure("LLM 未配置")
+        return self._save_requirements(
+            workspace_name,
+            suggest_implicit_constraints(current, config),
+            "requirements.implicit_constraints_suggested",
         )
 
     def add_requirement_scenario(
