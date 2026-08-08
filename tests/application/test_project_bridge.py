@@ -263,6 +263,29 @@ def test_execute_tests_is_deterministic(tmp_path: Path):
     assert first == second
 
 
+def test_execute_tests_cache_hit_keeps_execution_hash(tmp_path: Path):
+    state = analyze_artifact(
+        "requirements.txt", "The service shall restore a historical version.".encode()
+    )
+    state = _single_obligation_rflp(state)
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "test_ok.py").write_text(
+        "def test_passes():\n    assert True\n", encoding="utf-8"
+    )
+    state, _ = analyze_project_state(state, str(project))
+    cache_dir = tmp_path / "cache"
+
+    state, _ = execute_tests_state(state, str(project), timeout=120, cache_dir=cache_dir)
+    first_hash = state["project"]["execution"]["hash"]
+    assert state["project"]["execution"]["summary"]["test_run"]["cache_hit"] is False
+    state, _ = execute_tests_state(state, str(project), timeout=120, cache_dir=cache_dir)
+
+    test_run = state["project"]["execution"]["summary"]["test_run"]
+    assert test_run["cache_hit"] is True
+    assert state["project"]["execution"]["hash"] == first_hash
+
+
 def test_execute_tests_populates_evidence_and_failed_tests(tmp_path: Path):
     state = analyze_artifact(
         "requirements.txt", "The service shall restore a historical version.".encode()

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import re
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from rflp_lite.adapters.evidence_readers import read_junit
 from rflp_lite.adapters.project_scanner import scan_project
-from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT, run_project_tests
+from rflp_lite.adapters.test_execution_config import (
+    DEFAULT_TEST_TIMEOUT,
+    ResourceLimits,
+    build_limits,
+)
+from rflp_lite.adapters.test_executor import run_project_test_matrix
 from rflp_lite.application.diff import compare_baseline_with_actual
 from rflp_lite.application.tasks import build_task_contracts
 from rflp_lite.domain.baseline import approve_baseline
@@ -31,18 +34,6 @@ _EVIDENCE_KINDS = {
     "api-operation": "openapi-operation",
     "test-case": "test-case",
 }
-_TIMING_LINE = re.compile(r" in \d+\.\d+s$")
-
-
-def _output_tail(path: Path, max_lines: int = 15, max_chars: int = 2000) -> str:
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return ""
-    kept = [line for line in lines[-max_lines:] if not _TIMING_LINE.search(line.strip())]
-    return "\n".join(kept).strip()[:max_chars]
-
-
 @dataclass(frozen=True, slots=True)
 class BridgeArtifacts:
     baseline: Baseline
@@ -279,7 +270,19 @@ def _build_execution(
         "contract_statuses": statuses,
         "summary": summary,
     }
-    execution["hash"] = canonical_hash(execution)
+    stable_execution = _clone(execution)
+    stable_summary = stable_execution["summary"]
+    stable_test_run = stable_summary.get("test_run")
+    if isinstance(stable_test_run, dict):
+        stable_test_run.pop("cache_hit", None)
+        stable_test_run.pop("stderr_tail", None)
+        stable_test_run.pop("stdout_tail", None)
+        for item in stable_test_run.get("runners", ()):
+            if isinstance(item, dict):
+                item.pop("cache_hit", None)
+                item.pop("stderr_tail", None)
+                item.pop("stdout_tail", None)
+    execution["hash"] = canonical_hash(stable_execution)
     result = _clone(state)
     result["project"]["execution"] = execution
     result["project"]["evidence"] = [asdict(item) for item in evidence]
@@ -317,8 +320,13 @@ def execute_tests_state(
     state: dict[str, object],
     project_dir: str | Path,
     timeout: int = DEFAULT_TEST_TIMEOUT,
+    *,
+    runners: tuple[str, ...] = ("pytest",),
+    limits: ResourceLimits | None = None,
+    cache_dir: str | Path | None = None,
+    jobs: int = 1,
 ) -> tuple[dict[str, object], VerifyResult]:
-    """运行项目 pytest 沙箱，把归一化 JUnit 回填为 Evidence，再重算执行状态。"""
+    """运行内置测试 runner 集合，把客观 Evidence 回填后重算执行状态。"""
     if not state.get("baseline"):
         raise ContractViolation("请先批准基线")
     project = state.get("project")
@@ -326,37 +334,27 @@ def execute_tests_state(
         raise ContractViolation("请先在项目接入中分析项目并生成任务契约")
     baseline = _baseline_from_state(state)
     resolved_path = Path(project_dir).expanduser().resolve()
-    run = run_project_tests(resolved_path, timeout)
+    effective_limits = limits or build_limits(timeout_seconds=timeout)
+    runs = run_project_test_matrix(
+        resolved_path,
+        runners=runners,
+        limits=effective_limits,
+        cache_dir=Path(cache_dir) if cache_dir is not None else None,
+        jobs=jobs,
+    )
     try:
         model, summary = scan_project(resolved_path)
         implementation_evidence = evidence_from_actual(model)
-        test_evidence = read_junit(run.junit_path) if run.junit_path is not None else ()
-        evidence = tuple(
+        test_evidence = tuple(
             sorted(
-                implementation_evidence + test_evidence, key=lambda item: item.id
+                (item for run in runs for item in run.evidence),
+                key=lambda item: item.id,
             )
         )
-        tests_passed = sum(1 for item in test_evidence if item.status == "passed")
-        tests_failed = sum(1 for item in test_evidence if item.status == "failed")
-        failed_tests = sorted(
-            item.source.rsplit("/", 1)[-1]
-            for item in test_evidence
-            if item.status == "failed"
+        evidence = tuple(
+            sorted(implementation_evidence + test_evidence, key=lambda item: item.id)
         )
-        stderr_tail = ""
-        if run.returncode != 0 or run.timed_out:
-            stderr_tail = _output_tail(run.stderr_path) or _output_tail(run.stdout_path)
-        extra_summary = {
-            "test_run": {
-                "returncode": run.returncode,
-                "timed_out": run.timed_out,
-                "tests_passed": tests_passed,
-                "tests_failed": tests_failed,
-                "junit_evidence": len(test_evidence),
-                "failed_tests": failed_tests,
-                "stderr_tail": stderr_tail,
-            }
-        }
+        extra_summary = {"test_run": _test_run_summary(runs, jobs)}
         return _build_execution(
             state,
             baseline,
@@ -367,4 +365,66 @@ def execute_tests_state(
             extra_summary,
         )
     finally:
-        shutil.rmtree(run.temp_dir, ignore_errors=True)
+        for run in runs:
+            if run.temp_dir is not None:
+                shutil.rmtree(run.temp_dir, ignore_errors=True)
+
+
+def _test_run_summary(runs: tuple, jobs: int) -> dict[str, object]:
+    """把一个或多个 RunnerResult 映射为兼容旧页面的确定性摘要。"""
+    per_runner: list[dict[str, object]] = []
+    failed_tests: set[str] = set()
+    stderr_parts: list[str] = []
+    for run in runs:
+        diagnostics = run.diagnostics
+        runner_failed = list(diagnostics.get("failed_tests", ()))
+        failed_tests.update(str(item) for item in runner_failed)
+        stderr_tail = str(diagnostics.get("stderr_tail", ""))
+        stdout_tail = str(diagnostics.get("stdout_tail", ""))
+        diagnostic_tail = (
+            stderr_tail or stdout_tail if run.returncode != 0 or run.timed_out else ""
+        )
+        if run.returncode != 0 or run.timed_out:
+            detail = diagnostic_tail
+            if detail:
+                stderr_parts.append(f"[{run.runner}] {detail}")
+        per_runner.append(
+            {
+                "runner": run.runner,
+                "returncode": run.returncode,
+                "timed_out": run.timed_out,
+                "tests_passed": int(diagnostics.get("tests_passed", 0)),
+                "tests_failed": int(diagnostics.get("tests_failed", 0)),
+                "junit_evidence": len(run.evidence),
+                "failed_tests": runner_failed,
+                "stderr_tail": diagnostic_tail,
+                "cache_hit": run.cache_hit,
+                "resource_limits": run.resource_limits,
+            }
+        )
+    returncode: int | None
+    nonzero = [run.returncode for run in runs if run.returncode not in (None, 0)]
+    if nonzero:
+        returncode = nonzero[0]
+    elif any(run.returncode is None for run in runs):
+        returncode = None
+    else:
+        returncode = 0
+    return {
+        "runner": runs[0].runner if len(runs) == 1 else "multiple",
+        "runners": per_runner,
+        "jobs": jobs,
+        "cache_hit": bool(runs) and all(run.cache_hit for run in runs),
+        "returncode": returncode,
+        "timed_out": any(run.timed_out for run in runs),
+        "tests_passed": sum(int(run.diagnostics.get("tests_passed", 0)) for run in runs),
+        "tests_failed": sum(int(run.diagnostics.get("tests_failed", 0)) for run in runs),
+        "junit_evidence": sum(len(run.evidence) for run in runs),
+        "failed_tests": sorted(failed_tests),
+        "stderr_tail": "\n".join(stderr_parts),
+        "resource_limits": (
+            runs[0].resource_limits
+            if len(runs) == 1
+            else {run.runner: run.resource_limits for run in runs}
+        ),
+    }

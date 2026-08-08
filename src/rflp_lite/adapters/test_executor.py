@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Thread
 from typing import IO
@@ -15,6 +16,8 @@ from rflp_lite.adapters.test_execution_config import (
     DEFAULT_RESOURCE_LIMITS,
     DEFAULT_TEST_TIMEOUT,
     ResourceLimits,
+    validate_jobs,
+    validate_runner_names,
 )
 from rflp_lite.adapters.test_cache import cache_key, load_cached_result, save_cached_result
 from rflp_lite.adapters.execution_types import RunnerResult
@@ -31,6 +34,36 @@ _JUNIT_ATTRS = ("time", "timestamp", "hostname", "id")
 
 # Historical name retained for callers that imported the old result type.
 TestRun = RunnerResult
+
+
+def run_project_test_matrix(
+    project_dir: Path,
+    runners: tuple[str, ...] = ("pytest",),
+    limits: ResourceLimits | None = None,
+    cache_dir: Path | None = None,
+    jobs: int = 1,
+) -> tuple[RunnerResult, ...]:
+    """运行一个受控 runner 集合；默认串行，结果按 runner 名称稳定排序。"""
+    names = validate_runner_names(tuple(runners))
+    validate_jobs(jobs)
+    worker_count = min(jobs, len(names))
+
+    def execute(name: str) -> RunnerResult:
+        timeout = limits.timeout_seconds if limits is not None else DEFAULT_TEST_TIMEOUT
+        return run_project_tests(
+            project_dir,
+            timeout=timeout,
+            runner=name,
+            limits=limits,
+            cache_dir=cache_dir,
+        )
+
+    if worker_count == 1 or len(names) == 1:
+        results = tuple(execute(name) for name in names)
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="rflp-test") as pool:
+            results = tuple(pool.map(execute, names))
+    return tuple(sorted(results, key=lambda item: item.runner))
 
 
 def _pump(stream: IO[bytes], path: Path, limit: int) -> None:
@@ -171,7 +204,8 @@ def run_project_tests(
         junit_path = junit if junit.is_file() else None
         if junit_path is not None:
             _normalize_junit(junit_path)
-        evidence = parse_runner_evidence(spec, stdout_file, junit_path)
+        output_path = stderr_file if spec.output_kind == "unittest-verbose" else stdout_file
+        evidence = parse_runner_evidence(spec, output_path, junit_path)
         failed_tests = sorted(
             item.target_id.removeprefix("verification-")
             for item in evidence
