@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import asdict
 from html import escape
 
@@ -27,6 +28,10 @@ _ROLE_ALIASES = {
 }
 _GROUPS = {"stakeholders", "concerns", "needs", "claims"}
 _STATUSES = {"candidate", "accepted", "rejected"}
+_SYSTEM_INTENT = re.compile(
+    r"^(?:设置|建立|创建|构建|设计|开发|建设|规划|做|我想要|希望|期望|想做)"
+    r"(?:一个|一套|一款)?\s*(?P<name>.+)$"
+)
 
 
 def _clone(value: dict[str, object]) -> dict[str, object]:
@@ -74,9 +79,47 @@ def _concern(text: str) -> str:
     )
 
 
+def _system_context(spans: tuple[object, ...], has_formal_claims: bool) -> dict[str, object]:
+    source = str(getattr(spans[0], "text", "")).strip() if spans else ""
+    candidate = ""
+    match = _SYSTEM_INTENT.match(source.rstrip("。.!！?？"))
+    if match:
+        candidate = match.group("name").strip(" 。.!！?？")
+    if not candidate and any(word in source for word in ("航天", "卫星", "火箭", "空间")):
+        candidate = next(
+            (word for word in ("航天系统", "卫星系统", "火箭系统", "空间系统") if word in source),
+            "航天系统",
+        )
+    if not candidate or len(candidate) > 48:
+        candidate = "待命名系统"
+    domain = next(
+        (
+            name
+            for words, name in (
+                (("航天", "卫星", "火箭", "空间", "飞控", "载荷"), "航天"),
+                (("医疗", "医院", "患者", "诊疗"), "医疗"),
+                (("制造", "工厂", "产线", "设备"), "制造"),
+                (("金融", "支付", "银行", "账户"), "金融"),
+            )
+            if any(word in source.casefold() for word in words)
+        ),
+        "通用",
+    )
+    return {
+        "name": candidate,
+        "domain": domain,
+        "source_text": source,
+        "source_span_id": getattr(spans[0], "id", ""),
+        "status": "formal-candidate" if has_formal_claims else "draft",
+        "confidence": 0.9 if candidate != "待命名系统" else 0.35,
+        "next_actions": ("补充系统目标", "补充核心功能", "补充接口与约束"),
+    }
+
+
 def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
     artifact, spans = read_artifact(filename, content)
     extracted_claims = RuleClaimExtractor().extract(spans)
+    system_context = _system_context(spans, bool(extracted_claims))
     stakeholders: list[dict[str, object]] = []
     concerns: list[dict[str, object]] = []
     needs: list[dict[str, object]] = []
@@ -137,7 +180,7 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
                 {
                     "id": _id("draft-claim", span.id),
                     "span_id": span.id,
-                    "subject": "需求描述",
+                    "subject": system_context["name"],
                     "predicate": "待确认",
                     "object": span.text,
                     "confidence": 0.35,
@@ -163,6 +206,7 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
     )
     return {
         "artifact": asdict(artifact),
+        "system_context": system_context,
         "spans": [asdict(span) for span in spans],
         "stakeholders": sorted(stakeholders, key=lambda item: (item["name"], item["id"])),
         "concerns": sorted(concerns, key=lambda item: item["id"]),
@@ -191,6 +235,7 @@ def empty_workbench() -> dict[str, object]:
             "path": "manual-input",
             "sha256": digest,
         },
+        "system_context": None,
         "spans": [],
         "stakeholders": [],
         "concerns": [],
@@ -218,6 +263,7 @@ def merge_artifact(
     fresh = analyze_artifact(filename, content)
     result = _clone(state)
     result["artifact"] = fresh["artifact"]
+    result["system_context"] = fresh["system_context"]
     for group in ("spans", "stakeholders", "concerns", "needs", "claims"):
         existing_ids = {item["id"] for item in result[group]}
         result[group] = sorted(
@@ -435,6 +481,7 @@ def render_rflp_svg(
     elements: tuple[ModelElement, ...],
     relations: tuple[Relation, ...],
     stakeholders: tuple[str, ...] = (),
+    system_name: str = "",
 ) -> str:
     layers = {
         layer: tuple(sorted((item for item in elements if item.layer == layer), key=lambda item: (item.name, item.id)))
@@ -448,7 +495,7 @@ def render_rflp_svg(
         '<defs><marker id="rflp-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#607a73"/></marker></defs>',
         '<rect width="1180" height="100%" rx="16" fill="#0b1416"/>',
         '<text x="24" y="34" fill="#70e1bc" font-size="12" font-weight="700">STAKEHOLDER → NEED → REQUIREMENT → RFLP</text>',
-        f'<text x="24" y="58" fill="#a9bbb6" font-size="13">来源：{escape(" · ".join(stakeholders) or "法规 / 系统约束")}</text>',
+        f'<text x="24" y="58" fill="#a9bbb6" font-size="13">系统：{escape(system_name or "待命名系统")} · 来源：{escape(" · ".join(stakeholders) or "法规 / 系统约束")}</text>',
     ]
     for layer_index, layer in enumerate("RFLP"):
         x = 20 + layer_index * 290
@@ -549,7 +596,12 @@ def generate_model(state: dict[str, object]) -> dict[str, object]:
             }
         )
     result["coverage"] = _coverage(elements, relations)
-    result["svg"] = render_rflp_svg(elements, relations, stakeholder_names)
+    result["svg"] = render_rflp_svg(
+        elements,
+        relations,
+        stakeholder_names,
+        str((result.get("system_context") or {}).get("name", "")),
+    )
     result["draft"] = False
     result["draft_warnings"] = []
     result["flow"] = None

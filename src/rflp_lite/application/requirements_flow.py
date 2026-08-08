@@ -32,6 +32,26 @@ def _generated_scenario(result: dict[str, object], claim: dict[str, object]) -> 
     }
 
 
+def _draft_system_scenario(result: dict[str, object]) -> dict[str, object]:
+    context = result.get("system_context") or {}
+    system_name = str(context.get("name") or "待命名系统")
+    claim_ids = tuple(
+        str(claim["id"])
+        for claim in result.get("claims", ())
+        if claim.get("source_type") == "provisional"
+    )
+    return {
+        "title": f"{system_name}定义",
+        "description": f"围绕“{system_name}”建立第一版系统边界和需求草案，后续可继续细化为正式场景。",
+        "actors": ("需求提出者", "系统设计团队"),
+        "preconditions": (),
+        "steps": ("明确系统任务目标", "识别核心功能与外部接口", "记录约束、风险和验证方式"),
+        "expected_outcomes": (f"形成可继续细化的{system_name}系统草案",),
+        "faults": (),
+        "requirement_ids": claim_ids,
+    }
+
+
 def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
     """Run the user-entered requirement through the local model workbench.
 
@@ -43,15 +63,28 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
     result["flow"] = None
     if not any(item.get("status") == "accepted" for item in result.get("claims", ())):
         result = generate_draft_model(result)
+        draft_scenario_ids: list[str] = []
+        if result.get("claims") and not result.get("scenarios"):
+            result = add_scenario(result, **_draft_system_scenario(result))
+            scenario = result["scenarios"][-1]
+            scenario["status"] = "generated-draft"
+            scenario["producer"] = "rule"
+            scenario["generated_from"] = "system-context"
+            execution = execute_scenario(result, scenario["id"])
+            result = append_scenario_run(result, execution)
+            draft_scenario_ids.append(scenario["id"])
         result["flow"] = {
             "status": "draft_only",
             "steps": [
                 {"key": "analysis", "status": "completed"},
                 {"key": "draft_graph", "status": "completed"},
+                {"key": "starter_scenario", "status": "completed", "count": len(draft_scenario_ids)},
+                {"key": "scenario_execution", "status": "completed", "count": len(draft_scenario_ids)},
                 {"key": "formal_model", "status": "waiting_for_requirement_review"},
                 {"key": "project_validation", "status": "waiting_for_project_path"},
             ],
-            "warning": "原文已保留为待确认需求候选，但没有识别出正式约束，因此只生成了待确认草稿。",
+            "warning": "原文已建立系统主题、初始 RFLP 草图和起始场景；补充目标、功能和约束后即可确认正式需求。",
+            "next_action": "去需求输入补充系统目标、核心功能和接口约束",
         }
         return result
 

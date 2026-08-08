@@ -28,8 +28,21 @@ def test_requirements_flow_keeps_plain_language_as_a_reviewable_draft():
     assert result["flow"]["status"] == "draft_only"
     assert result["draft"] is True
     assert result["rflp"]["elements"]
-    assert result["scenarios"] == []
-    assert result["scenario_runs"] == []
+    assert result["scenarios"]
+    assert result["scenario_runs"]
+
+
+def test_requirements_flow_turns_a_broad_system_intent_into_a_named_starter_context():
+    state = analyze_artifact("requirements.txt", "设置一个航天系统".encode())
+
+    result = run_requirements_flow(state)
+
+    assert result["system_context"]["name"] == "航天系统"
+    assert result["system_context"]["domain"] == "航天"
+    assert result["scenarios"][0]["title"] == "航天系统定义"
+    assert result["scenario_runs"][0]["verification"] == "declarative-only"
+    assert "航天系统" in result["svg"]
+    assert result["flow"]["next_action"]
 
 
 def test_requirements_flow_executes_existing_scenarios_without_creating_duplicates():

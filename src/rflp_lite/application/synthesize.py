@@ -13,6 +13,8 @@ def _identifier(prefix: str, *parts: object) -> str:
 
 def _physical_name(text: str) -> str:
     lowered = text.casefold()
+    if any(word in lowered for word in ("航天", "卫星", "火箭", "空间", "飞控", "载荷")):
+        return "航天平台 / 地面控制接口"
     if any(word in lowered for word in ("保存", "版本", "审计", "数据", "store", "record", "version")):
         return "SQLite Repository"
     if any(word in lowered for word in ("用户", "查看", "接口", "请求", "user", "view", "api")):
