@@ -40,7 +40,11 @@ from rflp_lite.application.profile_packs import (
 from rflp_lite.application.plugins import invoke_plugin, list_plugins
 from rflp_lite.application.sysml_v2 import export_sysml_v2_text, import_sysml_v2_text
 from rflp_lite.adapters.mlflow_tracking import track_run_with_mlflow
-from rflp_lite.application.scenarios import add_scenario, delete_scenario
+from rflp_lite.application.scenarios import (
+    add_scenario,
+    delete_scenario,
+    generate_scenario_drafts,
+)
 from rflp_lite.application.scenario_execution import append_scenario_run, execute_scenario
 from rflp_lite.application.workspaces import (
     WorkspaceRef,
@@ -531,6 +535,23 @@ class WebFacade:
         )
         return self._save_requirements(
             workspace_name, state, "scenario.created"
+        )
+
+    def prepare_requirement_scenarios(
+        self, workspace_name: str
+    ) -> dict[str, object] | None:
+        """Make system-generated starter scenarios available without extra input."""
+        current = self.requirements(workspace_name)
+        if current is None or current.get("scenarios"):
+            return current
+        state = generate_scenario_drafts(current)
+        if not state.get("scenarios"):
+            return state
+        return self._save_requirements(
+            workspace_name,
+            state,
+            "scenario.generated",
+            {"count": len(state["scenarios"]), "mode": "minimum-input"},
         )
 
     def delete_requirement_scenario(

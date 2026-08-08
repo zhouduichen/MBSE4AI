@@ -87,6 +87,68 @@ def add_scenario(
     return result
 
 
+def _generated_payload(
+    state: dict[str, object], claim: dict[str, object] | None = None
+) -> dict[str, object]:
+    context = state.get("system_context") or {}
+    system_name = str(context.get("name") or "待命名系统").strip()
+    if claim is None:
+        objective = f"明确{system_name}的系统目标"
+        actor = "需求提出者"
+        requirement_ids: tuple[str, ...] = ()
+    else:
+        objective = str(claim.get("object") or "完成系统目标").strip().rstrip("。.!！?？")
+        actor = str(claim.get("subject") or "使用者").strip()
+        requirement_ids = (str(claim["id"]),)
+    actor = actor or "使用者"
+    return {
+        "title": f"{actor}：{objective[:28]}",
+        "description": (
+            f"系统根据当前输入自动生成的初始场景，围绕“{objective}”展开。"
+            "缺少的信息先标记为待确认，不阻塞继续查看和生成模型。"
+        ),
+        "actors": (actor, "系统"),
+        "preconditions": (),
+        "steps": (
+            f"{actor}提出目标：{objective}",
+            f"系统处理：{objective}",
+            "确认系统输出和验证结果",
+        ),
+        "expected_outcomes": (f"系统完成：{objective}",),
+        "faults": (),
+        "requirement_ids": requirement_ids,
+    }
+
+
+def generate_scenario_drafts(state: dict[str, object]) -> dict[str, object]:
+    """Generate viewable starter scenarios from the smallest available input."""
+    result = json.loads(canonical_json(state))
+    if result.get("scenarios"):
+        return result
+
+    claims = tuple(
+        item
+        for item in result.get("claims", ())
+        if item.get("status") != "rejected"
+    )
+    sources: tuple[dict[str, object] | None, ...] = claims or (None,)
+    generated: list[dict[str, object]] = []
+    for claim in sources:
+        payload = _generated_payload(result, claim)
+        scenario = build_scenario(**payload)
+        scenario.update(
+            {
+                "status": "generated-draft",
+                "producer": "system",
+                "generated_from": str(claim["id"]) if claim else "system-context",
+                "generation_mode": "minimum-input",
+            }
+        )
+        generated.append(scenario)
+    result["scenarios"] = sorted(generated, key=lambda item: item["id"])
+    return result
+
+
 def delete_scenario(state: dict[str, object], scenario_id: str) -> dict[str, object]:
     result = json.loads(canonical_json(state))
     existing = result.get("scenarios", ())

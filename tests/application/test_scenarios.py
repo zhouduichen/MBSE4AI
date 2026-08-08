@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 
 from rflp_lite.application.requirements_workbench import analyze_artifact
-from rflp_lite.application.scenarios import add_scenario, build_scenario, delete_scenario
+from rflp_lite.application.scenarios import (
+    add_scenario,
+    build_scenario,
+    delete_scenario,
+    generate_scenario_drafts,
+)
 from rflp_lite.domain.errors import ContractViolation
 
 
@@ -78,3 +83,18 @@ def test_scenario_requires_steps_and_known_requirements():
 def test_delete_unknown_scenario_is_rejected():
     with pytest.raises(ContractViolation, match="场景不存在"):
         delete_scenario(_state(), "scenario-missing")
+
+
+def test_system_generates_a_scenario_from_minimum_natural_language_input():
+    state = analyze_artifact("requirements.txt", "设置一个航天系统".encode())
+
+    generated = generate_scenario_drafts(state)
+
+    assert len(generated["scenarios"]) == 1
+    scenario = generated["scenarios"][0]
+    assert scenario["producer"] == "system"
+    assert scenario["generation_mode"] == "minimum-input"
+    assert "航天系统" in scenario["title"]
+    assert scenario["steps"]
+    assert scenario["expected_outcomes"]
+    assert all(item["status"] == "candidate" for item in state["claims"])

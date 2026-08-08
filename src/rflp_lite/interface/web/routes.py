@@ -220,6 +220,7 @@ def requirements_review_page(request: Request, workspace_name: str) -> HTMLRespo
 
 @router.get("/w/{workspace_name}/requirements/scenarios", response_class=HTMLResponse)
 def requirements_scenarios_page(request: Request, workspace_name: str) -> HTMLResponse:
+    _facade(request).prepare_requirement_scenarios(workspace_name)
     context = _requirements_context(request, workspace_name, "requirements-scenarios")
     return templates.TemplateResponse(request=request, name="requirements-scenarios.html", context=context)
 
@@ -466,7 +467,7 @@ async def import_requirements_sysml_lite_json(request: Request, workspace_name: 
 
 @router.get("/w/{workspace_name}/requirements/scenarios.json")
 def requirements_scenarios_json(request: Request, workspace_name: str) -> Response:
-    state = _facade(request).requirements(workspace_name)
+    state = _facade(request).prepare_requirement_scenarios(workspace_name)
     if not state:
         return HTMLResponse("requirements workbench not found", status_code=404)
     content = json.dumps(
