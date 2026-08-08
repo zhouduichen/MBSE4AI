@@ -27,7 +27,9 @@ def test_requirements_flow_keeps_plain_language_as_a_reviewable_draft():
 
     assert result["flow"]["status"] == "draft_only"
     assert result["draft"] is True
-    assert result["rflp"]["elements"]
+    assert result["rflp"] is None
+    assert result["draft_graph"]["items"]
+    assert "需求理解图" in result["svg"]
     assert result["scenarios"]
     assert result["scenario_runs"]
 

@@ -59,9 +59,13 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
     does not use the fixed demo fixture and marks its generated scenario and
     baseline so users can distinguish quick output from reviewed delivery.
     """
+    formal_input = any(
+        item.get("source_type") in {"constraint", "need"}
+        for item in state.get("claims", ())
+    )
     result = accept_traceable(state)
     result["flow"] = None
-    if not any(item.get("status") == "accepted" for item in result.get("claims", ())):
+    if not formal_input:
         result = generate_draft_model(result)
         draft_scenario_ids: list[str] = []
         if result.get("claims") and not result.get("scenarios"):

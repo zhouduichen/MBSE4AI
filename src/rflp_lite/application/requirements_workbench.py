@@ -285,6 +285,7 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
         "rflp": None,
         "coverage": {},
         "svg": "",
+        "draft_graph": None,
         "traceability": [],
         "draft": False,
         "draft_warnings": [],
@@ -314,6 +315,7 @@ def empty_workbench() -> dict[str, object]:
         "rflp": None,
         "coverage": {},
         "svg": "",
+        "draft_graph": None,
         "traceability": [],
         "draft": False,
         "draft_warnings": [],
@@ -340,6 +342,7 @@ def merge_artifact(
         )
     result["checklist"] = fresh["checklist"]
     result["rflp"], result["coverage"], result["svg"] = None, {}, ""
+    result["draft_graph"] = None
     result["baseline"], result["project"] = None, None
     result["draft"], result["draft_warnings"] = False, []
     result["flow"] = None
@@ -375,6 +378,7 @@ def add_stakeholder(state: dict[str, object], name: str) -> dict[str, object]:
         result["stakeholders"], key=lambda item: (item["name"], item["id"])
     )
     result["rflp"], result["coverage"], result["svg"] = None, {}, ""
+    result["draft_graph"] = None
     result["baseline"], result["project"] = None, None
     result["flow"] = None
     result["draft"], result["draft_warnings"] = False, []
@@ -489,6 +493,7 @@ def review_item(
         item[field] = value.strip()
     item["status"] = status
     result["rflp"], result["coverage"], result["svg"] = None, {}, ""
+    result["draft_graph"] = None
     result["baseline"], result["project"] = None, None
     result["flow"] = None
     return result
@@ -522,6 +527,15 @@ def accept_traceable(state: dict[str, object]) -> dict[str, object]:
         if claim["status"] != "candidate":
             continue
         if claim["source_type"] == "constraint" or claim.get("need_id") in accepted_needs:
+            claim["status"] = "accepted"
+    return result
+
+
+def confirm_requirements(state: dict[str, object]) -> dict[str, object]:
+    """Confirm the current interpretation after an explicit UI decision."""
+    result = accept_traceable(state)
+    for claim in result["claims"]:
+        if claim["status"] == "candidate" and claim.get("source_type") != "need":
             claim["status"] = "accepted"
     return result
 
@@ -593,6 +607,104 @@ def render_rflp_svg(
         parts.append(
             f'<path d="M{x1},{y1} C{middle},{y1} {middle},{y2} {x2},{y2}" fill="none" stroke="#607a73" stroke-width="1.5" marker-end="url(#rflp-arrow)"/>'
         )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _draft_graph(state: dict[str, object]) -> dict[str, object]:
+    context = state.get("system_context") or {}
+    claims = list(state.get("claims", ()))
+    items = []
+    for claim in claims:
+        source_type = str(claim.get("source_type", "provisional"))
+        kind = {
+            "goal": "目标 / 意图",
+            "problem": "问题 / 风险",
+            "constraint": "质量 / 约束",
+            "need": "利益相关方需要",
+        }.get(source_type, "待确认内容")
+        items.append(
+            {
+                "id": str(claim.get("id", "")),
+                "kind": kind,
+                "text": str(claim.get("object", "")),
+                "status": str(claim.get("status", "candidate")),
+                "source_type": source_type,
+            }
+        )
+    if not items:
+        items = [
+            {
+                "id": str(span.get("id", "")),
+                "kind": "原始输入",
+                "text": str(span.get("text", "")),
+                "status": "candidate",
+                "source_type": "provisional",
+            }
+            for span in state.get("spans", ())
+        ]
+    return {
+        "type": "understanding-map",
+        "title": "需求理解图",
+        "system": str(context.get("name") or "待命名系统"),
+        "domain": str(context.get("domain") or "通用"),
+        "source_text": str(context.get("source_text") or ""),
+        "items": items,
+        "open_questions": tuple(context.get("next_actions", ()))
+        + ("哪些内容必须成为正式 Requirement？", "如何验证这些目标？"),
+    }
+
+
+def render_draft_svg(state: dict[str, object]) -> str:
+    """Render a user-facing interpretation map, not a fake RFLP model."""
+    graph = _draft_graph(state)
+    items = tuple(graph["items"][:6])
+    questions = tuple(dict.fromkeys(graph["open_questions"]))[:5]
+    width = 1180
+    height = max(520, 300 + max(len(items), len(questions)) * 58)
+    parts = [
+        f'<svg class="draft-understanding-svg" viewBox="0 0 {width} {height}" role="img" aria-label="需求理解图" xmlns="http://www.w3.org/2000/svg">',
+        '<rect width="1180" height="100%" rx="16" fill="#171411"/>',
+        '<text x="24" y="34" fill="#f0bd72" font-size="12" font-weight="800">需求理解图 · DRAFT</text>',
+        '<text x="24" y="58" fill="#d4c4ae" font-size="13">这是对输入的当前理解，不是正式 RFLP，也不能作为项目基线。</text>',
+    ]
+    columns = ((20, 290, "系统主题"), (330, 430, "已理解内容"), (780, 380, "还需要确认"))
+    for x, width_column, title in columns:
+        parts.extend(
+            (
+                f'<rect x="{x}" y="86" width="{width_column}" height="{height - 122}" rx="13" fill="#211d18" stroke="#5d4830"/>',
+                f'<text x="{x + 16}" y="116" fill="#f0bd72" font-size="16" font-weight="800">{escape(title)}</text>',
+            )
+        )
+    parts.extend(
+        (
+            f'<text x="36" y="165" fill="#f5eee4" font-size="22" font-weight="800">{escape(graph["system"])}</text>',
+            f'<text x="36" y="193" fill="#b9a78e" font-size="12">领域：{escape(graph["domain"])}</text>',
+            f'<text x="36" y="235" fill="#d4c4ae" font-size="11">输入原文</text>',
+            f'<text x="36" y="262" fill="#a8957d" font-size="11">{escape(graph["source_text"][:42])}</text>',
+            '<text x="36" y="315" fill="#8d7b65" font-size="10">状态：草稿理解</text>',
+        )
+    )
+    for index, item in enumerate(items):
+        y = 145 + index * 58
+        parts.extend(
+            (
+                f'<rect x="346" y="{y}" width="398" height="42" rx="8" fill="#2a241d" stroke="#9a7139" stroke-dasharray="5 4"/>',
+                f'<text x="360" y="{y + 17}" fill="#f0bd72" font-size="9">{escape(str(item["kind"]))}</text>',
+                f'<text x="360" y="{y + 33}" fill="#f5eee4" font-size="11">{escape(str(item["text"])[:46])}</text>',
+            )
+        )
+    for index, question in enumerate(questions):
+        y = 145 + index * 58
+        parts.extend(
+            (
+                f'<rect x="796" y="{y}" width="348" height="42" rx="8" fill="#25201a" stroke="#6b5435"/>',
+                f'<text x="812" y="{y + 25}" fill="#d4c4ae" font-size="11">{escape(str(question)[:45])}</text>',
+            )
+        )
+    parts.append(
+        f'<text x="24" y="{height - 20}" fill="#9b8058" font-size="10">下一步：确认或修改“已理解内容”，确认后才生成正式 RFLP。</text>'
+    )
     parts.append("</svg>")
     return "".join(parts)
 
@@ -670,51 +782,26 @@ def generate_model(state: dict[str, object]) -> dict[str, object]:
         str((result.get("system_context") or {}).get("name", "")),
     )
     result["draft"] = False
+    result["draft_graph"] = None
     result["draft_warnings"] = []
     result["flow"] = None
     return result
 
 
 def generate_draft_model(state: dict[str, object]) -> dict[str, object]:
-    """Generate a viewable model without changing the review decisions.
-
-    A draft is deliberately useful before formal review: it turns the rule
-    claims that are already available into a graph, while keeping the source
-    state as candidate data and clearly marking the output as provisional.
-    """
-    candidate_state = _clone(state)
-    if not candidate_state["claims"]:
-        # Keep the formal extractor conservative, but still make the minimum
-        # viable path useful for plain-language notes that lack an obligation
-        # keyword. These transient claims never become formal requirements.
-        candidate_state["claims"] = [
-            {
-                "id": _id("draft-claim", span["id"]),
-                "span_id": span["id"],
-                "subject": "需求文档",
-                "predicate": "待确认",
-                "object": span["text"],
-                "confidence": 0.35,
-                "status": "accepted",
-                "source_type": "constraint",
-                "need_id": None,
-            }
-            for span in candidate_state["spans"]
-        ]
-    for group in _GROUPS:
-        for item in candidate_state[group]:
-            if item["status"] == "candidate":
-                item["status"] = "accepted"
-    generated = generate_model(candidate_state)
+    """Generate a visible interpretation map without inventing formal RFLP."""
     result = _clone(state)
-    for field in ("rflp", "coverage", "svg", "traceability"):
-        result[field] = generated[field]
+    result["rflp"] = None
+    result["coverage"] = {}
+    result["traceability"] = []
+    result["draft_graph"] = _draft_graph(result)
+    result["svg"] = render_draft_svg(result)
     result["baseline"], result["project"] = None, None
     result["draft"] = True
     result["flow"] = None
     result["draft_warnings"] = [
-        "这是快速草稿图，尚未经过人工审核。",
-        "确认需求后可生成正式模型并批准基线。",
+        "这是需求理解图，不是正式 RFLP。",
+        "图中的内容仍是候选，确认后才会生成 R/F/L/P 正式模型。",
     ]
     if not any(item.get("source_type") in {"constraint", "need"} for item in state["claims"]):
         result["draft_warnings"].insert(

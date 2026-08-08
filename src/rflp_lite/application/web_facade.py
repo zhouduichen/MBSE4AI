@@ -16,6 +16,7 @@ from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
 from rflp_lite.application.run_catalog import RunRecord, list_runs, load_run
 from rflp_lite.application.requirements_workbench import (
     accept_traceable,
+    confirm_requirements,
     add_stakeholder,
     add_llm_suggestions,
     analyze_artifact,
@@ -209,6 +210,73 @@ class WebFacade:
         finally:
             repository.close()
 
+    def requirements_guide(self, workspace_name: str) -> dict[str, object]:
+        """Return one actionable next step for the guided requirements path."""
+        state = self.requirements(workspace_name)
+        root = f"/w/{workspace_name}/requirements"
+        if state is None:
+            return {
+                "key": "input",
+                "stage": "第 1 步 / 4",
+                "title": "先说清楚你想做什么",
+                "body": "用一句自然语言描述系统、目标或问题，不要求先写成标准 Requirement。",
+                "action_label": "输入需求",
+                "action_url": f"{root}/input",
+                "steps": (("输入需求", "current"), ("确认理解", "waiting"), ("生成正式 RFLP", "waiting"), ("项目验证", "optional")),
+            }
+        claims = tuple(state.get("claims", ()))
+        candidates = tuple(item for item in claims if item.get("status") == "candidate")
+        accepted = tuple(item for item in claims if item.get("status") == "accepted")
+        if not claims:
+            return {
+                "key": "input",
+                "stage": "第 1 步 / 4",
+                "title": "补充一句目标或问题",
+                "body": "当前只读到了文本片段，还没有形成可确认的候选内容。",
+                "action_label": "补充需求",
+                "action_url": f"{root}/input",
+                "steps": (("输入需求", "current"), ("确认理解", "waiting"), ("生成正式 RFLP", "waiting"), ("项目验证", "optional")),
+            }
+        if candidates:
+            return {
+                "key": "review",
+                "stage": "第 2 步 / 4",
+                "title": "确认系统对你的理解",
+                "body": f"系统识别了 {len(claims)} 条候选，其中 {len(candidates)} 条还没有确认。确认后才会进入正式 RFLP。",
+                "action_label": "去确认需求",
+                "action_url": f"{root}/review",
+                "steps": (("输入需求", "done"), ("确认理解", "current"), ("生成正式 RFLP", "waiting"), ("项目验证", "optional")),
+            }
+        if accepted and (not state.get("rflp") or state.get("draft")):
+            return {
+                "key": "formal",
+                "stage": "第 3 步 / 4",
+                "title": "生成正式 RFLP",
+                "body": f"已有 {len(accepted)} 条需求确认，可以生成正式的 Requirement → Function → Logical → Physical 模型。",
+                "action_label": "生成正式 RFLP",
+                "action_url": f"{root}/graph",
+                "steps": (("输入需求", "done"), ("确认理解", "done"), ("生成正式 RFLP", "current"), ("项目验证", "optional")),
+            }
+        if state.get("rflp") and not state.get("baseline"):
+            return {
+                "key": "baseline",
+                "stage": "第 4 步 / 4",
+                "title": "批准模型并进入项目验证",
+                "body": "正式 RFLP 已生成。批准后才能拿它和本地项目进行实现差异分析。",
+                "action_label": "进入项目验证",
+                "action_url": f"/w/{workspace_name}/project",
+                "steps": (("输入需求", "done"), ("确认理解", "done"), ("生成正式 RFLP", "done"), ("项目验证", "current")),
+            }
+        return {
+            "key": "complete",
+            "stage": "当前阶段已完成",
+            "title": "需求模型已建立",
+            "body": "当前需求已经形成正式模型。你可以继续补充场景，或在项目验证中检查实际实现。",
+            "action_label": "查看正式 RFLP",
+            "action_url": f"{root}/graph",
+            "steps": (("输入需求", "done"), ("确认理解", "done"), ("生成正式 RFLP", "done"), ("项目验证", "optional")),
+        }
+
     @staticmethod
     def _requirement_records_for_state(
         state: dict[str, object], event: str
@@ -393,7 +461,7 @@ class WebFacade:
         if current is None:
             raise ContractViolation("requirements workbench is empty")
         return self._save_requirements(
-            workspace_name, accept_traceable(current), "requirements.accepted"
+            workspace_name, confirm_requirements(current), "requirements.accepted"
         )
 
     def generate_requirements_model(self, workspace_name: str) -> dict[str, object]:
@@ -667,6 +735,7 @@ class WebFacade:
                     "latest_run": None,
                     "counts": {},
                     "audit": (),
+                    "requirements_guide": self.requirements_guide(workspace_name) if workspace_name else None,
                     "requirements_overview": {
                         "total": 0,
                         "submitted": 0,
@@ -701,5 +770,6 @@ class WebFacade:
             "latest_run": latest,
             "counts": counts,
             "audit": self.audit(workspace_name),
+            "requirements_guide": self.requirements_guide(workspace_name),
             "requirements_overview": self.requirement_overview(workspace_name),
         }

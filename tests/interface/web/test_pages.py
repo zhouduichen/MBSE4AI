@@ -142,8 +142,8 @@ def test_requirements_page_can_generate_draft_without_review(client: TestClient)
     assert generated.status_code == 303
     assert generated.headers["location"].endswith("/requirements/graph")
     page = client.get("/w/demo/requirements/graph")
-    assert "快速草稿图" in page.text
-    assert "尚未经过人工确认" in page.text
+    assert "需求理解图" in page.text
+    assert "不是正式 RFLP" in page.text
 
 
 def test_requirements_input_keeps_plain_language_as_a_candidate(client: TestClient) -> None:
@@ -170,9 +170,8 @@ def test_requirements_page_runs_one_click_flow_from_current_input(client: TestCl
 
     assert completed.status_code == 303
     page = client.get("/w/demo/requirements")
-    assert "一键跑通需求闭环" in page.text
-    assert "已完成" in page.text
-    assert "project_validation · waiting_for_project_path" in page.text
+    assert "需求模型已建立" in page.text
+    assert "正式模型" in page.text
     scenarios = client.get("/w/demo/requirements/scenarios")
     assert "根据需求“恢复历史版本”生成的最小可执行场景" in scenarios.text
     assert "declarative-only" in scenarios.text
@@ -230,12 +229,43 @@ def test_system_input_produces_visible_rflp_svg_on_project_dashboard(
 
     dashboard = client.get("/w/demo")
     assert dashboard.status_code == 200
-    assert "航天系统 · RFLP 图像" in dashboard.text
+    assert "航天系统 · 需求理解图" in dashboard.text
     assert "<svg" in dashboard.text
     svg = client.get("/w/demo/requirements/model.svg")
     assert svg.status_code == 200
     assert svg.headers["content-type"].startswith("image/svg+xml")
     assert "航天系统" in svg.text
+    assert "需求理解图" in svg.text
+
+
+def test_guided_path_separates_understanding_confirmation_and_formal_model(
+    client: TestClient,
+) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "设置一个航天系统"},
+    )
+
+    draft_page = client.get("/w/demo/requirements")
+    assert "确认系统对你的理解" in draft_page.text
+    assert "一键跑通需求闭环" not in draft_page.text
+
+    confirmed = client.post(
+        "/w/demo/requirements/accept-traceable", follow_redirects=False
+    )
+    assert confirmed.status_code == 303
+    review_page = client.get("/w/demo/requirements/review")
+    assert "生成正式 RFLP" in review_page.text
+
+    generated = client.post(
+        "/w/demo/requirements/generate", follow_redirects=False
+    )
+    assert generated.status_code == 303
+    formal_page = client.get("/w/demo/requirements/graph")
+    assert "正式 RFLP 模型已生成" in formal_page.text
+    assert "需求理解图" not in formal_page.text
+    assert "R/F/L/P" in formal_page.text
 
 
 def test_stakeholder_page_adds_role_and_shows_related_requirements(client: TestClient) -> None:

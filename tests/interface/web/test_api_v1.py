@@ -212,7 +212,9 @@ def test_api_v1_generates_draft_without_review(client: TestClient) -> None:
 
     assert generated.status_code == 200
     assert generated.json()["draft"] is True
-    assert generated.json()["rflp"]["elements"]
+    assert generated.json()["rflp"] is None
+    assert generated.json()["draft_graph"]["items"]
+    assert "需求理解图" in generated.json()["svg"]
 
 
 def test_api_v1_runs_one_click_flow_from_current_input(client: TestClient) -> None:

@@ -83,6 +83,7 @@ def _requirements_context(
         active=active,
         nav_result_hash=runs[0].result_hash if runs else None,
         state=facade.requirements(workspace_name),
+        guide=facade.requirements_guide(workspace_name),
         requirement_overview=facade.requirement_overview(workspace_name),
         active_llm=active_llm,
         llm_ready=llm_ready,
@@ -144,6 +145,7 @@ def dashboard(request: Request) -> HTMLResponse:
         counts=view["counts"],
         audit=view["audit"],
         requirements=state,
+        guide=view["requirements_guide"],
         requirement_overview=view["requirements_overview"],
     )
     return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
@@ -168,6 +170,7 @@ def workspace_dashboard(request: Request, workspace_name: str) -> HTMLResponse:
         counts=view["counts"],
         audit=view["audit"],
         requirements=state,
+        guide=view["requirements_guide"],
         requirement_overview=view["requirements_overview"],
     )
     return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
@@ -504,11 +507,12 @@ def job_json(request: Request, workspace_name: str, job_id: str) -> Response:
 def requirements_svg(request: Request, workspace_name: str) -> Response:
     state = _facade(request).requirements(workspace_name)
     if not state or not state.get("svg"):
-        return HTMLResponse("RFLP SVG not generated", status_code=404)
+        return HTMLResponse("图像尚未生成", status_code=404)
+    filename = "rflp-understanding-draft.svg" if state.get("draft") else "rflp-model.svg"
     return Response(
         content=state["svg"],
         media_type="image/svg+xml",
-        headers={"Content-Disposition": 'attachment; filename="rflp-model.svg"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

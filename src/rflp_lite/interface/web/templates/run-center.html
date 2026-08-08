@@ -2,7 +2,7 @@
 {% block title %}运行中心 · RFLP-Lite{% endblock %}
 {% block content %}
 <div class="page-heading"><div><span class="eyebrow">Legacy demo execution</span><h1>运行中心</h1><p>这里保留固定示例工程的传统运行入口；基于你当前需求的完整体验请从需求规划开始。</p></div><a class="button primary" href="/w/{{ workspace.name }}/requirements">回到需求闭环</a></div>
-<div class="callout warning"><strong>注意</strong><span>本页执行的是内置示例数据，不是当前需求输入。要运行你的需求，请进入<a href="/w/{{ workspace.name }}/requirements/input">需求输入</a>并点击“一键跑通需求闭环”。</span></div>
+<div class="callout warning"><strong>注意</strong><span>本页执行的是内置示例数据，不是当前需求输入。当前需求请回到<a href="/w/{{ workspace.name }}/requirements">需求规划</a>按引导完成。</span></div>
 <div class="two-column">
   <section class="panel run-form-panel"><div class="panel-head"><div><span class="eyebrow">New run</span><h2>启动完整链路</h2></div></div>
     <form method="post" action="/w/{{ workspace.name }}/runs" hx-post="/w/{{ workspace.name }}/runs" hx-target="#run-feedback" hx-swap="innerHTML" hx-disabled-elt="find button" hx-indicator="#run-indicator">

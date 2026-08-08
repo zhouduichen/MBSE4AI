@@ -222,7 +222,13 @@ def rflp(request: Request, workspace_name: str) -> JSONResponse | dict[str, obje
 def generate_requirements_draft(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
     try:
         state = _facade(request).generate_requirements_draft(workspace_name)
-        return {"status": "ok", "draft": True, "rflp": state["rflp"]}
+        return {
+            "status": "ok",
+            "draft": True,
+            "rflp": state.get("rflp"),
+            "draft_graph": state.get("draft_graph"),
+            "svg": state.get("svg", ""),
+        }
     except (ContractViolation, RflpError, OSError) as exc:
         return _error(exc)
 

@@ -51,8 +51,10 @@ def test_draft_model_is_available_before_review_without_mutating_candidates():
     draft = generate_draft_model(state)
 
     assert draft["draft"] is True
-    assert draft["rflp"]["elements"]
+    assert draft["rflp"] is None
+    assert draft["draft_graph"]["items"]
     assert draft["svg"].startswith("<svg")
+    assert "需求理解图" in draft["svg"]
     assert all(item["status"] == "candidate" for item in draft["claims"])
     assert state["rflp"] is None
 
@@ -67,7 +69,7 @@ def test_draft_model_accepts_plain_language_as_provisional_nodes():
     assert state["claims"][0]["status"] == "candidate"
     assert draft["draft"] is True
     assert "没有明确的必须/应当" in draft["draft_warnings"][0]
-    assert any("历史版本恢复" in item["name"] for item in draft["rflp"]["elements"])
+    assert any("历史版本恢复" in item["text"] for item in draft["draft_graph"]["items"])
 
 
 def test_quality_attribute_phrase_becomes_a_traceable_requirement_candidate():
