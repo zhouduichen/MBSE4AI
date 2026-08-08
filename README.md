@@ -64,7 +64,7 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 3. 审核 Stakeholder、Concern、Need 和 Requirement 候选，或点击“接受全部可追溯候选”；
 4. 点击“生成 RFLP 规划图”；
 5. 在“场景描述”中记录参与者、前置条件、步骤、预期结果和故障/异常；
-6. 查看来源链和 R/F/L/P 覆盖率，并下载确定性 JSON/SVG 与场景 JSON。
+6. 点击“生成执行轨迹”运行结构化场景的本地声明性执行，查看事件、断言和 Evidence；也可下载场景 JSON、执行记录和 SysML-lite 交换 JSON。
 
 “运行中心”继续提供 Heuristic 或 CP-SAT 的完整 Candidate、Simulation、Baseline、Delta、TaskContract 和 Evidence 链路。
 
@@ -79,7 +79,9 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 5. 点击“运行项目测试”，选择 pytest/unittest、资源上限、并行度和缓存策略，在超时与隔离沙箱中运行并查看每个 runner 的结果；
 6. 下载规范化 JSON：baseline、actual-model、matches、delta、task-contracts、evidence、project。
 
-场景描述保存在现有工作台 JSON 中，不新增数据库表；步骤和预期结果按行记录，可选关联 Requirement ID，并可通过 `/w/{workspace}/requirements/scenarios.json` 下载。
+场景描述和执行记录保存在现有工作台 JSON 中，不新增数据库表；步骤和预期结果按行记录，可选关联 Requirement ID。执行轨迹只处理结构化文本，不执行任意代码，结果明确标记为 `declarative-only`，可通过 `/w/{workspace}/requirements/scenarios.json`、`/w/{workspace}/requirements/scenario-runs.json` 下载。
+
+本地 MVP 还提供 Profile JSON 的 schema 校验/保存、运行记录导出、`sysml-lite/rflp` 版本化交换格式、本地持久化 Job 状态、进程内 Plugin Registry，以及 `/api/v1` JSON API。API 当前默认只绑定本机，不包含登录、权限、限流或公网部署能力。
 
 扫描只读 `.py`（AST）、OpenAPI JSON 与 JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件；不复制、不写入、不上传项目。测试运行支持 allowlist 中的 `pytest` 与 `unittest`，默认 60s 超时并 kill，可配置 POSIX 内存/文件句柄上限、输出上限、结果缓存和多 runner 并行。
 
@@ -92,6 +94,11 @@ CLI 等效操作：
 .venv/bin/rflp project test --workspace <workspace> --source <project-dir> [--timeout 60] [--runner pytest|unittest] [--jobs 2]
 .venv/bin/rflp workbench build --workspace <workspace> --requirements <file>
 .venv/bin/rflp assess --workspace <workspace> --requirements <file> --source <project-dir> [--timeout 60]
+.venv/bin/rflp profile show --workspace <workspace>
+.venv/bin/rflp profile validate --profile <profile.json>
+.venv/bin/rflp profile save --workspace <workspace> --profile <profile.json>
+.venv/bin/rflp scenario execute --workspace <workspace> --scenario-id <scenario-id>
+.venv/bin/rflp run export --workspace <workspace> --result-hash <result-hash>
 ```
 
 `assess` 一步完成 需求工作台 → 批准基线 → 分析项目 → 运行测试 并输出汇总，适合脚本/CI 断言。`workbench build` 接受多个 `--requirements` 文件完成多文档合并。需求接入支持 DOCX 表格行（每行按 “ID | 义务句” 合并为一条 span）。
@@ -122,4 +129,4 @@ Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机�
 
 ## 当前边界
 
-当前已提供最小 OpenAI-compatible LLM 候选接口，但尚未提供模型管理、流式对话或专用 Ollama/llama.cpp 运行时。场景目前是结构化描述与 JSON 导出，不自动执行场景或生成仿真轨迹。项目接入扫描只读 `.py` / OpenAPI JSON / JUnit XML，匹配按分词交集进行（中英文义务句之间无法用关键词对齐，会如实标为 MISSING）。“执行验证”是确定性重扫描——只读重算与已批准基线的差异并判定任务契约是否满足。测试结果作为独立客观 Evidence 呈现，不改变契约状态；运行器仅允许 pytest/unittest，POSIX 资源限制在平台不支持时会明确报告。Docling、MLflow、SysML v2 编辑、向量模型、登录权限和远程插件运行时仍未启用；“能力中心”只展示这些扩展的启用条件，不生成伪造结果。
+当前已提供最小 OpenAI-compatible LLM 候选接口，但尚未提供模型管理、流式对话或专用 Ollama/llama.cpp 运行时。场景执行目前是安全的声明性轨迹，不连接真实系统，也不生成仿真通过结论。项目接入扫描只读 `.py` / OpenAPI JSON / JUnit XML，匹配按分词交集进行（中英文义务句之间无法用关键词对齐，会如实标为 MISSING）。“执行验证”是确定性重扫描——只读重算与已批准基线的差异并判定任务契约是否满足。测试结果作为独立客观 Evidence 呈现，不改变契约状态；运行器仅允许 pytest/unittest，POSIX 资源限制在平台不支持时会明确报告。SysML-lite、MLflow 可映射运行导出、Profile、Job、API 和进程内插件已提供本地 MVP；完整 Docling、完整 SysML v2、真实 MLflow、登录权限和远程插件运行时仍未配置，能力中心会区分“局部可用”和“未配置”。

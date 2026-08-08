@@ -170,11 +170,11 @@ def evidence_context(
 CAPABILITIES = (
     Capability("LLM / Ollama", "planned", "从声明辅助生成模型建议", "Ollama 或兼容 LLM Adapter", "Claim", "候选 ModelElement", "契约、审计与人工批准门禁完成"),
     Capability("Docling", "planned", "解析复杂 PDF/DOCX", "Docling optional adapter", "本地文档", "Artifact / TextSpan", "版面回归与资源上限完成"),
-    Capability("SysML v2", "planned", "导入、导出与图形编辑", "SysML v2 repository adapter", "RFLP model", "SysML v2 model", "映射契约和往返测试完成"),
-    Capability("MLflow", "planned", "追踪实验与参数", "MLflow adapter", "Run manifest", "Experiment record", "本地存储策略完成"),
-    Capability("Profile / Pack 编辑", "planned", "配置已验证运行参数", "Schema-driven editor", "Profile JSON", "Validated Profile", "字段校验和版本迁移完成"),
-    Capability("后台任务队列", "planned", "承载长耗时运行", "Persistent job repository", "Run request", "Job status", "重启恢复和幂等完成"),
-    Capability("对外 Web API", "planned", "为受控客户端提供契约接口", "Versioned API adapter", "Versioned request", "Versioned response", "认证、限流和 OpenAPI 契约完成"),
+    Capability("SysML v2", "partial", "以 SysML-lite 格式导入导出 RFLP", "本地 JSON interchange；完整 SysML v2 adapter 未配置", "RFLP model", "Versioned SysML-lite model", "完整 SysML v2 语义映射和图形编辑"),
+    Capability("MLflow", "partial", "本地记录运行参数并导出可映射 JSON", "Run manifest + SQLite/JSON", "Run manifest", "Local experiment record", "MLflow 服务或 SDK 配置"),
+    Capability("Profile / Pack 编辑", "available", "配置已验证运行参数", "Schema-driven local editor", "Profile JSON", "Validated Profile", "版本迁移和多人协作"),
+    Capability("后台任务队列", "available", "记录本地操作的任务状态", "Persistent local job ledger", "Run request", "Job status", "异步 worker、重启恢复和分布式幂等"),
+    Capability("对外 Web API", "available", "提供版本化本地 JSON API", "FastAPI /api/v1", "Versioned request", "Versioned response", "认证、限流和公网部署"),
     Capability("登录与权限", "planned", "支持多人和角色边界", "Identity and policy layer", "Identity", "Authorization decision", "威胁模型和审计完成"),
-    Capability("插件与远程运行", "planned", "接入受控外部能力", "Signed runtime protocol", "TaskContract", "Evidence", "隔离、签名和回滚完成"),
+    Capability("插件与远程运行", "partial", "注册并调用本地进程内插件", "Local in-process plugin registry", "Structured payload", "Structured result", "远程隔离、签名和回滚"),
 )

@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from rflp_lite.adapters.sqlite_repository import SQLiteRepository
 from rflp_lite.application.requirements_workbench import (
@@ -36,6 +37,29 @@ def _workspace_with_generated_rflp(tmp_path: Path) -> Path:
 def test_version_command(capsys):
     assert main(["version"]) == 0
     assert capsys.readouterr().out.strip() == "rflp-lite 0.1.0"
+
+
+def test_profile_and_run_export_commands(tmp_path, capsys):
+    workspace = tmp_path / "ws"
+    profile = tmp_path / "profile.json"
+    profile.write_text(
+        '{"name":"cli-profile","solver":"heuristic","seed":4,"candidate_limit":2,"timeout_seconds":6}',
+        encoding="utf-8",
+    )
+
+    assert main(["init", str(workspace)]) == 0
+    capsys.readouterr()
+    assert main(["profile", "validate", "--profile", str(profile)]) == 0
+    assert '"status":"ok"' in capsys.readouterr().out
+    assert main(["profile", "save", "--workspace", str(workspace), "--profile", str(profile)]) == 0
+    assert "cli-profile" in capsys.readouterr().out
+    assert main(["profile", "show", "--workspace", str(workspace)]) == 0
+    assert "cli-profile" in capsys.readouterr().out
+
+    assert main(["demo", "--workspace", str(workspace)]) == 0
+    result_hash = json.loads(capsys.readouterr().out)["result_hash"]
+    assert main(["run", "export", "--workspace", str(workspace), "--result-hash", result_hash]) == 0
+    assert '"format":"rflp-lite-run"' in capsys.readouterr().out
 
 
 def test_web_command_uses_safe_defaults(monkeypatch):

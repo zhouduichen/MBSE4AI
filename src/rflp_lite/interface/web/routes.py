@@ -99,6 +99,37 @@ def requirements_page(request: Request, workspace_name: str) -> HTMLResponse:
     )
 
 
+@router.get("/w/{workspace_name}/profile.json")
+def profile_json(request: Request, workspace_name: str) -> Response:
+    return Response(
+        content=json.dumps(
+            _facade(request).profile(workspace_name), ensure_ascii=False, sort_keys=True
+        )
+        + "\n",
+        media_type="application/json",
+    )
+
+
+@router.post("/w/{workspace_name}/profile.json")
+async def save_profile_json(request: Request, workspace_name: str) -> Response:
+    try:
+        payload = await request.json()
+        profile = _facade(request).save_profile(workspace_name, payload)
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return Response(
+            content=json.dumps(
+                {"status": "failed", "error": str(exc)}, ensure_ascii=False
+            )
+            + "\n",
+            status_code=422,
+            media_type="application/json",
+        )
+    return Response(
+        content=json.dumps({"status": "ok", "profile": profile}, ensure_ascii=False) + "\n",
+        media_type="application/json",
+    )
+
+
 @router.post("/w/{workspace_name}/requirements/analyze")
 async def analyze_requirements(
     request: Request,
@@ -158,6 +189,19 @@ def delete_requirement_scenario(
 ) -> Response:
     try:
         _facade(request).delete_requirement_scenario(workspace_name, scenario_id)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/scenarios/execute")
+def execute_requirement_scenario(
+    request: Request,
+    workspace_name: str,
+    scenario_id: Annotated[str, Form()],
+) -> Response:
+    try:
+        _facade(request).execute_requirement_scenario(workspace_name, scenario_id)
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
     return RedirectResponse(_requirements_location(workspace_name), status_code=303)
@@ -223,6 +267,36 @@ def requirements_json(request: Request, workspace_name: str) -> Response:
     )
 
 
+@router.get("/w/{workspace_name}/requirements/sysml-lite.json")
+def requirements_sysml_lite_json(request: Request, workspace_name: str) -> Response:
+    try:
+        payload = _facade(request).export_requirements_rflp(workspace_name)
+    except (ContractViolation, RflpError) as exc:
+        return HTMLResponse(str(exc), status_code=404)
+    return Response(
+        content=json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n",
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="rflp-sysml-lite.json"'},
+    )
+
+
+@router.post("/w/{workspace_name}/requirements/sysml-lite.json")
+async def import_requirements_sysml_lite_json(request: Request, workspace_name: str) -> Response:
+    try:
+        payload = await request.json()
+        state = _facade(request).import_requirements_rflp(workspace_name, payload)
+    except (ContractViolation, RflpError, ValueError) as exc:
+        return Response(
+            content=json.dumps({"status": "failed", "error": str(exc)}, ensure_ascii=False) + "\n",
+            status_code=422,
+            media_type="application/json",
+        )
+    return Response(
+        content=json.dumps({"status": "ok", "model": state["rflp"]}, ensure_ascii=False) + "\n",
+        media_type="application/json",
+    )
+
+
 @router.get("/w/{workspace_name}/requirements/scenarios.json")
 def requirements_scenarios_json(request: Request, workspace_name: str) -> Response:
     state = _facade(request).requirements(workspace_name)
@@ -235,6 +309,32 @@ def requirements_scenarios_json(request: Request, workspace_name: str) -> Respon
         content=content + "\n",
         media_type="application/json",
         headers={"Content-Disposition": 'attachment; filename="scenarios.json"'},
+    )
+
+
+@router.get("/w/{workspace_name}/requirements/scenario-runs.json")
+def requirements_scenario_runs_json(request: Request, workspace_name: str) -> Response:
+    state = _facade(request).requirements(workspace_name)
+    if not state:
+        return HTMLResponse("requirements workbench not found", status_code=404)
+    content = json.dumps(
+        state.get("scenario_runs", ()), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return Response(
+        content=content + "\n",
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="scenario-runs.json"'},
+    )
+
+
+@router.get("/w/{workspace_name}/jobs/{job_id}.json")
+def job_json(request: Request, workspace_name: str, job_id: str) -> Response:
+    job = _facade(request).job(workspace_name, job_id)
+    if job is None:
+        return HTMLResponse("job not found", status_code=404)
+    return Response(
+        content=json.dumps(job, ensure_ascii=False, sort_keys=True) + "\n",
+        media_type="application/json",
     )
 @router.get("/w/{workspace_name}/requirements/model.svg")
 def requirements_svg(request: Request, workspace_name: str) -> Response:
@@ -463,6 +563,20 @@ def download_output(request: Request, workspace_name: str, result_hash: str, fil
     except ContractViolation as exc:
         return HTMLResponse(str(exc), status_code=404)
     return FileResponse(path, media_type="application/json", filename=filename)
+
+
+@router.get("/w/{workspace_name}/runs/{result_hash}/export.json")
+def export_run_json(request: Request, workspace_name: str, result_hash: str) -> Response:
+    return Response(
+        content=json.dumps(
+            _facade(request).export_run(workspace_name, result_hash),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="run-export.json"'},
+    )
 
 
 @router.get("/capabilities", response_class=HTMLResponse)

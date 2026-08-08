@@ -84,12 +84,14 @@ def test_download_is_allowlisted(client_with_run) -> None:
     assert escaped.status_code in {400, 404}
 
 
-def test_capability_center_has_disabled_honest_placeholders(client: TestClient) -> None:
+def test_capability_center_reports_local_mvp_and_external_limits(client: TestClient) -> None:
     response = client.get("/capabilities")
     assert response.status_code == 200
     for name in ("LLM / Ollama", "Docling", "SysML v2", "MLflow", "登录与权限"):
         assert name in response.text
-    assert response.text.count("尚未启用") >= 9
+    assert "MVP 已启用" in response.text
+    assert "局部可用" in response.text
+    assert "等待外部适配器" in response.text
     assert "disabled" in response.text
     assert "模拟结果" not in response.text
 
@@ -146,3 +148,36 @@ def test_requirements_page_creates_and_exports_scenario(client: TestClient) -> N
     exported = client.get("/w/demo/requirements/scenarios.json")
     assert exported.status_code == 200
     assert "管理员恢复历史版本" in exported.text
+
+
+def test_requirements_page_executes_scenario_and_exports_trace(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+    client.post(
+        "/w/demo/requirements/scenarios",
+        data={
+            "title": "恢复历史版本",
+            "description": "验证恢复流程",
+            "steps": "选择版本\n确认恢复",
+            "expected_outcomes": "内容恢复",
+        },
+    )
+    state = client.get("/w/demo/requirements/scenarios.json").json()
+    scenario_id = state[0]["id"]
+
+    response = client.post(
+        "/w/demo/requirements/scenarios/execute",
+        data={"scenario_id": scenario_id},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    page = client.get("/w/demo/requirements")
+    assert "生成执行轨迹" in page.text
+    assert "declarative-only" in page.text
+    runs = client.get("/w/demo/requirements/scenario-runs.json")
+    assert runs.status_code == 200
+    assert scenario_id in runs.text

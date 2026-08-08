@@ -15,7 +15,10 @@
 | 人工审核 | 已完成首版 | 候选可编辑、接受、驳回；可批量接受来源完整的明确候选 |
 | 动态 RFLP | 已完成首版 | 不再要求固定三条需求；按审核结果生成 R/F/L/P 和正式关系 |
 | RFLP 图形 | 已完成首版 | 服务端确定性 SVG，支持 JSON/SVG 下载和需求来源链查看 |
-| 场景描述 | 已完成首版 | 工作台支持结构化记录参与者、前置条件、步骤、预期结果、故障/异常和关联 Requirement，并可删除与导出 JSON；暂不执行场景 |
+| 场景描述与执行 | 已完成 MVP | 工作台支持结构化记录、删除、导出，并生成安全的声明性步骤/故障/预期结果轨迹；保留 Job、Evidence 和 `declarative-only` 状态，不执行任意代码 |
+| Profile / Pack | 已完成 MVP | Profile schema 校验、CLI/Web JSON 保存读取和运行记录导出 |
+| SysML-lite 交换 | 已完成 MVP | RFLP 模型版本化 JSON 导入、导出和往返校验；完整 SysML v2 仍未配置 |
+| 本地 Job / API / Plugin | 已完成 MVP | 持久化同步 Job 状态、`/api/v1` JSON API、进程内插件注册与结构化调用 |
 | LLM API | 代码已完成，待真实模型实测 | 手动调用 OpenAI-compatible API，只生成待审核 inferred 候选 |
 | Python ActualModel / Delta / Evidence 接入 | 已完成首版 | 工作台 RFLP 人工批准为基线，扫描本地 Python 项目（AST/OpenAPI/JUnit）生成 ActualModel 与 Evidence，计算 MISSING/EXTRA Delta，派生 TaskContract；Web 页面与 CLI 均可操作 |
 | 任务契约执行 | 已完成首版 | 重扫描项目目录，逐条判定 TaskContract 是否已满足（RESOLVED/UNRESOLVED），确定性、只读、不执行用户代码 |
@@ -110,7 +113,9 @@ rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 6
 
 `assess` 一步完成 需求工作台 → 批准基线 → 分析项目 → 运行测试 并输出汇总，适合脚本/CI 断言。测试命令还支持 `--memory-mib`、`--max-open-files`、`--output-mib` 和 `--no-cache`。
 
-场景描述入口：`/w/{workspace}/requirements`。场景保存在现有 workbench JSON 中，支持步骤/预期结果逐行录入、Requirement ID 关联、删除和 `/w/{workspace}/requirements/scenarios.json` 下载。场景目前不自动触发仿真或测试执行。
+场景描述入口：`/w/{workspace}/requirements`。场景保存在现有 workbench JSON 中，支持步骤/预期结果逐行录入、Requirement ID 关联、删除、执行轨迹和 `/w/{workspace}/requirements/scenarios.json`、`scenario-runs.json` 下载。执行是安全的声明性轨迹，不触发仿真、测试或任意用户代码。
+
+本地 MVP JSON API 入口为 `/api/v1`：提供工作区、需求、场景创建/查询/执行、Job 状态、Profile、RFLP SysML-lite 交换和本地插件发现/调用。Profile 可通过 `rflp profile show|validate|save` 管理；运行记录可通过 `rflp run export` 导出。
 
 匹配边界：基线 R/F 层的义务句与实际的 class/function/api-operation 按分词交集匹配；中英文之间无法用关键词对齐时，明确义务如实标为 `MISSING`，不猜测。
 
@@ -125,6 +130,12 @@ rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 6
 | `src/rflp_lite/adapters/readers.py` | 文本、DOCX、Python AST 和中英文义务句读取 |
 | `src/rflp_lite/application/requirements_workbench.py` | 候选发现、审核门禁、LLM 建议、RFLP 生成与 SVG |
 | `src/rflp_lite/application/scenarios.py` | 结构化场景创建、校验、删除和确定性 ID |
+| `src/rflp_lite/application/scenario_execution.py` | 安全声明性场景执行轨迹和 Evidence |
+| `src/rflp_lite/application/jobs.py` | 本地原子 JSON Job 状态记录 |
+| `src/rflp_lite/application/profile_packs.py` | Profile 校验、保存和运行记录导出 |
+| `src/rflp_lite/application/interchange.py` | SysML-lite RFLP 交换格式与 round-trip 校验 |
+| `src/rflp_lite/application/plugins.py` | 进程内插件注册、发现和结构化调用 |
+| `src/rflp_lite/interface/web/api_v1.py` | `/api/v1` 本地版本化 JSON API |
 | `src/rflp_lite/application/synthesize.py` | 动态 R/F/L/P 节点和关系合成 |
 | `src/rflp_lite/adapters/sqlite_repository.py` | SQLite 工作台、模型和审计持久化 |
 | `src/rflp_lite/application/web_facade.py` | Web 用例编排与事务边界 |
@@ -223,7 +234,8 @@ export RFLP_LLM_API_KEY=local-key
 - SVG 是稳定只读图，不支持拖拽和自由连线。
 - LLM 尚无模型管理、流式交互、重试队列和本地模型生命周期管理。
 - 匹配只在基线 R/F 与 actual class/function/api-operation 之间按分词交集进行；中英文、缩写与长句义务的匹配需要更多工程样本校准。
-- 项目扫描只读 `.py` / OpenAPI JSON / JUnit XML；测试执行沙箱只运行固定 `pytest` 命令（60s 超时），不覆盖 pytest 以外的运行器。
+- 项目扫描只读 `.py` / OpenAPI JSON / JUnit XML；测试执行沙箱只运行固定的 `pytest` / `unittest` allowlist 命令（默认 60s 超时）。
 - 测试结果作为独立客观 Evidence 呈现，不改变实现符号层面的 R/F 匹配与契约 RESOLVED/UNRESOLVED。
-- 场景描述目前只负责结构化记录、Requirement 关联和 JSON 导出，不自动驱动仿真、测试或契约验收。
+- 场景执行目前只生成 `declarative-only` 轨迹和 Evidence，不连接真实运行时，不自动驱动仿真、测试或契约验收。
+- API 默认只用于本地受控客户端；登录、角色权限、限流、公网部署和远程插件隔离仍未配置。
 - 测试运行器仅支持固定的 pytest/unittest allowlist；POSIX 资源限制在其他平台以不支持状态报告。

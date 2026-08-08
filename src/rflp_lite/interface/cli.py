@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -10,6 +11,13 @@ from rflp_lite.adapters.sqlite_repository import SQLiteRepository
 from rflp_lite.adapters.test_execution_config import build_limits
 from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
 from rflp_lite.application.demo import PROJECT_ROOT, run_demo
+from rflp_lite.application.jobs import JobService
+from rflp_lite.application.profile_packs import (
+    export_run_record,
+    load_profile,
+    save_profile,
+    validate_profile_payload,
+)
 from rflp_lite.application.project_bridge import (
     analyze_project_state,
     approve_workbench_baseline,
@@ -22,6 +30,8 @@ from rflp_lite.application.requirements_workbench import (
     generate_model,
     merge_artifact,
 )
+from rflp_lite.application.scenario_execution import append_scenario_run, execute_scenario
+from rflp_lite.application.run_catalog import load_run
 from rflp_lite.application.workspaces import initialize_workspace
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import ContractViolation, RflpError
@@ -94,6 +104,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     assess_parser.add_argument("--source", required=True)
     assess_parser.add_argument("--timeout", type=int, default=DEFAULT_TEST_TIMEOUT)
     _add_test_options(assess_parser)
+    profile_parser = subparsers.add_parser("profile", help="validate or edit a local Profile JSON")
+    profile_commands = profile_parser.add_subparsers(dest="profile_command", required=True)
+    profile_show = profile_commands.add_parser("show")
+    profile_show.add_argument("--workspace", type=Path, required=True)
+    profile_validate = profile_commands.add_parser("validate")
+    profile_validate.add_argument("--profile", type=Path, required=True)
+    profile_save = profile_commands.add_parser("save")
+    profile_save.add_argument("--workspace", type=Path, required=True)
+    profile_save.add_argument("--profile", type=Path, required=True)
+    scenario_parser = subparsers.add_parser("scenario", help="execute a structured scenario trace")
+    scenario_commands = scenario_parser.add_subparsers(dest="scenario_command", required=True)
+    scenario_execute = scenario_commands.add_parser("execute")
+    scenario_execute.add_argument("--workspace", type=Path, required=True)
+    scenario_execute.add_argument("--scenario-id", required=True)
+    run_parser = subparsers.add_parser("run", help="export a local run record")
+    run_commands = run_parser.add_subparsers(dest="run_command", required=True)
+    run_export = run_commands.add_parser("export")
+    run_export.add_argument("--workspace", type=Path, required=True)
+    run_export.add_argument("--result-hash", required=True)
     args = parser.parse_args(argv)
     if args.command == "version":
         print(f"rflp-lite {__version__}")
@@ -149,6 +178,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_workbench(args)
         if args.command == "assess":
             return _run_assess(args)
+        if args.command == "profile":
+            return _run_profile(args)
+        if args.command == "scenario":
+            return _run_scenario(args)
+        if args.command == "run":
+            return _run_run(args)
     except (RflpError, OSError) as exc:
         print(
             canonical_json(
@@ -158,6 +193,57 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 1
     return 2
+
+
+def _run_profile(args: argparse.Namespace) -> int:
+    if args.profile_command == "show":
+        print(canonical_json(load_profile(args.workspace.resolve())))
+        return 0
+    payload = json.loads(args.profile.read_text(encoding="utf-8"))
+    normalized = validate_profile_payload(payload)
+    if args.profile_command == "save":
+        normalized = save_profile(args.workspace.resolve(), normalized)
+    print(canonical_json({"status": "ok", "profile": normalized}))
+    return 0
+
+
+def _run_scenario(args: argparse.Namespace) -> int:
+    workspace = args.workspace.resolve()
+    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    try:
+        state = repository.load_workbench()
+        if state is None:
+            raise ContractViolation("需求工作台为空")
+        service = JobService(workspace)
+        job = service.submit(
+            "scenario.execute",
+            {"scenario_id": args.scenario_id},
+            lambda: execute_scenario(state, args.scenario_id),
+        )
+        result = job["result"]
+        state = append_scenario_run(state, result)
+        with repository.transaction():
+            repository.save_workbench(state)
+            repository.record_audit(
+                "scenario.executed",
+                {
+                    "scenario_id": args.scenario_id,
+                    "run_id": result["run_id"],
+                    "status": result["status"],
+                },
+            )
+        print(canonical_json({**result, "job": {"id": job["id"], "status": job["status"]}}))
+        return 0
+    finally:
+        repository.close()
+
+
+def _run_run(args: argparse.Namespace) -> int:
+    if args.run_command != "export":
+        return 2
+    record = load_run(args.workspace.resolve(), args.result_hash)
+    print(canonical_json(export_run_record(record)))
+    return 0
 
 
 def _run_workbench(args: argparse.Namespace) -> int:

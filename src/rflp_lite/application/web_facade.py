@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from rflp_lite.adapters.sqlite_repository import SQLiteRepository
@@ -21,7 +22,17 @@ from rflp_lite.application.requirements_workbench import (
     merge_artifact,
     review_item,
 )
+from rflp_lite.application.jobs import JobService
+from rflp_lite.application.interchange import export_rflp, import_rflp
+from rflp_lite.domain.canonical import canonical_json
+from rflp_lite.application.profile_packs import (
+    export_run_record,
+    load_profile,
+    save_profile,
+)
+from rflp_lite.application.plugins import invoke_plugin, list_plugins
 from rflp_lite.application.scenarios import add_scenario, delete_scenario
+from rflp_lite.application.scenario_execution import append_scenario_run, execute_scenario
 from rflp_lite.application.workspaces import (
     WorkspaceRef,
     create_managed_workspace,
@@ -56,6 +67,49 @@ class WebFacade:
     def run(self, workspace_name: str, result_hash: str) -> RunRecord:
         return load_run(self.workspace(workspace_name).path, result_hash)
 
+    def export_run(self, workspace_name: str, result_hash: str) -> dict[str, object]:
+        return export_run_record(self.run(workspace_name, result_hash))
+
+    def profile(self, workspace_name: str) -> dict[str, object]:
+        return load_profile(self.workspace(workspace_name).path)
+
+    def save_profile(
+        self, workspace_name: str, payload: object
+    ) -> dict[str, object]:
+        workspace = self.workspace(workspace_name)
+        normalized = save_profile(workspace.path, payload)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            with repository.transaction():
+                repository.record_audit("profile.saved", normalized)
+        finally:
+            repository.close()
+        return normalized
+
+    def export_requirements_rflp(self, workspace_name: str) -> dict[str, object]:
+        state = self.requirements(workspace_name)
+        if not state or not state.get("rflp"):
+            raise ContractViolation("RFLP model not generated")
+        return export_rflp(state["rflp"])
+
+    def import_requirements_rflp(
+        self, workspace_name: str, payload: object
+    ) -> dict[str, object]:
+        state = self.requirements(workspace_name)
+        if state is None:
+            raise ContractViolation("requirements workbench is empty")
+        result = json.loads(canonical_json(state))
+        result["rflp"] = import_rflp(payload)
+        return self._save_requirements(workspace_name, result, "rflp.imported")
+
+    def plugins(self) -> tuple[dict[str, object], ...]:
+        return list_plugins()
+
+    def invoke_plugin(
+        self, name: str, payload: dict[str, object]
+    ) -> dict[str, object]:
+        return invoke_plugin(name, payload)
+
     def audit(self, workspace_name: str) -> tuple[dict[str, object], ...]:
         workspace = self.workspace(workspace_name)
         database = workspace.path / ".rflp" / "model.db"
@@ -82,7 +136,11 @@ class WebFacade:
         workspace = self.workspace(workspace_name)
         repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
         try:
-            return repository.load_workbench()
+            state = repository.load_workbench()
+            if state is not None:
+                state.setdefault("scenarios", [])
+                state.setdefault("scenario_runs", [])
+            return state
         finally:
             repository.close()
 
@@ -199,6 +257,38 @@ class WebFacade:
             delete_scenario(current, scenario_id),
             "scenario.deleted",
         )
+
+    def execute_requirement_scenario(
+        self, workspace_name: str, scenario_id: str
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        workspace = self.workspace(workspace_name)
+        jobs = JobService(workspace.path)
+        job = jobs.submit(
+            "scenario.execute",
+            {"scenario_id": scenario_id},
+            lambda: execute_scenario(current, scenario_id),
+        )
+        result = job["result"]
+        updated = append_scenario_run(current, result)
+        updated = self._save_requirements(
+            workspace_name,
+            updated,
+            "scenario.executed",
+            {"scenario_id": scenario_id, "run_id": result["run_id"], "status": result["status"]},
+        )
+        return {**result, "job": {"id": job["id"], "status": job["status"]}}
+
+    def scenario_runs(self, workspace_name: str) -> tuple[dict[str, object], ...]:
+        state = self.requirements(workspace_name)
+        if state is None:
+            raise ContractViolation("requirements workbench is empty")
+        return tuple(state.get("scenario_runs", ()))
+
+    def job(self, workspace_name: str, job_id: str) -> dict[str, object] | None:
+        return JobService(self.workspace(workspace_name).path).get(job_id)
 
     def approve_requirements_baseline(self, workspace_name: str) -> dict[str, object]:
         current = self.requirements(workspace_name)
@@ -326,14 +416,21 @@ class WebFacade:
         return state
 
     def _save_requirements(
-        self, workspace_name: str, state: dict[str, object], event: str
+        self,
+        workspace_name: str,
+        state: dict[str, object],
+        event: str,
+        audit_payload: dict[str, object] | None = None,
     ) -> dict[str, object]:
         workspace = self.workspace(workspace_name)
         repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
                 repository.save_workbench(state)
-                repository.record_audit(event, {"artifact": state["artifact"]["path"]})
+                repository.record_audit(
+                    event,
+                    audit_payload or {"artifact": state["artifact"]["path"]},
+                )
         finally:
             repository.close()
         return state
