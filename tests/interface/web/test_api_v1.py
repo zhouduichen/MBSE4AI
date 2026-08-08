@@ -88,3 +88,39 @@ def test_api_v1_exposes_local_plugin_registry(client: TestClient) -> None:
     missing = client.post("/api/v1/plugins/missing", json={})
     assert missing.status_code == 422
     assert missing.json()["status"] == "failed"
+
+
+def test_api_v1_exports_and_imports_sysml_v2_subset(client: TestClient) -> None:
+    _workbench(client)
+    client.post("/w/demo/requirements/accept-traceable")
+    generated = client.post("/w/demo/requirements/generate")
+    assert generated.status_code == 200
+
+    exported = client.get("/api/v1/workspaces/demo/rflp.sysml")
+    assert exported.status_code == 200
+    assert "package RFLP_Lite" in exported.text
+
+    imported = client.put(
+        "/api/v1/workspaces/demo/rflp.sysml",
+        content=exported.content,
+        headers={"content-type": "text/plain"},
+    )
+    assert imported.status_code == 200
+    assert imported.json()["rflp"]["elements"]
+
+
+def test_api_v1_mlflow_endpoint_reports_real_or_missing_sdk(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    started = client.post(
+        "/w/demo/runs",
+        data={"solver": "heuristic", "seed": "42"},
+        follow_redirects=False,
+    )
+    result_hash = started.headers["location"].rsplit("/", 1)[-1]
+
+    response = client.post(
+        f"/api/v1/workspaces/demo/runs/{result_hash}/mlflow", json={}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] in {"tracked", "not_configured"}

@@ -71,6 +71,11 @@ def _model(value: object) -> dict[str, list[dict[str, object]]]:
     return {"elements": normalized_elements, "relations": normalized_relations}
 
 
+def validate_rflp_model(value: object) -> dict[str, list[dict[str, object]]]:
+    """Validate and normalize the shared RFLP model shape for other bridges."""
+    return _model(value)
+
+
 def export_rflp(model: object) -> dict[str, object]:
     normalized = _model(model)
     return {

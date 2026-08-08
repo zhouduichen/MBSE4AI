@@ -170,8 +170,8 @@ def evidence_context(
 CAPABILITIES = (
     Capability("LLM / Ollama", "planned", "从声明辅助生成模型建议", "Ollama 或兼容 LLM Adapter", "Claim", "候选 ModelElement", "契约、审计与人工批准门禁完成"),
     Capability("Docling", "planned", "解析复杂 PDF/DOCX", "Docling optional adapter", "本地文档", "Artifact / TextSpan", "版面回归与资源上限完成"),
-    Capability("SysML v2", "partial", "以 SysML-lite 格式导入导出 RFLP", "本地 JSON interchange；完整 SysML v2 adapter 未配置", "RFLP model", "Versioned SysML-lite model", "完整 SysML v2 语义映射和图形编辑"),
-    Capability("MLflow", "partial", "本地记录运行参数并导出可映射 JSON", "Run manifest + SQLite/JSON", "Run manifest", "Local experiment record", "MLflow 服务或 SDK 配置"),
+    Capability("SysML v2", "partial", "导入导出 RFLP SysML v2 常用子集文本", "本地 SysML v2 subset bridge；完整语义仍未配置", "RFLP model / .sysml", "Textual SysML subset + SVG", "完整 SysML v2 语义映射和图形编辑"),
+    Capability("MLflow", "partial", "将本地运行记录真实写入 MLflow", "可选 MLflow SDK + 本地 file tracking", "Run manifest", "MLflow run / artifacts", "MLflow SDK 或 Tracking Server 配置"),
     Capability("Profile / Pack 编辑", "available", "配置已验证运行参数", "Schema-driven local editor", "Profile JSON", "Validated Profile", "版本迁移和多人协作"),
     Capability("后台任务队列", "available", "记录本地操作的任务状态", "Persistent local job ledger", "Run request", "Job status", "异步 worker、重启恢复和分布式幂等"),
     Capability("对外 Web API", "available", "提供版本化本地 JSON API", "FastAPI /api/v1", "Versioned request", "Versioned response", "认证、限流和公网部署"),

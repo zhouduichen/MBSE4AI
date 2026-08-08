@@ -62,6 +62,24 @@ def test_profile_and_run_export_commands(tmp_path, capsys):
     assert '"format":"rflp-lite-run"' in capsys.readouterr().out
 
 
+def test_sysml_and_mlflow_commands(tmp_path, capsys):
+    workspace = _workspace_with_generated_rflp(tmp_path)
+    sysml_file = tmp_path / "model.sysml"
+
+    assert main(["sysml", "export", "--workspace", str(workspace)]) == 0
+    sysml_file.write_text(capsys.readouterr().out, encoding="utf-8")
+    assert "package RFLP_Lite" in sysml_file.read_text(encoding="utf-8")
+    assert main(
+        ["sysml", "import", "--workspace", str(workspace), "--file", str(sysml_file)]
+    ) == 0
+    assert '"status":"ok"' in capsys.readouterr().out
+
+    assert main(["demo", "--workspace", str(workspace)]) == 0
+    result_hash = json.loads(capsys.readouterr().out)["result_hash"]
+    assert main(["mlflow", "--workspace", str(workspace), "--result-hash", result_hash]) in {0, 1}
+    assert '"status"' in capsys.readouterr().out
+
+
 def test_web_command_uses_safe_defaults(monkeypatch):
     captured = {}
 

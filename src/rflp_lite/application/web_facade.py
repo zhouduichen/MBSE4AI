@@ -31,6 +31,8 @@ from rflp_lite.application.profile_packs import (
     save_profile,
 )
 from rflp_lite.application.plugins import invoke_plugin, list_plugins
+from rflp_lite.application.sysml_v2 import export_sysml_v2_text, import_sysml_v2_text
+from rflp_lite.adapters.mlflow_tracking import track_run_with_mlflow
 from rflp_lite.application.scenarios import add_scenario, delete_scenario
 from rflp_lite.application.scenario_execution import append_scenario_run, execute_scenario
 from rflp_lite.application.workspaces import (
@@ -92,6 +94,12 @@ class WebFacade:
             raise ContractViolation("RFLP model not generated")
         return export_rflp(state["rflp"])
 
+    def export_requirements_sysml_v2(self, workspace_name: str) -> str:
+        state = self.requirements(workspace_name)
+        if not state or not state.get("rflp"):
+            raise ContractViolation("RFLP model not generated")
+        return export_sysml_v2_text(state["rflp"])
+
     def import_requirements_rflp(
         self, workspace_name: str, payload: object
     ) -> dict[str, object]:
@@ -101,6 +109,30 @@ class WebFacade:
         result = json.loads(canonical_json(state))
         result["rflp"] = import_rflp(payload)
         return self._save_requirements(workspace_name, result, "rflp.imported")
+
+    def import_requirements_sysml_v2(
+        self, workspace_name: str, text: str
+    ) -> dict[str, object]:
+        state = self.requirements(workspace_name)
+        if state is None:
+            raise ContractViolation("requirements workbench is empty")
+        result = json.loads(canonical_json(state))
+        result["rflp"] = import_sysml_v2_text(text)
+        return self._save_requirements(workspace_name, result, "rflp.sysml_v2_imported")
+
+    def track_run_with_mlflow(
+        self,
+        workspace_name: str,
+        result_hash: str,
+        *,
+        tracking_uri: str | None = None,
+        experiment_name: str = "rflp-lite",
+    ) -> dict[str, object]:
+        return track_run_with_mlflow(
+            self.run(workspace_name, result_hash),
+            tracking_uri=tracking_uri,
+            experiment_name=experiment_name,
+        )
 
     def plugins(self) -> tuple[dict[str, object], ...]:
         return list_plugins()

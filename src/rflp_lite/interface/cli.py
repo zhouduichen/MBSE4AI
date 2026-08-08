@@ -8,6 +8,7 @@ from pathlib import Path
 
 from rflp_lite import __version__
 from rflp_lite.adapters.sqlite_repository import SQLiteRepository
+from rflp_lite.adapters.mlflow_tracking import track_run_with_mlflow
 from rflp_lite.adapters.test_execution_config import build_limits
 from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
 from rflp_lite.application.demo import PROJECT_ROOT, run_demo
@@ -32,6 +33,7 @@ from rflp_lite.application.requirements_workbench import (
 )
 from rflp_lite.application.scenario_execution import append_scenario_run, execute_scenario
 from rflp_lite.application.run_catalog import load_run
+from rflp_lite.application.sysml_v2 import export_sysml_v2_text, import_sysml_v2_text
 from rflp_lite.application.workspaces import initialize_workspace
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import ContractViolation, RflpError
@@ -123,6 +125,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_export = run_commands.add_parser("export")
     run_export.add_argument("--workspace", type=Path, required=True)
     run_export.add_argument("--result-hash", required=True)
+    sysml_parser = subparsers.add_parser("sysml", help="export or import the RFLP SysML v2 subset")
+    sysml_commands = sysml_parser.add_subparsers(dest="sysml_command", required=True)
+    sysml_export = sysml_commands.add_parser("export")
+    sysml_export.add_argument("--workspace", type=Path, required=True)
+    sysml_import = sysml_commands.add_parser("import")
+    sysml_import.add_argument("--workspace", type=Path, required=True)
+    sysml_import.add_argument("--file", type=Path, required=True)
+    mlflow_parser = subparsers.add_parser("mlflow", help="track a local run in MLflow")
+    mlflow_parser.add_argument("--workspace", type=Path, required=True)
+    mlflow_parser.add_argument("--result-hash", required=True)
+    mlflow_parser.add_argument("--tracking-uri")
+    mlflow_parser.add_argument("--experiment", default="rflp-lite")
     args = parser.parse_args(argv)
     if args.command == "version":
         print(f"rflp-lite {__version__}")
@@ -184,6 +198,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_scenario(args)
         if args.command == "run":
             return _run_run(args)
+        if args.command == "sysml":
+            return _run_sysml(args)
+        if args.command == "mlflow":
+            return _run_mlflow(args)
     except (RflpError, OSError) as exc:
         print(
             canonical_json(
@@ -244,6 +262,39 @@ def _run_run(args: argparse.Namespace) -> int:
     record = load_run(args.workspace.resolve(), args.result_hash)
     print(canonical_json(export_run_record(record)))
     return 0
+
+
+def _run_sysml(args: argparse.Namespace) -> int:
+    workspace = args.workspace.resolve()
+    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    try:
+        state = repository.load_workbench()
+        if state is None:
+            raise ContractViolation("需求工作台为空")
+        if args.sysml_command == "export":
+            if not state.get("rflp"):
+                raise ContractViolation("RFLP model not generated")
+            print(export_sysml_v2_text(state["rflp"]), end="")
+            return 0
+        state["rflp"] = import_sysml_v2_text(args.file.read_text(encoding="utf-8"))
+        with repository.transaction():
+            repository.save_workbench(state)
+            repository.record_audit("rflp.sysml_v2_imported", {"file": str(args.file)})
+        print(canonical_json({"status": "ok", "elements": len(state["rflp"]["elements"]), "relations": len(state["rflp"]["relations"])}))
+        return 0
+    finally:
+        repository.close()
+
+
+def _run_mlflow(args: argparse.Namespace) -> int:
+    record = load_run(args.workspace.resolve(), args.result_hash)
+    result = track_run_with_mlflow(
+        record,
+        tracking_uri=args.tracking_uri,
+        experiment_name=args.experiment,
+    )
+    print(canonical_json(result))
+    return 0 if result["status"] != "failed" else 1
 
 
 def _run_workbench(args: argparse.Namespace) -> int:

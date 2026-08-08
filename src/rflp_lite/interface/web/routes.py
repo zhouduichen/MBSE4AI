@@ -348,6 +348,36 @@ def requirements_svg(request: Request, workspace_name: str) -> Response:
     )
 
 
+@router.get("/w/{workspace_name}/requirements/model.sysml")
+def requirements_sysml_v2(request: Request, workspace_name: str) -> Response:
+    try:
+        content = _facade(request).export_requirements_sysml_v2(workspace_name)
+    except (ContractViolation, RflpError) as exc:
+        return HTMLResponse(str(exc), status_code=404)
+    return Response(
+        content=content,
+        media_type="text/plain",
+        headers={"Content-Disposition": 'attachment; filename="rflp-model.sysml"'},
+    )
+
+
+@router.post("/w/{workspace_name}/requirements/model.sysml")
+async def import_requirements_sysml_v2(request: Request, workspace_name: str) -> Response:
+    try:
+        text = (await request.body()).decode("utf-8")
+        state = _facade(request).import_requirements_sysml_v2(workspace_name, text)
+    except (ContractViolation, RflpError, OSError, UnicodeDecodeError) as exc:
+        return Response(
+            content=json.dumps({"status": "failed", "error": str(exc)}, ensure_ascii=False) + "\n",
+            status_code=422,
+            media_type="application/json",
+        )
+    return Response(
+        content=json.dumps({"status": "ok", "rflp": state["rflp"]}, ensure_ascii=False) + "\n",
+        media_type="application/json",
+    )
+
+
 _PROJECT_DOWNLOADS = {
     "baseline.json": lambda state: state.get("baseline"),
     "actual-model.json": lambda state: (state.get("project") or {}).get("actual"),
@@ -576,6 +606,31 @@ def export_run_json(request: Request, workspace_name: str, result_hash: str) -> 
         + "\n",
         media_type="application/json",
         headers={"Content-Disposition": 'attachment; filename="run-export.json"'},
+    )
+
+
+@router.post("/w/{workspace_name}/runs/{result_hash}/mlflow")
+async def track_run_mlflow(request: Request, workspace_name: str, result_hash: str) -> Response:
+    try:
+        raw = await request.body()
+        payload = json.loads(raw.decode("utf-8")) if raw else {}
+        if not isinstance(payload, dict):
+            raise ContractViolation("MLflow payload must be an object")
+        result = _facade(request).track_run_with_mlflow(
+            workspace_name,
+            result_hash,
+            tracking_uri=payload.get("tracking_uri"),
+            experiment_name=str(payload.get("experiment_name", "rflp-lite")),
+        )
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return Response(
+            content=json.dumps({"status": "failed", "error": str(exc)}, ensure_ascii=False) + "\n",
+            status_code=422,
+            media_type="application/json",
+        )
+    return Response(
+        content=json.dumps(result, ensure_ascii=False, sort_keys=True) + "\n",
+        media_type="application/json",
     )
 
 

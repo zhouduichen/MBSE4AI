@@ -120,6 +120,7 @@ def test_requirements_page_runs_reviewed_rflp_flow(client: TestClient) -> None:
     assert "<svg" in page.text
     assert client.get("/w/demo/requirements/model.json").status_code == 200
     assert client.get("/w/demo/requirements/model.svg").status_code == 200
+    assert client.get("/w/demo/requirements/model.sysml").status_code == 200
 
 
 def test_requirements_page_creates_and_exports_scenario(client: TestClient) -> None:

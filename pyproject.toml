@@ -20,6 +20,7 @@ dev = [
 schema = ["jsonschema>=4.23"]
 evidence = ["prance>=23.6.21", "junitparser>=3.2"]
 opt = ["ortools>=9.11"]
+tracking = ["mlflow>=2.0"]
 web = [
   "fastapi>=0.116,<1",
   "uvicorn>=0.35,<1",

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from rflp_lite.domain.errors import ContractViolation, RflpError
 
@@ -143,4 +144,42 @@ async def update_rflp(request: Request, workspace_name: str) -> JSONResponse | d
         state = _facade(request).import_requirements_rflp(workspace_name, payload)
         return {"status": "ok", "rflp": state["rflp"]}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@api_v1.get("/workspaces/{workspace_name}/rflp.sysml", response_model=None)
+def rflp_sysml(request: Request, workspace_name: str) -> Response | JSONResponse:
+    try:
+        return Response(
+            content=_facade(request).export_requirements_sysml_v2(workspace_name),
+            media_type="text/plain",
+        )
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
+@api_v1.put("/workspaces/{workspace_name}/rflp.sysml", response_model=None)
+async def update_rflp_sysml(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        text = (await request.body()).decode("utf-8")
+        state = _facade(request).import_requirements_sysml_v2(workspace_name, text)
+        return {"status": "ok", "rflp": state["rflp"]}
+    except (ContractViolation, RflpError, OSError, UnicodeDecodeError) as exc:
+        return _error(exc)
+
+
+@api_v1.post("/workspaces/{workspace_name}/runs/{result_hash}/mlflow", response_model=None)
+async def track_mlflow(request: Request, workspace_name: str, result_hash: str) -> JSONResponse | dict[str, object]:
+    try:
+        raw = await request.body()
+        payload = json.loads(raw.decode("utf-8")) if raw else {}
+        if not isinstance(payload, dict):
+            raise ContractViolation("MLflow payload must be an object")
+        return _facade(request).track_run_with_mlflow(
+            workspace_name,
+            result_hash,
+            tracking_uri=payload.get("tracking_uri"),
+            experiment_name=str(payload.get("experiment_name", "rflp-lite")),
+        )
+    except (ContractViolation, RflpError, OSError, ValueError, UnicodeDecodeError) as exc:
         return _error(exc)
