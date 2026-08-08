@@ -56,7 +56,11 @@ class RapidOcrAdapter:
         if not result:
             return ()
         values: list[tuple[str, tuple[float, float, float, float]]] = []
-        for item in result:
+        if hasattr(result, "txts") and hasattr(result, "boxes"):
+            iterable = zip(result.boxes, result.txts)
+        else:
+            iterable = result
+        for item in iterable:
             if isinstance(item, dict):
                 text = str(item.get("text", "")).strip()
                 box = item.get("box") or item.get("bbox") or ()
@@ -184,4 +188,3 @@ class LocalDocumentParser(DocumentParserPort):
             regions=tuple(regions),
             text="\n".join(region.text for region in regions),
         )
-

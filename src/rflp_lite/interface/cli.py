@@ -12,6 +12,10 @@ from rflp_lite.adapters.mlflow_tracking import track_run_with_mlflow
 from rflp_lite.adapters.test_execution_config import build_limits
 from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
 from rflp_lite.application.demo import run_demo
+from rflp_lite.application.acceptance_harness import run_customer_acceptance
+from rflp_lite.application.mbse_exchange import export_mbse_json, export_mbse_sysml_v2_text
+from rflp_lite.application.mbse_modeling import apply_mbse_edit, generate_mbse_revision
+from rflp_lite.application.mbse_render import render_mbse_svg
 from rflp_lite.application.jobs import JobService
 from rflp_lite.application.profile_packs import (
     export_run_record,
@@ -133,6 +137,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     sysml_import = sysml_commands.add_parser("import")
     sysml_import.add_argument("--workspace", type=Path, required=True)
     sysml_import.add_argument("--file", type=Path, required=True)
+    mbse_parser = subparsers.add_parser("mbse", help="generate or export semantic MBSE views")
+    mbse_commands = mbse_parser.add_subparsers(dest="mbse_command", required=True)
+    mbse_generate = mbse_commands.add_parser("generate")
+    mbse_generate.add_argument("--workspace", type=Path, required=True)
+    mbse_export = mbse_commands.add_parser("export")
+    mbse_export.add_argument("--workspace", type=Path, required=True)
+    mbse_export.add_argument("--format", choices=("json", "sysml", "svg"), default="json")
+    mbse_export.add_argument("--view", choices=("all", "use_case", "activity", "sequence"), default="all")
+    acceptance_parser = subparsers.add_parser("acceptance", help="run customer requirements/MBSE acceptance checks")
+    acceptance_parser.add_argument("--requirements", type=Path, required=True)
+    acceptance_parser.add_argument("--gold", type=Path)
     mlflow_parser = subparsers.add_parser("mlflow", help="track a local run in MLflow")
     mlflow_parser.add_argument("--workspace", type=Path, required=True)
     mlflow_parser.add_argument("--result-hash", required=True)
@@ -201,6 +216,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_run(args)
         if args.command == "sysml":
             return _run_sysml(args)
+        if args.command == "mbse":
+            return _run_mbse(args)
+        if args.command == "acceptance":
+            report = run_customer_acceptance(args.requirements.name, args.requirements.read_bytes(), args.gold)
+            print(canonical_json(report))
+            return 0 if report["status"] == "passed" else 1
         if args.command == "mlflow":
             return _run_mlflow(args)
     except (RflpError, OSError) as exc:
@@ -282,6 +303,34 @@ def _run_sysml(args: argparse.Namespace) -> int:
             repository.save_workbench(state)
             repository.record_audit("rflp.sysml_v2_imported", {"file": str(args.file)})
         print(canonical_json({"status": "ok", "elements": len(state["rflp"]["elements"]), "relations": len(state["rflp"]["relations"])}))
+        return 0
+    finally:
+        repository.close()
+
+
+def _run_mbse(args: argparse.Namespace) -> int:
+    workspace = args.workspace.resolve()
+    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    try:
+        state = repository.load_workbench()
+        if state is None:
+            raise ContractViolation("需求工作台为空")
+        if args.mbse_command == "generate":
+            state = generate_mbse_revision(state)
+            with repository.transaction():
+                repository.save_workbench(state)
+                repository.record_audit("requirements.mbse_generated", {})
+            print(canonical_json({"status": "ok", "revision": state["mbse"]["revision"]}))
+            return 0
+        model = state.get("mbse")
+        if not model:
+            raise ContractViolation("MBSE semantic model not generated")
+        if args.format == "json":
+            print(canonical_json(export_mbse_json(model)))
+        elif args.format == "sysml":
+            print(export_mbse_sysml_v2_text(model), end="")
+        else:
+            print(render_mbse_svg(model, args.view))
         return 0
     finally:
         repository.close()
