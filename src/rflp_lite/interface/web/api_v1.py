@@ -162,7 +162,9 @@ async def add_stakeholder(request: Request, workspace_name: str) -> JSONResponse
         if not isinstance(payload, dict):
             raise ContractViolation("stakeholder payload must be an object")
         state = _facade(request).add_requirement_stakeholder(
-            workspace_name, str(payload.get("name", ""))
+            workspace_name,
+            str(payload.get("name", "")),
+            str(payload.get("category", "")),
         )
         stakeholder = next(
             item

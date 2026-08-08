@@ -2,6 +2,10 @@
   <input type="hidden" name="group" value="{{ group }}">
   <input type="hidden" name="item_id" value="{{ item.id }}">
   <label><span class="sr-only">{{ title }}内容</span><input name="value" value="{{ item[field] }}" required></label>
+  {% if group == "stakeholders" %}
+  <label><span class="sr-only">利益相关方类别</span><select name="category" aria-label="利益相关方类别">{% for key, label in stakeholder_categories %}<option value="{{ key }}" {% if item.category == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  {% else %}<input type="hidden" name="category" value="">
+  {% endif %}
   <small>{{ item.source_span_id if item.source_span_id else item.span_id }}{% if item.candidate_type %} · {{ item.candidate_type }}{% endif %}</small>
   <span class="status-badge {{ item.status }}">{{ item.status }}</span>
   <button class="button compact" name="status" value="accepted" type="submit">接受</button>

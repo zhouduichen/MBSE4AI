@@ -26,8 +26,31 @@ _ROLE_ALIASES = {
     "项目负责人": ("项目负责人", "Approver", "product_owner"),
     "外部系统": ("外部系统", "第三方平台", "external_system"),
 }
+_STAKEHOLDER_CATEGORY_ALIASES = {
+    "customer": ("客户", "甲方", "业主", "产品负责人", "项目负责人", "车主"),
+    "end_user": ("普通用户", "最终用户", "用户", "驾驶员", "乘员", "乘客"),
+    "operator": ("管理员", "操作员", "运维人员", "运维", "维护人员", "调度员", "内容管理员", "内容编辑人员"),
+    "engineering": ("系统工程师", "系统架构师", "研发人员", "开发人员", "设计人员", "工程师"),
+    "supplier": ("供应商", "制造商", "生产人员", "零部件供应商"),
+    "regulator": ("监管机构", "监管方", "监管人员", "审计人员", "审核员", "认证机构", "标准组织"),
+    "external_system": ("外部系统", "第三方平台", "接口系统", "合作系统"),
+    "environment": ("环境", "自然环境", "法规", "约束条件"),
+}
 _GROUPS = {"stakeholders", "concerns", "needs", "claims"}
 _STATUSES = {"candidate", "accepted", "rejected"}
+STAKEHOLDER_CATEGORIES = (
+    ("customer", "客户 / 系统拥有者"),
+    ("end_user", "最终用户"),
+    ("operator", "操作 / 运维"),
+    ("engineering", "系统工程 / 研发"),
+    ("supplier", "制造 / 供应商"),
+    ("regulator", "监管 / 标准 / 审计"),
+    ("external_system", "外部系统"),
+    ("environment", "环境 / 约束"),
+    ("other", "其他"),
+)
+_STAKEHOLDER_CATEGORY_KEYS = {key for key, _ in STAKEHOLDER_CATEGORIES}
+_STAKEHOLDER_CATEGORY_LABELS = dict(STAKEHOLDER_CATEGORIES)
 _SYSTEM_INTENT = re.compile(
     r"^(?:设置|建立|创建|构建|设计|开发|建设|规划|做|我想要|希望|期望|想做)"
     r"(?:一个|一套|一款)?\s*(?P<name>.+)$"
@@ -82,6 +105,26 @@ def _roles(text: str) -> tuple[str, ...]:
     if "内容管理员" in matches:
         matches.discard("管理员")
     return tuple(sorted(matches))
+
+
+def stakeholder_category(name: str) -> str:
+    """Return a stable category key for a stakeholder role."""
+    clean_name = str(name or "").strip().casefold()
+    for category, aliases in _STAKEHOLDER_CATEGORY_ALIASES.items():
+        if any(alias.casefold() in clean_name for alias in aliases):
+            return category
+    return "other"
+
+
+def stakeholder_category_label(category: str) -> str:
+    return _STAKEHOLDER_CATEGORY_LABELS.get(
+        str(category), _STAKEHOLDER_CATEGORY_LABELS["other"]
+    )
+
+
+def normalize_stakeholder_category(category: str, name: str = "") -> str:
+    clean = str(category or "").strip()
+    return clean if clean in _STAKEHOLDER_CATEGORY_KEYS else stakeholder_category(name)
 
 
 def _concern(text: str) -> str:
@@ -204,6 +247,8 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
                 {
                     "id": stakeholder_id,
                     "name": role,
+                    "category": stakeholder_category(role),
+                    "category_label": stakeholder_category_label(stakeholder_category(role)),
                     "candidate_type": "explicit",
                     "source_span_id": span.id,
                     "confidence": 1.0,
@@ -349,11 +394,14 @@ def merge_artifact(
     return result
 
 
-def add_stakeholder(state: dict[str, object], name: str) -> dict[str, object]:
+def add_stakeholder(
+    state: dict[str, object], name: str, category: str = ""
+) -> dict[str, object]:
     """Add a user-entered stakeholder without inventing related requirements."""
     clean_name = " ".join(name.split())
     if not clean_name:
         raise InvariantViolation("利益相关方名称不能为空")
+    normalized_category = normalize_stakeholder_category(category, clean_name)
     result = _clone(state)
     existing = next(
         (item for item in result["stakeholders"] if item["name"].casefold() == clean_name.casefold()),
@@ -366,6 +414,8 @@ def add_stakeholder(state: dict[str, object], name: str) -> dict[str, object]:
         {
             "id": _id("stkc", "manual", clean_name),
             "name": clean_name,
+            "category": normalized_category,
+            "category_label": stakeholder_category_label(normalized_category),
             "candidate_type": "manual",
             "source_span_id": source_span_id,
             "confidence": 1.0,
@@ -480,6 +530,7 @@ def review_item(
     item_id: str,
     status: str,
     value: str = "",
+    category: str = "",
 ) -> dict[str, object]:
     if group not in _GROUPS or status not in _STATUSES:
         raise InvariantViolation("invalid review action")
@@ -491,6 +542,12 @@ def review_item(
     field = {"stakeholders": "name", "concerns": "name", "needs": "statement", "claims": "object"}[group]
     if value.strip():
         item[field] = value.strip()
+    if group == "stakeholders":
+        normalized_category = normalize_stakeholder_category(
+            category, str(item.get("name", ""))
+        )
+        item["category"] = normalized_category
+        item["category_label"] = stakeholder_category_label(normalized_category)
     item["status"] = status
     result["rflp"], result["coverage"], result["svg"] = None, {}, ""
     result["draft_graph"] = None
@@ -876,10 +933,13 @@ def add_llm_suggestions(
         concern_id = _id("concern", stakeholder_id, suggestion["concern"])
         need_id = _id("need", stakeholder_id, suggestion["need"])
         if stakeholder_id not in existing_stakeholder_ids:
+            inferred_category = stakeholder_category(str(suggestion["stakeholder"]))
             result["stakeholders"].append(
                 {
                     "id": stakeholder_id,
                     "name": str(suggestion["stakeholder"]),
+                    "category": inferred_category,
+                    "category_label": stakeholder_category_label(inferred_category),
                     "candidate_type": "inferred",
                     "source_span_id": suggestion["source_span_id"],
                     "confidence": 0.5,

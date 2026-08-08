@@ -143,3 +143,19 @@ def test_manual_stakeholder_can_start_an_empty_workbench():
     assert state["artifact"]["kind"] == "manual"
     assert state["stakeholders"][0]["name"] == "运维人员"
     assert stakeholder_bundle(state)["selected"]["name"] == "运维人员"
+
+
+def test_stakeholder_categories_are_detected_and_can_be_overridden():
+    state = analyze_artifact(
+        "requirements.txt",
+        "管理员必须恢复历史版本。\n审计人员必须查看恢复记录。".encode(),
+    )
+    by_name = {item["name"]: item for item in state["stakeholders"]}
+
+    assert by_name["管理员"]["category"] == "operator"
+    assert by_name["审计人员"]["category"] == "regulator"
+
+    state = add_stakeholder(state, "供应商", "engineering")
+    supplier = next(item for item in state["stakeholders"] if item["name"] == "供应商")
+    assert supplier["category"] == "engineering"
+    assert supplier["category_label"] == "系统工程 / 研发"

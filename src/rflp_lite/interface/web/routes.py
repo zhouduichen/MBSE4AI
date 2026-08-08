@@ -87,6 +87,7 @@ def _requirements_context(
         requirement_overview=facade.requirement_overview(workspace_name),
         active_llm=active_llm,
         llm_ready=llm_ready,
+        stakeholder_categories=facade.stakeholder_categories(),
         **values,
     )
 
@@ -297,9 +298,10 @@ def add_requirement_stakeholder(
     request: Request,
     workspace_name: str,
     name: Annotated[str, Form()],
+    category: Annotated[str, Form()] = "",
 ) -> Response:
     try:
-        _facade(request).add_requirement_stakeholder(workspace_name, name)
+        _facade(request).add_requirement_stakeholder(workspace_name, name, category)
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
     return RedirectResponse(
@@ -374,10 +376,11 @@ def review_requirement(
     item_id: Annotated[str, Form()],
     status: Annotated[str, Form()],
     value: Annotated[str, Form()] = "",
+    category: Annotated[str, Form()] = "",
 ) -> Response:
     try:
         state = _facade(request).review_requirement_item(
-            workspace_name, group, item_id, status, value
+            workspace_name, group, item_id, status, value, category
         )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
@@ -392,6 +395,7 @@ def review_requirement(
                 "group": group,
                 "item": item,
                 "field": field,
+                "stakeholder_categories": _facade(request).stakeholder_categories(),
                 "title": {"stakeholders": "利益相关方", "concerns": "Concern", "needs": "Stakeholder Need", "claims": "Requirement 候选"}[group],
             },
         )

@@ -15,6 +15,7 @@ from rflp_lite.application.project_bridge import (
 from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
 from rflp_lite.application.run_catalog import RunRecord, list_runs, load_run
 from rflp_lite.application.requirements_workbench import (
+    STAKEHOLDER_CATEGORIES,
     accept_traceable,
     confirm_requirements,
     add_stakeholder,
@@ -24,7 +25,9 @@ from rflp_lite.application.requirements_workbench import (
     generate_model,
     empty_workbench,
     merge_artifact,
+    normalize_stakeholder_category,
     review_item,
+    stakeholder_category_label,
     stakeholder_bundle,
 )
 from rflp_lite.application.requirements_flow import run_requirements_flow
@@ -203,6 +206,13 @@ class WebFacade:
                 state.setdefault("scenarios", [])
                 state.setdefault("scenario_runs", [])
                 state.setdefault("flow", None)
+                for stakeholder in state.get("stakeholders", ()):
+                    category = normalize_stakeholder_category(
+                        str(stakeholder.get("category", "")),
+                        str(stakeholder.get("name", "")),
+                    )
+                    stakeholder["category"] = category
+                    stakeholder["category_label"] = stakeholder_category_label(category)
                 if state.get("spans") and not state.get("rflp"):
                     try:
                         state = generate_draft_model(state)
@@ -430,27 +440,31 @@ class WebFacade:
         item_id: str,
         status: str,
         value: str,
+        category: str = "",
     ) -> dict[str, object]:
         current = self.requirements(workspace_name)
         if current is None:
             raise ContractViolation("requirements workbench is empty")
         return self._save_requirements(
             workspace_name,
-            review_item(current, group, item_id, status, value),
+            review_item(current, group, item_id, status, value, category),
             "requirements.reviewed",
         )
 
     def add_requirement_stakeholder(
-        self, workspace_name: str, name: str
+        self, workspace_name: str, name: str, category: str = ""
     ) -> dict[str, object]:
         current = self.requirements(workspace_name)
         if current is None:
             current = empty_workbench()
         return self._save_requirements(
             workspace_name,
-            add_stakeholder(current, name),
+            add_stakeholder(current, name, category),
             "stakeholder.added",
         )
+
+    def stakeholder_categories(self) -> tuple[tuple[str, str], ...]:
+        return STAKEHOLDER_CATEGORIES
 
     def requirement_stakeholder_bundle(
         self, workspace_name: str, name: str = ""

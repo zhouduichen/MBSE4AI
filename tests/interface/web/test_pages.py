@@ -193,6 +193,41 @@ def test_requirement_review_uses_local_row_updates_and_direct_generation(client:
     assert "确认并生成 RFLP" in page.text
 
 
+def test_stakeholder_category_is_visible_and_editable(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。\n审计人员必须查看恢复记录。"},
+    )
+
+    page = client.get("/w/demo/requirements/stakeholders")
+    assert "操作 / 运维" in page.text
+    assert "监管 / 标准 / 审计" in page.text
+    assert 'name="category"' in page.text
+
+    review = client.get("/w/demo/requirements/review")
+    assert "利益相关方类别" in review.text
+
+    state = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]
+    stakeholder = next(item for item in state["stakeholders"] if item["name"] == "管理员")
+    updated = client.post(
+        "/w/demo/requirements/review",
+        data={
+            "group": "stakeholders",
+            "item_id": stakeholder["id"],
+            "status": "accepted",
+            "value": "管理员",
+            "category": "customer",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert updated.status_code == 200
+    refreshed = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]
+    changed = next(item for item in refreshed["stakeholders"] if item["id"] == stakeholder["id"])
+    assert changed["category"] == "customer"
+    assert changed["status"] == "accepted"
+
+
 def test_requirements_page_runs_one_click_flow_from_current_input(client: TestClient) -> None:
     client.post("/workspaces", data={"name": "demo"})
     client.post(
