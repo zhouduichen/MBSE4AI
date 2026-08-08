@@ -33,8 +33,15 @@
     <label class="field">重扫描并判定任务契约是否已满足<small>对当前项目目录复跑验证，不执行任何代码</small><input type="text" name="source" value="{{ state.project.source }}" required></label>
     <button class="button" type="submit">执行验证</button>
   </form>
-  <form method="post" action="/w/{{ workspace.name }}/project/test" class="generate-action">
-    <button class="button danger" type="submit">运行项目测试（pytest，默认 60s 超时）</button>
+  <form method="post" action="/w/{{ workspace.name }}/project/test" class="intake-form">
+    <label class="field">运行器（可多选）<select name="runner" multiple size="2"><option value="pytest" selected>pytest</option><option value="unittest">unittest</option></select></label>
+    <label class="field">超时（秒）<input type="number" name="timeout" value="60" min="1" max="3600"></label>
+    <label class="field">内存上限（MiB）<input type="number" name="memory_mib" value="1024" min="0"></label>
+    <label class="field">文件句柄上限<input type="number" name="max_open_files" value="1024" min="0"></label>
+    <label class="field">输出上限（MiB）<input type="number" name="output_mib" value="5" min="1" max="64"></label>
+    <label class="field">并行度<input type="number" name="jobs" value="1" min="1" max="2"></label>
+    <label class="field"><input type="checkbox" name="no_cache" value="on"> 不使用结果缓存</label>
+    <button class="button danger" type="submit">运行项目测试</button>
   </form>
   {% endif %}
   <p>扫描 .py（AST）、OpenAPI JSON 与 JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件；不写入项目目录，不上传任何内容。</p>
@@ -86,6 +93,7 @@
   </div>
   <div class="review-list">{% for item in state.project.execution.contract_statuses %}<div class="review-row"><strong class="status-badge {{ item.status|lower }}">{{ item.status }}</strong><span>{{ item.task_id }}</span><code>{{ item.target }}</code></div>{% endfor %}</div>
   {% if state.project.execution.summary.test_run %}
+  <div class="review-list"><strong class="status-badge">运行器</strong><span>{{ state.project.execution.summary.test_run.runner }} · jobs={{ state.project.execution.summary.test_run.jobs }} · cache={{ state.project.execution.summary.test_run.cache_hit }}</span></div>
   <div class="metric-row">
     <article><span>退出码</span><strong>{{ state.project.execution.summary.test_run.returncode }}</strong></article>
     <article><span>超时</span><strong>{{ state.project.execution.summary.test_run.timed_out }}</strong></article>
@@ -93,6 +101,9 @@
     <article><span>测试失败</span><strong>{{ state.project.execution.summary.test_run.tests_failed }}</strong></article>
     <article><span>测试证据</span><strong>{{ state.project.execution.summary.test_run.junit_evidence }}</strong></article>
   </div>
+  {% if state.project.execution.summary.test_run.runners %}
+  <div class="table-wrap"><table><thead><tr><th>运行器</th><th>退出码</th><th>超时</th><th>通过/失败</th><th>缓存</th></tr></thead><tbody>{% for item in state.project.execution.summary.test_run.runners %}<tr><td>{{ item.runner }}</td><td>{{ item.returncode }}</td><td>{{ item.timed_out }}</td><td>{{ item.tests_passed }}/{{ item.tests_failed }}</td><td>{{ item.cache_hit }}</td></tr>{% endfor %}</tbody></table></div>
+  {% endif %}
   {% if state.project.execution.summary.test_run.failed_tests %}
   <div class="review-list"><strong class="status-badge failed">失败用例</strong><span>{{ state.project.execution.summary.test_run.failed_tests|join(' · ') }}</span></div>
   {% endif %}

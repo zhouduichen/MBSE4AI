@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from rflp_lite.adapters.sqlite_repository import SQLiteRepository
+from rflp_lite.adapters.test_execution_config import ResourceLimits
 from rflp_lite.application.demo import run_demo
 from rflp_lite.application.project_bridge import (
     analyze_project_state,
@@ -233,16 +234,32 @@ class WebFacade:
             repository.close()
         return state
 
-    def test_workspace_project(self, workspace_name: str) -> dict[str, object]:
+    def test_workspace_project(
+        self,
+        workspace_name: str,
+        *,
+        runners: tuple[str, ...] = ("pytest",),
+        limits: ResourceLimits | None = None,
+        jobs: int = 1,
+        use_cache: bool = True,
+    ) -> dict[str, object]:
         current = self.requirements(workspace_name)
         if current is None:
             raise ContractViolation("requirements workbench is empty")
         project = current.get("project")
         if not project or not project.get("source"):
             raise ContractViolation("请先在项目接入中分析项目")
-        state, verify = execute_tests_state(current, project["source"])
-        test_run = state["project"]["execution"]["summary"]["test_run"]
         workspace = self.workspace(workspace_name)
+        cache_dir = workspace.path / ".rflp" / "test-cache" if use_cache else None
+        state, verify = execute_tests_state(
+            current,
+            project["source"],
+            runners=runners,
+            limits=limits,
+            cache_dir=cache_dir,
+            jobs=jobs,
+        )
+        test_run = state["project"]["execution"]["summary"]["test_run"]
         repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
@@ -256,6 +273,8 @@ class WebFacade:
                         "timed_out": test_run["timed_out"],
                         "tests_passed": test_run["tests_passed"],
                         "tests_failed": test_run["tests_failed"],
+                        "runner": test_run["runner"],
+                        "cache_hit": test_run["cache_hit"],
                     },
                 )
         finally:

@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from fastapi.templating import Jinja2Templates
 
 from rflp_lite.application.run_catalog import registered_output
+from rflp_lite.adapters.test_execution_config import build_limits
 from rflp_lite.application.web_facade import WebFacade
 from rflp_lite.domain.errors import ContractViolation, RflpError
 from rflp_lite.interface.web.presenters import (
@@ -254,9 +255,31 @@ def verify_project(
 
 
 @router.post("/w/{workspace_name}/project/test")
-def test_project(request: Request, workspace_name: str) -> Response:
+def test_project(
+    request: Request,
+    workspace_name: str,
+    runner: Annotated[list[str] | None, Form()] = None,
+    timeout: Annotated[int, Form()] = 60,
+    memory_mib: Annotated[int, Form()] = 1024,
+    max_open_files: Annotated[int, Form()] = 1024,
+    output_mib: Annotated[int, Form()] = 5,
+    jobs: Annotated[int, Form()] = 1,
+    no_cache: Annotated[str | None, Form()] = None,
+) -> Response:
     try:
-        _facade(request).test_workspace_project(workspace_name)
+        limits = build_limits(
+            timeout_seconds=timeout,
+            memory_mib=memory_mib,
+            max_open_files=max_open_files,
+            output_mib=output_mib,
+        )
+        _facade(request).test_workspace_project(
+            workspace_name,
+            runners=tuple(runner or ("pytest",)),
+            limits=limits,
+            jobs=jobs,
+            use_cache=no_cache is None,
+        )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
     return RedirectResponse(f"/w/{workspace_name}/project", status_code=303)

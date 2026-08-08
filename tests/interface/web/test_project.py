@@ -154,6 +154,52 @@ def test_test_runs_pytest_on_project(client: TestClient, tmp_path: Path) -> None
     assert "测试证据" in page
 
 
+def test_test_runs_unittest_with_controls(client: TestClient, tmp_path: Path) -> None:
+    _prepare_workbench(client)
+    client.post("/w/demo/project/approve-baseline")
+    project = tmp_path / "unittest-project"
+    project.mkdir()
+    (project / "test_case.py").write_text(
+        "import unittest\n\n"
+        "class Case(unittest.TestCase):\n"
+        "    def test_passes(self):\n"
+        "        self.assertTrue(True)\n",
+        encoding="utf-8",
+    )
+    client.post("/w/demo/project/analyze", data={"source": str(project)})
+
+    response = client.post(
+        "/w/demo/project/test",
+        data={
+            "runner": "unittest",
+            "timeout": "120",
+            "memory_mib": "0",
+            "max_open_files": "0",
+            "output_mib": "1",
+            "jobs": "1",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    page = client.get("/w/demo/project").text
+    assert "unittest" in page
+    assert "cache=" in page
+
+
+def test_test_rejects_unknown_runner(client: TestClient, tmp_path: Path) -> None:
+    _prepare_workbench(client)
+    client.post("/w/demo/project/approve-baseline")
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "test_ok.py").write_text(
+        "def test_passes():\n    assert True\n", encoding="utf-8"
+    )
+    client.post("/w/demo/project/analyze", data={"source": str(project)})
+    response = client.post("/w/demo/project/test", data={"runner": "shell"})
+    assert response.status_code == 422
+    assert "测试运行器只能是 pytest 或 unittest" in response.text
+
+
 def test_analyze_is_deterministic_across_runs(client: TestClient) -> None:
     _prepare_workbench(client)
     client.post("/w/demo/project/approve-baseline")
