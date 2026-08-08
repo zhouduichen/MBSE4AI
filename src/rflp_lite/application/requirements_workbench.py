@@ -165,6 +165,35 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
     }
 
 
+def empty_workbench() -> dict[str, object]:
+    """Create a minimal local workbench for starting with a stakeholder."""
+    digest = canonical_hash(("manual-workbench", "rflp-lite"))
+    return {
+        "artifact": {
+            "id": f"artifact-{digest[:12]}",
+            "kind": "manual",
+            "path": "manual-input",
+            "sha256": digest,
+        },
+        "spans": [],
+        "stakeholders": [],
+        "concerns": [],
+        "needs": [],
+        "claims": [],
+        "scenarios": [],
+        "scenario_runs": [],
+        "checklist": [],
+        "rflp": None,
+        "coverage": {},
+        "svg": "",
+        "traceability": [],
+        "draft": False,
+        "draft_warnings": [],
+        "baseline": None,
+        "project": None,
+    }
+
+
 def merge_artifact(
     state: dict[str, object], filename: str, content: bytes
 ) -> dict[str, object]:
@@ -184,6 +213,129 @@ def merge_artifact(
     result["baseline"], result["project"] = None, None
     result["draft"], result["draft_warnings"] = False, []
     return result
+
+
+def add_stakeholder(state: dict[str, object], name: str) -> dict[str, object]:
+    """Add a user-entered stakeholder without inventing related requirements."""
+    clean_name = " ".join(name.split())
+    if not clean_name:
+        raise InvariantViolation("利益相关方名称不能为空")
+    result = _clone(state)
+    existing = next(
+        (item for item in result["stakeholders"] if item["name"].casefold() == clean_name.casefold()),
+        None,
+    )
+    if existing is not None:
+        return result
+    source_span_id = result["spans"][0]["id"] if result["spans"] else "manual"
+    result["stakeholders"].append(
+        {
+            "id": _id("stkc", "manual", clean_name),
+            "name": clean_name,
+            "candidate_type": "manual",
+            "source_span_id": source_span_id,
+            "confidence": 1.0,
+            "reason": "用户手动输入",
+            "producer": "user",
+            "status": "candidate",
+        }
+    )
+    result["stakeholders"] = sorted(
+        result["stakeholders"], key=lambda item: (item["name"], item["id"])
+    )
+    result["rflp"], result["coverage"], result["svg"] = None, {}, ""
+    result["baseline"], result["project"] = None, None
+    result["draft"], result["draft_warnings"] = False, []
+    return result
+
+
+def stakeholder_bundle(state: dict[str, object], name: str = "") -> dict[str, object]:
+    """Collect the traceable objects belonging to one stakeholder."""
+    stakeholders = sorted(
+        state.get("stakeholders", ()), key=lambda item: (item["name"], item["id"])
+    )
+    selected = next(
+        (item for item in stakeholders if item["name"].casefold() == name.casefold()),
+        None,
+    )
+    if selected is None and stakeholders:
+        selected = stakeholders[0]
+    if selected is None:
+        return {
+            "selected": None,
+            "stakeholders": stakeholders,
+            "concerns": (),
+            "needs": (),
+            "claims": (),
+            "scenarios": (),
+            "elements": (),
+            "relations": (),
+        }
+    stakeholder_id = selected["id"]
+    concerns = tuple(
+        item for item in state.get("concerns", ()) if item.get("stakeholder_id") == stakeholder_id
+    )
+    needs = tuple(
+        item for item in state.get("needs", ()) if item.get("stakeholder_id") == stakeholder_id
+    )
+    need_ids = {item["id"] for item in needs}
+    claims = tuple(
+        item
+        for item in state.get("claims", ())
+        if item.get("need_id") in need_ids
+        or str(item.get("subject", "")).casefold() == selected["name"].casefold()
+    )
+    claim_ids = {item["id"] for item in claims}
+    scenarios = tuple(
+        item
+        for item in state.get("scenarios", ())
+        if selected["name"].casefold() in " ".join(item.get("actors", ())).casefold()
+        or claim_ids.intersection(item.get("requirement_ids", ()))
+    )
+    elements: tuple[dict[str, object], ...] = ()
+    relations: tuple[dict[str, object], ...] = ()
+    rflp = state.get("rflp") or {}
+    if rflp:
+        requirement_ids = {
+            item["id"]
+            for item in rflp.get("elements", ())
+            if item.get("layer") == "R"
+            and any(
+                key == "claim_id" and value in claim_ids
+                for key, value in item.get("attributes", ())
+            )
+        }
+        related_ids = set(requirement_ids)
+        graph_relations = tuple(rflp.get("relations", ()))
+        for _ in range(4):
+            related_ids.update(
+                relation["target_id"]
+                for relation in graph_relations
+                if relation["source_id"] in related_ids
+            )
+            related_ids.update(
+                relation["source_id"]
+                for relation in graph_relations
+                if relation["target_id"] in related_ids
+            )
+        elements = tuple(
+            item for item in rflp.get("elements", ()) if item["id"] in related_ids
+        )
+        relations = tuple(
+            item
+            for item in graph_relations
+            if item["source_id"] in related_ids and item["target_id"] in related_ids
+        )
+    return {
+        "selected": selected,
+        "stakeholders": stakeholders,
+        "concerns": concerns,
+        "needs": needs,
+        "claims": claims,
+        "scenarios": scenarios,
+        "elements": elements,
+        "relations": relations,
+    }
 
 
 def review_item(
@@ -213,7 +365,7 @@ def accept_traceable(state: dict[str, object]) -> dict[str, object]:
     result = _clone(state)
     result["baseline"], result["project"] = None, None
     for stakeholder in result["stakeholders"]:
-        if stakeholder["candidate_type"] == "explicit" and stakeholder["status"] == "candidate":
+        if stakeholder["candidate_type"] in {"explicit", "manual"} and stakeholder["status"] == "candidate":
             stakeholder["status"] = "accepted"
     accepted_stakeholders = {
         item["id"] for item in result["stakeholders"] if item["status"] == "accepted"

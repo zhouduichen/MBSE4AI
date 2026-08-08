@@ -4,9 +4,12 @@ from rflp_lite.application.requirements_workbench import (
     accept_traceable,
     add_llm_suggestions,
     analyze_artifact,
+    add_stakeholder,
     generate_draft_model,
     generate_model,
+    empty_workbench,
     merge_artifact,
+    stakeholder_bundle,
 )
 from rflp_lite.domain.errors import AdapterFailure
 
@@ -99,3 +102,27 @@ def test_merge_artifact_accumulates_candidates_and_dedups():
 
     again = merge_artifact(merged, "a.txt", "管理员必须恢复历史版本。\n".encode())
     assert len(again["spans"]) == len(merged["spans"])
+
+
+def test_manual_stakeholder_bundle_collects_related_objects():
+    state = analyze_artifact(
+        "requirements.txt",
+        "管理员必须恢复历史版本。\n".encode(),
+    )
+    state = add_stakeholder(state, "产品负责人")
+    state = add_stakeholder(state, "管理员")
+    bundle = stakeholder_bundle(state, "管理员")
+
+    assert bundle["selected"]["name"] == "管理员"
+    assert bundle["concerns"][0]["name"] == "故障恢复"
+    assert bundle["needs"][0]["statement"] == "管理员必须恢复历史版本。"
+    assert bundle["claims"][0]["subject"] == "管理员"
+    assert any(item["name"] == "产品负责人" for item in state["stakeholders"])
+
+
+def test_manual_stakeholder_can_start_an_empty_workbench():
+    state = add_stakeholder(empty_workbench(), "运维人员")
+
+    assert state["artifact"]["kind"] == "manual"
+    assert state["stakeholders"][0]["name"] == "运维人员"
+    assert stakeholder_bundle(state)["selected"]["name"] == "运维人员"

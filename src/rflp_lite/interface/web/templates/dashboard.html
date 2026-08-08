@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-heading">
   <div><span class="eyebrow">Welcome</span><h1>开始项目</h1><p>不需要先准备完整规格书：从一句需求开始，逐步得到分析、规划图和可选验证。</p></div>
-  {% if workspace %}<a class="button primary" href="/w/{{ workspace.name }}/requirements#input">输入第一条需求 →</a>{% endif %}
+  {% if workspace %}<a class="button primary" href="/w/{{ workspace.name }}/requirements/input">输入第一条需求 →</a>{% endif %}
 </div>
 {% if not workspace %}
 <section class="empty-state">
@@ -14,13 +14,13 @@
 <section class="empty-state"><span class="empty-icon">1</span><h2>先输入一句需求</h2><p>例如“管理员必须恢复历史版本”。系统会自动识别候选，不要求先完成利益相关方分析。</p><a class="button primary" href="/w/{{ workspace.name }}/requirements#input">进入需求规划</a></section>
 {% else %}
 <section class="workflow-steps" aria-label="项目进度">
-  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements#input"><span>1</span><strong>输入需求</strong><small>已提交</small></a>
-  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements#analysis"><span>2</span><strong>查看分析</strong><small>{{ requirements.claims|length }} 条候选</small></a>
-  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements#review"><span>3</span><strong>确认需求</strong><small>可跳过</small></a>
-  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements#graph"><span>4</span><strong>生成规划图</strong><small>{% if requirements.rflp %}已生成{% else %}可直接进入{% endif %}</small></a>
+  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements/input"><span>1</span><strong>输入需求</strong><small>已提交</small></a>
+  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements/input"><span>2</span><strong>查看分析</strong><small>{{ requirements.claims|length }} 条候选</small></a>
+  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements/review"><span>3</span><strong>确认需求</strong><small>可跳过</small></a>
+  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements/graph"><span>4</span><strong>生成规划图</strong><small>{% if requirements.rflp %}已生成{% else %}可直接进入{% endif %}</small></a>
   <a class="workflow-step" href="/w/{{ workspace.name }}/project"><span>5</span><strong>项目验证</strong><small>可选</small></a>
 </section>
-<section class="panel"><div class="panel-head"><div><span class="eyebrow">Current status</span><h2>{% if requirements.rflp %}{% if requirements.draft %}草稿图已生成{% else %}正式模型已生成{% endif %}{% else %}需求已分析{% endif %}</h2></div><span class="status-badge {% if requirements.rflp %}accepted{% else %}candidate{% endif %}">{% if requirements.rflp %}ready{% else %}next{% endif %}</span></div><p>已读取 {{ requirements.spans|length }} 个文本片段，识别 {{ requirements.claims|length }} 条 Requirement 候选。你可以直接查看规划图，也可以回到确认步骤补充质量信息。</p><div class="workbench-actions"><a class="button primary" href="/w/{{ workspace.name }}/requirements#graph">继续需求规划 →</a><a class="button" href="/w/{{ workspace.name }}/project">进入项目验证</a></div></section>
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Current status</span><h2>{% if requirements.rflp %}{% if requirements.draft %}草稿图已生成{% else %}正式模型已生成{% endif %}{% else %}需求已分析{% endif %}</h2></div><span class="status-badge {% if requirements.rflp %}accepted{% else %}candidate{% endif %}">{% if requirements.rflp %}ready{% else %}next{% endif %}</span></div><p>已读取 {{ requirements.spans|length }} 个文本片段，识别 {{ requirements.claims|length }} 条 Requirement 候选。你可以直接查看规划图，也可以回到确认步骤补充质量信息。</p><div class="workbench-actions"><a class="button primary" href="/w/{{ workspace.name }}/requirements/graph">继续需求规划 →</a><a class="button" href="/w/{{ workspace.name }}/project">进入项目验证</a></div></section>
 {% if latest_run %}<section class="panel"><div class="panel-head"><div><span class="eyebrow">Advanced run</span><h2>最近一次运行</h2></div><a href="/w/{{ workspace.name }}/runs/{{ latest_run.result_hash }}">查看详情 →</a></div><div class="metric-row"><article><span>状态</span><strong>{{ latest_run.manifest.status|upper }}</strong></article><article><span>RFLP 元素</span><strong>{{ counts.R + counts.F + counts.L + counts.P }}</strong></article><article><span>候选方案</span><strong>{{ counts.candidates }}</strong></article><article><span>证据记录</span><strong>{{ counts.evidence }}</strong></article></div></section>{% endif %}
 {% endif %}
 {% endblock %}

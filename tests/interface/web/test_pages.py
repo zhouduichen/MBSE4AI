@@ -116,10 +116,13 @@ def test_requirements_page_runs_reviewed_rflp_flow(client: TestClient) -> None:
 
     assert page.status_code == 200
     assert "利益相关方" in page.text
-    assert "规则分析已完成" in page.text
-    assert "识别 2 条 Requirement 候选" in page.text
+    assert "场景描述" in page.text
     assert "RFLP 规划图" in page.text
-    assert "<svg" in page.text
+    input_page = client.get("/w/demo/requirements/input")
+    assert "规则分析已完成" in input_page.text
+    assert "识别 2 条 Requirement 候选" in input_page.text
+    graph_page = client.get("/w/demo/requirements/graph")
+    assert "<svg" in graph_page.text
     assert client.get("/w/demo/requirements/model.json").status_code == 200
     assert client.get("/w/demo/requirements/model.svg").status_code == 200
     assert client.get("/w/demo/requirements/model.sysml").status_code == 200
@@ -137,10 +140,77 @@ def test_requirements_page_can_generate_draft_without_review(client: TestClient)
     )
 
     assert generated.status_code == 303
-    assert generated.headers["location"].endswith("#graph")
-    page = client.get("/w/demo/requirements")
+    assert generated.headers["location"].endswith("/requirements/graph")
+    page = client.get("/w/demo/requirements/graph")
     assert "快速草稿图" in page.text
     assert "尚未经过人工确认" in page.text
+
+
+def test_stakeholder_page_adds_role_and_shows_related_requirements(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+
+    added = client.post(
+        "/w/demo/requirements/stakeholders",
+        data={"name": "产品负责人"},
+        follow_redirects=False,
+    )
+    assert added.status_code == 303
+    page = client.get(
+        "/w/demo/requirements/stakeholders?name=%E4%BA%A7%E5%93%81%E8%B4%9F%E8%B4%A3%E4%BA%BA"
+    )
+    assert "产品负责人" in page.text
+    assert "暂无直接关联需求" in page.text
+
+    detected = client.get("/w/demo/requirements/stakeholders?name=管理员")
+    assert "管理员" in detected.text
+    assert "管理员必须恢复历史版本" in detected.text
+    assert "故障恢复" in detected.text
+
+
+def test_stakeholder_page_can_start_before_requirements(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+
+    added = client.post(
+        "/w/demo/requirements/stakeholders",
+        data={"name": "运维人员"},
+        follow_redirects=False,
+    )
+
+    assert added.status_code == 303
+    page = client.get("/w/demo/requirements/stakeholders?name=运维人员")
+    assert "运维人员" in page.text
+    assert "当前还没有需求文本" in page.text
+
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+    preserved = client.get("/w/demo/requirements/stakeholders?name=运维人员")
+    assert "运维人员" in preserved.text
+
+
+def test_scenario_page_can_start_before_requirements(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+
+    response = client.post(
+        "/w/demo/requirements/scenarios",
+        data={
+            "title": "快速恢复",
+            "description": "先描述流程，再补需求关联。",
+            "steps": "选择版本\n确认恢复",
+            "expected_outcomes": "恢复成功",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    page = client.get("/w/demo/requirements/scenarios")
+    assert "快速恢复" in page.text
+    assert "关联 Requirement 可以之后再补" in page.text
 
 
 def test_requirements_page_creates_and_exports_scenario(client: TestClient) -> None:
@@ -163,7 +233,7 @@ def test_requirements_page_creates_and_exports_scenario(client: TestClient) -> N
         follow_redirects=False,
     )
     assert response.status_code == 303
-    page = client.get("/w/demo/requirements")
+    page = client.get("/w/demo/requirements/scenarios")
     assert "管理员恢复历史版本" in page.text
     assert "场景描述" in page.text
     exported = client.get("/w/demo/requirements/scenarios.json")
@@ -196,7 +266,7 @@ def test_requirements_page_executes_scenario_and_exports_trace(client: TestClien
     )
 
     assert response.status_code == 303
-    page = client.get("/w/demo/requirements")
+    page = client.get("/w/demo/requirements/scenarios")
     assert "生成执行轨迹" in page.text
     assert "declarative-only" in page.text
     runs = client.get("/w/demo/requirements/scenario-runs.json")

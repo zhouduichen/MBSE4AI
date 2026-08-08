@@ -16,12 +16,15 @@ from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
 from rflp_lite.application.run_catalog import RunRecord, list_runs, load_run
 from rflp_lite.application.requirements_workbench import (
     accept_traceable,
+    add_stakeholder,
     add_llm_suggestions,
     analyze_artifact,
     generate_draft_model,
     generate_model,
+    empty_workbench,
     merge_artifact,
     review_item,
+    stakeholder_bundle,
 )
 from rflp_lite.application.jobs import JobService
 from rflp_lite.application.llm_profiles import LLMProfileService
@@ -206,11 +209,31 @@ class WebFacade:
     ) -> dict[str, object]:
         workspace = self.workspace(workspace_name)
         filename = Path(filename).name
-        current = self.requirements(workspace_name) if merge else None
-        if current is not None:
+        current = self.requirements(workspace_name)
+        if merge and current is not None:
             state = merge_artifact(current, filename, content)
         else:
             state = analyze_artifact(filename, content)
+            if current is not None:
+                manual_names = {
+                    item["name"].casefold()
+                    for item in current.get("stakeholders", ())
+                    if item.get("candidate_type") == "manual"
+                }
+                detected_names = {
+                    item["name"].casefold() for item in state["stakeholders"]
+                }
+                state["stakeholders"].extend(
+                    item
+                    for item in current.get("stakeholders", ())
+                    if item.get("candidate_type") == "manual"
+                    and item["name"].casefold() not in detected_names
+                    and item["name"].casefold() in manual_names
+                )
+                state["stakeholders"] = sorted(
+                    state["stakeholders"],
+                    key=lambda item: (item["name"], item["id"]),
+                )
         safe_name = state["artifact"]["path"]
         inputs = workspace.path / "inputs"
         inputs.mkdir(parents=True, exist_ok=True)
@@ -243,6 +266,26 @@ class WebFacade:
             review_item(current, group, item_id, status, value),
             "requirements.reviewed",
         )
+
+    def add_requirement_stakeholder(
+        self, workspace_name: str, name: str
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            current = empty_workbench()
+        return self._save_requirements(
+            workspace_name,
+            add_stakeholder(current, name),
+            "stakeholder.added",
+        )
+
+    def requirement_stakeholder_bundle(
+        self, workspace_name: str, name: str = ""
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            return stakeholder_bundle({"stakeholders": []}, name)
+        return stakeholder_bundle(current, name)
 
     def accept_traceable_requirements(self, workspace_name: str) -> dict[str, object]:
         current = self.requirements(workspace_name)
@@ -295,7 +338,7 @@ class WebFacade:
     ) -> dict[str, object]:
         current = self.requirements(workspace_name)
         if current is None:
-            raise ContractViolation("requirements workbench is empty")
+            current = empty_workbench()
         state = add_scenario(
             current,
             title=title,

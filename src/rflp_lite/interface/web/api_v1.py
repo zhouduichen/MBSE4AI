@@ -138,6 +138,25 @@ def scenarios(request: Request, workspace_name: str) -> JSONResponse | dict[str,
         return _error(exc, 404)
 
 
+@api_v1.post("/workspaces/{workspace_name}/stakeholders", response_model=None)
+async def add_stakeholder(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ContractViolation("stakeholder payload must be an object")
+        state = _facade(request).add_requirement_stakeholder(
+            workspace_name, str(payload.get("name", ""))
+        )
+        stakeholder = next(
+            item
+            for item in state["stakeholders"]
+            if item["name"].casefold() == str(payload.get("name", "")).strip().casefold()
+        )
+        return {"status": "ok", "stakeholder": stakeholder}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @api_v1.post("/workspaces/{workspace_name}/scenarios/{scenario_id}/execute", response_model=None)
 def execute_scenario(request: Request, workspace_name: str, scenario_id: str) -> JSONResponse | dict[str, object]:
     try:

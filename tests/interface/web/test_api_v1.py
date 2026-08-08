@@ -215,6 +215,18 @@ def test_api_v1_generates_draft_without_review(client: TestClient) -> None:
     assert generated.json()["rflp"]["elements"]
 
 
+def test_api_v1_adds_manual_stakeholder(client: TestClient) -> None:
+    _workbench(client)
+
+    added = client.post(
+        "/api/v1/workspaces/demo/stakeholders",
+        json={"name": "产品负责人"},
+    )
+
+    assert added.status_code == 200
+    assert added.json()["stakeholder"]["name"] == "产品负责人"
+
+
 def test_api_v1_mlflow_endpoint_reports_real_or_missing_sdk(client: TestClient) -> None:
     client.post("/workspaces", data={"name": "demo"})
     started = client.post(

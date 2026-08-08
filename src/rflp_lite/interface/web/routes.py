@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -52,6 +53,40 @@ def _run_error(request: Request, message: object, status_code: int = 422) -> HTM
 
 def _requirements_location(workspace_name: str) -> str:
     return f"/w/{workspace_name}/requirements"
+
+
+def _requirements_module_location(workspace_name: str, module: str) -> str:
+    return f"/w/{workspace_name}/requirements/{module}"
+
+
+def _requirements_context(
+    request: Request, workspace_name: str, active: str, **values: object
+) -> dict[str, object]:
+    facade = _facade(request)
+    workspace = facade.workspace(workspace_name)
+    runs = facade.runs(workspace_name)
+    llm = facade.llm_snapshot()
+    active_llm = next(
+        (item for item in llm["profiles"] if item["id"] == llm.get("active_id")),
+        None,
+    )
+    llm_ready = bool(
+        active_llm
+        and (
+            active_llm["kind"] == "local"
+            or active_llm.get("api_key_configured", False)
+        )
+    )
+    return page_context(
+        workspace,
+        workspaces=facade.workspaces(),
+        active=active,
+        nav_result_hash=runs[0].result_hash if runs else None,
+        state=facade.requirements(workspace_name),
+        active_llm=active_llm,
+        llm_ready=llm_ready,
+        **values,
+    )
 
 
 def _llm_context(
@@ -137,32 +172,48 @@ def workspace_dashboard(request: Request, workspace_name: str) -> HTMLResponse:
 
 @router.get("/w/{workspace_name}/requirements", response_class=HTMLResponse)
 def requirements_page(request: Request, workspace_name: str) -> HTMLResponse:
+    context = _requirements_context(request, workspace_name, "requirements")
+    return templates.TemplateResponse(request=request, name="requirements-hub.html", context=context)
+
+
+@router.get("/w/{workspace_name}/requirements/input", response_class=HTMLResponse)
+def requirements_input_page(request: Request, workspace_name: str) -> HTMLResponse:
+    context = _requirements_context(request, workspace_name, "requirements-input")
+    return templates.TemplateResponse(request=request, name="requirements-input.html", context=context)
+
+
+@router.get("/w/{workspace_name}/requirements/stakeholders", response_class=HTMLResponse)
+def requirements_stakeholders_page(
+    request: Request, workspace_name: str, name: str = ""
+) -> HTMLResponse:
     facade = _facade(request)
-    workspace = facade.workspace(workspace_name)
-    runs = facade.runs(workspace_name)
-    llm = facade.llm_snapshot()
-    active_llm = next(
-        (item for item in llm["profiles"] if item["id"] == llm.get("active_id")),
-        None,
-    )
-    llm_ready = bool(
-        active_llm
-        and (
-            active_llm["kind"] == "local"
-            or active_llm.get("api_key_configured", False)
-        )
-    )
-    context = page_context(
-        workspace,
-        active="requirements",
-        nav_result_hash=runs[0].result_hash if runs else None,
-        state=facade.requirements(workspace_name),
-        active_llm=active_llm,
-        llm_ready=llm_ready,
+    context = _requirements_context(
+        request,
+        workspace_name,
+        "requirements-stakeholders",
+        stakeholder_view=facade.requirement_stakeholder_bundle(workspace_name, name),
     )
     return templates.TemplateResponse(
-        request=request, name="requirements-workbench.html", context=context
+        request=request, name="requirements-stakeholders.html", context=context
     )
+
+
+@router.get("/w/{workspace_name}/requirements/review", response_class=HTMLResponse)
+def requirements_review_page(request: Request, workspace_name: str) -> HTMLResponse:
+    context = _requirements_context(request, workspace_name, "requirements-review")
+    return templates.TemplateResponse(request=request, name="requirements-review.html", context=context)
+
+
+@router.get("/w/{workspace_name}/requirements/scenarios", response_class=HTMLResponse)
+def requirements_scenarios_page(request: Request, workspace_name: str) -> HTMLResponse:
+    context = _requirements_context(request, workspace_name, "requirements-scenarios")
+    return templates.TemplateResponse(request=request, name="requirements-scenarios.html", context=context)
+
+
+@router.get("/w/{workspace_name}/requirements/graph", response_class=HTMLResponse)
+def requirements_graph_page(request: Request, workspace_name: str) -> HTMLResponse:
+    context = _requirements_context(request, workspace_name, "requirements-graph")
+    return templates.TemplateResponse(request=request, name="requirements-graph.html", context=context)
 
 
 @router.get("/w/{workspace_name}/profile.json")
@@ -214,7 +265,25 @@ async def analyze_requirements(
         )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
-    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+    return RedirectResponse(_requirements_module_location(workspace_name, "input"), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/stakeholders")
+def add_requirement_stakeholder(
+    request: Request,
+    workspace_name: str,
+    name: Annotated[str, Form()],
+) -> Response:
+    try:
+        _facade(request).add_requirement_stakeholder(workspace_name, name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(
+        _requirements_module_location(workspace_name, "stakeholders")
+        + "?name="
+        + quote(name.strip()),
+        status_code=303,
+    )
 
 
 @router.post("/w/{workspace_name}/requirements/scenarios")
@@ -244,7 +313,7 @@ def create_requirement_scenario(
         )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
-    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+    return RedirectResponse(_requirements_module_location(workspace_name, "scenarios"), status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/scenarios/delete")
@@ -257,7 +326,7 @@ def delete_requirement_scenario(
         _facade(request).delete_requirement_scenario(workspace_name, scenario_id)
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
-    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+    return RedirectResponse(_requirements_module_location(workspace_name, "scenarios"), status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/scenarios/execute")
@@ -270,7 +339,7 @@ def execute_requirement_scenario(
         _facade(request).execute_requirement_scenario(workspace_name, scenario_id)
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
-    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+    return RedirectResponse(_requirements_module_location(workspace_name, "scenarios"), status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/review")
@@ -288,7 +357,7 @@ def review_requirement(
         )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
-    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+    return RedirectResponse(_requirements_module_location(workspace_name, "review"), status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/accept-traceable")
@@ -297,7 +366,7 @@ def accept_traceable_requirements(request: Request, workspace_name: str) -> Resp
         _facade(request).accept_traceable_requirements(workspace_name)
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
-    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+    return RedirectResponse(_requirements_module_location(workspace_name, "review"), status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/generate")
@@ -306,7 +375,7 @@ def generate_requirements(request: Request, workspace_name: str) -> Response:
         _facade(request).generate_requirements_model(workspace_name)
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
-    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+    return RedirectResponse(_requirements_module_location(workspace_name, "graph"), status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/generate-draft")
@@ -315,7 +384,7 @@ def generate_requirements_draft(request: Request, workspace_name: str) -> Respon
         _facade(request).generate_requirements_draft(workspace_name)
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
-    return RedirectResponse(_requirements_location(workspace_name) + "#graph", status_code=303)
+    return RedirectResponse(_requirements_module_location(workspace_name, "graph"), status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/ai")
@@ -324,7 +393,7 @@ def analyze_requirements_with_ai(request: Request, workspace_name: str) -> Respo
         _facade(request).analyze_requirements_with_ai(workspace_name)
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
-    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+    return RedirectResponse(_requirements_module_location(workspace_name, "review"), status_code=303)
 
 
 @router.get("/w/{workspace_name}/requirements/model.json")

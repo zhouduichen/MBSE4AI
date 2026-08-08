@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}需求规划 · RFLP-Lite{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">Requirements workspace</span><h1>需求规划</h1><p>每个模块独立打开，按需要完成，不要求一次填完整。</p></div></div>
+{% if state %}
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Current workbench</span><h2>{{ state.artifact.path }}</h2></div><span class="status-badge accepted">已建立</span></div><div class="metric-row"><article><span>文本片段</span><strong>{{ state.spans|length }}</strong></article><article><span>Requirement 候选</span><strong>{{ state.claims|length }}</strong></article><article><span>利益相关方</span><strong>{{ state.stakeholders|length }}</strong></article><article><span>场景</span><strong>{{ state.scenarios|length }}</strong></article></div></section>
+{% else %}
+<section class="empty-state"><span class="empty-icon">1</span><h2>还没有需求工作台</h2><p>先输入一句需求或上传文件，其他模块会自动出现可关联的数据。</p><a class="button primary" href="/w/{{ workspace.name }}/requirements/input">开始输入需求</a></section>
+{% endif %}
+<section class="module-grid">
+  <a class="module-card" href="/w/{{ workspace.name }}/requirements/input"><div><span class="eyebrow">01 · Source</span><h2>需求输入</h2><p>粘贴或上传资料，查看规则分析和候选数量。</p></div><span class="{% if state %}ready{% else %}pending{% endif %}">{% if state %}{{ state.spans|length }} 个片段{% else %}待开始{% endif %}</span></a>
+  <a class="module-card" href="/w/{{ workspace.name }}/requirements/stakeholders"><div><span class="eyebrow">02 · People</span><h2>利益相关方</h2><p>输入角色，查看该角色关联的 Concern、Need、Requirement、场景和规划元素。</p></div><span class="{% if state and state.stakeholders %}ready{% else %}pending{% endif %}">{% if state %}{{ state.stakeholders|length }} 个{% else %}可稍后{% endif %}</span></a>
+  <a class="module-card" href="/w/{{ workspace.name }}/requirements/review"><div><span class="eyebrow">03 · Review</span><h2>需求确认</h2><p>逐条接受、修改或驳回候选；AI 辅助是可选项。</p></div><span>可跳过</span></a>
+  <a class="module-card" href="/w/{{ workspace.name }}/requirements/scenarios"><div><span class="eyebrow">04 · Scenario</span><h2>场景描述</h2><p>描述参与者、步骤、预期结果和异常，并生成声明式执行轨迹。</p></div><span class="{% if state and state.scenarios %}ready{% else %}pending{% endif %}">{% if state %}{{ state.scenarios|length }} 个{% else %}可选{% endif %}</span></a>
+  <a class="module-card" href="/w/{{ workspace.name }}/requirements/graph"><div><span class="eyebrow">05 · RFLP</span><h2>RFLP 规划图</h2><p>有文本即可生成草稿图；审核后可生成正式模型。</p></div><span class="{% if state and state.rflp %}ready{% else %}pending{% endif %}">{% if state and state.rflp %}{% if state.draft %}草稿{% else %}正式{% endif %}{% else %}可生成{% endif %}</span></a>
+  <a class="module-card" href="/w/{{ workspace.name }}/project"><div><span class="eyebrow">06 · Bridge</span><h2>项目验证</h2><p>扫描本地项目，比较实际实现与已批准模型，生成差异和任务契约。</p></div><span>可选</span></a>
+</section>
+{% endblock %}

@@ -132,7 +132,7 @@ def test_analyze_merge_accumulates_candidates(client: TestClient) -> None:
         "/w/demo/requirements/analyze",
         data={"text": "审计人员必须查看恢复记录。\n", "merge": "on"},
     )
-    page = client.get("/w/demo/requirements").text
+    page = client.get("/w/demo/requirements/input").text
     assert "管理员" in page
     assert "审计人员" in page
 
