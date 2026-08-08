@@ -6,5 +6,9 @@ from rflp_lite.domain.requirements import (
     StructuredRequirement,
     TraceLink,
 )
+from rflp_lite.domain.mbse import Actor, Activity, Lifeline, Message, UseCase
 
-__all__ = ["Diagnostic", "DocumentRegion", "StructuredRequirement", "TraceLink"]
+__all__ = [
+    "Actor", "Activity", "Diagnostic", "DocumentRegion", "Lifeline", "Message",
+    "StructuredRequirement", "TraceLink", "UseCase",
+]

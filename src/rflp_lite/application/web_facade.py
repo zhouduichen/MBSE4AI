@@ -36,6 +36,9 @@ from rflp_lite.application.requirements_flow import run_requirements_flow
 from rflp_lite.application.jobs import JobService
 from rflp_lite.application.llm_profiles import LLMProfileService
 from rflp_lite.application.interchange import export_rflp, import_rflp
+from rflp_lite.application.mbse_exchange import export_mbse_json, export_mbse_sysml_v2_text
+from rflp_lite.application.mbse_modeling import apply_mbse_edit, generate_mbse_revision
+from rflp_lite.application.mbse_render import render_mbse_svg
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.application.profile_packs import (
     export_run_record,
@@ -137,6 +140,46 @@ class WebFacade:
         result = json.loads(canonical_json(state))
         result["rflp"] = import_sysml_v2_text(text)
         return self._save_requirements(workspace_name, result, "rflp.sysml_v2_imported")
+
+    def generate_requirements_mbse(self, workspace_name: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name,
+            generate_mbse_revision(current),
+            "requirements.mbse_generated",
+        )
+
+    def edit_requirements_mbse(
+        self, workspace_name: str, expected_revision: str, operation: dict[str, object]
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name,
+            apply_mbse_edit(current, expected_revision, operation),
+            "requirements.mbse_edited",
+        )
+
+    def export_requirements_mbse(self, workspace_name: str) -> dict[str, object]:
+        state = self.requirements(workspace_name)
+        if not state or not state.get("mbse"):
+            raise ContractViolation("MBSE semantic model not generated")
+        return export_mbse_json(state["mbse"])
+
+    def export_requirements_mbse_sysml(self, workspace_name: str) -> str:
+        state = self.requirements(workspace_name)
+        if not state or not state.get("mbse"):
+            raise ContractViolation("MBSE semantic model not generated")
+        return export_mbse_sysml_v2_text(state["mbse"])
+
+    def render_requirements_mbse(self, workspace_name: str, view: str = "all") -> str:
+        state = self.requirements(workspace_name)
+        if not state or not state.get("mbse"):
+            raise ContractViolation("MBSE semantic model not generated")
+        return render_mbse_svg(state["mbse"], view)
 
     def track_run_with_mlflow(
         self,

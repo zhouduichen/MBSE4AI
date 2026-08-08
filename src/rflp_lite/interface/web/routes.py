@@ -385,7 +385,7 @@ def review_requirement(
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
     if request.headers.get("HX-Request") == "true":
-        field = {"stakeholders": "name", "concerns": "name", "needs": "statement", "claims": "object"}[group]
+        field = {"stakeholders": "name", "concerns": "name", "needs": "statement", "claims": "object", "structured_requirements": "statement"}[group]
         item = next(item for item in state[group] if item["id"] == item_id)
         return templates.TemplateResponse(
             request=request,
@@ -396,7 +396,7 @@ def review_requirement(
                 "item": item,
                 "field": field,
                 "stakeholder_categories": _facade(request).stakeholder_categories(),
-                "title": {"stakeholders": "利益相关方", "concerns": "Concern", "needs": "Stakeholder Need", "claims": "Requirement 候选"}[group],
+                "title": {"stakeholders": "利益相关方", "concerns": "Concern", "needs": "Stakeholder Need", "claims": "Requirement 候选", "structured_requirements": "结构化需求候选"}[group],
             },
         )
     return RedirectResponse(_requirements_module_location(workspace_name, "review"), status_code=303)
@@ -447,6 +447,24 @@ def analyze_requirements_with_ai(request: Request, workspace_name: str) -> Respo
     return RedirectResponse(_requirements_module_location(workspace_name, "review"), status_code=303)
 
 
+@router.post("/w/{workspace_name}/requirements/implicit-constraints")
+def suggest_implicit_constraints(request: Request, workspace_name: str) -> Response:
+    try:
+        _facade(request).suggest_implicit_requirements(workspace_name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_module_location(workspace_name, "review"), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/mbse")
+def generate_requirements_mbse(request: Request, workspace_name: str) -> Response:
+    try:
+        _facade(request).generate_requirements_mbse(workspace_name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_module_location(workspace_name, "graph"), status_code=303)
+
+
 @router.get("/w/{workspace_name}/requirements/model.json")
 def requirements_json(request: Request, workspace_name: str) -> Response:
     state = _facade(request).requirements(workspace_name)
@@ -460,6 +478,41 @@ def requirements_json(request: Request, workspace_name: str) -> Response:
         media_type="application/json",
         headers={"Content-Disposition": 'attachment; filename="rflp-model.json"'},
     )
+
+
+@router.get("/w/{workspace_name}/requirements/mbse.json")
+def requirements_mbse_json(request: Request, workspace_name: str) -> Response:
+    try:
+        payload = _facade(request).export_requirements_mbse(workspace_name)
+    except (ContractViolation, RflpError) as exc:
+        return HTMLResponse(str(exc), status_code=404)
+    return Response(
+        content=json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n",
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="mbse-model.json"'},
+    )
+
+
+@router.get("/w/{workspace_name}/requirements/mbse.sysml")
+def requirements_mbse_sysml(request: Request, workspace_name: str) -> Response:
+    try:
+        content = _facade(request).export_requirements_mbse_sysml(workspace_name)
+    except (ContractViolation, RflpError) as exc:
+        return HTMLResponse(str(exc), status_code=404)
+    return Response(
+        content=content,
+        media_type="text/plain",
+        headers={"Content-Disposition": 'attachment; filename="mbse-model.sysml"'},
+    )
+
+
+@router.get("/w/{workspace_name}/requirements/mbse.svg")
+def requirements_mbse_svg(request: Request, workspace_name: str, view: str = "all") -> Response:
+    try:
+        content = _facade(request).render_requirements_mbse(workspace_name, view)
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return HTMLResponse(str(exc), status_code=404)
+    return Response(content=content, media_type="image/svg+xml")
 
 
 @router.get("/w/{workspace_name}/requirements/sysml-lite.json")

@@ -117,6 +117,51 @@ def run_requirements_flow(request: Request, workspace_name: str) -> JSONResponse
         return _error(exc)
 
 
+@api_v1.post("/workspaces/{workspace_name}/requirements/implicit-constraints", response_model=None)
+def suggest_implicit_constraints(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        state = _facade(request).suggest_implicit_requirements(workspace_name)
+        return {"status": "ok", "requirements": state.get("structured_requirements", ()), "workbench": state}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@api_v1.post("/workspaces/{workspace_name}/requirements/mbse", response_model=None)
+def generate_mbse(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        state = _facade(request).generate_requirements_mbse(workspace_name)
+        return {"status": "ok", "mbse": state.get("mbse"), "requirements": state}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@api_v1.post("/workspaces/{workspace_name}/requirements/mbse/edit", response_model=None)
+async def edit_mbse(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ContractViolation("MBSE edit payload must be an object")
+        revision = str(payload.get("revision", payload.get("expected_revision", "")))
+        operation = payload.get("operation", payload)
+        if not isinstance(operation, dict):
+            raise ContractViolation("MBSE edit operation must be an object")
+        state = _facade(request).edit_requirements_mbse(workspace_name, revision, operation)
+        return {"status": "ok", "mbse": state.get("mbse"), "requirements": state}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@api_v1.get("/workspaces/{workspace_name}/requirements/mbse", response_model=None)
+def mbse(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        state = _facade(request).requirements(workspace_name)
+        if not state or not state.get("mbse"):
+            return _error(ContractViolation("MBSE semantic model not generated"), 404)
+        return {"status": "ok", "mbse": state["mbse"], "trace_links": state.get("trace_links", ())}
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
 @api_v1.post("/workspaces/{workspace_name}/scenarios", response_model=None)
 async def create_scenario(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
     try:
