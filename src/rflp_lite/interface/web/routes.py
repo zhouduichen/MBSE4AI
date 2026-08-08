@@ -268,6 +268,15 @@ async def analyze_requirements(
     return RedirectResponse(_requirements_module_location(workspace_name, "input"), status_code=303)
 
 
+@router.post("/w/{workspace_name}/requirements/run-flow")
+def run_requirements_flow(request: Request, workspace_name: str) -> Response:
+    try:
+        _facade(request).run_requirements_flow(workspace_name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+
+
 @router.post("/w/{workspace_name}/requirements/stakeholders")
 def add_requirement_stakeholder(
     request: Request,

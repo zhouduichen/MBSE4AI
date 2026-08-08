@@ -215,6 +215,19 @@ def test_api_v1_generates_draft_without_review(client: TestClient) -> None:
     assert generated.json()["rflp"]["elements"]
 
 
+def test_api_v1_runs_one_click_flow_from_current_input(client: TestClient) -> None:
+    _workbench(client)
+
+    completed = client.post("/api/v1/workspaces/demo/requirements/run-flow")
+
+    assert completed.status_code == 200
+    body = completed.json()
+    assert body["status"] == "ok"
+    assert body["flow"]["status"] == "completed"
+    assert body["requirements"]["scenarios"]
+    assert body["requirements"]["scenario_runs"]
+
+
 def test_api_v1_adds_manual_stakeholder(client: TestClient) -> None:
     _workbench(client)
 

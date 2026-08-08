@@ -26,7 +26,7 @@
         </div>{% else %}<span class="nav-item muted">需求规划</span>{% endif %}
         {% if workspace %}<a class="nav-item {% if active == 'project' %}active{% endif %}" href="/w/{{ workspace.name }}/project">项目验证 <span class="planned-dot">可选</span></a>{% else %}<span class="nav-item muted">项目验证</span>{% endif %}
         <p class="nav-label">高级工具</p>
-        <a class="nav-item {% if active == 'runs' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}/runs{% else %}/{% endif %}">运行记录</a>
+        <a class="nav-item {% if active == 'runs' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}/runs{% else %}/{% endif %}">内置示例运行</a>
         {% if workspace %}<a class="nav-item {% if active == 'artifacts' %}active{% endif %}" href="{% if nav_result_hash %}/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/model/artifacts{% else %}/w/{{ workspace.name }}/requirements{% endif %}">工件与声明</a>{% else %}<span class="nav-item muted">工件与声明</span>{% endif %}
         {% if workspace and nav_result_hash %}<a class="nav-item {% if active == 'rflp' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/model/rflp">RFLP 模型</a>{% else %}<span class="nav-item muted">RFLP 模型</span>{% endif %}
         <p class="nav-label">决策与治理</p>

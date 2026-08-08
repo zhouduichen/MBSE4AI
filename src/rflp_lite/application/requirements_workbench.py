@@ -162,6 +162,7 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
         "traceability": [],
         "draft": False,
         "draft_warnings": [],
+        "flow": None,
     }
 
 
@@ -189,6 +190,7 @@ def empty_workbench() -> dict[str, object]:
         "traceability": [],
         "draft": False,
         "draft_warnings": [],
+        "flow": None,
         "baseline": None,
         "project": None,
     }
@@ -212,6 +214,7 @@ def merge_artifact(
     result["rflp"], result["coverage"], result["svg"] = None, {}, ""
     result["baseline"], result["project"] = None, None
     result["draft"], result["draft_warnings"] = False, []
+    result["flow"] = None
     return result
 
 
@@ -245,6 +248,7 @@ def add_stakeholder(state: dict[str, object], name: str) -> dict[str, object]:
     )
     result["rflp"], result["coverage"], result["svg"] = None, {}, ""
     result["baseline"], result["project"] = None, None
+    result["flow"] = None
     result["draft"], result["draft_warnings"] = False, []
     return result
 
@@ -358,12 +362,14 @@ def review_item(
     item["status"] = status
     result["rflp"], result["coverage"], result["svg"] = None, {}, ""
     result["baseline"], result["project"] = None, None
+    result["flow"] = None
     return result
 
 
 def accept_traceable(state: dict[str, object]) -> dict[str, object]:
     result = _clone(state)
     result["baseline"], result["project"] = None, None
+    result["flow"] = None
     for stakeholder in result["stakeholders"]:
         if stakeholder["candidate_type"] in {"explicit", "manual"} and stakeholder["status"] == "candidate":
             stakeholder["status"] = "accepted"
@@ -531,6 +537,7 @@ def generate_model(state: dict[str, object]) -> dict[str, object]:
     result["svg"] = render_rflp_svg(elements, relations, stakeholder_names)
     result["draft"] = False
     result["draft_warnings"] = []
+    result["flow"] = None
     return result
 
 
@@ -570,6 +577,7 @@ def generate_draft_model(state: dict[str, object]) -> dict[str, object]:
         result[field] = generated[field]
     result["baseline"], result["project"] = None, None
     result["draft"] = True
+    result["flow"] = None
     result["draft_warnings"] = [
         "这是快速草稿图，尚未经过人工审核。",
         "确认需求后可生成正式模型并批准基线。",

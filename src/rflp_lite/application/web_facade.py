@@ -26,6 +26,7 @@ from rflp_lite.application.requirements_workbench import (
     review_item,
     stakeholder_bundle,
 )
+from rflp_lite.application.requirements_flow import run_requirements_flow
 from rflp_lite.application.jobs import JobService
 from rflp_lite.application.llm_profiles import LLMProfileService
 from rflp_lite.application.interchange import export_rflp, import_rflp
@@ -196,6 +197,7 @@ class WebFacade:
             if state is not None:
                 state.setdefault("scenarios", [])
                 state.setdefault("scenario_runs", [])
+                state.setdefault("flow", None)
             return state
         finally:
             repository.close()
@@ -311,6 +313,16 @@ class WebFacade:
             workspace_name,
             generate_draft_model(current),
             "requirements.draft_generated",
+        )
+
+    def run_requirements_flow(self, workspace_name: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("请先在需求输入中提交需求")
+        return self._save_requirements(
+            workspace_name,
+            run_requirements_flow(current),
+            "requirements.flow_completed",
         )
 
     def analyze_requirements_with_ai(self, workspace_name: str) -> dict[str, object]:

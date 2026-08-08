@@ -100,6 +100,15 @@ def requirements(request: Request, workspace_name: str) -> JSONResponse | dict[s
         return _error(exc, 404)
 
 
+@api_v1.post("/workspaces/{workspace_name}/requirements/run-flow", response_model=None)
+def run_requirements_flow(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        state = _facade(request).run_requirements_flow(workspace_name)
+        return {"status": "ok", "flow": state.get("flow"), "requirements": state}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @api_v1.post("/workspaces/{workspace_name}/scenarios", response_model=None)
 async def create_scenario(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
     try:
