@@ -14,8 +14,7 @@ def test_text_document_is_parsed_into_page_aware_regions():
 
 def test_document_parser_rejects_unsupported_and_oversized_inputs():
     parser = LocalDocumentParser()
-    with pytest.raises(AdapterFailure, match="unsupported document"):
+    with pytest.raises(AdapterFailure, match="unsupported artifact"):
         parser.parse("requirements.xlsx", b"data")
     with pytest.raises(AdapterFailure, match="50 MiB"):
         parser.parse("requirements.txt", b"x" * (50 * 1024 * 1024 + 1))
-

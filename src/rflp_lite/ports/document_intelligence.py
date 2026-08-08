@@ -29,7 +29,8 @@ class ParsedDocument:
 class OcrPort(Protocol):
     def extract(self, image: Any) -> tuple[tuple[str, tuple[float, float, float, float]], ...]: ...
 
+    def recognize(self, image: Any, *, page: int) -> tuple[tuple[str, tuple[float, float, float, float], float], ...]: ...
+
 
 class DocumentParserPort(Protocol):
     def parse(self, filename: str, content: bytes) -> ParsedDocument: ...
-

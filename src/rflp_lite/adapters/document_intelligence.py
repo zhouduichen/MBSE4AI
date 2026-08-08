@@ -82,6 +82,11 @@ class RapidOcrAdapter:
             values.append((text, bbox))
         return tuple(values)
 
+    def recognize(
+        self, image: Any, *, page: int
+    ) -> tuple[tuple[str, tuple[float, float, float, float], float], ...]:
+        return tuple((text, bbox, 0.8) for text, bbox in self.extract(image))
+
 
 class LocalDocumentParser(DocumentParserPort):
     """Parse supported engineering documents into page-aware regions."""
@@ -97,7 +102,7 @@ class LocalDocumentParser(DocumentParserPort):
         safe_name = Path(filename).name
         suffix = Path(safe_name).suffix.lower()
         if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
-            raise AdapterFailure("unsupported document type")
+            raise AdapterFailure("unsupported artifact type")
         digest = hashlib.sha256(content).hexdigest()
         artifact = Artifact(
             id=f"artifact-{digest[:12]}",
@@ -176,8 +181,14 @@ class LocalDocumentParser(DocumentParserPort):
                         "scanned PDF requires pypdfium2 and RapidOCR; install the 'documents' extra"
                     ) from exc
                 image = pypdfium2.PdfDocument(content)[number - 1].render(scale=2).to_pil()
-                for line_number, (text, bbox) in enumerate(self.ocr.extract(image), 1):
-                    regions.append(DocumentRegion(_region_id(artifact.id, number, f"ocr-{line_number}", text), artifact.id, number, "ocr", f"page-{number}/ocr-{line_number}", text, bbox, 0.8))
+                if hasattr(self.ocr, "recognize"):
+                    recognized = self.ocr.recognize(image, page=number)  # type: ignore[attr-defined]
+                else:
+                    recognized = tuple((text, bbox, 0.8) for text, bbox in self.ocr.extract(image))
+                for line_number, item in enumerate(recognized, 1):
+                    text, bbox = item[0], item[1]
+                    confidence = float(item[2]) if len(item) > 2 else 0.8
+                    regions.append(DocumentRegion(_region_id(artifact.id, number, f"ocr-{line_number}", text), artifact.id, number, "ocr", f"page-{number}/ocr-{line_number}", text, bbox, confidence))
         finally:
             document.close()
         if not regions:
@@ -188,3 +199,11 @@ class LocalDocumentParser(DocumentParserPort):
             regions=tuple(regions),
             text="\n".join(region.text for region in regions),
         )
+
+
+def parse_engineering_document(
+    filename: str, content: bytes, *, ocr: OcrPort | None = None
+) -> ParsedDocument:
+    """Functional adapter entry point used by integrations and acceptance tests."""
+
+    return LocalDocumentParser(ocr=ocr).parse(filename, content)

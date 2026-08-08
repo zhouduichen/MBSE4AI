@@ -22,6 +22,7 @@ _SUPPORTED_SUFFIXES = {
     ".md",
     ".markdown",
     ".docx",
+    ".pdf",
     ".py",
     ".json",
     ".yaml",
@@ -113,12 +114,26 @@ def read_artifact(
 ) -> tuple[Artifact, tuple[TextSpan, ...]]:
     if not content:
         raise AdapterFailure("artifact is empty")
-    if len(content) > 5 * 1024 * 1024:
-        raise AdapterFailure("artifact exceeds 5 MiB")
     safe_name = Path(filename).name
     suffix = Path(safe_name).suffix.lower()
     if suffix not in _SUPPORTED_SUFFIXES:
         raise AdapterFailure("unsupported artifact type")
+    limit = 50 * 1024 * 1024 if suffix == ".pdf" else 5 * 1024 * 1024
+    if len(content) > limit:
+        raise AdapterFailure(f"artifact exceeds {'50 MiB' if suffix == '.pdf' else '5 MiB'}")
+    if suffix == ".pdf":
+        from rflp_lite.adapters.document_intelligence import parse_engineering_document
+
+        parsed = parse_engineering_document(safe_name, content)
+        return parsed.artifact, tuple(
+            TextSpan(
+                id=region.id.replace("region-", "span-", 1),
+                artifact_id=region.artifact_id,
+                locator=region.locator,
+                text=region.text,
+            )
+            for region in parsed.regions
+        )
     try:
         text = _read_docx(content) if suffix == ".docx" else content.decode("utf-8")
     except UnicodeDecodeError as exc:

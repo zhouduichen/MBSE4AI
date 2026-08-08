@@ -10,7 +10,10 @@
 |---|---|---|
 | 本地 RFLP 垂直链路 | 已完成 | Artifact → Claim → R/F/L/P → Candidate → Simulation → Baseline → Delta → TaskContract → Evidence |
 | 本地 Web UI | 已完成 | 工作区、运行中心、模型、决策、仿真、治理和能力占位页面可用 |
-| 真实需求输入 | 已完成 | 支持文本粘贴及 TXT、Markdown、DOCX、Python、JSON、YAML、TOML 上传 |
+| 真实需求输入 | 已完成 | 支持文本粘贴及 TXT、Markdown、DOCX、数字/扫描 PDF、Python、JSON、YAML、TOML 上传；PDF 页区域和 OCR 诊断保留在 v2 工作台 |
+| 客户需求结构化（验收 1.1） | 已完成首版 | 客户语言实体、能力谓词、数量范围、指标约束、验证方式和来源区域；结构化需求候选默认不批准 |
+| 需求追溯与验收指标 | 已完成首版 | `derivedFrom / representedBy / satisfiedBy / refines` 矩阵、覆盖率、precision/recall/F1 与 provenance 指标；SQLite 持久化 |
+| MBSE 用例辅助（验收 1.2） | 已完成首版 | 生成 Use Case、活动图、时序图语义集合；人工逐条编辑、修订版本和 JSON/SysML/SVG 导出 |
 | 利益相关方前置链路 | 已完成首版 | StakeholderCandidate → Stakeholder/Concern/Need → Requirement |
 | 人工审核 | 已完成首版 | 候选可编辑、接受、驳回；可批量接受来源完整的明确候选 |
 | 动态 RFLP | 已完成首版 | 不再要求固定三条需求；按审核结果生成 R/F/L/P 和正式关系 |
@@ -24,7 +27,7 @@
 | Python ActualModel / Delta / Evidence 接入 | 已完成首版 | 工作台 RFLP 人工批准为基线，扫描本地 Python 项目（AST/OpenAPI/JUnit）生成 ActualModel 与 Evidence，计算 MISSING/EXTRA Delta，派生 TaskContract；Web 页面与 CLI 均可操作 |
 | 任务契约执行 | 已完成首版 | 重扫描项目目录，逐条判定 TaskContract 是否已满足（RESOLVED/UNRESOLVED），确定性、只读、不执行用户代码 |
 | 测试执行沙箱 | 已完成首版 | 支持 pytest/unittest、超时、输出、POSIX 内存/文件句柄限制、确定性缓存和受控并行；统一回填 Evidence 并如实报告每个 runner |
-| 拖拽图编辑、复杂文档版面、多人权限 | 延后 | 首版不实现 |
+| 拖拽图编辑、复杂文档版面、多人权限 | 延后 | 首版提供语义编辑 API；CAD/多学科仿真和组织级权限仍在后续 M3-M8 |
 
 ## 已实现链路
 
@@ -53,13 +56,14 @@ Artifact
 
 操作流程：
 
-1. 粘贴需求或上传工程资料；勾选“并入现有工作台”可把多份文档追加到同一工作台并保留已审核项。
+1. 粘贴需求或上传工程资料（含 DOCX/PDF）；勾选“并入现有工作台”可把多份文档追加到同一工作台并保留已审核项。
 2. 点击“规则分析”。
 3. 审核 Stakeholder、Concern、Need 和 Requirement 候选。
 4. 点击“接受全部可追溯候选”，或逐条编辑、接受、驳回。
 5. 点击“生成 RFLP 规划图”。
 6. 检查 R→F、F→L、L→P 覆盖率和需求来源链。
 7. 下载规范化 JSON 或确定性 SVG。
+8. 在“MBSE 语义图”入口生成/下载 Use Case、活动图和时序图；LLM 隐含约束必须逐条审核。
 
 主要路由：
 
@@ -73,6 +77,11 @@ Artifact
 | POST | `/w/{workspace}/requirements/generate` | 生成动态 RFLP |
 | GET | `/w/{workspace}/requirements/model.json` | 下载 RFLP JSON |
 | GET | `/w/{workspace}/requirements/model.svg` | 下载 RFLP SVG |
+| POST | `/w/{workspace}/requirements/implicit-constraints` | 生成待逐条审核的隐含约束候选 |
+| POST | `/w/{workspace}/requirements/mbse` | 生成语义 MBSE 模型 |
+| GET | `/w/{workspace}/requirements/mbse.json` | 下载 MBSE JSON |
+| GET | `/w/{workspace}/requirements/mbse.sysml` | 下载 MBSE SysML 子集 |
+| GET | `/w/{workspace}/requirements/mbse.svg?view=all` | 下载 Use Case/活动/时序 SVG |
 
 ## 项目接入
 
@@ -109,6 +118,9 @@ rflp project analyze --workspace <path> --source <dir>
 rflp project verify --workspace <path> --source <dir>
 rflp project test --workspace <path> --source <dir> [--timeout 60] [--runner pytest|unittest] [--jobs 2]
 rflp workbench build --workspace <path> --requirements <file> [<file> ...]
+rflp acceptance --requirements <file> [--gold <requirements-gold.json>]
+rflp mbse generate --workspace <path>
+rflp mbse export --workspace <path> --format json|sysml|svg
 rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 60]
 ```
 
@@ -158,7 +170,7 @@ rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 6
 
 - 工作台状态保存于 `<workspace>/.rflp/model.db` 的 `workbench` 表。
 - 上传文件按内容哈希保存到 `<workspace>/inputs/`，避免同名文件静默覆盖。
-- 单文件限制 5 MiB，只接受白名单后缀。
+- 普通文本单文件限制 5 MiB；工程文档/PDF 限制 50 MiB、最多 500 页，只接受白名单后缀。
 - API Key 只从环境变量读取，不进入页面、SQLite 或审计日志。
 - SVG 文本经过 XML/HTML 转义。
 - Web 默认只监听 `127.0.0.1`，未实现登录和公网部署。

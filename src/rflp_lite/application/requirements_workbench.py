@@ -45,7 +45,7 @@ _STAKEHOLDER_CATEGORY_ALIASES = {
     "external_system": ("外部系统", "第三方平台", "接口系统", "合作系统"),
     "environment": ("环境", "自然环境", "法规", "约束条件"),
 }
-_GROUPS = {"stakeholders", "concerns", "needs", "claims"}
+_GROUPS = {"stakeholders", "concerns", "needs", "claims", "structured_requirements"}
 _STATUSES = {"candidate", "accepted", "rejected"}
 STAKEHOLDER_CATEGORIES = (
     ("customer", "客户 / 系统拥有者"),
@@ -465,20 +465,26 @@ def merge_artifact(
     result = _clone(state)
     result["artifact"] = fresh["artifact"]
     result["system_context"] = fresh["system_context"]
-    for group in ("spans", "stakeholders", "concerns", "needs", "claims"):
+    for group in ("spans", "stakeholders", "concerns", "needs", "claims", "structured_requirements", "entities"):
         existing_ids = {item["id"] for item in result[group]}
         result[group] = sorted(
             result[group]
             + [item for item in fresh[group] if item["id"] not in existing_ids],
             key=lambda item: item["id"],
         )
+    result["document_regions"] = result.get("document_regions", []) + [
+        item for item in fresh.get("document_regions", ())
+        if item.get("id") not in {value.get("id") for value in result.get("document_regions", ())}
+    ]
+    result["document_pages"] = list(result.get("document_pages", ())) + list(fresh.get("document_pages", ()))
+    result["diagnostics"] = list(result.get("diagnostics", ())) + list(fresh.get("diagnostics", ()))
     result["checklist"] = fresh["checklist"]
     result["rflp"], result["coverage"], result["svg"] = None, {}, ""
     result["draft_graph"] = None
     result["baseline"], result["project"] = None, None
     result["draft"], result["draft_warnings"] = False, []
     result["flow"] = None
-    return result
+    return refresh_traceability(result)
 
 
 def suggest_implicit_constraints(
@@ -673,7 +679,7 @@ def review_item(
     item = next((candidate for candidate in items if candidate["id"] == item_id), None)
     if item is None:
         raise InvariantViolation("review item not found")
-    field = {"stakeholders": "name", "concerns": "name", "needs": "statement", "claims": "object"}[group]
+    field = {"stakeholders": "name", "concerns": "name", "needs": "statement", "claims": "object", "structured_requirements": "statement"}[group]
     if value.strip():
         item[field] = value.strip()
     if group == "stakeholders":

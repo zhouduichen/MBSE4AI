@@ -13,7 +13,7 @@ RFLP-Lite 是一个本地、确定性、可审计的 MBSE 研究原型。当前�
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e '.[dev,schema,evidence,opt,web]'
+.venv/bin/python -m pip install -e '.[dev,schema,evidence,opt,web,documents]'
 ```
 
 安装的首批开源组件包括 Import Linter、jsonschema/check-jsonschema、Hypothesis、Prance、junitparser 和 OR-Tools CP-SAT。它们都位于领域内核之外。
@@ -59,7 +59,7 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 
 浏览器打开 `http://127.0.0.1:8000`。首次使用时在页面创建工作区，然后进入“需求建模”：
 
-1. 粘贴需求，或上传 TXT、Markdown、DOCX、Python、JSON、YAML、TOML；勾选“并入现有工作台”可把多份文档追加到同一工作台并保留已审核项；
+1. 粘贴需求，或上传 TXT、Markdown、DOCX、PDF、Python、JSON、YAML、TOML；勾选“并入现有工作台”可把多份文档追加到同一工作台并保留已审核项；
 2. 点击“规则分析”；
 3. 审核 Stakeholder、Concern、Need 和 Requirement 候选，或点击“接受全部可追溯候选”；
 4. 点击“生成 RFLP 规划图”；
@@ -100,6 +100,9 @@ CLI 等效操作：
 .venv/bin/rflp project verify --workspace <workspace> --source <project-dir>
 .venv/bin/rflp project test --workspace <workspace> --source <project-dir> [--timeout 60] [--runner pytest|unittest] [--jobs 2]
 .venv/bin/rflp workbench build --workspace <workspace> --requirements <file>
+.venv/bin/rflp acceptance --requirements <file> [--gold <requirements-gold.json>]
+.venv/bin/rflp mbse generate --workspace <workspace>
+.venv/bin/rflp mbse export --workspace <workspace> --format json|sysml|svg
 .venv/bin/rflp assess --workspace <workspace> --requirements <file> --source <project-dir> [--timeout 60]
 .venv/bin/rflp profile show --workspace <workspace>
 .venv/bin/rflp profile validate --profile <profile.json>
@@ -138,5 +141,17 @@ Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机�
 同一 fixture、Profile 和 seed 的重复运行应产生相同的 `result_hash` 与 `baseline_hash`。Adapter 失败会回滚当前事务，并记录 `run.failed` 审计事件，不会修改已有 Baseline。
 
 ## 当前边界
+
+### 客户验收功能（1.1—1.2）
+
+当前实现已覆盖需求分析与论证阶段的客户验收切片：TXT/Markdown/DOCX/数字 PDF/扫描 PDF 统一解析，保留页码、区域坐标、来源哈希和诊断；按客户工程语言抽取实体、能力、对象、数量范围和指标约束，生成可审查的 MBSE 结构化需求候选；持久化 `derivedFrom / representedBy / satisfiedBy / refines` 追溯链和覆盖率；已接受的明确需求生成 Use Case、活动图、时序图语义模型，并支持版本校验、逐条编辑、JSON/SysML 子集/SVG 导出。LLM 只生成 `inferred` 候选，批量确认不会批准隐含约束。
+
+```bash
+.venv/bin/rflp acceptance --requirements src/rflp_lite/resources/examples/customer-acceptance/customer-requirements.txt
+.venv/bin/rflp mbse generate --workspace <workspace>
+.venv/bin/rflp mbse export --workspace <workspace> --format json
+```
+
+文档依赖通过 `.[documents]` 安装；未安装时 PDF/OCR 返回明确的本地依赖诊断，不影响 TXT/DOCX 规则链路。
 
 当前已提供最小 OpenAI-compatible LLM 候选接口，但尚未提供模型管理、流式对话或专用 Ollama/llama.cpp 运行时。场景执行目前是安全的声明性轨迹，不连接真实系统，也不生成仿真通过结论。项目接入扫描只读 `.py` / OpenAPI JSON / JUnit XML，匹配按分词交集进行（中英文义务句之间无法用关键词对齐，会如实标为 MISSING）。“执行验证”是确定性重扫描——只读重算与已批准基线的差异并判定任务契约是否满足。测试结果作为独立客观 Evidence 呈现，不改变契约状态；运行器仅允许 pytest/unittest，POSIX 资源限制在平台不支持时会明确报告。SysML v2 常用子集文本桥接、MLflow 可选真实 Tracking、Profile、Job、API 和进程内插件已提供本地 MVP；完整 SysML v2 语义、Docling、LLM/Ollama 生命周期、登录权限和远程插件运行时仍未配置，能力中心会区分“局部可用”和“未配置”。
