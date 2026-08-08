@@ -47,7 +47,7 @@ from rflp_lite.application.workspaces import (
     list_managed_workspaces,
     managed_workspace,
 )
-from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.errors import ContractViolation, InvariantViolation
 from rflp_lite.governance.profile import Profile
 
 
@@ -198,6 +198,13 @@ class WebFacade:
                 state.setdefault("scenarios", [])
                 state.setdefault("scenario_runs", [])
                 state.setdefault("flow", None)
+                if state.get("spans") and not state.get("rflp"):
+                    try:
+                        state = generate_draft_model(state)
+                    except InvariantViolation:
+                        # A partially rejected legacy workbench may not have
+                        # enough provenance for even a draft; keep it viewable.
+                        pass
             return state
         finally:
             repository.close()
