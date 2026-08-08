@@ -168,7 +168,7 @@ def evidence_context(
 
 
 CAPABILITIES = (
-    Capability("LLM / Ollama", "planned", "从声明辅助生成模型建议", "Ollama 或兼容 LLM Adapter", "Claim", "候选 ModelElement", "契约、审计与人工批准门禁完成"),
+    Capability("LLM / Ollama", "partial", "从声明辅助生成模型建议", "OpenAI-compatible LLM Adapter + 页面配置", "Claim", "候选 ModelElement", "完整模型管理、流式对话和远程权限"),
     Capability("Docling", "planned", "解析复杂 PDF/DOCX", "Docling optional adapter", "本地文档", "Artifact / TextSpan", "版面回归与资源上限完成"),
     Capability("SysML v2", "partial", "导入导出 RFLP SysML v2 常用子集文本", "本地 SysML v2 subset bridge；完整语义仍未配置", "RFLP model / .sysml", "Textual SysML subset + SVG", "完整 SysML v2 语义映射和图形编辑"),
     Capability("MLflow", "partial", "将本地运行记录真实写入 MLflow", "可选 MLflow SDK + 本地 file tracking", "Run manifest", "MLflow run / artifacts", "MLflow SDK 或 Tracking Server 配置"),

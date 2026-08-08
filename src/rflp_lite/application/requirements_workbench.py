@@ -4,9 +4,9 @@ import json
 import os
 from dataclasses import asdict
 from html import escape
-from urllib import error, request
 
 from rflp_lite.adapters.readers import RuleClaimExtractor, read_artifact
+from rflp_lite.adapters.llm_client import chat_completion
 from rflp_lite.application.synthesize import synthesize_rflp
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import AdapterFailure, InvariantViolation
@@ -385,11 +385,22 @@ def _json_content(text: str) -> object:
     return json.loads(stripped)
 
 
-def add_llm_suggestions(state: dict[str, object]) -> dict[str, object]:
-    base_url = os.getenv("RFLP_LLM_BASE_URL", "").rstrip("/")
-    model = os.getenv("RFLP_LLM_MODEL", "")
-    api_key = os.getenv("RFLP_LLM_API_KEY", "")
-    if not (base_url and model and api_key):
+def add_llm_suggestions(
+    state: dict[str, object], config: dict[str, object] | None = None
+) -> dict[str, object]:
+    if config is None:
+        base_url = os.getenv("RFLP_LLM_BASE_URL", "").rstrip("/")
+        model = os.getenv("RFLP_LLM_MODEL", "")
+        api_key = os.getenv("RFLP_LLM_API_KEY", "")
+        if not (base_url and model and api_key):
+            raise AdapterFailure("LLM 未配置")
+        config = {
+            "base_url": base_url,
+            "model": model,
+            "api_key": api_key,
+            "timeout_seconds": 20,
+        }
+    if not config.get("base_url") or not config.get("model"):
         raise AdapterFailure("LLM 未配置")
     result = _clone(state)
     spans = result["spans"]
@@ -403,22 +414,15 @@ def add_llm_suggestions(state: dict[str, object]) -> dict[str, object]:
         },
         "spans": spans,
     }
-    body = {
-        "model": model,
-        "temperature": 0,
-        "messages": [{"role": "user", "content": canonical_json(prompt)}],
-    }
-    call = request.Request(
-        f"{base_url}/chat/completions",
-        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        with request.urlopen(call, timeout=20) as response:
-            envelope = json.loads(response.read().decode("utf-8"))
-        suggestions = _json_content(envelope["choices"][0]["message"]["content"])
-    except (error.URLError, TimeoutError, KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        content = chat_completion(
+            config,
+            [{"role": "user", "content": canonical_json(prompt)}],
+        )
+        suggestions = _json_content(content)
+    except AdapterFailure as exc:
+        raise AdapterFailure(f"LLM 分析失败: {exc}") from exc
+    except (TypeError, ValueError, KeyError, IndexError) as exc:
         raise AdapterFailure(f"LLM 分析失败: {type(exc).__name__}") from exc
     if not isinstance(suggestions, list):
         raise AdapterFailure("LLM 输出必须是 JSON 数组")

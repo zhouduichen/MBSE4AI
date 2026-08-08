@@ -23,6 +23,7 @@ from rflp_lite.application.requirements_workbench import (
     review_item,
 )
 from rflp_lite.application.jobs import JobService
+from rflp_lite.application.llm_profiles import LLMProfileService
 from rflp_lite.application.interchange import export_rflp, import_rflp
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.application.profile_packs import (
@@ -49,6 +50,7 @@ class WebFacade:
     def __init__(self, workspace_root: Path, fixture_root: Path | None = None):
         self.workspace_root = workspace_root.resolve()
         self.fixture_root = fixture_root
+        self.llm = LLMProfileService()
 
     def workspaces(self) -> tuple[WorkspaceRef, ...]:
         return list_managed_workspaces(self.workspace_root)
@@ -136,6 +138,24 @@ class WebFacade:
 
     def plugins(self) -> tuple[dict[str, object], ...]:
         return list_plugins()
+
+    def llm_snapshot(self) -> dict[str, object]:
+        return self.llm.snapshot()
+
+    def llm_presets(self) -> dict[str, dict[str, object]]:
+        return self.llm.presets()
+
+    def save_llm_profile(self, payload: object) -> dict[str, object]:
+        return self.llm.save(payload)
+
+    def test_llm_profile(self, payload: object) -> dict[str, object]:
+        return self.llm.test(payload)
+
+    def activate_llm_profile(self, profile_id: str) -> dict[str, object]:
+        return self.llm.activate(profile_id)
+
+    def delete_llm_profile(self, profile_id: str) -> None:
+        self.llm.delete(profile_id)
 
     def invoke_plugin(
         self, name: str, payload: dict[str, object]
@@ -244,7 +264,9 @@ class WebFacade:
         if current is None:
             raise ContractViolation("requirements workbench is empty")
         return self._save_requirements(
-            workspace_name, add_llm_suggestions(current), "requirements.ai_suggested"
+            workspace_name,
+            add_llm_suggestions(current, self.llm.active_config()),
+            "requirements.ai_suggested",
         )
 
     def add_requirement_scenario(

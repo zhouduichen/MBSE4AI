@@ -23,6 +23,51 @@ def _facade(request: Request):
     return request.app.state.facade
 
 
+@api_v1.get("/llm/profiles", response_model=None)
+def llm_profiles(request: Request) -> dict[str, object]:
+    return {"status": "ok", **_facade(request).llm_snapshot()}
+
+
+@api_v1.get("/llm/presets", response_model=None)
+def llm_presets(request: Request) -> dict[str, object]:
+    return {"status": "ok", "presets": _facade(request).llm_presets()}
+
+
+@api_v1.post("/llm/profiles", response_model=None)
+async def save_llm_profile(request: Request) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        return {"status": "ok", "profile": _facade(request).save_llm_profile(payload)}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@api_v1.post("/llm/test", response_model=None)
+async def test_llm_profile(request: Request) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        return _facade(request).test_llm_profile(payload)
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@api_v1.post("/llm/profiles/{profile_id}/activate", response_model=None)
+def activate_llm_profile(request: Request, profile_id: str) -> JSONResponse | dict[str, object]:
+    try:
+        return {"status": "ok", "profile": _facade(request).activate_llm_profile(profile_id)}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@api_v1.delete("/llm/profiles/{profile_id}", response_model=None)
+def delete_llm_profile(request: Request, profile_id: str) -> JSONResponse | dict[str, object]:
+    try:
+        _facade(request).delete_llm_profile(profile_id)
+        return {"status": "ok"}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @api_v1.get("/workspaces")
 def workspaces(request: Request) -> dict[str, object]:
     return {"status": "ok", "workspaces": [item.name for item in _facade(request).workspaces()]}

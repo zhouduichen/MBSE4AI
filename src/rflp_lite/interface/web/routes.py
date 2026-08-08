@@ -47,6 +47,47 @@ def _requirements_location(workspace_name: str) -> str:
     return f"/w/{workspace_name}/requirements"
 
 
+def _llm_context(
+    request: Request,
+    *,
+    profile_id: str = "",
+    draft: dict[str, object] | None = None,
+    result: dict[str, object] | None = None,
+    error: str = "",
+) -> dict[str, object]:
+    facade = _facade(request)
+    snapshot = facade.llm_snapshot()
+    profiles = tuple(snapshot["profiles"])
+    selected = draft
+    if selected is None:
+        selected = next((item for item in profiles if item["id"] == profile_id), None)
+    if selected is None and not profile_id:
+        selected = next((item for item in profiles if item["id"] == snapshot["active_id"]), None)
+    if selected is None:
+        selected = {
+            "id": "",
+            "label": "",
+            "kind": "remote",
+            "protocol": "openai-chat",
+            "base_url": "",
+            "model": "",
+            "timeout_seconds": 20,
+        }
+    safe_profile = dict(selected)
+    safe_profile.pop("api_key", None)
+    return page_context(
+        None,
+        workspaces=facade.workspaces(),
+        active="settings",
+        profiles=profiles,
+        selected_profile=safe_profile,
+        llm=snapshot,
+        presets=facade.llm_presets(),
+        llm_result=result,
+        llm_error=error,
+    )
+
+
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request) -> HTMLResponse:
     view = _facade(request).dashboard(None)
@@ -640,3 +681,104 @@ def capabilities(request: Request) -> HTMLResponse:
     workspace = workspaces[0] if workspaces else None
     context = page_context(workspace, workspaces=workspaces, active="capabilities", capabilities=CAPABILITIES)
     return templates.TemplateResponse(request=request, name="capabilities.html", context=context)
+
+
+@router.get("/settings/llm", response_class=HTMLResponse)
+def llm_settings(request: Request, profile_id: str = "") -> HTMLResponse:
+    return templates.TemplateResponse(
+        request=request,
+        name="llm-settings.html",
+        context=_llm_context(request, profile_id=profile_id),
+    )
+
+
+@router.post("/settings/llm/save")
+def save_llm_settings(
+    request: Request,
+    profile_id: Annotated[str, Form()],
+    label: Annotated[str, Form()],
+    kind: Annotated[str, Form()] = "remote",
+    protocol: Annotated[str, Form()] = "openai-chat",
+    base_url: Annotated[str, Form()] = "",
+    model: Annotated[str, Form()] = "",
+    api_key: Annotated[str, Form()] = "",
+    timeout_seconds: Annotated[int, Form()] = 20,
+    active: Annotated[str, Form()] = "",
+) -> Response:
+    payload = {
+        "id": profile_id,
+        "label": label,
+        "kind": kind,
+        "protocol": protocol,
+        "base_url": base_url,
+        "model": model,
+        "api_key": api_key,
+        "timeout_seconds": timeout_seconds,
+        "active": bool(active),
+    }
+    try:
+        saved = _facade(request).save_llm_profile(payload)
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="llm-settings.html",
+            context=_llm_context(request, draft=payload, error=str(exc)),
+            status_code=422,
+        )
+    return RedirectResponse(f"/settings/llm?profile_id={saved['id']}", status_code=303)
+
+
+@router.post("/settings/llm/test", response_class=HTMLResponse)
+def test_llm_settings(
+    request: Request,
+    profile_id: Annotated[str, Form()],
+    label: Annotated[str, Form()],
+    kind: Annotated[str, Form()] = "remote",
+    protocol: Annotated[str, Form()] = "openai-chat",
+    base_url: Annotated[str, Form()] = "",
+    model: Annotated[str, Form()] = "",
+    api_key: Annotated[str, Form()] = "",
+    timeout_seconds: Annotated[int, Form()] = 20,
+) -> HTMLResponse:
+    payload = {
+        "id": profile_id,
+        "label": label,
+        "kind": kind,
+        "protocol": protocol,
+        "base_url": base_url,
+        "model": model,
+        "api_key": api_key,
+        "timeout_seconds": timeout_seconds,
+    }
+    try:
+        result = _facade(request).test_llm_profile(payload)
+        return templates.TemplateResponse(
+            request=request,
+            name="llm-settings.html",
+            context=_llm_context(request, draft=payload, result=result),
+        )
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="llm-settings.html",
+            context=_llm_context(request, draft=payload, error=str(exc)),
+            status_code=422,
+        )
+
+
+@router.post("/settings/llm/{profile_id}/activate")
+def activate_llm_settings(request: Request, profile_id: str) -> Response:
+    try:
+        _facade(request).activate_llm_profile(profile_id)
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(f"/settings/llm?profile_id={profile_id}", status_code=303)
+
+
+@router.post("/settings/llm/{profile_id}/delete")
+def delete_llm_settings(request: Request, profile_id: str) -> Response:
+    try:
+        _facade(request).delete_llm_profile(profile_id)
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse("/settings/llm", status_code=303)

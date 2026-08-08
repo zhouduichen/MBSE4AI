@@ -36,6 +36,7 @@
         <a class="nav-item {% if active == 'evidence' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/governance/evidence">证据与审计</a>
         {% else %}<span class="nav-item muted">基线与差异</span><span class="nav-item muted">任务契约</span><span class="nav-item muted">证据与审计</span>{% endif %}
         <p class="nav-label">Extensions</p>
+        <a class="nav-item {% if active == 'settings' %}active{% endif %}" href="/settings/llm">LLM 设置</a>
         <a class="nav-item {% if active == 'capabilities' %}active{% endif %}" href="/capabilities">能力中心 <span class="planned-dot">规划中</span></a>
       </nav>
       <div class="local-card"><strong>仅限本机</strong><span>无账户 · 无云端依赖<br>数据保留在本地工作区</span></div>
