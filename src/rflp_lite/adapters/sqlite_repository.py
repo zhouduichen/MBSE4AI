@@ -33,6 +33,8 @@ class SQLiteRepository:
         "simulations",
         "tasks",
         "evidence",
+        "document_evidence",
+        "trace_records",
     )
 
     def __init__(self, path: Path):
@@ -147,6 +149,18 @@ class SQLiteRepository:
 
     def save_evidence(self, values: tuple[Evidence, ...]) -> None:
         self._save_many("evidence", values)
+
+    def save_document_evidence(self, values: tuple[dict[str, object], ...]) -> None:
+        self._save_payloads("document_evidence", values)
+
+    def save_trace_records(self, values: tuple[dict[str, object], ...]) -> None:
+        self._save_payloads("trace_records", values)
+
+    def _save_payloads(self, table: str, values: Iterable[dict[str, object]]) -> None:
+        rows = [(str(value["id"]), canonical_json(value)) for value in values]
+        self._connection.executemany(
+            f"INSERT OR REPLACE INTO {table}(id, payload) VALUES (?, ?)", rows
+        )
 
     def save_workbench(self, value: dict[str, object]) -> None:
         self._connection.execute(

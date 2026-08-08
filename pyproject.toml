@@ -45,6 +45,7 @@ where = ["src"]
 "rflp_lite" = [
   "resources/schemas/*.json",
   "resources/domain/*.json",
+  "resources/examples/customer-acceptance/*",
   "resources/examples/versioned-content-service/*",
 ]
 "rflp_lite.interface.web" = [

@@ -16,6 +16,7 @@ from rflp_lite.application.requirement_semantics import (
     requirement_payload,
 )
 from rflp_lite.application.requirement_inference import inferred_requirement_payloads
+from rflp_lite.application.traceability import refresh_traceability
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import AdapterFailure, InvariantViolation
 from rflp_lite.domain.models import Claim, ModelElement, Relation, TextSpan
@@ -385,7 +386,7 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
         )
         if role not in present_roles
     )
-    return {
+    result = {
         "schema_version": 2,
         "artifact": asdict(artifact),
         "system_context": system_context,
@@ -413,6 +414,7 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
         "draft_warnings": [],
         "flow": None,
     }
+    return refresh_traceability(result)
 
 
 def empty_workbench() -> dict[str, object]:

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "requirements": [
+    {
+      "id": "gold-1",
+      "statement": "导入作战纲要、技战术指标文档（Word/PDF）",
+      "source_region_id": "region-gold-1"
+    },
+    {
+      "id": "gold-2",
+      "statement": "3~5套满足约束的初始总体布局草图",
+      "source_region_id": "region-gold-2"
+    }
+  ]
+}

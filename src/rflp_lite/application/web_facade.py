@@ -57,6 +57,7 @@ from rflp_lite.application.workspaces import (
     list_managed_workspaces,
     managed_workspace,
 )
+from rflp_lite.application.traceability import build_trace_matrix, refresh_traceability, trace_coverage
 from rflp_lite.domain.errors import AdapterFailure, ContractViolation, InvariantViolation
 from rflp_lite.governance.profile import Profile
 
@@ -772,6 +773,7 @@ class WebFacade:
         event: str,
         audit_payload: dict[str, object] | None = None,
     ) -> dict[str, object]:
+        state = refresh_traceability(state)
         workspace = self.workspace(workspace_name)
         repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
         try:
@@ -783,6 +785,11 @@ class WebFacade:
                 )
                 repository.save_requirement_records(
                     self._requirement_records_for_state(state, event), sequence, event
+                )
+                repository.save_trace_records(tuple(state.get("trace_links", ())))
+                repository.record_audit(
+                    "requirements.traceability_updated",
+                    {"coverage": state.get("trace_coverage", trace_coverage(build_trace_matrix(state)))} ,
                 )
         finally:
             repository.close()
