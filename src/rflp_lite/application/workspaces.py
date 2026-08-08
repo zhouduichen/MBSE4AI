@@ -8,9 +8,9 @@ from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.governance.profile import Profile
 from rflp_lite.governance.validation import validate_json
+from rflp_lite.application.resources import PROJECT_ROOT, resource_path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _WORKSPACE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 
 
@@ -28,7 +28,7 @@ def initialize_workspace(path: Path) -> WorkspaceRef:
     if profile_path.exists():
         raise ContractViolation(f"workspace already exists: {workspace.name}")
     profile = Profile()
-    validate_json(profile.as_dict(), PROJECT_ROOT / "schemas" / "profile.schema.json")
+    validate_json(profile.as_dict(), resource_path("schemas/profile.schema.json"))
     workspace.mkdir(parents=True, exist_ok=True)
     profile_path.write_text(canonical_json(profile.as_dict()) + "\n", encoding="utf-8")
     return WorkspaceRef(workspace.name, workspace, profile_path, True)

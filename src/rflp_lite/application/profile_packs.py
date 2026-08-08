@@ -6,14 +6,14 @@ import tempfile
 from pathlib import Path
 
 from rflp_lite.application.run_catalog import RunRecord
-from rflp_lite.application.workspaces import PROJECT_ROOT
+from rflp_lite.application.resources import resource_path
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.governance.profile import Profile
 from rflp_lite.governance.validation import validate_json
 
 
-PROFILE_SCHEMA = PROJECT_ROOT / "schemas" / "profile.schema.json"
+PROFILE_SCHEMA = resource_path("schemas/profile.schema.json")
 
 
 def validate_profile_payload(payload: object) -> dict[str, object]:

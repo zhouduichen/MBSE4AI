@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from rflp_lite.application.run_catalog import RunRecord
@@ -41,6 +42,10 @@ def track_run_with_mlflow(
 
     uri = str(tracking_uri or (record.run_dir.parent.parent / "mlruns"))
     try:
+        if "://" not in uri or uri.startswith("file:"):
+            # MLflow 3.x protects the legacy local file store by default. The
+            # adapter intentionally supports a self-contained local directory.
+            os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
         mlflow.set_tracking_uri(uri)
         mlflow.set_experiment(experiment_name)
         with mlflow.start_run(run_name=record.result_hash[:12]) as run:

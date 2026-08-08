@@ -13,6 +13,7 @@ from rflp_lite.application.diff import calculate_delta
 from rflp_lite.application.ingest import ingest_requirements
 from rflp_lite.application.synthesize import synthesize_rflp
 from rflp_lite.application.tasks import build_task_contracts
+from rflp_lite.application.resources import PROJECT_ROOT, resource_path
 from rflp_lite.domain.baseline import approve_baseline
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import AdapterFailure
@@ -23,8 +24,7 @@ from rflp_lite.governance.validation import validate_json
 from rflp_lite.simulation.engine import simulate
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_FIXTURES = PROJECT_ROOT / "examples" / "versioned-content-service"
+DEFAULT_FIXTURES = resource_path("examples/versioned-content-service")
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -128,7 +128,7 @@ def run_demo(
         manifest = build_manifest(
             profile, fixture_hashes, stage_hashes, baseline.hash, result_hash
         )
-        validate_json(manifest, PROJECT_ROOT / "schemas" / "run-manifest.schema.json")
+        validate_json(manifest, resource_path("schemas/run-manifest.schema.json"))
         outputs = {
             "artifacts.json": (artifact,),
             "spans.json": spans,

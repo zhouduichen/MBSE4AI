@@ -37,6 +37,10 @@ rflp = "rflp_lite.interface.cli:entrypoint"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"rflp_lite" = [
+  "resources/schemas/*.json",
+  "resources/examples/versioned-content-service/*",
+]
 "rflp_lite.interface.web" = [
   "templates/*.html",
   "static/*.css",

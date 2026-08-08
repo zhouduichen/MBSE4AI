@@ -11,7 +11,7 @@ from rflp_lite.adapters.sqlite_repository import SQLiteRepository
 from rflp_lite.adapters.mlflow_tracking import track_run_with_mlflow
 from rflp_lite.adapters.test_execution_config import build_limits
 from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
-from rflp_lite.application.demo import PROJECT_ROOT, run_demo
+from rflp_lite.application.demo import run_demo
 from rflp_lite.application.jobs import JobService
 from rflp_lite.application.profile_packs import (
     export_run_record,
@@ -19,6 +19,7 @@ from rflp_lite.application.profile_packs import (
     save_profile,
     validate_profile_payload,
 )
+from rflp_lite.application.resources import default_workspace_root, resource_path
 from rflp_lite.application.project_bridge import (
     analyze_project_state,
     approve_workbench_baseline,
@@ -57,7 +58,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     web_parser.add_argument("--host", default="127.0.0.1")
     web_parser.add_argument("--port", type=int, default=8000)
     web_parser.add_argument(
-        "--workspace-root", type=Path, default=PROJECT_ROOT / "workspaces"
+        "--workspace-root", type=Path, default=default_workspace_root()
     )
     project_parser = subparsers.add_parser(
         "project", help="connect a local Python project to the approved baseline"
@@ -169,7 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 timeout_seconds=args.timeout_seconds,
             )
             validate_json(
-                profile.as_dict(), PROJECT_ROOT / "schemas" / "profile.schema.json"
+                profile.as_dict(), resource_path("schemas/profile.schema.json")
             )
             result = run_demo(args.workspace.resolve(), profile)
             summary = {

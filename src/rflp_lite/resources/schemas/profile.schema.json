@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rflp-lite.local/schemas/profile.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "solver", "seed", "candidate_limit", "timeout_seconds"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "solver": {"enum": ["heuristic", "cp-sat"]},
+    "seed": {"type": "integer", "minimum": 0},
+    "candidate_limit": {"type": "integer", "minimum": 2, "maximum": 3},
+    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60}
+  }
+}
+
