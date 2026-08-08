@@ -5,7 +5,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 from threading import Thread
 from typing import IO
@@ -17,6 +16,8 @@ from rflp_lite.adapters.test_execution_config import (
     DEFAULT_TEST_TIMEOUT,
     ResourceLimits,
 )
+from rflp_lite.adapters.test_cache import cache_key, load_cached_result, save_cached_result
+from rflp_lite.adapters.execution_types import RunnerResult
 from rflp_lite.adapters.test_limits import make_preexec_fn, resource_report
 from rflp_lite.adapters.test_runners import parse_runner_evidence, runner_spec
 from rflp_lite.domain.errors import AdapterFailure, ContractViolation
@@ -26,22 +27,6 @@ from rflp_lite.domain.models import Evidence
 # Kept as a compatibility hook for existing callers/tests that cap this value.
 MAX_RUN_OUTPUT_BYTES = DEFAULT_MAX_OUTPUT_BYTES
 _JUNIT_ATTRS = ("time", "timestamp", "hostname", "id")
-
-
-@dataclass(frozen=True, slots=True)
-class RunnerResult:
-    runner: str
-    command: tuple[str, ...]
-    returncode: int | None
-    timed_out: bool
-    junit_path: Path | None
-    stdout_path: Path | None
-    stderr_path: Path | None
-    temp_dir: Path | None
-    evidence: tuple[Evidence, ...]
-    diagnostics: dict[str, object]
-    resource_limits: dict[str, object]
-    cache_hit: bool = False
 
 
 # Historical name retained for callers that imported the old result type.
@@ -129,11 +114,16 @@ def run_project_tests(
     cache_dir: Path | None = None,
 ) -> RunnerResult:
     """运行一个内置测试运行器，超时隔离，产物写入临时目录。"""
-    del cache_dir  # Cache lookup is added by the matrix layer; one-run stays stateless.
     resolved = Path(project_dir).expanduser().resolve()
     if not resolved.is_dir():
         raise ContractViolation("项目目录不存在或不是目录")
     effective_limits = _limits_for_call(timeout, limits)
+    key = None
+    if cache_dir is not None:
+        key = cache_key(resolved, runner, effective_limits)
+        cached = load_cached_result(cache_dir, key, runner)
+        if cached is not None:
+            return cached
     temp_dir = Path(tempfile.mkdtemp(prefix="rflp-testrun-"))
     junit = temp_dir / "junit.xml"
     stdout_file = temp_dir / "stdout.log"
@@ -195,7 +185,7 @@ def run_project_tests(
             "tests_failed": sum(1 for item in evidence if item.status == "failed"),
             "unparsed_output": runner == "unittest" and not evidence,
         }
-        return RunnerResult(
+        result = RunnerResult(
             runner=runner,
             command=spec.argv,
             returncode=returncode,
@@ -208,6 +198,9 @@ def run_project_tests(
             diagnostics=diagnostics,
             resource_limits=resource_report(effective_limits),
         )
+        if cache_dir is not None and key is not None:
+            save_cached_result(cache_dir, key, result)
+        return result
     except BaseException:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
