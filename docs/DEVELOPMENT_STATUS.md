@@ -14,6 +14,7 @@
 | 客户需求结构化（验收 1.1） | 已完成首版 | 客户语言实体、能力谓词、数量范围、指标约束、验证方式和来源区域；结构化需求候选默认不批准 |
 | 需求追溯与验收指标 | 已完成首版 | `derivedFrom / representedBy / satisfiedBy / refines` 矩阵、覆盖率、precision/recall/F1 与 provenance 指标；SQLite 持久化 |
 | MBSE 用例辅助（验收 1.2） | 已完成首版 | 生成 Use Case、活动图、时序图语义集合；人工逐条编辑、修订版本和 JSON/SysML/SVG 导出 |
+| 需求/MBSE/场景确认闭环 | 已完成首版 | 候选逐条审核、编辑后回退、MBSE 草稿确认、场景确认门禁、审核历史和导出/执行状态门禁 |
 | 利益相关方前置链路 | 已完成首版 | StakeholderCandidate → Stakeholder/Concern/Need → Requirement |
 | 人工审核 | 已完成首版 | 候选可编辑、接受、驳回；可批量接受来源完整的明确候选 |
 | 动态 RFLP | 已完成首版 | 不再要求固定三条需求；按审核结果生成 R/F/L/P 和正式关系 |
@@ -121,6 +122,7 @@ rflp project test --workspace <path> --source <dir> [--timeout 60] [--runner pyt
 rflp workbench build --workspace <path> --requirements <file> [<file> ...]
 rflp acceptance --requirements <file> [--gold <requirements-gold.json>]
 rflp mbse generate --workspace <path>
+rflp mbse confirm --workspace <path>
 rflp mbse export --workspace <path> --format json|sysml|svg
 rflp concept import --workspace <path> --pack <pack.json> --data <schemes.json|csv|db> [--table <table>]
 rflp concept run --workspace <path> --pack <pack.json> --evaluator-profile <profile.json> --envelope <envelope.json>
@@ -255,6 +257,6 @@ export RFLP_LLM_API_KEY=local-key
 - 匹配只在基线 R/F 与 actual class/function/api-operation 之间按分词交集进行；中英文、缩写与长句义务的匹配需要更多工程样本校准。
 - 项目扫描只读 `.py` / OpenAPI JSON / JUnit XML；测试执行沙箱只运行固定的 `pytest` / `unittest` allowlist 命令（默认 60s 超时）。
 - 测试结果作为独立客观 Evidence 呈现，不改变实现符号层面的 R/F 匹配与契约 RESOLVED/UNRESOLVED。
-- 场景执行目前只生成 `declarative-only` 轨迹和 Evidence，不连接真实运行时，不自动驱动仿真、测试或契约验收。
+- 场景先经过编辑、确认/驳回和审核历史，再允许生成 `declarative-only` 轨迹和 Evidence；轨迹不连接真实运行时，不自动驱动仿真、测试或契约验收。
 - API 默认只用于本地受控客户端；登录、角色权限、限流、公网部署和远程插件隔离仍未配置。
 - 测试运行器仅支持固定的 pytest/unittest allowlist；POSIX 资源限制在其他平台以不支持状态报告。

@@ -135,13 +135,14 @@ def extract_requirement_candidates(document: Any) -> tuple[StructuredRequirement
             continue
         subject, predicate, statement = _parse(text)
         entities = _entities(text, glossary)
+        source_type = "provisional" if predicate == "描述" else "explicit"
         result.append(
             StructuredRequirement.from_fields(
                 region=region,
                 subject=subject,
                 predicate=predicate,
                 statement=statement,
-                source_type="explicit",
+                source_type=source_type,
                 entities=entities,
                 constraints=_constraints(text),
                 verification_method=_verification_method(text),

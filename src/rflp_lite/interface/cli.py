@@ -174,6 +174,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     concept_export.add_argument("--run-id", required=True)
     concept_export.add_argument("--format", choices=("json", "svg"), default="json")
     concept_export.add_argument("--candidate-id")
+    concept_review = concept_commands.add_parser("review")
+    concept_review.add_argument("--workspace", type=Path, required=True)
+    concept_review.add_argument("--run-id", default="")
+    concept_review.add_argument("--candidate-id", required=True)
+    concept_review.add_argument("--decision", choices=("accepted", "rejected"), required=True)
     concept_acceptance = concept_commands.add_parser("acceptance")
     concept_acceptance.add_argument("--pack", type=Path, required=True)
     concept_acceptance.add_argument("--schemes", type=Path, required=True)
@@ -347,6 +352,16 @@ def _run_concept(args: argparse.Namespace) -> int:
         if candidate is None:
             raise ContractViolation(f"layout candidate not found: {args.candidate_id}")
         print(str(candidate.get("svg", "")))
+        return 0
+    if args.concept_command == "review":
+        facade = WebFacade(args.workspace.parent)
+        review = facade.review_layout_candidate(
+            args.workspace.name,
+            args.candidate_id,
+            args.decision,
+            run_id=args.run_id,
+        )
+        print(canonical_json(review))
         return 0
     raise ContractViolation("unknown concept command")
 

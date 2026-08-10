@@ -118,6 +118,37 @@ def test_api_v1_concept_design_workflow(client: TestClient) -> None:
     assert 3 <= len(run.json()["run"]["candidates"]) <= 5
     page = client.get("/w/concept/concept-design")
     assert page.status_code == 200
+    run_payload = run.json()["run"]
+    candidate_id = run_payload["candidates"][0]["id"]
+    rejected = client.post(
+        f"/api/v1/workspaces/concept/layout-candidates/{candidate_id}/review",
+        json={"decision": "rejected", "run_id": run_payload["id"]},
+    )
+    assert rejected.status_code == 200
+    reviewed_page = client.get(f"/w/concept/concept-design?run_id={run_payload['id']}")
+    assert reviewed_page.status_code == 200
+    assert "已驳回" in reviewed_page.text
+
+
+def test_api_v1_mbse_requires_explicit_generation_and_confirmation(client: TestClient) -> None:
+    _workbench(client)
+    confirmed = client.post("/w/demo/requirements/confirm-and-generate", follow_redirects=False)
+    assert confirmed.status_code == 303
+
+    generated = client.post("/api/v1/workspaces/demo/requirements/mbse")
+    assert generated.status_code == 200
+    model = generated.json()["mbse"]
+    assert model["status"] == "review"
+    element_id = model["use_cases"][0]["id"]
+
+    reviewed = client.post(
+        "/api/v1/workspaces/demo/requirements/mbse/review",
+        json={"element_id": element_id, "decision": "accepted"},
+    )
+    assert reviewed.status_code == 200
+    finalized = client.post("/api/v1/workspaces/demo/requirements/mbse/confirm")
+    assert finalized.status_code == 200
+    assert finalized.json()["mbse"]["status"] == "accepted"
 
 
 def test_api_v1_configures_generic_llm_profiles_without_leaking_key(client: TestClient) -> None:

@@ -337,25 +337,30 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
             claim["structured_requirement_id"] = item["id"]
             claim["producer"] = "rule"
             claim["bulk_approvable"] = item["bulk_approvable"]
-        elif extracted_claims:
-            claims.append(
-                {
-                    "id": _id("claim", item["id"]),
-                    "span_id": item["source_region_id"].replace("region-", "span-", 1),
-                    "subject": item["subject"],
-                    "predicate": item["predicate"],
-                    "object": item["statement"],
-                    "confidence": item["confidence"],
-                    "status": item["status"],
-                    "source_type": "constraint" if item["constraints"] else "need",
-                    "candidate_type": "explicit",
-                    "interpretation": "结构化需求候选",
-                    "need_id": None,
-                    "structured_requirement_id": item["id"],
-                    "producer": "rule",
-                    "bulk_approvable": item["bulk_approvable"],
-                }
+        else:
+            span_id = item["source_region_id"].replace("region-", "span-", 1)
+            span = next((value for value in spans if value.id == span_id), None)
+            if span is not None and _quality_claim(span, system_context) is not None:
+                continue
+            fallback = _free_form_claim(span, system_context) if span is not None else {
+                "id": _id("claim", item["id"]),
+                "span_id": span_id,
+                "subject": item["subject"],
+                "predicate": item["predicate"],
+                "object": item["statement"],
+                "confidence": item["confidence"],
+                "status": item["status"],
+                "source_type": item["source_type"],
+                "candidate_type": "explicit",
+                "interpretation": "结构化需求候选",
+                "need_id": None,
+            }
+            fallback.update(
+                structured_requirement_id=item["id"],
+                producer="rule",
+                bulk_approvable=item["bulk_approvable"],
             )
+            claims.append(fallback)
     extracted_span_ids = {claim.span_id for claim in extracted_claims}
     for span in spans:
         if span.id in extracted_span_ids:
@@ -723,7 +728,11 @@ def accept_traceable(state: dict[str, object]) -> dict[str, object]:
     for claim in result["claims"]:
         if claim["status"] != "candidate":
             continue
-        if claim["source_type"] == "constraint" or claim.get("need_id") in accepted_needs:
+        if (
+            claim["source_type"] == "constraint"
+            or claim.get("need_id") in accepted_needs
+            or (claim.get("structured_requirement_id") and claim.get("bulk_approvable") is True)
+        ):
             claim["status"] = "accepted"
     for requirement in result.get("structured_requirements", ()):
         if requirement.get("status") == "candidate" and requirement.get("bulk_approvable", requirement.get("source_type") != "inferred"):

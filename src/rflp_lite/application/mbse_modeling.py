@@ -140,6 +140,7 @@ def apply_mbse_edit(
         if not name:
             raise ContractViolation("MBSE name cannot be empty")
         target["name"] = name
+        target["status"] = "candidate"
     else:
         status = str(operation.get("status", "")).strip()
         if status not in {"candidate", "accepted", "rejected"}:

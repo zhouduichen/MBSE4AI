@@ -99,6 +99,7 @@ M3–M4 使用固定核心字段和版本化声明式领域包。固定翼首版
 .venv/bin/rflp concept run --workspace <workspace> --pack <pack.json> --evaluator-profile <profile.json> --envelope <envelope.json>
 .venv/bin/rflp concept export --workspace <workspace> --run-id <run-id> --format json
 .venv/bin/rflp concept export --workspace <workspace> --run-id <run-id> --format svg --candidate-id <candidate-id>
+.venv/bin/rflp concept review --workspace <workspace> --run-id <run-id> --candidate-id <candidate-id> --decision accepted|rejected
 .venv/bin/rflp concept acceptance \
   --pack src/rflp_lite/resources/domain-packs/fixed-wing-v1.json \
   --schemes src/rflp_lite/resources/examples/concept-design/fixed-wing-schemes.json \
@@ -120,6 +121,7 @@ CLI 等效操作：
 .venv/bin/rflp workbench build --workspace <workspace> --requirements <file>
 .venv/bin/rflp acceptance --requirements <file> [--gold <requirements-gold.json>]
 .venv/bin/rflp mbse generate --workspace <workspace>
+.venv/bin/rflp mbse confirm --workspace <workspace>
 .venv/bin/rflp mbse export --workspace <workspace> --format json|sysml|svg
 .venv/bin/rflp assess --workspace <workspace> --requirements <file> --source <project-dir> [--timeout 60]
 .venv/bin/rflp profile show --workspace <workspace>
@@ -167,8 +169,11 @@ Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机�
 ```bash
 .venv/bin/rflp acceptance --requirements src/rflp_lite/resources/examples/customer-acceptance/customer-requirements.txt
 .venv/bin/rflp mbse generate --workspace <workspace>
+.venv/bin/rflp mbse confirm --workspace <workspace>
 .venv/bin/rflp mbse export --workspace <workspace> --format json
 ```
+
+需求分析、MBSE 和场景现在都采用显式确认门禁：文本分析只产生候选；“确认并生成 RFLP”确认需求后，使用 `mbse generate` 生成 MBSE 草稿，在 Web 的“模型输出”页逐条接受/驳回或点击“确认 MBSE 模型”，确认后才允许 JSON/SysML/SVG 导出。场景页支持编辑后回到待确认、确认、驳回和审核历史；只有已确认场景才能生成声明性执行轨迹。`run-flow` 只负责生成草稿并停在场景审核，不再绕过人工确认自动执行。
 
 文档依赖通过 `.[documents]` 安装；未安装时 PDF/OCR 返回明确的本地依赖诊断，不影响 TXT/DOCX 规则链路。
 

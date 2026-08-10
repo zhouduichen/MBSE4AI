@@ -53,3 +53,15 @@ def test_mbse_edit_requires_current_revision():
     operation = {"kind": "rename", "id": state["mbse"]["use_cases"][0]["id"], "name": "新名称"}
     with pytest.raises(ContractViolation, match="revision"):
         apply_mbse_edit(state, "wrong", operation)
+
+
+def test_mbse_edit_returns_accepted_model_to_review():
+    state = confirm_mbse(generate_mbse_revision(_reviewed_state()))
+    item = state["mbse"]["use_cases"][0]
+    edited = apply_mbse_edit(
+        state,
+        state["mbse"]["revision"],
+        {"kind": "rename", "id": item["id"], "name": "修改后的用例"},
+    )
+    assert edited["mbse"]["status"] == "review"
+    assert edited["mbse"]["use_cases"][0]["status"] == "candidate"

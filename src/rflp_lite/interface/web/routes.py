@@ -573,6 +573,25 @@ def review_requirements_mbse(
     return RedirectResponse(_requirements_module_location(workspace_name, "graph") + "#mbse", status_code=303)
 
 
+@router.post("/w/{workspace_name}/requirements/mbse/edit")
+def edit_requirements_mbse(
+    request: Request,
+    workspace_name: str,
+    revision: Annotated[str, Form()],
+    element_id: Annotated[str, Form()],
+    name: Annotated[str, Form()],
+) -> Response:
+    try:
+        _facade(request).edit_requirements_mbse(
+            workspace_name,
+            revision,
+            {"kind": "rename", "id": element_id, "name": name},
+        )
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_module_location(workspace_name, "graph") + "#mbse", status_code=303)
+
+
 @router.post("/w/{workspace_name}/requirements/mbse/confirm")
 def confirm_requirements_mbse(request: Request, workspace_name: str) -> Response:
     try:
