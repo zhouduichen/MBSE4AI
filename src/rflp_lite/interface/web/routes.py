@@ -205,6 +205,26 @@ def concept_design_page(
     )
 
 
+@router.post("/w/{workspace_name}/concept-design/review")
+def review_concept_design_candidate(
+    request: Request,
+    workspace_name: str,
+    candidate_id: Annotated[str, Form()],
+    decision: Annotated[str, Form()],
+    run_id: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        _facade(request).review_layout_candidate(
+            workspace_name, candidate_id, decision, run_id=run_id
+        )
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    target = f"/w/{workspace_name}/concept-design"
+    if run_id:
+        target += f"?run_id={quote(run_id)}"
+    return RedirectResponse(target, status_code=303)
+
+
 @router.get("/w/{workspace_name}/requirements", response_class=HTMLResponse)
 def requirements_page(request: Request, workspace_name: str) -> HTMLResponse:
     context = _requirements_context(request, workspace_name, "requirements")
@@ -383,6 +403,52 @@ def delete_requirement_scenario(
     return RedirectResponse(_requirements_module_location(workspace_name, "scenarios"), status_code=303)
 
 
+@router.post("/w/{workspace_name}/requirements/scenarios/edit")
+def edit_requirement_scenario(
+    request: Request,
+    workspace_name: str,
+    scenario_id: Annotated[str, Form()],
+    title: Annotated[str, Form()],
+    description: Annotated[str, Form()],
+    steps: Annotated[str, Form()],
+    expected_outcomes: Annotated[str, Form()],
+    actors: Annotated[str, Form()] = "",
+    preconditions: Annotated[str, Form()] = "",
+    faults: Annotated[str, Form()] = "",
+    requirement_ids: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        _facade(request).revise_requirement_scenario(
+            workspace_name,
+            scenario_id,
+            title=title,
+            description=description,
+            actors=actors,
+            preconditions=preconditions,
+            steps=steps,
+            expected_outcomes=expected_outcomes,
+            faults=faults,
+            requirement_ids=requirement_ids,
+        )
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_module_location(workspace_name, "scenarios"), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/scenarios/review")
+def review_requirement_scenario(
+    request: Request,
+    workspace_name: str,
+    scenario_id: Annotated[str, Form()],
+    decision: Annotated[str, Form()],
+) -> Response:
+    try:
+        _facade(request).review_requirement_scenario(workspace_name, scenario_id, decision)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_module_location(workspace_name, "scenarios"), status_code=303)
+
+
 @router.post("/w/{workspace_name}/requirements/scenarios/execute")
 def execute_requirement_scenario(
     request: Request,
@@ -491,6 +557,29 @@ def generate_requirements_mbse(request: Request, workspace_name: str) -> Respons
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
     return RedirectResponse(_requirements_module_location(workspace_name, "graph"), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/mbse/review")
+def review_requirements_mbse(
+    request: Request,
+    workspace_name: str,
+    element_id: Annotated[str, Form()],
+    decision: Annotated[str, Form()],
+) -> Response:
+    try:
+        _facade(request).review_requirements_mbse_element(workspace_name, element_id, decision)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_module_location(workspace_name, "graph") + "#mbse", status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/mbse/confirm")
+def confirm_requirements_mbse(request: Request, workspace_name: str) -> Response:
+    try:
+        _facade(request).confirm_requirements_mbse(workspace_name)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_module_location(workspace_name, "graph") + "#mbse", status_code=303)
 
 
 @router.get("/w/{workspace_name}/requirements/model.json")

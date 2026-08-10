@@ -13,6 +13,7 @@ FORMAT = "ai4mbse/mbse"
 VERSION = 1
 PACKAGE = "AI4MBSE_MBSE"
 _META = re.compile(r"^\s*//\s*mbse-model\s+(\{.*\})\s*$")
+_STATE_META = re.compile(r"^\s*//\s*mbse-model-state\s+(\{.*\})\s*$")
 
 
 def validate_mbse_model(value: object) -> dict[str, object]:
@@ -42,6 +43,9 @@ def validate_mbse_model(value: object) -> dict[str, object]:
         result[key] = normalized
     result["format"] = str(value.get("format", FORMAT))
     result["version"] = int(value.get("version", VERSION))
+    result["status"] = str(value.get("status", "review"))
+    result["revision"] = str(value.get("revision", canonical_hash(result)))
+    result["review_history"] = json.loads(canonical_json(value.get("review_history", ())))
     if result["format"] != FORMAT or result["version"] != VERSION:
         raise ContractViolation("unsupported MBSE exchange format or version")
     return result
@@ -70,6 +74,9 @@ def import_mbse_json(payload: object) -> dict[str, object]:
 def export_mbse_sysml_v2_text(model: object) -> str:
     normalized = validate_mbse_model(model)
     lines = [f"package {PACKAGE} {{", f"  // mbse-model-hash {canonical_hash(normalized)}"]
+    lines.append(
+        f"  // mbse-model-state {canonical_json({'status': normalized['status'], 'revision': normalized['revision'], 'review_history': normalized['review_history']})}"
+    )
     for key in ("actors", "use_cases", "activities", "lifelines", "messages", "trace_links"):
         for item in normalized[key]:
             lines.append(f"  // mbse-model {canonical_json({'collection': key, 'item': item})}")
@@ -82,9 +89,17 @@ def import_mbse_sysml_v2_text(text: str) -> dict[str, object]:
         raise ContractViolation(f"expected package {PACKAGE}")
     collections = {key: [] for key in ("actors", "use_cases", "activities", "lifelines", "messages", "trace_links")}
     declared_hash = None
+    state_meta: dict[str, object] = {}
     for line in text.splitlines():
         if "mbse-model-hash" in line:
             declared_hash = line.split("mbse-model-hash", 1)[1].strip()
+        state_match = _STATE_META.match(line)
+        if state_match:
+            try:
+                state_meta = json.loads(state_match.group(1))
+            except json.JSONDecodeError as exc:
+                raise ContractViolation("invalid MBSE model state metadata") from exc
+            continue
         match = _META.match(line)
         if not match:
             continue
@@ -96,7 +111,7 @@ def import_mbse_sysml_v2_text(text: str) -> dict[str, object]:
         if collection not in collections or not isinstance(value.get("item"), dict):
             raise ContractViolation("invalid MBSE model collection")
         collections[collection].append(value["item"])
-    model = validate_mbse_model({"format": FORMAT, "version": VERSION, **collections})
+    model = validate_mbse_model({"format": FORMAT, "version": VERSION, **collections, **state_meta})
     if declared_hash and declared_hash != canonical_hash(model):
         raise ContractViolation("MBSE model hash does not match metadata")
     return model

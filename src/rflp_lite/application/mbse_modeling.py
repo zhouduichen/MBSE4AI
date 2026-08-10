@@ -46,6 +46,8 @@ def generate_mbse_revision(state: dict[str, object]) -> dict[str, object]:
     model: dict[str, object] = {
         "format": "ai4mbse/mbse",
         "version": 1,
+        "status": "review",
+        "review_history": [],
         "actors": sorted(_unique(actors), key=lambda item: str(item["id"])),
         "use_cases": sorted(_unique(use_cases), key=lambda item: str(item["id"])),
         "activities": sorted(_unique(activities), key=lambda item: str(item["id"])),
@@ -57,6 +59,57 @@ def generate_mbse_revision(state: dict[str, object]) -> dict[str, object]:
     result = _clone(state)
     result["mbse"] = model
     result["rflp"] = result.get("rflp")
+    return result
+
+
+def review_mbse_element(
+    state: dict[str, object], element_id: str, decision: str
+) -> dict[str, object]:
+    """Review one generated MBSE semantic element."""
+
+    if decision not in {"accepted", "rejected"}:
+        raise ContractViolation("MBSE 确认结果必须是 accepted 或 rejected")
+    result = _clone(state)
+    model = result.get("mbse")
+    if not isinstance(model, dict):
+        raise ContractViolation("MBSE semantic model not generated")
+    collections = ("actors", "use_cases", "activities", "lifelines", "messages")
+    matches = [
+        item
+        for collection in collections
+        for item in model.get(collection, ())
+        if str(item.get("id", "")) == element_id
+    ]
+    if len(matches) != 1:
+        raise ContractViolation("MBSE 审核对象不存在或不唯一")
+    matches[0]["status"] = decision
+    model["status"] = "review"
+    return result
+
+
+def confirm_mbse(state: dict[str, object]) -> dict[str, object]:
+    """Confirm all remaining MBSE candidates after the human review action."""
+
+    result = _clone(state)
+    model = result.get("mbse")
+    if not isinstance(model, dict):
+        raise ContractViolation("MBSE semantic model not generated")
+    use_cases = tuple(model.get("use_cases", ()))
+    activities = tuple(model.get("activities", ()))
+    if not use_cases or not activities:
+        raise ContractViolation("MBSE 至少需要一个用例和一个活动")
+    if any(item.get("status") == "rejected" for item in use_cases + activities):
+        raise ContractViolation("MBSE 用例或活动已驳回，请先重新生成模型")
+    for collection in ("actors", "use_cases", "activities", "lifelines", "messages"):
+        for item in model.get(collection, ()):
+            if item.get("status") != "rejected":
+                item["status"] = "accepted"
+    model["status"] = "accepted"
+    history = list(model.get("review_history", ()))
+    history.append({"decision": "accepted", "revision": model.get("revision", "")})
+    model["review_history"] = history
+    revision_payload = {key: value for key, value in model.items() if key not in {"revision", "review_history"}}
+    model["revision"] = canonical_hash(revision_payload)
     return result
 
 
@@ -92,6 +145,7 @@ def apply_mbse_edit(
         if status not in {"candidate", "accepted", "rejected"}:
             raise ContractViolation("invalid MBSE status")
         target["status"] = status
+    model_copy["status"] = "review"
     revision_payload = {key: value for key, value in model_copy.items() if key != "revision"}
     model_copy["revision"] = canonical_hash(revision_payload)
     result["baseline"] = None

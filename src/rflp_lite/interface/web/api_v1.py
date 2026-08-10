@@ -291,6 +291,31 @@ async def edit_mbse(request: Request, workspace_name: str) -> JSONResponse | dic
         return _error(exc)
 
 
+@api_v1.post("/workspaces/{workspace_name}/requirements/mbse/review", response_model=None)
+async def review_mbse_element(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ContractViolation("MBSE review payload must be an object")
+        state = _facade(request).review_requirements_mbse_element(
+            workspace_name,
+            str(payload.get("element_id", "")),
+            str(payload.get("decision", "")),
+        )
+        return {"status": "ok", "mbse": state.get("mbse"), "requirements": state}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@api_v1.post("/workspaces/{workspace_name}/requirements/mbse/confirm", response_model=None)
+def confirm_mbse(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        state = _facade(request).confirm_requirements_mbse(workspace_name)
+        return {"status": "ok", "mbse": state.get("mbse"), "requirements": state}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @api_v1.get("/workspaces/{workspace_name}/requirements/mbse", response_model=None)
 def mbse(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
     try:
@@ -338,6 +363,45 @@ def scenarios(request: Request, workspace_name: str) -> JSONResponse | dict[str,
         }
     except (ContractViolation, RflpError, OSError) as exc:
         return _error(exc, 404)
+
+
+@api_v1.post("/workspaces/{workspace_name}/scenarios/{scenario_id}/edit", response_model=None)
+async def edit_scenario(request: Request, workspace_name: str, scenario_id: str) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ContractViolation("scenario edit payload must be an object")
+        state = _facade(request).revise_requirement_scenario(
+            workspace_name,
+            scenario_id,
+            title=str(payload.get("title", "")),
+            description=str(payload.get("description", "")),
+            actors=payload.get("actors", ""),
+            preconditions=payload.get("preconditions", ""),
+            steps=payload.get("steps", ""),
+            expected_outcomes=payload.get("expected_outcomes", ""),
+            faults=payload.get("faults", ""),
+            requirement_ids=payload.get("requirement_ids", ""),
+        )
+        scenario = next(item for item in state["scenarios"] if item["id"] == scenario_id)
+        return {"status": "ok", "scenario": scenario}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@api_v1.post("/workspaces/{workspace_name}/scenarios/{scenario_id}/review", response_model=None)
+async def review_scenario(request: Request, workspace_name: str, scenario_id: str) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ContractViolation("scenario review payload must be an object")
+        state = _facade(request).review_requirement_scenario(
+            workspace_name, scenario_id, str(payload.get("decision", ""))
+        )
+        scenario = next(item for item in state["scenarios"] if item["id"] == scenario_id)
+        return {"status": "ok", "scenario": scenario}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
 
 
 @api_v1.post("/workspaces/{workspace_name}/stakeholders", response_model=None)

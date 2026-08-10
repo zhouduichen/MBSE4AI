@@ -1,6 +1,11 @@
 import pytest
 
-from rflp_lite.application.mbse_modeling import apply_mbse_edit, generate_mbse_revision
+from rflp_lite.application.mbse_modeling import (
+    apply_mbse_edit,
+    confirm_mbse,
+    generate_mbse_revision,
+    review_mbse_element,
+)
 from rflp_lite.application.requirements_workbench import analyze_artifact, accept_traceable
 from rflp_lite.domain.errors import ContractViolation
 
@@ -18,6 +23,29 @@ def test_accepted_requirement_generates_all_three_model_views():
     assert model["activities"]
     assert model["messages"]
     assert model["trace_links"]
+    assert model["status"] == "review"
+
+
+def test_mbse_elements_can_be_reviewed_and_model_confirmed():
+    state = generate_mbse_revision(_reviewed_state())
+    use_case_id = state["mbse"]["use_cases"][0]["id"]
+    state = review_mbse_element(state, use_case_id, "accepted")
+    assert state["mbse"]["use_cases"][0]["status"] == "accepted"
+    state = confirm_mbse(state)
+    assert state["mbse"]["status"] == "accepted"
+    assert all(
+        item["status"] == "accepted"
+        for collection in ("actors", "use_cases", "activities", "lifelines", "messages")
+        for item in state["mbse"][collection]
+    )
+
+
+def test_mbse_confirmation_rejects_required_view():
+    state = generate_mbse_revision(_reviewed_state())
+    activity_id = state["mbse"]["activities"][0]["id"]
+    state = review_mbse_element(state, activity_id, "rejected")
+    with pytest.raises(ContractViolation, match="已驳回"):
+        confirm_mbse(state)
 
 
 def test_mbse_edit_requires_current_revision():
@@ -25,4 +53,3 @@ def test_mbse_edit_requires_current_revision():
     operation = {"kind": "rename", "id": state["mbse"]["use_cases"][0]["id"], "name": "新名称"}
     with pytest.raises(ContractViolation, match="revision"):
         apply_mbse_edit(state, "wrong", operation)
-

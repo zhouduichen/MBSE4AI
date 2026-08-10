@@ -37,7 +37,12 @@ from rflp_lite.application.jobs import JobService
 from rflp_lite.application.llm_profiles import LLMProfileService
 from rflp_lite.application.interchange import export_rflp, import_rflp
 from rflp_lite.application.mbse_exchange import export_mbse_json, export_mbse_sysml_v2_text
-from rflp_lite.application.mbse_modeling import apply_mbse_edit, generate_mbse_revision
+from rflp_lite.application.mbse_modeling import (
+    apply_mbse_edit,
+    confirm_mbse,
+    generate_mbse_revision,
+    review_mbse_element,
+)
 from rflp_lite.application.mbse_render import render_mbse_svg
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.application.profile_packs import (
@@ -52,6 +57,8 @@ from rflp_lite.application.scenarios import (
     add_scenario,
     delete_scenario,
     generate_scenario_drafts,
+    revise_scenario,
+    review_scenario,
 )
 from rflp_lite.application.scenario_execution import append_scenario_run, execute_scenario
 from rflp_lite.application.concept_design_service import (
@@ -186,11 +193,16 @@ class WebFacade:
                 if run_id is not None
                 else (repository.concept_runs()[-1] if repository.concept_runs() else None)
             )
+            reviews = repository.candidate_reviews()
         finally:
             repository.close()
         if payload is None:
             raise ContractViolation("concept run not found")
-        return json.loads(canonical_json(concept_run_from_payload(payload)))
+        result = json.loads(canonical_json(concept_run_from_payload(payload)))
+        result["reviews"] = [
+            item for item in reviews if not run_id or str(item.get("run_id", "")) == str(run_id)
+        ]
+        return result
 
     def review_layout_candidate(
         self,
@@ -277,6 +289,29 @@ class WebFacade:
             "requirements.mbse_generated",
         )
 
+    def review_requirements_mbse_element(
+        self, workspace_name: str, element_id: str, decision: str
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name,
+            review_mbse_element(current, element_id, decision),
+            "requirements.mbse_reviewed",
+            {"element_id": element_id, "decision": decision},
+        )
+
+    def confirm_requirements_mbse(self, workspace_name: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name,
+            confirm_mbse(current),
+            "requirements.mbse_confirmed",
+        )
+
     def edit_requirements_mbse(
         self, workspace_name: str, expected_revision: str, operation: dict[str, object]
     ) -> dict[str, object]:
@@ -293,18 +328,24 @@ class WebFacade:
         state = self.requirements(workspace_name)
         if not state or not state.get("mbse"):
             raise ContractViolation("MBSE semantic model not generated")
+        if state["mbse"].get("status") != "accepted":
+            raise ContractViolation("MBSE 模型尚未确认，确认后才能导出")
         return export_mbse_json(state["mbse"])
 
     def export_requirements_mbse_sysml(self, workspace_name: str) -> str:
         state = self.requirements(workspace_name)
         if not state or not state.get("mbse"):
             raise ContractViolation("MBSE semantic model not generated")
+        if state["mbse"].get("status") != "accepted":
+            raise ContractViolation("MBSE 模型尚未确认，确认后才能导出")
         return export_mbse_sysml_v2_text(state["mbse"])
 
     def render_requirements_mbse(self, workspace_name: str, view: str = "all") -> str:
         state = self.requirements(workspace_name)
         if not state or not state.get("mbse"):
             raise ContractViolation("MBSE semantic model not generated")
+        if state["mbse"].get("status") != "accepted":
+            raise ContractViolation("MBSE 模型尚未确认，确认后才能渲染")
         return render_mbse_svg(state["mbse"], view)
 
     def track_run_with_mlflow(
@@ -776,6 +817,35 @@ class WebFacade:
             workspace_name,
             delete_scenario(current, scenario_id),
             "scenario.deleted",
+        )
+
+    def revise_requirement_scenario(
+        self,
+        workspace_name: str,
+        scenario_id: str,
+        **fields: object,
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name,
+            revise_scenario(current, scenario_id, **fields),
+            "scenario.revised",
+            {"scenario_id": scenario_id},
+        )
+
+    def review_requirement_scenario(
+        self, workspace_name: str, scenario_id: str, decision: str
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(
+            workspace_name,
+            review_scenario(current, scenario_id, decision),
+            "scenario.reviewed",
+            {"scenario_id": scenario_id, "decision": decision},
         )
 
     def execute_requirement_scenario(

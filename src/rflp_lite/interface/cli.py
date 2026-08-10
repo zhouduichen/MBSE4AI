@@ -145,6 +145,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     mbse_commands = mbse_parser.add_subparsers(dest="mbse_command", required=True)
     mbse_generate = mbse_commands.add_parser("generate")
     mbse_generate.add_argument("--workspace", type=Path, required=True)
+    mbse_confirm = mbse_commands.add_parser("confirm")
+    mbse_confirm.add_argument("--workspace", type=Path, required=True)
     mbse_export = mbse_commands.add_parser("export")
     mbse_export.add_argument("--workspace", type=Path, required=True)
     mbse_export.add_argument("--format", choices=("json", "sysml", "svg"), default="json")
@@ -424,9 +426,20 @@ def _run_mbse(args: argparse.Namespace) -> int:
                 repository.record_audit("requirements.mbse_generated", {})
             print(canonical_json({"status": "ok", "revision": state["mbse"]["revision"]}))
             return 0
+        if args.mbse_command == "confirm":
+            from rflp_lite.application.mbse_modeling import confirm_mbse
+
+            state = confirm_mbse(state)
+            with repository.transaction():
+                repository.save_workbench(state)
+                repository.record_audit("requirements.mbse_confirmed", {})
+            print(canonical_json({"status": "ok", "revision": state["mbse"]["revision"], "model_status": state["mbse"]["status"]}))
+            return 0
         model = state.get("mbse")
         if not model:
             raise ContractViolation("MBSE semantic model not generated")
+        if model.get("status") != "accepted":
+            raise ContractViolation("MBSE 模型尚未确认，确认后才能导出")
         if args.format == "json":
             print(canonical_json(export_mbse_json(model)))
         elif args.format == "sysml":

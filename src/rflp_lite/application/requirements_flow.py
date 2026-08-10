@@ -74,8 +74,6 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
             scenario["status"] = "generated-draft"
             scenario["producer"] = "rule"
             scenario["generated_from"] = "system-context"
-            execution = execute_scenario(result, scenario["id"])
-            result = append_scenario_run(result, execution)
             draft_scenario_ids.append(scenario["id"])
         result["flow"] = {
             "status": "draft_only",
@@ -83,12 +81,12 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
                 {"key": "analysis", "status": "completed"},
                 {"key": "draft_graph", "status": "completed"},
                 {"key": "starter_scenario", "status": "completed", "count": len(draft_scenario_ids)},
-                {"key": "scenario_execution", "status": "completed", "count": len(draft_scenario_ids)},
+                {"key": "scenario_execution", "status": "waiting_for_scenario_review", "count": 0},
                 {"key": "formal_model", "status": "waiting_for_requirement_review"},
                 {"key": "project_validation", "status": "waiting_for_project_path"},
             ],
             "warning": "原文已建立系统主题、初始 RFLP 草图和起始场景；补充目标、功能和约束后即可确认正式需求。",
-            "next_action": "去需求输入补充系统目标、核心功能和接口约束",
+            "next_action": "进入场景生成与确认，补充字段并确认场景后再生成执行轨迹",
         }
         return result
 
@@ -112,7 +110,7 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
             for item in result["scenarios"]
             if claim["id"] in item.get("requirement_ids", ())
         )
-        scenario["status"] = "generated"
+        scenario["status"] = "generated-draft"
         scenario["producer"] = "rule"
         scenario["generated_from"] = claim["id"]
         generated_ids.append(scenario["id"])
@@ -125,25 +123,26 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
     scenario_ids_to_execute = [
         scenario["id"]
         for scenario in result["scenarios"]
-        if scenario["id"] not in completed_scenario_ids
+        if scenario["id"] not in completed_scenario_ids and scenario.get("status") == "accepted"
     ]
     for scenario_id in scenario_ids_to_execute:
         execution = execute_scenario(result, scenario_id)
         result = append_scenario_run(result, execution)
 
+    pending_review = any(item.get("status") != "accepted" for item in result["scenarios"])
     result["flow"] = {
-        "status": "completed",
+        "status": "awaiting_scenario_review" if pending_review else "completed",
         "steps": [
             {"key": "analysis", "status": "completed"},
             {"key": "stakeholders", "status": "completed"},
             {"key": "formal_model", "status": "completed"},
             {"key": "baseline", "status": "completed"},
             {"key": "scenarios", "status": "completed", "count": len(result["scenarios"])},
-            {"key": "scenario_execution", "status": "completed", "count": len(scenario_ids_to_execute)},
+            {"key": "scenario_execution", "status": "waiting_for_scenario_review" if pending_review else "completed", "count": len(scenario_ids_to_execute)},
             {"key": "project_validation", "status": "waiting_for_project_path"},
         ],
         "baseline_hash": baseline.hash,
-        "warning": "这是基于当前需求的快速体验闭环；场景执行为本地声明式轨迹，真实项目验证仍需提供项目目录。",
+        "warning": "场景必须经过人工确认后才会生成本地声明性轨迹；真实项目验证仍需提供项目目录。",
         "flow_hash": canonical_hash(
             (result.get("artifact"), result.get("rflp"), result.get("scenarios"), result.get("baseline"))
         ),

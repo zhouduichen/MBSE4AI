@@ -37,6 +37,8 @@ def execute_scenario(
     )
     if scenario is None:
         raise ContractViolation("场景不存在")
+    if scenario.get("status") != "accepted":
+        raise ContractViolation("场景尚未确认，确认后才能生成执行轨迹")
 
     generated_run_id = run_id or f"scenario-run-{canonical_hash((scenario_id, scenario.get('hash')))[:12]}"
     events: list[dict[str, object]] = []

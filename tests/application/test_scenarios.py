@@ -8,7 +8,10 @@ from rflp_lite.application.scenarios import (
     build_scenario,
     delete_scenario,
     generate_scenario_drafts,
+    revise_scenario,
+    review_scenario,
 )
+from rflp_lite.application.scenario_execution import execute_scenario
 from rflp_lite.domain.errors import ContractViolation
 
 
@@ -98,3 +101,39 @@ def test_system_generates_a_scenario_from_minimum_natural_language_input():
     assert scenario["steps"]
     assert scenario["expected_outcomes"]
     assert all(item["status"] == "candidate" for item in state["claims"])
+
+
+def test_generated_scenario_requires_review_before_execution():
+    state = generate_scenario_drafts(_state())
+    scenario = state["scenarios"][0]
+    with pytest.raises(ContractViolation, match="尚未确认"):
+        execute_scenario(state, scenario["id"])
+
+    state = review_scenario(state, scenario["id"], "accepted")
+    assert state["scenarios"][0]["status"] == "accepted"
+    result = execute_scenario(state, scenario["id"])
+    assert result["verification"] == "declarative-only"
+
+
+def test_editing_scenario_returns_it_to_review_and_records_decision():
+    state = generate_scenario_drafts(_state())
+    scenario = state["scenarios"][0]
+    state = review_scenario(state, scenario["id"], "accepted")
+    state = revise_scenario(
+        state,
+        scenario["id"],
+        title="确认恢复",
+        description="管理员确认恢复历史版本。",
+        actors="管理员\n系统",
+        preconditions="版本存在",
+        steps="选择版本\n确认恢复",
+        expected_outcomes="内容恢复",
+        faults="恢复失败时记录故障",
+    )
+    edited = state["scenarios"][0]
+    assert edited["status"] == "draft"
+    assert edited["title"] == "确认恢复"
+    assert edited["revision"] == 2
+    state = review_scenario(state, scenario["id"], "rejected")
+    assert state["scenarios"][0]["status"] == "rejected"
+    assert len(state["scenarios"][0]["review_history"]) == 2

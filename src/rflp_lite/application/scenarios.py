@@ -50,6 +50,8 @@ def build_scenario(
         "id": f"scenario-{digest[:12]}",
         **payload,
         "status": "draft",
+        "revision": 1,
+        "review_history": (),
         "hash": digest,
     }
 
@@ -146,6 +148,91 @@ def generate_scenario_drafts(state: dict[str, object]) -> dict[str, object]:
         )
         generated.append(scenario)
     result["scenarios"] = sorted(generated, key=lambda item: item["id"])
+    return result
+
+
+def revise_scenario(
+    state: dict[str, object],
+    scenario_id: str,
+    *,
+    title: str,
+    description: str,
+    actors: str | list[str] | tuple[str, ...] = (),
+    preconditions: str | list[str] | tuple[str, ...] = (),
+    steps: str | list[str] | tuple[str, ...],
+    expected_outcomes: str | list[str] | tuple[str, ...],
+    faults: str | list[str] | tuple[str, ...] = (),
+    requirement_ids: str | list[str] | tuple[str, ...] = (),
+) -> dict[str, object]:
+    """Edit a scenario and return it to the review gate."""
+
+    result = json.loads(canonical_json(state))
+    existing = next(
+        (item for item in result.get("scenarios", ()) if item.get("id") == scenario_id),
+        None,
+    )
+    if existing is None:
+        raise ContractViolation("场景不存在")
+    updated = build_scenario(
+        title=title,
+        description=description,
+        actors=actors,
+        preconditions=preconditions,
+        steps=steps,
+        expected_outcomes=expected_outcomes,
+        faults=faults,
+        requirement_ids=requirement_ids,
+    )
+    claims = {str(item["id"]) for item in result.get("claims", ())}
+    unknown = sorted(set(updated["requirement_ids"]) - claims)
+    if unknown:
+        raise ContractViolation(f"场景关联了不存在的 Requirement: {', '.join(unknown)}")
+    revision = int(existing.get("revision", 1)) + 1
+    updated["id"] = scenario_id
+    updated["revision"] = revision
+    updated["status"] = "draft"
+    updated["producer"] = existing.get("producer", "user")
+    updated["generated_from"] = existing.get("generated_from", "")
+    updated["generation_mode"] = existing.get("generation_mode", "manual")
+    updated["review_history"] = tuple(existing.get("review_history", ()))
+    updated["hash"] = canonical_hash(
+        {key: value for key, value in updated.items() if key not in {"review_history", "hash", "status"}}
+    )
+    result["scenarios"] = sorted(
+        [item for item in result.get("scenarios", ()) if item.get("id") != scenario_id] + [updated],
+        key=lambda item: str(item["id"]),
+    )
+    return result
+
+
+def review_scenario(
+    state: dict[str, object], scenario_id: str, decision: str
+) -> dict[str, object]:
+    """Accept or reject a scenario and retain an immutable decision trail."""
+
+    if decision not in {"accepted", "rejected"}:
+        raise ContractViolation("场景确认结果必须是 accepted 或 rejected")
+    result = json.loads(canonical_json(state))
+    scenario = next(
+        (item for item in result.get("scenarios", ()) if item.get("id") == scenario_id),
+        None,
+    )
+    if scenario is None:
+        raise ContractViolation("场景不存在")
+    if not scenario.get("steps") or not scenario.get("expected_outcomes"):
+        raise ContractViolation("场景必须先填写步骤和预期结果")
+    history = list(scenario.get("review_history", ()))
+    history.append(
+        {
+            "from": str(scenario.get("status", "draft")),
+            "to": decision,
+            "revision": int(scenario.get("revision", 1)),
+            "decision_hash": canonical_hash((scenario_id, scenario.get("hash", ""), decision, len(history) + 1)),
+        }
+    )
+    scenario["review_history"] = history
+    scenario["status"] = decision
+    result["scenarios"] = sorted(result.get("scenarios", ()), key=lambda item: str(item["id"]))
     return result
 
 

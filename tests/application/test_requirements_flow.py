@@ -3,7 +3,7 @@ from rflp_lite.application.requirements_workbench import analyze_artifact
 from rflp_lite.application.scenarios import add_scenario
 
 
-def test_requirements_flow_builds_model_scenarios_and_local_traces_from_input():
+def test_requirements_flow_builds_model_and_waits_for_scenario_review():
     state = analyze_artifact(
         "requirements.txt",
         "管理员必须恢复历史版本。\n审计人员必须查看恢复记录。".encode(),
@@ -11,13 +11,13 @@ def test_requirements_flow_builds_model_scenarios_and_local_traces_from_input():
 
     result = run_requirements_flow(state)
 
-    assert result["flow"]["status"] == "completed"
+    assert result["flow"]["status"] == "awaiting_scenario_review"
     assert result["baseline"]["approval_mode"] == "quick-flow"
     assert result["rflp"]["elements"]
     assert len(result["scenarios"]) == 2
-    assert len(result["scenario_runs"]) == 2
+    assert result["scenario_runs"] == []
     assert all(item["producer"] == "rule" for item in result["scenarios"])
-    assert all(item["verification"] == "declarative-only" for item in result["scenario_runs"])
+    assert all(item["status"] == "generated-draft" for item in result["scenarios"])
 
 
 def test_requirements_flow_keeps_plain_language_as_a_reviewable_draft():
@@ -31,7 +31,7 @@ def test_requirements_flow_keeps_plain_language_as_a_reviewable_draft():
     assert result["draft_graph"]["items"]
     assert "需求理解图" in result["svg"]
     assert result["scenarios"]
-    assert result["scenario_runs"]
+    assert result["scenario_runs"] == []
 
 
 def test_requirements_flow_turns_a_broad_system_intent_into_a_named_starter_context():
@@ -42,7 +42,7 @@ def test_requirements_flow_turns_a_broad_system_intent_into_a_named_starter_cont
     assert result["system_context"]["name"] == "航天系统"
     assert result["system_context"]["domain"] == "航天"
     assert result["scenarios"][0]["title"] == "航天系统定义"
-    assert result["scenario_runs"][0]["verification"] == "declarative-only"
+    assert result["scenarios"][0]["status"] == "generated-draft"
     assert "航天系统" in result["svg"]
     assert result["flow"]["next_action"]
 
@@ -62,4 +62,4 @@ def test_requirements_flow_executes_existing_scenarios_without_creating_duplicat
     result = run_requirements_flow(state)
 
     assert len(result["scenarios"]) == 1
-    assert len(result["scenario_runs"]) == 1
+    assert result["scenario_runs"] == []

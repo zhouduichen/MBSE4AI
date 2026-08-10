@@ -243,7 +243,7 @@ def test_requirements_page_runs_one_click_flow_from_current_input(client: TestCl
     assert "正式模型" in page.text
     scenarios = client.get("/w/demo/requirements/scenarios")
     assert "根据需求“恢复历史版本”生成的最小可执行场景" in scenarios.text
-    assert "declarative-only" in scenarios.text
+    assert "确认场景" in scenarios.text
     assert "<svg" in client.get("/w/demo/requirements/graph").text
 
 
@@ -259,10 +259,10 @@ def test_scenario_page_generates_output_without_manual_scenario_fields(client: T
     assert page.status_code == 200
     assert "场景生成与确认" in page.text
     assert "系统根据当前输入自动生成" in page.text
-    assert "系统生成" in page.text
+    assert "系统草稿" in page.text
     assert "航天系统" in page.text
-    assert "不要求你先填写参与者、步骤或预期结果" in page.text
-    assert "手动新增场景（可选）" in page.text
+    assert "必须先确认" in page.text
+    assert "手动新增场景" in page.text
     payload = client.get("/w/demo/requirements/scenarios.json").json()
     assert len(payload) == 1
     assert payload[0]["producer"] == "system"
@@ -422,7 +422,7 @@ def test_scenario_page_can_start_before_requirements(client: TestClient) -> None
     assert response.status_code == 303
     page = client.get("/w/demo/requirements/scenarios")
     assert "快速恢复" in page.text
-    assert "暂未关联" in page.text
+    assert "确认场景" in page.text
 
 
 def test_requirements_page_creates_and_exports_scenario(client: TestClient) -> None:
@@ -470,6 +470,13 @@ def test_requirements_page_executes_scenario_and_exports_trace(client: TestClien
     )
     state = client.get("/w/demo/requirements/scenarios.json").json()
     scenario_id = state[0]["id"]
+
+    reviewed = client.post(
+        "/w/demo/requirements/scenarios/review",
+        data={"scenario_id": scenario_id, "decision": "accepted"},
+        follow_redirects=False,
+    )
+    assert reviewed.status_code == 303
 
     response = client.post(
         "/w/demo/requirements/scenarios/execute",

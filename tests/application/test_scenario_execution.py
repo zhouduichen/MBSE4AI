@@ -7,7 +7,7 @@ from rflp_lite.application.scenario_execution import (
     append_scenario_run,
     execute_scenario,
 )
-from rflp_lite.application.scenarios import add_scenario
+from rflp_lite.application.scenarios import add_scenario, review_scenario
 from rflp_lite.domain.errors import ContractViolation
 
 
@@ -21,7 +21,7 @@ def _state(*, faults: str = "") -> dict[str, object]:
         expected_outcomes="内容恢复\n写入审计记录",
         faults=faults,
     )
-    return state
+    return review_scenario(state, state["scenarios"][0]["id"], "accepted")
 
 
 def test_execute_scenario_returns_deterministic_declarative_trace():
