@@ -130,7 +130,19 @@ def _validate_formula(formula: object, label: str) -> None:
                 raise _contract(f"{label} formula constants must be finite")
         elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
             exponent = node.right
-            if isinstance(exponent, ast.Constant) and abs(float(exponent.value)) > 8:
+            literal_exponent: float | None = None
+            if isinstance(exponent, ast.Constant) and isinstance(exponent.value, (int, float)):
+                literal_exponent = float(exponent.value)
+            elif (
+                isinstance(exponent, ast.UnaryOp)
+                and isinstance(exponent.op, (ast.UAdd, ast.USub))
+                and isinstance(exponent.operand, ast.Constant)
+                and isinstance(exponent.operand.value, (int, float))
+            ):
+                literal_exponent = float(exponent.operand.value)
+                if isinstance(exponent.op, ast.USub):
+                    literal_exponent = -literal_exponent
+            if literal_exponent is not None and abs(literal_exponent) > 8:
                 raise _contract(f"{label} formula exponent is too large")
 
 

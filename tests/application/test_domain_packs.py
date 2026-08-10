@@ -47,3 +47,16 @@ def test_pack_rejects_unknown_nested_approval_field():
     pack["disciplines"][0]["formal_approved"] = True
     with pytest.raises(ContractViolation, match="unknown fields|formal_approved"):
         validate_domain_pack(pack)
+
+
+@pytest.mark.parametrize("formula", ["x ** 9", "x ** -9"])
+def test_pack_caps_literal_formula_exponents(formula):
+    payload = {
+        "id": "bad", "version": 1, "object_type": "layout", "id_prefix": "B",
+        "parameters": [{"name": "x", "unit": "1", "type": "number", "required": True}],
+        "derived_parameters": [{"name": "y", "formula": formula, "unit": "1"}],
+        "constraints": [], "mappings": {}, "retrieval": {"features": []},
+        "generation": {}, "objectives": [], "disciplines": [],
+    }
+    with pytest.raises(ContractViolation, match="exponent"):
+        validate_domain_pack(payload)
