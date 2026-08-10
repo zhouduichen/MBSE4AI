@@ -27,7 +27,7 @@
           <a class="nav-subitem" href="/w/{{ workspace.name }}/requirements/graph#mbse">MBSE 语义模型</a>
         </div>{% else %}<span class="nav-item muted">需求规划</span>{% endif %}
         {% if workspace %}<a class="nav-item {% if active == 'concept-design' %}active{% endif %}" href="/w/{{ workspace.name }}/concept-design">总体概念设计</a>{% else %}<span class="nav-item muted">总体概念设计</span>{% endif %}
-        {% if workspace %}<a class="nav-item {% if active == 'project' %}active{% endif %}" href="/w/{{ workspace.name }}/project">项目验证 <span class="planned-dot">可选</span></a>{% else %}<span class="nav-item muted">项目验证</span>{% endif %}
+        {% if workspace %}<a class="nav-item {% if active == 'project' %}active{% endif %}" href="/w/{{ workspace.name }}/project">项目验证</a>{% else %}<span class="nav-item muted">项目验证</span>{% endif %}
         <p class="nav-label">高级工具</p>
         <a class="nav-item {% if active == 'runs' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}/runs{% else %}/{% endif %}">内置示例运行</a>
         {% if workspace %}<a class="nav-item {% if active == 'artifacts' %}active{% endif %}" href="{% if nav_result_hash %}/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/model/artifacts{% else %}/w/{{ workspace.name }}/requirements{% endif %}">工件与声明</a>{% else %}<span class="nav-item muted">工件与声明</span>{% endif %}
@@ -47,7 +47,7 @@
         <a class="nav-item {% if active == 'settings' %}active{% endif %}" href="/settings/llm">LLM 设置</a>
         <a class="nav-item {% if active == 'capabilities' %}active{% endif %}" href="/capabilities">能力中心 <span class="planned-dot">规划中</span></a>
       </nav>
-      <div class="local-card"><strong>仅限本机</strong><span>无账户 · 无云端依赖<br>数据保留在本地工作区</span></div>
+      <div class="local-card"><strong>本地工作区</strong></div>
     </aside>
     <div class="main-column">
       <header class="topbar">

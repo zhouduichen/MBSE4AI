@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block title %}场景生成与确认 · RFLP-Lite{% endblock %}
 {% block content %}
-<div class="page-heading"><div><span class="eyebrow">04 · Scenario</span><h1>场景生成与确认</h1><p>系统先生成草稿；人工编辑、确认或驳回后，才允许生成声明性执行轨迹。</p></div><a class="button" href="/w/{{ workspace.name }}/requirements">返回需求规划</a></div>
+<div class="page-heading"><div><span class="eyebrow">04 · Scenario</span><h1>场景生成与确认</h1></div><a class="button" href="/w/{{ workspace.name }}/requirements">返回需求规划</a></div>
 
 {% if not state or (not state.spans and not state.scenarios) %}
-<section class="panel"><div class="callout"><strong>还没有可理解的需求文本。</strong><br>先输入或上传需求，系统才会生成可审核场景。</div><a class="button primary" href="/w/{{ workspace.name }}/requirements/input">去输入需求 →</a></section>
+<section class="panel"><div class="callout"><strong>暂无需求文本。</strong></div><a class="button primary" href="/w/{{ workspace.name }}/requirements/input">去输入需求 →</a></section>
 {% else %}
-<section class="panel guide-panel"><div class="panel-head"><div><span class="eyebrow">Review gate</span><h2>场景必须先确认</h2></div><span class="status-badge candidate">逐条审核</span></div><p class="guide-body">“待确认”只是草稿状态，不代表已经批准。请补充参与者、前置条件、步骤、预期结果和故障处理，然后点击“保存修改”“确认场景”或“驳回场景”。只有已确认场景才能执行。</p><div class="download-actions"><a href="/w/{{ workspace.name }}/requirements/scenarios.json">下载场景 JSON</a><a href="/w/{{ workspace.name }}/requirements/scenario-runs.json">执行记录</a></div></section>
+<section class="panel guide-panel"><div class="panel-head"><div><span class="eyebrow">Review gate</span><h2>场景必须先确认</h2></div><span class="status-badge candidate">逐条审核</span></div><div class="download-actions"><a href="/w/{{ workspace.name }}/requirements/scenarios.json">下载场景 JSON</a><a href="/w/{{ workspace.name }}/requirements/scenario-runs.json">执行记录</a></div></section>
 
 <section class="panel"><div class="panel-head"><div><span class="eyebrow">Generated scenarios</span><h2>系统输出的场景</h2></div><span class="count-badge">{{ state.scenarios|length }}</span></div>
 {% for scenario in state.scenarios %}
@@ -39,6 +39,6 @@
 </article>
 {% endfor %}</section>
 
-<details class="panel"><summary><strong>手动新增场景</strong><span class="muted">保存后仍然必须确认</span></summary><form method="post" action="/w/{{ workspace.name }}/requirements/scenarios" class="intake-form"><label class="field">场景标题<input name="title" required></label><label class="field">场景描述<textarea name="description" rows="3" required></textarea></label><label class="field">参与者（每行一个）<textarea name="actors" rows="2"></textarea></label><label class="field">前置条件（每行一个）<textarea name="preconditions" rows="2"></textarea></label><label class="field">步骤（每行一个）<textarea name="steps" rows="4" required></textarea></label><label class="field">预期结果（每行一个）<textarea name="expected_outcomes" rows="3" required></textarea></label><label class="field">故障/异常（每行一个）<textarea name="faults" rows="2"></textarea></label><label class="field">关联 Requirement ID（每行一个，可选）<textarea name="requirement_ids" rows="2"></textarea></label><button class="button" type="submit">保存额外场景</button></form></details>
+<details class="panel"><summary><strong>手动新增场景</strong></summary><form method="post" action="/w/{{ workspace.name }}/requirements/scenarios" class="intake-form"><label class="field">场景标题<input name="title" required></label><label class="field">场景描述<textarea name="description" rows="3" required></textarea></label><label class="field">参与者（每行一个）<textarea name="actors" rows="2"></textarea></label><label class="field">前置条件（每行一个）<textarea name="preconditions" rows="2"></textarea></label><label class="field">步骤（每行一个）<textarea name="steps" rows="4" required></textarea></label><label class="field">预期结果（每行一个）<textarea name="expected_outcomes" rows="3" required></textarea></label><label class="field">故障/异常（每行一个）<textarea name="faults" rows="2"></textarea></label><label class="field">关联 Requirement ID（每行一个）<textarea name="requirement_ids" rows="2"></textarea></label><button class="button" type="submit">保存额外场景</button></form></details>
 {% endif %}
 {% endblock %}

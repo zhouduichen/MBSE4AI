@@ -878,7 +878,6 @@ def render_draft_svg(state: dict[str, object]) -> str:
         f'<svg class="draft-understanding-svg" viewBox="0 0 {width} {height}" role="img" aria-label="需求理解图" xmlns="http://www.w3.org/2000/svg">',
         '<rect width="1180" height="100%" rx="16" fill="#171411"/>',
         '<text x="24" y="34" fill="#f0bd72" font-size="12" font-weight="800">需求理解图 · DRAFT</text>',
-        '<text x="24" y="58" fill="#d4c4ae" font-size="13">这是对输入的当前理解，不是正式 RFLP，也不能作为项目基线。</text>',
     ]
     columns = ((20, 290, "系统主题"), (330, 430, "已理解内容"), (780, 380, "还需要确认"))
     for x, width_column, title in columns:
@@ -914,9 +913,6 @@ def render_draft_svg(state: dict[str, object]) -> str:
                 f'<text x="812" y="{y + 25}" fill="#d4c4ae" font-size="11">{escape(str(question)[:45])}</text>',
             )
         )
-    parts.append(
-        f'<text x="24" y="{height - 20}" fill="#9b8058" font-size="10">下一步：确认或修改“已理解内容”，确认后才生成正式 RFLP。</text>'
-    )
     parts.append("</svg>")
     return "".join(parts)
 
@@ -1011,13 +1007,10 @@ def generate_draft_model(state: dict[str, object]) -> dict[str, object]:
     result["baseline"], result["project"] = None, None
     result["draft"] = True
     result["flow"] = None
-    result["draft_warnings"] = [
-        "这是需求理解图，不是正式 RFLP。",
-        "图中的内容仍是候选，确认后才会生成 R/F/L/P 正式模型。",
-    ]
+    result["draft_warnings"] = []
     if not any(item.get("source_type") in {"constraint", "need"} for item in state["claims"]):
         result["draft_warnings"].insert(
-            0, "原文没有明确的必须/应当等规则词；输入已保留为目标、问题或质量属性候选，图中的节点仍需人工确认和补充验证指标。"
+            0, "未识别明确约束；请补充验证指标。"
         )
     return result
 

@@ -1,16 +1,15 @@
 {% extends "base.html" %}
 {% block title %}运行中心 · RFLP-Lite{% endblock %}
 {% block content %}
-<div class="page-heading"><div><span class="eyebrow">Legacy demo execution</span><h1>运行中心</h1><p>这里保留固定示例工程的传统运行入口；基于你当前需求的完整体验请从需求规划开始。</p></div><a class="button primary" href="/w/{{ workspace.name }}/requirements">回到需求闭环</a></div>
-<div class="callout warning"><strong>注意</strong><span>本页执行的是内置示例数据，不是当前需求输入。当前需求请回到<a href="/w/{{ workspace.name }}/requirements">需求规划</a>按引导完成。</span></div>
+<div class="page-heading"><div><span class="eyebrow">Example run</span><h1>运行中心</h1></div><a class="button primary" href="/w/{{ workspace.name }}/requirements">需求规划</a></div>
 <div class="two-column">
   <section class="panel run-form-panel"><div class="panel-head"><div><span class="eyebrow">New run</span><h2>启动完整链路</h2></div></div>
     <form method="post" action="/w/{{ workspace.name }}/runs" hx-post="/w/{{ workspace.name }}/runs" hx-target="#run-feedback" hx-swap="innerHTML" hx-disabled-elt="find button" hx-indicator="#run-indicator">
       <label class="field">Solver<select name="solver"><option value="heuristic">Heuristic · 快速确定性</option><option value="cp-sat">CP-SAT · 约束求解</option></select></label>
       <label class="field">Seed<input name="seed" type="number" min="0" value="42" required></label>
-      <div class="locked-settings"><span>Candidate limit <b>3</b></span><span>Timeout <b>5s</b></span><small>首版沿用已验证参数，暂不开放编辑。</small></div>
+      <div class="locked-settings"><span>Candidate limit <b>3</b></span><span>Timeout <b>5s</b></span></div>
       <button class="button primary full" type="submit">执行内置示例链路</button>
-      <div id="run-indicator" class="htmx-indicator"><span class="spinner"></span>正在执行完整链路，请保持页面打开</div>
+      <div id="run-indicator" class="htmx-indicator"><span class="spinner"></span>执行中</div>
       <div id="run-feedback"></div>
     </form>
   </section>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block title %}LLM 设置 · RFLP-Lite{% endblock %}{% block content %}
-<div class="page-heading"><div><span class="eyebrow">Local AI Gateway</span><h1>LLM 连接</h1><p>在这里填写 DeepSeek、通义千问、OpenAI、Ollama、LM Studio 或任意 OpenAI-compatible 服务。</p></div><span class="planned-label">KEY 不进入工作区</span></div>
+<div class="page-heading"><div><span class="eyebrow">Local AI Gateway</span><h1>LLM 连接</h1></div></div>
 
 {% if llm_error %}<div class="error-banner"><strong>操作失败</strong><span>{{ llm_error }}</span></div>{% endif %}
 {% if llm_result %}<div class="panel"><div class="panel-head"><div><span class="eyebrow">Connection check</span><h2>连接成功</h2></div><span class="status-badge passed">connected</span></div><p class="source-summary">{{ llm_result.provider }} · {{ llm_result.model }} · {{ llm_result.base_url }}</p><p class="source-summary">返回预览：{{ llm_result.preview }}</p></div>{% endif %}
@@ -23,7 +23,6 @@
           <option value="ollama">Ollama</option>
           <option value="lmstudio">LM Studio</option>
         </select>
-        <small class="form-hint">预设只填充默认值，地址和模型仍可修改。</small>
       </label>
       <div class="settings-grid">
         <label class="field">服务类型
@@ -39,7 +38,7 @@
       <label class="field">模型名称
         <input name="model" id="llm-model" value="{{ selected_profile.model }}" placeholder="deepseek-v4-pro / qwen-plus / 本地模型名" required>
       </label>
-      <label class="field">API Key <span class="muted-inline">（本地服务可留空）</span>
+      <label class="field">API Key
         <input type="password" name="api_key" autocomplete="new-password" placeholder="{% if selected_profile.api_key_configured %}已配置，留空表示保持不变{% else %}远程服务 API Key{% endif %}">
       </label>
       <label class="field">请求超时（秒）
@@ -47,14 +46,13 @@
       </label>
       <label class="checkbox-field"><input type="checkbox" name="active" value="1" {% if llm.active_id == selected_profile.id or not llm.profiles and selected_profile.id %}checked{% endif %}>保存后启用此档案</label>
       <div class="workbench-actions"><button class="button primary" type="submit">保存并启用</button><button class="button" type="submit" formaction="/settings/llm/test">测试连接</button></div>
-      <p class="form-hint">远程测试会发送一个最小请求，可能产生服务商费用。远程档案只在你手动启用后使用。</p>
     </form>
   </section>
 
   <section class="panel">
     <div class="panel-head"><div><span class="eyebrow">Saved profiles</span><h2>已保存连接</h2></div><span class="count-badge">{{ llm.profiles|length }}</span></div>
     {% if llm.profiles %}<div class="profile-list">{% for item in llm.profiles %}<article class="profile-card {% if item.id == llm.active_id %}active{% endif %}"><div><strong>{{ item.label }}</strong><span class="status-badge {% if item.id == llm.active_id %}passed{% else %}partial{% endif %}">{% if item.id == llm.active_id %}active{% else %}inactive{% endif %}</span></div><p><code>{{ item.id }}</code> · {{ item.kind }} · {{ item.model }}</p><p class="profile-url">{{ item.base_url }}</p><small>Key：{% if item.api_key_configured %}{{ item.credential_storage }} 已配置{% else %}未配置{% endif %}</small><div class="workbench-actions"><a class="button compact" href="/settings/llm?profile_id={{ item.id }}">编辑</a>{% if item.id != llm.active_id %}<form method="post" action="/settings/llm/{{ item.id }}/activate"><button class="button compact" type="submit">启用</button></form>{% endif %}<form method="post" action="/settings/llm/{{ item.id }}/delete"><button class="button compact danger" type="submit">删除</button></form></div></article>{% endfor %}</div>{% else %}<div class="mini-empty">还没有连接档案。先从左侧选择一个预设。</div>{% endif %}
-    <div class="locked-settings"><span>本地服务 <b>默认优先</b></span><span>远程服务 <b>手动启用</b></span><small>API Key 优先保存到操作系统凭据库；没有凭据库时只保留在当前运行会话。</small></div>
+    <div class="locked-settings"><span>本地服务 <b>默认优先</b></span><span>远程服务 <b>手动启用</b></span></div>
   </section>
 </div>
 <script>

@@ -1,22 +1,22 @@
 {% extends "base.html" %}
 {% block title %}项目接入 · RFLP-Lite{% endblock %}
 {% block content %}
-<div class="page-heading"><div><span class="eyebrow">Project bridge</span><h1>项目接入</h1><p>已批准基线 → 本地 Python 项目 → ActualModel → Delta → TaskContract → Evidence。</p></div></div>
+<div class="page-heading"><div><span class="eyebrow">Project bridge</span><h1>项目接入</h1></div></div>
 {% if not state %}
-<section class="panel"><div class="panel-head"><div><span class="eyebrow">Empty workbench</span><h2>先建立需求模型</h2></div></div><p>请先在<a href="/w/{{ workspace.name }}/requirements">需求建模</a>中输入需求、完成审核并生成 RFLP 规划图，再回到这里批准基线、连接项目。</p></section>
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Empty workbench</span><h2>先建立需求模型</h2></div></div><a class="button" href="/w/{{ workspace.name }}/requirements">需求建模</a></section>
 {% else %}
 <section class="panel">
   <div class="panel-head"><div><span class="eyebrow">Baseline gate</span><h2>批准基线</h2></div>{% if state.baseline %}<span class="status-badge accepted">已批准</span>{% else %}<span class="status-badge candidate">待批准</span>{% endif %}</div>
   {% if state.rflp %}
     {% if state.baseline %}
     <dl class="hash-row"><dt>基线</dt><dd>{{ state.baseline.id }}</dd><dt>哈希</dt><dd><code>{{ state.baseline.hash }}</code></dd><dt>元素</dt><dd>{{ state.baseline.elements|length }}</dd><dt>关系</dt><dd>{{ state.baseline.relations|length }}</dd></dl>
-    <p>基线已批准，可连接本地项目进行差异分析。修改需求会作废旧基线与差异结果。</p>
+    <p>基线已批准。</p>
     {% else %}
-    <p>已生成 RFLP（{{ state.rflp.elements|length }} 个元素、{{ state.rflp.relations|length }} 条关系）。批准后，它将作为“应有模型”基线参与项目对比。基线只能由人工批准，AI 与规则流程不会自动批准。</p>
+    <p>RFLP 已生成（{{ state.rflp.elements|length }} 个元素、{{ state.rflp.relations|length }} 条关系）。</p>
     <form method="post" action="/w/{{ workspace.name }}/project/approve-baseline" class="generate-action"><button class="button primary" type="submit">人工批准基线</button></form>
     {% endif %}
   {% else %}
-  <p>尚未生成 RFLP 规划图，请先到需求建模页面完成“生成 RFLP 规划图”。</p>
+  <p>尚未生成 RFLP 规划图。</p>
   {% endif %}
 </section>
 <section class="panel">
@@ -30,7 +30,7 @@
   </form>
   {% if state.project and state.project.tasks %}
   <form method="post" action="/w/{{ workspace.name }}/project/verify" class="intake-form">
-    <label class="field">重扫描并判定任务契约是否已满足<small>对当前项目目录复跑验证，不执行任何代码</small><input type="text" name="source" value="{{ state.project.source }}" required></label>
+    <label class="field">重扫描并判定任务契约是否已满足<input type="text" name="source" value="{{ state.project.source }}" required></label>
     <button class="button" type="submit">执行验证</button>
   </form>
   <form method="post" action="/w/{{ workspace.name }}/project/test" class="intake-form">
@@ -44,7 +44,6 @@
     <button class="button danger" type="submit">运行项目测试</button>
   </form>
   {% endif %}
-  <p>扫描 .py（AST）、OpenAPI JSON 与 JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件；不写入项目目录，不上传任何内容。</p>
   {% endif %}
 </section>
 {% if state.project %}

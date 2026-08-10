@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block title %}证据与审计 · RFLP-Lite{% endblock %}{% block content %}
-<div class="page-heading"><div><span class="eyebrow">Evidence</span><h1>证据与 Audit</h1><p>OpenAPI、JUnit、Python AST、仿真证据和数据库审计事件。</p></div></div>
+<div class="page-heading"><div><span class="eyebrow">Evidence</span><h1>证据与 Audit</h1></div></div>
 {% for kind, items in evidence_groups.items() %}<section class="panel"><div class="panel-head"><div><span class="eyebrow">{{ kind }}</span><h2>Evidence</h2></div><span class="count-badge">{{ items|length }}</span></div><div class="record-list">{% for item in items %}<article><span class="status-badge {{ item.status }}">{{ item.status }}</span><div><strong>{{ item.id }}</strong><p>{{ item.source }} → {{ item.target_id }}</p><code>{{ short_hash(item.artifact_hash) }}</code></div></article>{% endfor %}</div></section>{% endfor %}
 <section class="panel"><div class="panel-head"><div><span class="eyebrow">Audit</span><h2>审计事件</h2></div><span class="count-badge">{{ audit|length }}</span></div><div class="timeline">{% for item in audit %}<article><span>{{ loop.index }}</span><div><strong>{{ item.kind }}</strong><small>{{ item.payload }}</small></div></article>{% endfor %}</div></section>
 {% endblock %}

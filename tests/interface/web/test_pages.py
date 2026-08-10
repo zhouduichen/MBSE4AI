@@ -89,9 +89,9 @@ def test_capability_center_reports_local_mvp_and_external_limits(client: TestCli
     assert response.status_code == 200
     for name in ("LLM / Ollama", "Docling", "SysML v2", "MLflow", "登录与权限"):
         assert name in response.text
-    assert "MVP 已启用" in response.text
+    assert "已启用" in response.text
     assert "局部可用" in response.text
-    assert "等待外部适配器" in response.text
+    assert "未配置" in response.text
     assert "disabled" in response.text
     assert "模拟结果" not in response.text
 
@@ -120,7 +120,7 @@ def test_requirements_page_runs_reviewed_rflp_flow(client: TestClient) -> None:
     assert "RFLP 规划图" in page.text
     input_page = client.get("/w/demo/requirements/input")
     assert "规则分析已完成" in input_page.text
-    assert "识别 2 条需求候选" in input_page.text
+    assert "需求候选 2" in input_page.text
     graph_page = client.get("/w/demo/requirements/graph")
     assert "<svg" in graph_page.text
     assert client.get("/w/demo/requirements/model.json").status_code == 200
@@ -143,7 +143,9 @@ def test_requirements_page_can_generate_draft_without_review(client: TestClient)
     assert generated.headers["location"].endswith("/requirements/graph")
     page = client.get("/w/demo/requirements/graph")
     assert "需求理解图" in page.text
-    assert "不是正式 RFLP" in page.text
+    assert "不能批准" in page.text
+    assert "不是正式 RFLP" not in page.text
+    assert "下一步：确认或修改" not in page.text
 
 
 def test_plain_language_can_confirm_and_generate_formal_rflp_directly(client: TestClient) -> None:
@@ -174,8 +176,7 @@ def test_requirements_input_keeps_plain_language_as_a_candidate(client: TestClie
 
     page = client.get("/w/demo/requirements/input")
 
-    assert "识别 1 条需求候选" in page.text
-    assert "待确认需求候选" in page.text
+    assert "需求候选 1" in page.text
     assert "确认并生成 RFLP" in page.text
 
 
@@ -258,7 +259,7 @@ def test_scenario_page_generates_output_without_manual_scenario_fields(client: T
 
     assert page.status_code == 200
     assert "场景生成与确认" in page.text
-    assert "系统根据当前输入自动生成" in page.text
+    assert "场景必须先确认" in page.text
     assert "系统草稿" in page.text
     assert "航天系统" in page.text
     assert "必须先确认" in page.text
@@ -308,6 +309,32 @@ def test_project_requirement_overview_keeps_submitted_history_and_statuses(
     assert "已驳回" in page.text
 
 
+def test_formal_pages_omit_developer_facing_explanations(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    overview = client.get("/w/demo/requirements/overview")
+    assert overview.status_code == 200
+    assert "项目需求概览" in overview.text
+    assert "不会因为你换了一次当前输入就丢失历史记录" not in overview.text
+
+    pages = (
+        "/w/demo",
+        "/w/demo/requirements",
+        "/w/demo/requirements/input",
+        "/w/demo/requirements/review",
+        "/w/demo/requirements/scenarios",
+        "/w/demo/requirements/graph",
+        "/w/demo/project",
+        "/w/demo/runs",
+        "/capabilities",
+        "/settings/llm",
+    )
+    for path in pages:
+        page = client.get(path)
+        assert page.status_code == 200, path
+        assert "不会因为你换了一次当前输入就丢失历史记录" not in page.text
+        assert "Legacy demo execution" not in page.text
+
+
 def test_system_input_produces_visible_rflp_svg_on_project_dashboard(
     client: TestClient,
 ) -> None:
@@ -355,7 +382,7 @@ def test_guided_path_separates_understanding_confirmation_and_formal_model(
     formal_page = client.get("/w/demo/requirements/graph")
     assert "正式 RFLP 模型已生成" in formal_page.text
     assert "需求理解图" not in formal_page.text
-    assert "R/F/L/P" in formal_page.text
+    assert "正式 RFLP" in formal_page.text
 
 
 def test_stakeholder_page_adds_role_and_shows_related_requirements(client: TestClient) -> None:
@@ -375,7 +402,7 @@ def test_stakeholder_page_adds_role_and_shows_related_requirements(client: TestC
         "/w/demo/requirements/stakeholders?name=%E4%BA%A7%E5%93%81%E8%B4%9F%E8%B4%A3%E4%BA%BA"
     )
     assert "产品负责人" in page.text
-    assert "暂无直接关联需求" in page.text
+    assert "暂无关联" in page.text
 
     detected = client.get("/w/demo/requirements/stakeholders?name=管理员")
     assert "管理员" in detected.text
@@ -395,7 +422,7 @@ def test_stakeholder_page_can_start_before_requirements(client: TestClient) -> N
     assert added.status_code == 303
     page = client.get("/w/demo/requirements/stakeholders?name=运维人员")
     assert "运维人员" in page.text
-    assert "当前还没有需求文本" in page.text
+    assert "暂无需求文本" in page.text
 
     client.post(
         "/w/demo/requirements/analyze",

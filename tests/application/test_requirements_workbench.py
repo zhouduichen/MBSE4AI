@@ -68,7 +68,7 @@ def test_draft_model_accepts_plain_language_as_provisional_nodes():
     assert state["claims"][0]["source_type"] == "goal"
     assert state["claims"][0]["status"] == "candidate"
     assert draft["draft"] is True
-    assert "没有明确的必须/应当" in draft["draft_warnings"][0]
+    assert "未识别明确约束" in draft["draft_warnings"][0]
     assert any("历史版本恢复" in item["text"] for item in draft["draft_graph"]["items"])
 
 
