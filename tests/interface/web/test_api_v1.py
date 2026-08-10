@@ -94,6 +94,27 @@ def test_api_v1_exposes_local_plugin_registry(client: TestClient) -> None:
     assert missing.json()["status"] == "failed"
 
 
+def test_api_v1_concept_design_workflow(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "concept"})
+    examples = Path("src/rflp_lite/resources/examples/concept-design")
+    rows = json.loads((examples / "fixed-wing-schemes.json").read_text(encoding="utf-8"))
+    imported = client.post(
+        "/api/v1/workspaces/concept/schemes/import",
+        json={"pack": "fixed-wing-v1", "filename": "schemes.json", "content": rows},
+    )
+    assert imported.status_code == 200
+    assert len(imported.json()["import"]["records"]) == 4
+    envelope = json.loads((examples / "fixed-wing-envelope.json").read_text(encoding="utf-8"))
+    run = client.post(
+        "/api/v1/workspaces/concept/concept-runs",
+        json={"pack": "fixed-wing-v1", "evaluator_profile": "development-v1", "envelope": envelope},
+    )
+    assert run.status_code == 200, run.text
+    assert 3 <= len(run.json()["run"]["candidates"]) <= 5
+    page = client.get("/w/concept/concept-design")
+    assert page.status_code == 200
+
+
 def test_api_v1_configures_generic_llm_profiles_without_leaking_key(client: TestClient) -> None:
     presets = client.get("/api/v1/llm/presets")
     assert presets.status_code == 200

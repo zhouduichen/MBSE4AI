@@ -325,3 +325,17 @@ def test_assess_one_shot_report(tmp_path, capsys):
     assert '"baseline_hash"' in out
     assert '"tests_passed":1' in out
     assert '"missing"' in out
+
+
+def test_concept_cli_import_run_and_svg_export(tmp_path, capsys):
+    workspace = tmp_path / "concept"
+    initialize_workspace(workspace)
+    pack = Path("src/rflp_lite/resources/domain-packs/fixed-wing-v1.json")
+    examples = Path("src/rflp_lite/resources/examples/concept-design")
+    profile = tmp_path / "evaluator.json"
+    profile.write_text('{"id":"development-v1","version":1,"approvals":{}}', encoding="utf-8")
+    assert main(["concept", "import", "--workspace", str(workspace), "--pack", str(pack), "--data", str(examples / "fixed-wing-schemes.json")]) == 0
+    capsys.readouterr()
+    assert main(["concept", "run", "--workspace", str(workspace), "--pack", str(pack), "--evaluator-profile", str(profile), "--envelope", str(examples / "fixed-wing-envelope.json")]) == 0
+    run_summary = json.loads(capsys.readouterr().out)
+    assert run_summary["candidate_count"] in {3, 4, 5}

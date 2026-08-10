@@ -8,6 +8,7 @@ from pathlib import Path
 
 from rflp_lite import __version__
 from rflp_lite.adapters.sqlite_repository import SQLiteRepository
+from rflp_lite.adapters.scheme_sources import read_scheme_rows, read_sqlite_scheme_rows
 from rflp_lite.adapters.mlflow_tracking import track_run_with_mlflow
 from rflp_lite.adapters.test_execution_config import build_limits
 from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
@@ -40,6 +41,9 @@ from rflp_lite.application.scenario_execution import append_scenario_run, execut
 from rflp_lite.application.run_catalog import load_run
 from rflp_lite.application.sysml_v2 import export_sysml_v2_text, import_sysml_v2_text
 from rflp_lite.application.workspaces import initialize_workspace
+from rflp_lite.application.web_facade import WebFacade
+from rflp_lite.application.domain_packs import load_domain_pack
+from rflp_lite.application.discipline_batch import validate_evaluator_profile
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import ContractViolation, RflpError
 from rflp_lite.governance.profile import Profile
@@ -148,6 +152,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     acceptance_parser = subparsers.add_parser("acceptance", help="run customer requirements/MBSE acceptance checks")
     acceptance_parser.add_argument("--requirements", type=Path, required=True)
     acceptance_parser.add_argument("--gold", type=Path)
+    concept_parser = subparsers.add_parser("concept", help="run the lightweight concept-layout workflow")
+    concept_commands = concept_parser.add_subparsers(dest="concept_command", required=True)
+    concept_import = concept_commands.add_parser("import")
+    concept_import.add_argument("--workspace", type=Path, required=True)
+    concept_import.add_argument("--pack", type=Path, required=True)
+    concept_import.add_argument("--data", type=Path, required=True)
+    concept_import.add_argument("--table")
+    concept_run = concept_commands.add_parser("run")
+    concept_run.add_argument("--workspace", type=Path, required=True)
+    concept_run.add_argument("--pack", type=Path, required=True)
+    concept_run.add_argument("--evaluator-profile", type=Path, required=True)
+    concept_run.add_argument("--envelope", type=Path, required=True)
+    concept_run.add_argument("--iterations", type=int, default=3)
+    concept_run.add_argument("--evaluation-budget", type=int, default=30)
+    concept_run.add_argument("--no-optimize", action="store_true")
+    concept_export = concept_commands.add_parser("export")
+    concept_export.add_argument("--workspace", type=Path, required=True)
+    concept_export.add_argument("--run-id", required=True)
+    concept_export.add_argument("--format", choices=("json", "svg"), default="json")
+    concept_export.add_argument("--candidate-id")
     mlflow_parser = subparsers.add_parser("mlflow", help="track a local run in MLflow")
     mlflow_parser.add_argument("--workspace", type=Path, required=True)
     mlflow_parser.add_argument("--result-hash", required=True)
@@ -222,6 +246,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             report = run_customer_acceptance(args.requirements.name, args.requirements.read_bytes(), args.gold)
             print(canonical_json(report))
             return 0 if report["status"] == "passed" else 1
+        if args.command == "concept":
+            return _run_concept(args)
         if args.command == "mlflow":
             return _run_mlflow(args)
     except (RflpError, OSError) as exc:
@@ -245,6 +271,69 @@ def _run_profile(args: argparse.Namespace) -> int:
         normalized = save_profile(args.workspace.resolve(), normalized)
     print(canonical_json({"status": "ok", "profile": normalized}))
     return 0
+
+
+def _run_concept(args: argparse.Namespace) -> int:
+    if args.concept_command == "import":
+        pack = load_domain_pack(args.pack)
+        if args.data.suffix.casefold() in {".db", ".sqlite", ".sqlite3"}:
+            if not args.table:
+                raise ContractViolation("--table is required for SQLite scheme import")
+            rows = read_sqlite_scheme_rows(args.data, args.table)
+        else:
+            rows = read_scheme_rows(args.data.name, args.data.read_bytes())
+        from rflp_lite.application.scheme_library import import_scheme_rows
+
+        imported = import_scheme_rows(pack, rows, str(args.data))
+        repository = SQLiteRepository(args.workspace / ".rflp" / "model.db")
+        try:
+            with repository.transaction():
+                repository.save_domain_pack(pack)
+                repository.save_scheme_records(imported.records)
+                repository.record_audit("concept.schemes_imported", {
+                    "source": str(args.data), "accepted": len(imported.records), "rejected": len(imported.rejected)
+                })
+        finally:
+            repository.close()
+        print(canonical_json(imported))
+        return 0
+    if args.concept_command == "run":
+        profile = validate_evaluator_profile(json.loads(args.evaluator_profile.read_text(encoding="utf-8")))
+        facade = WebFacade(args.workspace.parent)
+        result = facade.run_concept_design(
+            args.workspace.name,
+            args.pack,
+            profile,
+            json.loads(args.envelope.read_text(encoding="utf-8")),
+            optimize=not args.no_optimize,
+        )
+        print(canonical_json({
+            "status": result["status"],
+            "run_id": result["id"],
+            "candidate_count": len(result["candidates"]),
+            "disciplines": sorted({item["discipline"] for item in result["evaluations"]}),
+            "formal_status": result.get("formal_status", "development"),
+        }))
+        return 0
+    if args.concept_command == "export":
+        repository = SQLiteRepository(args.workspace / ".rflp" / "model.db")
+        try:
+            payload = repository.load_concept_run(args.run_id)
+        finally:
+            repository.close()
+        if payload is None:
+            raise ContractViolation(f"concept run not found: {args.run_id}")
+        if args.format == "json":
+            print(canonical_json(payload))
+            return 0
+        if not args.candidate_id:
+            raise ContractViolation("--candidate-id is required for SVG export")
+        candidate = next((item for item in payload.get("candidates", ()) if item.get("id") == args.candidate_id), None)
+        if candidate is None:
+            raise ContractViolation(f"layout candidate not found: {args.candidate_id}")
+        print(str(candidate.get("svg", "")))
+        return 0
+    raise ContractViolation("unknown concept command")
 
 
 def _run_scenario(args: argparse.Namespace) -> int:

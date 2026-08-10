@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}总体概念设计 · RFLP-Lite{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div><span class="eyebrow">M3–M4 / CONCEPT DESIGN</span><h1>总体概念设计与多学科评估</h1><p>固定核心字段 + 可切换领域包；每次运行保留参数、来源、约束、学科证据和优化追溯。</p></div>
+</section>
+<div class="card-grid">
+  <section class="card"><h2>1. 领域包与历史方案</h2><p><strong>{{ pack_id }}@{{ pack_version }}</strong></p><p class="muted">支持 JSON、CSV、只读 SQLite 表；新增字段先进入 extensions。</p><form method="post" action="#"><button type="submit" disabled>导入方案（API/CLI 可用）</button></form></section>
+  <section class="card"><h2>2. 指标包络</h2><p>输入单位、范围和需求来源，生成前执行必填、单位和 hard constraint 校验。</p><p class="muted">当前评估档案：{{ evaluator_profile }}</p></section>
+</div>
+{% if concept_run %}
+<section class="card"><h2>3. 3–5 套可行布局</h2><div class="card-grid">
+{% for candidate in concept_run.candidates %}<article class="card"><h3>{{ candidate.id }}</h3><p>状态：{{ candidate.status }} · 来源：{{ candidate.reference_ids|join(', ') }}</p><div class="svg-preview">{{ candidate.svg|safe }}</div><ul>{% for constraint in candidate.constraints %}<li>{{ constraint.constraint_id }}：{% if constraint.passed %}通过{% else %}不通过{% endif %}（余量 {{ '%.4f'|format(constraint.margin) }}）</li>{% endfor %}</ul></article>{% endfor %}
+</div></section>
+<section class="card"><h2>4. 多学科结果与 Pareto</h2><p>运行：{{ concept_run.id }} · 综合状态：{{ concept_run.status }} · 正式证据：{{ concept_run.formal_status }}</p><p>前沿候选：{{ concept_run.optimization.front_candidate_ids|join(', ') }}</p><table><thead><tr><th>候选</th><th>学科</th><th>状态</th><th>证据</th></tr></thead><tbody>{% for evaluation in concept_run.evaluations %}<tr><td>{{ evaluation.candidate_id }}</td><td>{{ evaluation.discipline }}</td><td>{{ evaluation.status }}</td><td>{{ evaluation.evidence_status }}</td></tr>{% endfor %}</tbody></table></section>
+{% else %}<section class="card"><h2>3–4. 运行结果</h2><p class="muted">尚未选择概念运行。使用 API 或 CLI 运行后，通过 <code>?run_id=...</code> 查看候选、约束和 Pareto 结果。</p></section>{% endif %}
+{% endblock %}

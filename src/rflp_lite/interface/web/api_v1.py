@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
 from rflp_lite.domain.errors import ContractViolation, RflpError
+from rflp_lite.application.domain_packs import load_domain_pack, validate_domain_pack
+from rflp_lite.application.discipline_batch import validate_evaluator_profile
+from rflp_lite.application.resources import resource_path
 
 
 api_v1 = APIRouter(prefix="/api/v1", tags=["local-mvp"])
@@ -21,6 +26,51 @@ def _error(exc: Exception, status_code: int = 422) -> JSONResponse:
 
 def _facade(request: Request):
     return request.app.state.facade
+
+
+def _pack_payload(value: object) -> dict[str, object]:
+    """Resolve a pack object or a packaged alias at the HTTP boundary.
+
+    The Web API deliberately does not accept arbitrary server paths.  Pack
+    uploads use an object payload; string values are limited to the packaged
+    domain-pack directory (for example ``fixed-wing-v1``).
+    """
+
+    if isinstance(value, Mapping):
+        return validate_domain_pack(dict(value))
+    if not isinstance(value, str) or not value.strip():
+        raise ContractViolation("domain pack must be an object or packaged alias")
+    identifier = value.strip()
+    if any(part in identifier for part in ("/", "\\")) or Path(identifier).is_absolute():
+        raise ContractViolation("Web API domain-pack paths are not allowed")
+    filename = identifier if identifier.endswith(".json") else f"{identifier}.json"
+    path = resource_path(f"domain-packs/{filename}")
+    return load_domain_pack(path)
+
+
+def _evaluator_profile_payload(value: object) -> dict[str, object]:
+    """Resolve an evaluator profile object or packaged development fixture."""
+
+    if isinstance(value, Mapping):
+        return validate_evaluator_profile(dict(value))
+    if not isinstance(value, str) or not value.strip():
+        raise ContractViolation("evaluator_profile must be an object or packaged alias")
+    identifier = value.strip()
+    if any(part in identifier for part in ("/", "\\")) or Path(identifier).is_absolute():
+        raise ContractViolation("Web API evaluator-profile paths are not allowed")
+    aliases = {
+        "development-v1": "development-evaluator-profile.json",
+        "development-evaluator-profile": "development-evaluator-profile.json",
+    }
+    filename = aliases.get(identifier, identifier if identifier.endswith(".json") else f"{identifier}.json")
+    path = resource_path(f"examples/concept-design/{filename}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        if identifier == "development-v1":
+            return {"id": "development-v1", "version": 1, "approvals": {}}
+        raise ContractViolation(f"evaluator profile not found: {identifier}") from exc
+    return validate_evaluator_profile(payload)
 
 
 @api_v1.get("/llm/profiles", response_model=None)
@@ -71,6 +121,96 @@ def delete_llm_profile(request: Request, profile_id: str) -> JSONResponse | dict
 @api_v1.get("/workspaces")
 def workspaces(request: Request) -> dict[str, object]:
     return {"status": "ok", "workspaces": [item.name for item in _facade(request).workspaces()]}
+
+
+@api_v1.post("/workspaces/{workspace_name}/domain-packs/validate", response_model=None)
+async def validate_concept_pack(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("domain pack payload must be an object")
+        pack = payload.get("pack", payload)
+        return {"status": "ok", "pack": _pack_payload(pack)}
+    except (ContractViolation, RflpError, OSError, ValueError, UnicodeDecodeError) as exc:
+        return _error(exc)
+
+
+@api_v1.post("/workspaces/{workspace_name}/schemes/import", response_model=None)
+async def import_concept_schemes(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("scheme import payload must be an object")
+        content = payload.get("content")
+        if isinstance(content, str) and len(content.encode("utf-8")) > 50 * 1024 * 1024:
+            raise ContractViolation("scheme import exceeds 50 MiB")
+        if isinstance(content, (bytes, bytearray)) and len(content) > 50 * 1024 * 1024:
+            raise ContractViolation("scheme import exceeds 50 MiB")
+        filename = str(payload.get("filename", "schemes.json"))
+        pack = _pack_payload(payload.get("pack"))
+        result = _facade(request).import_concept_schemes(workspace_name, pack, content, filename)
+        return {"status": "ok", "import": result}
+    except (ContractViolation, RflpError, OSError, ValueError, UnicodeDecodeError) as exc:
+        return _error(exc)
+
+
+@api_v1.post("/workspaces/{workspace_name}/concept-runs", response_model=None)
+async def create_concept_run(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("concept run payload must be an object")
+        envelope = payload.get("envelope")
+        if not isinstance(envelope, Mapping):
+            raise ContractViolation("concept run envelope must be an object")
+        pack = _pack_payload(payload.get("pack"))
+        profile = _evaluator_profile_payload(payload.get("evaluator_profile", "development-v1"))
+        result = _facade(request).run_concept_design(
+            workspace_name,
+            pack,
+            profile,
+            dict(envelope),
+            optimize=bool(payload.get("optimize", True)),
+        )
+        return {"status": "ok", "run": result}
+    except (ContractViolation, RflpError, OSError, ValueError, UnicodeDecodeError) as exc:
+        return _error(exc)
+
+
+@api_v1.get("/workspaces/{workspace_name}/concept-runs/{run_id}", response_model=None)
+def get_concept_run(request: Request, workspace_name: str, run_id: str) -> JSONResponse | dict[str, object]:
+    try:
+        return {"status": "ok", "run": _facade(request).concept_run(workspace_name, run_id)}
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
+@api_v1.post("/workspaces/{workspace_name}/concept-runs/{run_id}/evaluate", response_model=None)
+def evaluate_concept_run(request: Request, workspace_name: str, run_id: str) -> JSONResponse | dict[str, object]:
+    try:
+        return {"status": "ok", "run": _facade(request).concept_run(workspace_name, run_id)}
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
+@api_v1.post("/workspaces/{workspace_name}/concept-runs/{run_id}/optimize", response_model=None)
+def optimize_concept_run(request: Request, workspace_name: str, run_id: str) -> JSONResponse | dict[str, object]:
+    try:
+        return {"status": "ok", "run": _facade(request).concept_run(workspace_name, run_id)}
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
+@api_v1.post("/workspaces/{workspace_name}/layout-candidates/{candidate_id}/review", response_model=None)
+async def review_concept_candidate(request: Request, workspace_name: str, candidate_id: str) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("candidate review payload must be an object")
+        decision = str(payload.get("decision", ""))
+        return {"status": "ok", "review": _facade(request).review_layout_candidate(workspace_name, candidate_id, decision, str(payload.get("run_id", "")))}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
 
 
 @api_v1.get("/plugins")

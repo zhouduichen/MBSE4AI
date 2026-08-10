@@ -177,6 +177,34 @@ def workspace_dashboard(request: Request, workspace_name: str) -> HTMLResponse:
     return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
 
 
+@router.get("/w/{workspace_name}/concept-design", response_class=HTMLResponse)
+def concept_design_page(
+    request: Request, workspace_name: str, run_id: str = ""
+) -> HTMLResponse:
+    facade = _facade(request)
+    concept_run = None
+    if run_id:
+        try:
+            concept_run = facade.concept_run(workspace_name, run_id)
+        except (ContractViolation, RflpError, OSError):
+            concept_run = None
+    workspace = facade.workspace(workspace_name)
+    return templates.TemplateResponse(
+        request=request,
+        name="concept-design.html",
+        context={
+            "workspace": workspace,
+            "workspaces": facade.workspaces(),
+            "active": "concept-design",
+            "nav_result_hash": None,
+            "concept_run": concept_run,
+            "pack_id": "fixed-wing",
+            "pack_version": 1,
+            "evaluator_profile": "development-v1",
+        },
+    )
+
+
 @router.get("/w/{workspace_name}/requirements", response_class=HTMLResponse)
 def requirements_page(request: Request, workspace_name: str) -> HTMLResponse:
     context = _requirements_context(request, workspace_name, "requirements")
