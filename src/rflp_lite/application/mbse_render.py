@@ -5,12 +5,17 @@ from __future__ import annotations
 from html import escape
 
 from rflp_lite.application.mbse_exchange import validate_mbse_model
+from rflp_lite.application.sequence_layout import layout_sequence
+from rflp_lite.application.sequence_modeling import _legacy_model_to_interaction
+from rflp_lite.application.sequence_render import render_sequence_svg
 
 
 def render_mbse_svg(model: object, view: str = "all") -> str:
     normalized = validate_mbse_model(model)
     if view not in {"all", "use_case", "activity", "sequence"}:
         raise ValueError("unsupported MBSE view")
+    if view == "sequence":
+        return render_sequence_svg(layout_sequence(_legacy_model_to_interaction(normalized)))
     sections = []
     if view in {"all", "use_case"}:
         sections.append(("Use Case", [f"{item.get('name', '')} · {', '.join(item.get('actor_ids', ())) }" for item in normalized["use_cases"]]))
@@ -32,4 +37,3 @@ def render_mbse_svg(model: object, view: str = "all") -> str:
         y += 12
     parts.append("</svg>")
     return "".join(parts)
-

@@ -65,6 +65,42 @@ def test_api_v1_reads_and_executes_local_scenario(client: TestClient) -> None:
     assert job.json()["job"]["status"] == "succeeded"
 
 
+def test_api_v1_exposes_reviewed_scenario_sequence_contract(client: TestClient) -> None:
+    _workbench(client)
+    created = client.post(
+        "/api/v1/workspaces/demo/scenarios",
+        json={
+            "title": "登录",
+            "description": "验证登录交互",
+            "actors": ["用户", "数据库"],
+            "steps": [
+                "用户 -> 系统：提交登录",
+                "系统 -> 数据库：查询用户",
+                "系统 -> 用户：返回结果",
+            ],
+            "expected_outcomes": ["返回登录结果"],
+        },
+    )
+    assert created.status_code == 200
+    scenario_id = created.json()["scenario"]["id"]
+
+    pending = client.get(f"/api/v1/workspaces/demo/scenarios/{scenario_id}/sequence")
+    assert pending.status_code == 404
+    assert "尚未确认" in pending.json()["message"]
+
+    reviewed = client.post(
+        f"/api/v1/workspaces/demo/scenarios/{scenario_id}/review",
+        json={"decision": "accepted"},
+    )
+    assert reviewed.status_code == 200
+    sequence = client.get(f"/api/v1/workspaces/demo/scenarios/{scenario_id}/sequence")
+    assert sequence.status_code == 200
+    body = sequence.json()
+    assert body["interaction"]["format"] == "ai4mbse/sequence-interaction"
+    assert len(body["interaction"]["messages"]) == 3
+    assert "marker-end=\"url(#arrow-filled)\"" in body["svg"]
+
+
 def test_api_v1_profile_and_error_contract(client: TestClient) -> None:
     client.post("/workspaces", data={"name": "demo"})
 

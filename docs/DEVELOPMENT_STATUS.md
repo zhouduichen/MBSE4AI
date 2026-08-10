@@ -14,6 +14,7 @@
 | 客户需求结构化（验收 1.1） | 已完成首版 | 客户语言实体、能力谓词、数量范围、指标约束、验证方式和来源区域；结构化需求候选默认不批准 |
 | 需求追溯与验收指标 | 已完成首版 | `derivedFrom / representedBy / satisfiedBy / refines` 矩阵、覆盖率、precision/recall/F1 与 provenance 指标；SQLite 持久化 |
 | MBSE 用例辅助（验收 1.2） | 已完成首版 | 生成 Use Case、活动图、时序图语义集合；人工逐条编辑、修订版本和 JSON/SysML/SVG 导出 |
+| MBSE 顺序图设计模块 | 已完成首版 | UML Interaction 契约、场景确认门禁、横向生命线/纵向时间轴、同步/异步/返回箭头、SVG 与 Web/API 入口；旧 MBSE 消息模型保持兼容 |
 | 需求/MBSE/场景确认闭环 | 已完成首版 | 候选逐条审核、编辑后回退、MBSE 草稿确认、场景确认门禁、审核历史和导出/执行状态门禁 |
 | 利益相关方前置链路 | 已完成首版 | StakeholderCandidate → Stakeholder/Concern/Need → Requirement |
 | 人工审核 | 已完成首版 | 候选可编辑、接受、驳回；可批量接受来源完整的明确候选 |
@@ -65,7 +66,7 @@ Artifact
 5. 点击“生成 RFLP 规划图”。
 6. 检查 R→F、F→L、L→P 覆盖率和需求来源链。
 7. 下载规范化 JSON 或确定性 SVG。
-8. 在“MBSE 语义图”入口生成/下载 Use Case、活动图和时序图；LLM 隐含约束必须逐条审核。
+8. 在“MBSE 设计图”入口查看/下载 Use Case、活动图和顺序图；顺序图从已确认场景选择进入，LLM 隐含约束必须逐条审核。
 
 主要路由：
 
@@ -81,6 +82,9 @@ Artifact
 | GET | `/w/{workspace}/requirements/model.svg` | 下载 RFLP SVG |
 | POST | `/w/{workspace}/requirements/implicit-constraints` | 生成待逐条审核的隐含约束候选 |
 | POST | `/w/{workspace}/requirements/mbse` | 生成语义 MBSE 模型 |
+| GET | `/w/{workspace}/requirements/mbse` | 打开 MBSE 设计图模块，切换总览/用例图/活动图/顺序图 |
+| GET | `/w/{workspace}/requirements/mbse/sequence?scenario_id=...` | 查看指定已确认场景的 UML 顺序图 |
+| GET | `/w/{workspace}/requirements/mbse/sequence.svg?scenario_id=...` | 下载指定场景顺序图 SVG |
 | GET | `/w/{workspace}/requirements/mbse.json` | 下载 MBSE JSON |
 | GET | `/w/{workspace}/requirements/mbse.sysml` | 下载 MBSE SysML 子集 |
 | GET | `/w/{workspace}/requirements/mbse.svg?view=all` | 下载 Use Case/活动/时序 SVG |
@@ -150,6 +154,10 @@ rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 6
 | `src/rflp_lite/application/requirements_workbench.py` | 候选发现、审核门禁、LLM 建议、RFLP 生成与 SVG |
 | `src/rflp_lite/application/scenarios.py` | 结构化场景创建、校验、删除和确定性 ID |
 | `src/rflp_lite/application/scenario_execution.py` | 安全声明性场景执行轨迹和 Evidence |
+| `src/rflp_lite/domain/sequence.py` | UML Interaction、Lifeline、Message、Occurrence、Execution 和 Combined Fragment 契约 |
+| `src/rflp_lite/application/sequence_modeling.py` | 已确认场景到顺序图交互模型的适配、结构化步骤解析和旧 MBSE 模型兼容适配 |
+| `src/rflp_lite/application/sequence_layout.py` | 确定性生命线、箭头消息、执行条和组合片段布局 |
+| `src/rflp_lite/application/sequence_render.py` | 与业务建模解耦的 UML 风格 SVG 渲染 |
 | `src/rflp_lite/application/jobs.py` | 本地原子 JSON Job 状态记录 |
 | `src/rflp_lite/application/profile_packs.py` | Profile 校验、保存和运行记录导出 |
 | `src/rflp_lite/application/interchange.py` | SysML-lite RFLP 交换格式与 round-trip 校验 |
@@ -171,6 +179,7 @@ rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 6
 | `src/rflp_lite/application/project_bridge.py` | 基线批准、ActualModel→Evidence→Delta→TaskContract 编排 |
 | `src/rflp_lite/application/diff.py` | `compare_baseline_with_actual` 分词匹配与 MISSING/EXTRA |
 | `src/rflp_lite/interface/web/templates/project-bridge.html` | 项目接入页面 |
+| `src/rflp_lite/interface/web/templates/mbse-diagrams.html` | MBSE 设计图模块与顺序图场景选择页面 |
 
 ## 数据与安全
 
@@ -225,6 +234,14 @@ export RFLP_LLM_API_KEY=local-key
 - CLI 无 Web 全自动：`workbench build`（需求文件建工作台，支持多文件合并）与 `assess`（一步汇总报告）。
 - DOCX 表格行按 “ID | 义务句” 合并为一条 span；verify/test 后同步刷新 delta/matches。
 - 审计事件新增 `project.tested`、`requirements.merged`。
+
+2026-08-10（MBSE 顺序图设计模块）：
+
+- `pytest`：全量通过（仅有 FastAPI TestClient 的第三方弃用提示）。
+- 新增 `ai4mbse/sequence-interaction` v1 契约，拆分领域校验、场景建模、几何布局和 SVG 渲染，降低模块耦合。
+- 顺序图遵循 UML Interaction 语义：生命线横向排列、时间纵向推进；同步调用使用实线实心箭头，异步消息使用实线开放箭头，返回消息使用虚线开放箭头。
+- 场景必须先人工确认；结构化消息可进入 `ready`，自由文本步骤保留为 `candidate` 并在页面提示补充语义。
+- 新增 `/w/{workspace}/requirements/mbse/sequence`、顺序图 SVG 下载和 `/api/v1/workspaces/{workspace}/scenarios/{scenario_id}/sequence`；旧 `mbse.svg?view=sequence` 通过适配器接入新渲染器。
 
 复现命令：
 

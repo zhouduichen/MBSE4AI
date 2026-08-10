@@ -280,6 +280,79 @@ def requirements_graph_page(request: Request, workspace_name: str) -> HTMLRespon
     return templates.TemplateResponse(request=request, name="requirements-graph.html", context=context)
 
 
+def _requirements_mbse_page(
+    request: Request,
+    workspace_name: str,
+    *,
+    view: str = "all",
+    scenario_id: str = "",
+) -> HTMLResponse:
+    if view not in {"all", "use_case", "activity", "sequence"}:
+        view = "all"
+    facade = _facade(request)
+    if view == "sequence":
+        facade.prepare_requirement_scenarios(workspace_name)
+    context = _requirements_context(
+        request,
+        workspace_name,
+        "requirements-mbse",
+        diagram_view=view,
+        diagram_svg=None,
+        diagram_result=None,
+        diagram_error="",
+        selected_scenario_id=scenario_id,
+        sequence_scenarios=(),
+    )
+    state = context.get("state")
+    if isinstance(state, dict):
+        accepted_scenarios = tuple(
+            item
+            for item in state.get("scenarios", ())
+            if isinstance(item, dict) and item.get("status") == "accepted"
+        )
+        context["sequence_scenarios"] = accepted_scenarios
+        if view == "sequence" and not scenario_id and accepted_scenarios:
+            scenario_id = str(accepted_scenarios[0]["id"])
+            context["selected_scenario_id"] = scenario_id
+    try:
+        if view == "sequence" and scenario_id:
+            context["diagram_result"] = facade.sequence_diagram(workspace_name, scenario_id)
+            context["diagram_svg"] = context["diagram_result"]["svg"]
+        elif (
+            view != "sequence"
+            and isinstance(state, dict)
+            and isinstance(state.get("mbse"), dict)
+            and state["mbse"].get("status") == "accepted"
+        ):
+            context["diagram_svg"] = facade.render_requirements_mbse(workspace_name, view)
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        context["diagram_error"] = str(exc)
+    return templates.TemplateResponse(
+        request=request, name="mbse-diagrams.html", context=context
+    )
+
+
+@router.get("/w/{workspace_name}/requirements/mbse", response_class=HTMLResponse)
+def requirements_mbse_page(
+    request: Request,
+    workspace_name: str,
+    view: str = "all",
+    scenario_id: str = "",
+) -> HTMLResponse:
+    return _requirements_mbse_page(
+        request, workspace_name, view=view, scenario_id=scenario_id
+    )
+
+
+@router.get("/w/{workspace_name}/requirements/mbse/sequence", response_class=HTMLResponse)
+def requirements_mbse_sequence_page(
+    request: Request, workspace_name: str, scenario_id: str = ""
+) -> HTMLResponse:
+    return _requirements_mbse_page(
+        request, workspace_name, view="sequence", scenario_id=scenario_id
+    )
+
+
 @router.get("/w/{workspace_name}/profile.json")
 def profile_json(request: Request, workspace_name: str) -> Response:
     return Response(
@@ -643,9 +716,30 @@ def requirements_mbse_sysml(request: Request, workspace_name: str) -> Response:
 
 
 @router.get("/w/{workspace_name}/requirements/mbse.svg")
-def requirements_mbse_svg(request: Request, workspace_name: str, view: str = "all") -> Response:
+def requirements_mbse_svg(
+    request: Request,
+    workspace_name: str,
+    view: str = "all",
+    scenario_id: str = "",
+) -> Response:
     try:
-        content = _facade(request).render_requirements_mbse(workspace_name, view)
+        if view == "sequence" and scenario_id:
+            content = _facade(request).sequence_diagram(workspace_name, scenario_id)["svg"]
+        else:
+            content = _facade(request).render_requirements_mbse(workspace_name, view)
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return HTMLResponse(str(exc), status_code=404)
+    return Response(content=content, media_type="image/svg+xml")
+
+
+@router.get("/w/{workspace_name}/requirements/mbse/sequence.svg")
+def requirements_mbse_sequence_svg(
+    request: Request, workspace_name: str, scenario_id: str = ""
+) -> Response:
+    if not scenario_id:
+        return HTMLResponse("scenario_id is required", status_code=400)
+    try:
+        content = _facade(request).sequence_diagram(workspace_name, scenario_id)["svg"]
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return HTMLResponse(str(exc), status_code=404)
     return Response(content=content, media_type="image/svg+xml")

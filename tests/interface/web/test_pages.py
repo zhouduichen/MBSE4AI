@@ -518,3 +518,76 @@ def test_requirements_page_executes_scenario_and_exports_trace(client: TestClien
     runs = client.get("/w/demo/requirements/scenario-runs.json")
     assert runs.status_code == 200
     assert scenario_id in runs.text
+
+
+def test_mbse_design_page_renders_selectable_sequence_diagram(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+    client.post(
+        "/w/demo/requirements/scenarios",
+        data={
+            "title": "恢复历史版本",
+            "description": "验证恢复流程",
+            "actors": "管理员\n数据库",
+            "steps": "管理员 -> 系统：提交恢复请求\n系统 -> 数据库：查询历史版本\n系统 -> 管理员：返回恢复结果",
+            "expected_outcomes": "内容恢复",
+        },
+    )
+    scenario_id = client.get("/w/demo/requirements/scenarios.json").json()[0]["id"]
+    reviewed = client.post(
+        "/w/demo/requirements/scenarios/review",
+        data={"scenario_id": scenario_id, "decision": "accepted"},
+        follow_redirects=False,
+    )
+    assert reviewed.status_code == 303
+
+    scenarios_page = client.get("/w/demo/requirements/scenarios")
+    assert f"/requirements/mbse/sequence?scenario_id={scenario_id}" in scenarios_page.text
+
+    page = client.get(
+        "/w/demo/requirements/mbse/sequence",
+        params={"scenario_id": scenario_id},
+    )
+    assert page.status_code == 200
+    assert "MBSE 设计图" in page.text
+    assert "选择已确认场景" in page.text
+    assert "sequence-svg" in page.text
+    assert "marker-end=\"url(#arrow-filled)\"" in page.text
+    assert "横向是参与者/系统边界" in page.text
+
+    svg = client.get(
+        "/w/demo/requirements/mbse/sequence.svg",
+        params={"scenario_id": scenario_id},
+    )
+    assert svg.status_code == 200
+    assert svg.headers["content-type"].startswith("image/svg+xml")
+    assert "Sequence Diagram" in svg.text
+
+
+def test_sequence_diagram_keeps_unstructured_steps_as_candidate(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/scenarios",
+        data={
+            "title": "未结构化场景",
+            "description": "保留待确认语义",
+            "steps": "选择版本\n确认恢复",
+            "expected_outcomes": "内容恢复",
+        },
+    )
+    scenario_id = client.get("/w/demo/requirements/scenarios.json").json()[0]["id"]
+    client.post(
+        "/w/demo/requirements/scenarios/review",
+        data={"scenario_id": scenario_id, "decision": "accepted"},
+    )
+
+    page = client.get(
+        "/w/demo/requirements/mbse/sequence",
+        params={"scenario_id": scenario_id},
+    )
+    assert page.status_code == 200
+    assert "语义提示" in page.text
+    assert "candidate" in page.text

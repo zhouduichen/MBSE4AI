@@ -365,6 +365,24 @@ def scenarios(request: Request, workspace_name: str) -> JSONResponse | dict[str,
         return _error(exc, 404)
 
 
+@api_v1.get("/workspaces/{workspace_name}/scenarios/{scenario_id}/sequence", response_model=None)
+def scenario_sequence(
+    request: Request, workspace_name: str, scenario_id: str
+) -> JSONResponse | dict[str, object]:
+    try:
+        result = _facade(request).sequence_diagram(workspace_name, scenario_id)
+        return {
+            "status": "ok",
+            "scenario": result["scenario"],
+            "interaction": result["interaction"],
+            "layout": result["layout"],
+            "svg": result["svg"],
+            "warnings": result["warnings"],
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc, 404)
+
+
 @api_v1.post("/workspaces/{workspace_name}/scenarios/{scenario_id}/edit", response_model=None)
 async def edit_scenario(request: Request, workspace_name: str, scenario_id: str) -> JSONResponse | dict[str, object]:
     try:

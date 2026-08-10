@@ -44,6 +44,9 @@ from rflp_lite.application.mbse_modeling import (
     review_mbse_element,
 )
 from rflp_lite.application.mbse_render import render_mbse_svg
+from rflp_lite.application.sequence_layout import layout_sequence
+from rflp_lite.application.sequence_modeling import build_sequence_interaction
+from rflp_lite.application.sequence_render import render_sequence_svg
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.application.profile_packs import (
     export_run_record,
@@ -347,6 +350,30 @@ class WebFacade:
         if state["mbse"].get("status") != "accepted":
             raise ContractViolation("MBSE 模型尚未确认，确认后才能渲染")
         return render_mbse_svg(state["mbse"], view)
+
+    def sequence_diagram(self, workspace_name: str, scenario_id: str) -> dict[str, object]:
+        state = self.requirements(workspace_name)
+        if not state:
+            raise ContractViolation("requirements workbench is empty")
+        interaction = build_sequence_interaction(state, scenario_id)
+        layout = layout_sequence(interaction)
+        scenario = next(
+            item
+            for item in state.get("scenarios", ())
+            if isinstance(item, dict) and str(item.get("id")) == scenario_id
+        )
+        warnings = (
+            ("部分消息由非结构化步骤推断，建议补充发送方、接收方和消息语义",)
+            if interaction["status"] == "candidate"
+            else ()
+        )
+        return {
+            "scenario": scenario,
+            "interaction": interaction,
+            "layout": layout,
+            "svg": render_sequence_svg(layout),
+            "warnings": warnings,
+        }
 
     def track_run_with_mlflow(
         self,
