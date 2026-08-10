@@ -54,6 +54,15 @@ from rflp_lite.application.scenarios import (
     generate_scenario_drafts,
 )
 from rflp_lite.application.scenario_execution import append_scenario_run, execute_scenario
+from rflp_lite.application.concept_design_service import (
+    concept_run_from_payload,
+    review_layout_candidate,
+    run_concept_design,
+)
+from rflp_lite.application.domain_packs import load_domain_pack, validate_domain_pack
+from rflp_lite.application.scheme_library import import_scheme_rows
+from rflp_lite.adapters.disciplines import discipline_registry
+from rflp_lite.adapters.scheme_sources import read_scheme_rows
 from rflp_lite.application.workspaces import (
     WorkspaceRef,
     create_managed_workspace,
@@ -83,6 +92,123 @@ class WebFacade:
 
     def create_workspace(self, name: str) -> WorkspaceRef:
         return create_managed_workspace(self.workspace_root, name)
+
+    @staticmethod
+    def _concept_pack(pack: object) -> dict[str, object]:
+        if isinstance(pack, Path):
+            return load_domain_pack(pack)
+        if isinstance(pack, str):
+            return load_domain_pack(Path(pack))
+        return validate_domain_pack(pack)
+
+    def import_concept_schemes(
+        self,
+        workspace_name: str,
+        pack: object,
+        rows: object,
+        source: str = "manual",
+    ) -> dict[str, object]:
+        """Import JSON/CSV rows into the workspace's versioned scheme library.
+
+        ``rows`` may be an iterable of dictionaries or source bytes/text.  In
+        the latter case ``source`` is treated as the filename so the existing
+        JSON/CSV reader can perform format and size validation.
+        """
+
+        normalized_pack = self._concept_pack(pack)
+        if isinstance(rows, (bytes, bytearray, memoryview, str)):
+            raw_rows = read_scheme_rows(source, rows)
+        else:
+            try:
+                raw_rows = tuple(rows)  # type: ignore[arg-type]
+            except TypeError as exc:
+                raise ContractViolation("scheme rows must be an iterable") from exc
+        imported = import_scheme_rows(normalized_pack, raw_rows, source)
+        workspace = self.workspace(workspace_name)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            with repository.transaction():
+                repository.save_domain_pack(normalized_pack)
+                repository.save_scheme_records(imported.records)
+                repository.record_audit(
+                    "concept.schemes_imported",
+                    {
+                        "source": source,
+                        "accepted": len(imported.records),
+                        "rejected": len(imported.rejected),
+                        "domain_pack": f"{normalized_pack['id']}@{normalized_pack['version']}",
+                    },
+                )
+        finally:
+            repository.close()
+        return json.loads(canonical_json(imported))
+
+    def run_concept_design(
+        self,
+        workspace_name: str,
+        pack: object,
+        evaluator_profile: object,
+        envelope_payload: dict[str, object],
+        schemes: object | None = None,
+        registry: object | None = None,
+        optimize: bool = True,
+    ) -> dict[str, object]:
+        """Run and persist one immutable concept-design result."""
+
+        normalized_pack = self._concept_pack(pack)
+        workspace = self.workspace(workspace_name)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            stored_schemes = repository.scheme_records() if schemes is None else tuple(schemes)
+            adapters = discipline_registry() if registry is None else registry
+            with repository.transaction():
+                result = run_concept_design(
+                    normalized_pack,
+                    evaluator_profile,
+                    envelope_payload,
+                    stored_schemes,
+                    adapters,
+                    repository,
+                    optimize=optimize,
+                )
+        finally:
+            repository.close()
+        return json.loads(canonical_json(result))
+
+    def concept_run(
+        self, workspace_name: str, run_id: str | None = None
+    ) -> dict[str, object]:
+        workspace = self.workspace(workspace_name)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            payload = (
+                repository.load_concept_run(run_id)
+                if run_id is not None
+                else (repository.concept_runs()[-1] if repository.concept_runs() else None)
+            )
+        finally:
+            repository.close()
+        if payload is None:
+            raise ContractViolation("concept run not found")
+        return json.loads(canonical_json(concept_run_from_payload(payload)))
+
+    def review_layout_candidate(
+        self,
+        workspace_name: str,
+        candidate_id: str,
+        decision: str,
+        run_id: str = "",
+    ) -> dict[str, object]:
+        workspace = self.workspace(workspace_name)
+        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        try:
+            with repository.transaction():
+                review = review_layout_candidate(
+                    candidate_id, decision, repository, run_id=run_id
+                )
+        finally:
+            repository.close()
+        return json.loads(canonical_json(review))
 
     def runs(self, workspace_name: str) -> tuple[RunRecord, ...]:
         return list_runs(self.workspace(workspace_name).path)

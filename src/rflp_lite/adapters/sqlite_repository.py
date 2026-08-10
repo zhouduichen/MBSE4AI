@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,12 +44,19 @@ class SQLiteRepository:
         "layout_candidates",
         "discipline_evaluations",
         "optimization_runs",
+        "concept_runs",
+        "candidate_reviews",
     )
 
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
-        self._connection = sqlite3.connect(path, isolation_level=None)
+        # Discipline batch evaluation uses a bounded worker pool.  The
+        # repository remains a single lightweight SQLite file, but its
+        # connection must permit those workers to read/write the deterministic
+        # evaluation cache.  A re-entrant lock serializes connection access.
+        self._lock = threading.RLock()
+        self._connection = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._create_schema()
 
@@ -114,9 +122,10 @@ class SQLiteRepository:
 
     def _save_many(self, table: str, values: Iterable[object]) -> None:
         rows = [(getattr(value, "id"), canonical_json(value)) for value in values]
-        self._connection.executemany(
-            f"INSERT OR REPLACE INTO {table}(id, payload) VALUES (?, ?)", rows
-        )
+        with self._lock:
+            self._connection.executemany(
+                f"INSERT OR REPLACE INTO {table}(id, payload) VALUES (?, ?)", rows
+            )
 
     def save_artifacts(self, values: tuple[Artifact, ...]) -> None:
         self._save_many("artifacts", values)
@@ -174,20 +183,23 @@ class SQLiteRepository:
             if record_id is None:
                 raise ContractViolation(f"{table} payload must contain an id")
             rows.append((str(record_id), canonical_json(value)))
-        self._connection.executemany(
-            f"INSERT OR REPLACE INTO {table}(id, payload) VALUES (?, ?)", rows
-        )
+        with self._lock:
+            self._connection.executemany(
+                f"INSERT OR REPLACE INTO {table}(id, payload) VALUES (?, ?)", rows
+            )
 
     def _load_payloads(self, table: str) -> tuple[dict[str, object], ...]:
-        rows = self._connection.execute(
-            f"SELECT payload FROM {table} ORDER BY id"
-        ).fetchall()
+        with self._lock:
+            rows = self._connection.execute(
+                f"SELECT payload FROM {table} ORDER BY id"
+            ).fetchall()
         return tuple(json.loads(row[0]) for row in rows)
 
     def _load_payload(self, table: str, record_id: str) -> dict[str, object] | None:
-        row = self._connection.execute(
-            f"SELECT payload FROM {table} WHERE id = ?", (str(record_id),)
-        ).fetchone()
+        with self._lock:
+            row = self._connection.execute(
+                f"SELECT payload FROM {table} WHERE id = ?", (str(record_id),)
+            ).fetchone()
         return json.loads(row[0]) if row else None
 
     def save_domain_pack(self, value: Mapping[str, object]) -> dict[str, object]:
@@ -270,6 +282,21 @@ class SQLiteRepository:
 
     def optimization_runs(self) -> tuple[dict[str, object], ...]:
         return self._load_payloads("optimization_runs")
+
+    def save_concept_runs(self, values: tuple[object, ...]) -> None:
+        self._save_payloads("concept_runs", values)
+
+    def concept_runs(self) -> tuple[dict[str, object], ...]:
+        return self._load_payloads("concept_runs")
+
+    def load_concept_run(self, run_id: str) -> dict[str, object] | None:
+        return self._load_payload("concept_runs", run_id)
+
+    def save_candidate_reviews(self, values: tuple[object, ...]) -> None:
+        self._save_payloads("candidate_reviews", values)
+
+    def candidate_reviews(self) -> tuple[dict[str, object], ...]:
+        return self._load_payloads("candidate_reviews")
 
     def save_workbench(self, value: dict[str, object]) -> None:
         self._connection.execute(
