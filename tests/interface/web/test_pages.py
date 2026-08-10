@@ -180,6 +180,59 @@ def test_requirements_input_keeps_plain_language_as_a_candidate(client: TestClie
     assert "确认并生成 RFLP" in page.text
 
 
+def test_mbse_review_page_integrates_regeneration_and_state_labels(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+    client.post("/w/demo/requirements/accept-traceable")
+    client.post("/w/demo/requirements/generate")
+
+    generated = client.post("/w/demo/requirements/mbse", follow_redirects=False)
+    assert generated.status_code == 303
+    review_page = client.get("/w/demo/requirements/graph")
+    assert "重新生成 MBSE 草稿" in review_page.text
+    assert 'action="/w/demo/requirements/mbse"' in review_page.text
+    assert "接受" in review_page.text
+    assert "已接受" not in review_page.text
+
+    model = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]["mbse"]
+    rejected = client.post(
+        "/w/demo/requirements/mbse/review",
+        data={"element_id": model["actors"][0]["id"], "decision": "rejected"},
+        follow_redirects=False,
+    )
+    assert rejected.status_code == 303
+    rejected_page = client.get("/w/demo/requirements/graph")
+    assert "已驳回" in rejected_page.text
+
+    regenerated_for_review = client.post("/w/demo/requirements/mbse", follow_redirects=False)
+    assert regenerated_for_review.status_code == 303
+    model = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]["mbse"]
+    element_id = model["use_cases"][0]["id"]
+    reviewed = client.post(
+        "/w/demo/requirements/mbse/review",
+        data={"element_id": element_id, "decision": "accepted"},
+        follow_redirects=False,
+    )
+    assert reviewed.status_code == 303
+    partial_page = client.get("/w/demo/requirements/graph")
+    assert "已接受" in partial_page.text
+
+    confirmed = client.post("/w/demo/requirements/mbse/confirm", follow_redirects=False)
+    assert confirmed.status_code == 303
+    confirmed_page = client.get("/w/demo/requirements/graph")
+    assert "已确认" in confirmed_page.text
+    assert "disabled>已接受</button>" in confirmed_page.text
+
+    regenerated = client.post("/w/demo/requirements/mbse", follow_redirects=False)
+    assert regenerated.status_code == 303
+    regenerated_page = client.get("/w/demo/requirements/graph")
+    assert "待确认" in regenerated_page.text
+    assert "已接受" not in regenerated_page.text
+
+
 def test_requirement_review_uses_local_row_updates_and_direct_generation(client: TestClient) -> None:
     client.post("/workspaces", data={"name": "demo"})
     client.post(
