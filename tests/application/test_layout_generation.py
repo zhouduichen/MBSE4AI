@@ -75,3 +75,8 @@ def test_candidate_id_and_hash_change_with_seed():
     assert first[0].id != second[0].id
     assert first[0].result_hash != second[0].result_hash
 
+
+def test_envelope_bounds_are_hard_and_traceable():
+    pack, envelope, schemes, matches = _inputs()
+    bounded = replace(envelope, bounds=(("span_m", 13.0, 13.0),))
+    assert generate_layout_candidates(pack, bounded, schemes, matches, seed=42) == ()

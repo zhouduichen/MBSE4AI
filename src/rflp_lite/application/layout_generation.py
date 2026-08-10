@@ -11,6 +11,7 @@ from rflp_lite.application.layout_render import render_layout_svg
 from rflp_lite.application.parameter_rules import derive_parameters, evaluate_constraints, normalize_parameters
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.concept_design import (
+    ConstraintResult,
     IndicatorEnvelope,
     LayoutCandidate,
     SchemeRecord,
@@ -213,6 +214,66 @@ def _perturb(value: object, spec: Mapping[str, object], rng: random.Random) -> t
     return value, False
 
 
+def _envelope_constraints(
+    envelope: IndicatorEnvelope | Mapping[str, object],
+    values: Mapping[str, object],
+    candidate_id: str,
+) -> tuple[ConstraintResult, ...]:
+    """Turn envelope ranges into traceable hard constraint results."""
+
+    raw_bounds = envelope.bounds if isinstance(envelope, IndicatorEnvelope) else envelope.get("bounds", ())
+    if isinstance(raw_bounds, Mapping):
+        bounds = tuple(
+            (str(name), float(item["minimum"]), float(item["maximum"]))
+            for name, item in raw_bounds.items()
+            if isinstance(item, Mapping) and "minimum" in item and "maximum" in item
+        )
+    else:
+        bounds = tuple(
+            (str(item[0]), float(item[1]), float(item[2]))
+            for item in raw_bounds
+            if isinstance(item, (tuple, list)) and len(item) == 3
+        )
+    results: list[ConstraintResult] = []
+
+    for name, minimum, maximum in bounds:
+        actual = values.get(name)
+        if not _numeric(actual):
+            raise _contract(f"envelope bound parameter {name!r} is missing or non-numeric")
+        numeric = float(actual)
+        lower_passed = numeric >= minimum
+        upper_passed = numeric <= maximum
+        results.extend(
+            (
+                ConstraintResult(
+                    id=f"{candidate_id}:envelope-{name}-min",
+                    candidate_id=candidate_id,
+                    constraint_id=f"envelope-{name}-min",
+                    severity="hard",
+                    actual=numeric,
+                    operator=">=",
+                    limit=minimum,
+                    margin=numeric - minimum,
+                    passed=lower_passed,
+                    message=f"{name} must be at least {minimum}",
+                ),
+                ConstraintResult(
+                    id=f"{candidate_id}:envelope-{name}-max",
+                    candidate_id=candidate_id,
+                    constraint_id=f"envelope-{name}-max",
+                    severity="hard",
+                    actual=numeric,
+                    operator="<=",
+                    limit=maximum,
+                    margin=maximum - numeric,
+                    passed=upper_passed,
+                    message=f"{name} must be at most {maximum}",
+                ),
+            )
+        )
+    return tuple(results)
+
+
 def _candidate_payload(
     pack: Mapping[str, object],
     envelope: IndicatorEnvelope | Mapping[str, object],
@@ -303,7 +364,9 @@ def generate_layout_candidates(
                 _candidate_payload(pack, envelope, (reference,), normalized, actual_seed, configured_version)
             )
             candidate_id = f"{pack.get('id_prefix', 'C')}-C-{preliminary_hash[:12]}"
-            constraints = evaluate_constraints(pack, normalized, candidate_id)
+            constraints = evaluate_constraints(pack, normalized, candidate_id) + _envelope_constraints(
+                envelope, normalized, candidate_id
+            )
         except ContractViolation:
             continue
         if any(not item.passed for item in constraints if item.severity == "hard"):
@@ -321,7 +384,8 @@ def generate_layout_candidates(
             "span_m": float(normalized.get("span_m", 0.0)),
             "wing_area_m2": float(normalized.get("wing_area_m2", 0.0)),
             "fuselage_length_m": float(normalized.get("fuselage_length_m", 0.0)),
-            "chord_m": float(derived.get("wing_area_m2", 0.0)) / float(derived.get("span_m", 1.0)),
+            "chord_m": float(normalized.get("wing_area_m2", 0.0))
+            / float(normalized.get("span_m", 1.0)),
         }
         candidate = LayoutCandidate(
             id=candidate_id,
