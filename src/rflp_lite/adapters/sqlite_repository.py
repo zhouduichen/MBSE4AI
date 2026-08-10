@@ -5,9 +5,11 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Iterable
 
-from rflp_lite.domain.canonical import canonical_json
+from rflp_lite.domain.canonical import canonical_hash, canonical_json
+from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.domain.models import (
     Artifact,
     Baseline,
@@ -35,6 +37,12 @@ class SQLiteRepository:
         "evidence",
         "document_evidence",
         "trace_records",
+        "domain_packs",
+        "scheme_records",
+        "indicator_envelopes",
+        "layout_candidates",
+        "discipline_evaluations",
+        "optimization_runs",
     )
 
     def __init__(self, path: Path):
@@ -156,11 +164,112 @@ class SQLiteRepository:
     def save_trace_records(self, values: tuple[dict[str, object], ...]) -> None:
         self._save_payloads("trace_records", values)
 
-    def _save_payloads(self, table: str, values: Iterable[dict[str, object]]) -> None:
-        rows = [(str(value["id"]), canonical_json(value)) for value in values]
+    def _save_payloads(self, table: str, values: Iterable[object]) -> None:
+        rows = []
+        for value in values:
+            if isinstance(value, Mapping):
+                record_id = value.get("id")
+            else:
+                record_id = getattr(value, "id", None)
+            if record_id is None:
+                raise ContractViolation(f"{table} payload must contain an id")
+            rows.append((str(record_id), canonical_json(value)))
         self._connection.executemany(
             f"INSERT OR REPLACE INTO {table}(id, payload) VALUES (?, ?)", rows
         )
+
+    def _load_payloads(self, table: str) -> tuple[dict[str, object], ...]:
+        rows = self._connection.execute(
+            f"SELECT payload FROM {table} ORDER BY id"
+        ).fetchall()
+        return tuple(json.loads(row[0]) for row in rows)
+
+    def _load_payload(self, table: str, record_id: str) -> dict[str, object] | None:
+        row = self._connection.execute(
+            f"SELECT payload FROM {table} WHERE id = ?", (str(record_id),)
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_domain_pack(self, value: Mapping[str, object]) -> dict[str, object]:
+        """Persist an immutable domain-pack revision.
+
+        The table key combines ``id`` and ``version``.  A revision can be
+        written repeatedly with identical content, but changing any mapping,
+        field, unit, constraint, adapter, or ID prefix under the same revision
+        raises a contract error; callers must publish a new pack version.
+        """
+
+        if not isinstance(value, Mapping) or "id" not in value or "version" not in value:
+            raise ContractViolation("domain pack must contain id and version")
+        # Validation lives in the application boundary; the repository stores
+        # the already validated declaration and only enforces immutable
+        # revision identity here.  Keeping this adapter independent of the
+        # application layer preserves the import contract.
+        pack = dict(value)
+        pack_id = str(pack["id"])
+        version = int(pack["version"])
+        content_hash = canonical_hash(pack)
+        payload = dict(pack)
+        payload["content_hash"] = content_hash
+        key = f"{pack_id}@{version}"
+        previous = self._connection.execute(
+            "SELECT payload FROM domain_packs WHERE id = ?", (key,)
+        ).fetchone()
+        if previous is not None:
+            existing = json.loads(previous[0])
+            if existing.get("content_hash") != content_hash:
+                raise ContractViolation(
+                    f"domain pack {pack_id} version {version} is immutable; publish a new version"
+                )
+        self._connection.execute(
+            "INSERT OR REPLACE INTO domain_packs(id, payload) VALUES (?, ?)",
+            (key, canonical_json(payload)),
+        )
+        return payload
+
+    def domain_packs(self) -> tuple[dict[str, object], ...]:
+        return self._load_payloads("domain_packs")
+
+    def save_scheme_records(self, values: tuple[object, ...]) -> None:
+        self._save_payloads("scheme_records", values)
+
+    def scheme_records(self) -> tuple[dict[str, object], ...]:
+        return self._load_payloads("scheme_records")
+
+    def load_scheme_record(self, record_id: str) -> dict[str, object] | None:
+        return self._load_payload("scheme_records", record_id)
+
+    def save_indicator_envelopes(self, values: tuple[object, ...]) -> None:
+        self._save_payloads("indicator_envelopes", values)
+
+    def indicator_envelopes(self) -> tuple[dict[str, object], ...]:
+        return self._load_payloads("indicator_envelopes")
+
+    def save_layout_candidates(self, values: tuple[object, ...]) -> None:
+        self._save_payloads("layout_candidates", values)
+
+    def layout_candidates(self) -> tuple[dict[str, object], ...]:
+        return self._load_payloads("layout_candidates")
+
+    def save_discipline_evaluations(self, values: tuple[object, ...]) -> None:
+        self._save_payloads("discipline_evaluations", values)
+
+    def discipline_evaluations(self) -> tuple[dict[str, object], ...]:
+        return self._load_payloads("discipline_evaluations")
+
+    def load_discipline_evaluation(self, cache_key: str) -> dict[str, object] | None:
+        """Find a cached evaluation by its deterministic cache-key metadata."""
+
+        for payload in self._load_payloads("discipline_evaluations"):
+            if payload.get("cache_key") == cache_key:
+                return payload
+        return None
+
+    def save_optimization_runs(self, values: tuple[object, ...]) -> None:
+        self._save_payloads("optimization_runs", values)
+
+    def optimization_runs(self) -> tuple[dict[str, object], ...]:
+        return self._load_payloads("optimization_runs")
 
     def save_workbench(self, value: dict[str, object]) -> None:
         self._connection.execute(
