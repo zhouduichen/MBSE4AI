@@ -83,7 +83,7 @@ git diff --check
 
 Expected: all tests pass, import contracts remain intact, and no whitespace errors are reported.
 
-- [ ] **Step 5: Commit the implementation**
+- [x] **Step 5: Commit the implementation**
 
 ```bash
 git add src/rflp_lite/interface/web/templates/requirements-graph.html tests/interface/web/test_pages.py docs/superpowers/plans/2026-08-10-mbse-review-page-reopen-plan.md
