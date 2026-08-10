@@ -264,6 +264,7 @@ export RFLP_LLM_API_KEY=local-key
 | `614532d` | 利益相关方审核、动态 RFLP、LLM 候选和确定性 SVG 核心 |
 | `dbadac2` | 本地需求建模 Web 工作流 |
 | `6d4c9be` | README 使用说明 |
+| `8dd7f98` | 解耦的 MBSE UML 顺序图契约、渲染器、Web/API 入口与回归测试 |
 
 ## 已知限制与下一步
 
