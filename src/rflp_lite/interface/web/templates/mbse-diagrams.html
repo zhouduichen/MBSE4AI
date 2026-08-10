@@ -7,11 +7,23 @@
 </div>
 
 <section class="panel diagram-nav-panel">
-  <div class="diagram-tabs" aria-label="设计图类型">
-    <a class="{% if diagram_view == 'all' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse?view=all">总览</a>
-    <a class="{% if diagram_view == 'use_case' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse?view=use_case">用例图</a>
-    <a class="{% if diagram_view == 'activity' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse?view=activity">活动图</a>
-    <a class="{% if diagram_view == 'sequence' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse/sequence">顺序图</a>
+  <div class="diagram-card-grid" aria-label="设计图类型">
+    <a class="diagram-module-card {% if diagram_view == 'all' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse?view=all" {% if diagram_view == 'all' %}aria-current="page"{% endif %}>
+      <div class="diagram-card-top"><span class="diagram-card-icon" aria-hidden="true">Σ</span><span class="diagram-card-type">MODEL</span></div>
+      <strong>总览</strong><span>查看全部 MBSE 语义视图</span><span class="diagram-card-arrow" aria-hidden="true">→</span>
+    </a>
+    <a class="diagram-module-card {% if diagram_view == 'use_case' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse?view=use_case" {% if diagram_view == 'use_case' %}aria-current="page"{% endif %}>
+      <div class="diagram-card-top"><span class="diagram-card-icon" aria-hidden="true">UC</span><span class="diagram-card-type">GOAL</span></div>
+      <strong>用例图</strong><span>参与者与系统目标</span><span class="diagram-card-arrow" aria-hidden="true">→</span>
+    </a>
+    <a class="diagram-module-card {% if diagram_view == 'activity' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse?view=activity" {% if diagram_view == 'activity' %}aria-current="page"{% endif %}>
+      <div class="diagram-card-top"><span class="diagram-card-icon" aria-hidden="true">AC</span><span class="diagram-card-type">FLOW</span></div>
+      <strong>活动图</strong><span>动作与控制流</span><span class="diagram-card-arrow" aria-hidden="true">→</span>
+    </a>
+    <a class="diagram-module-card {% if diagram_view == 'sequence' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse/sequence" {% if diagram_view == 'sequence' %}aria-current="page"{% endif %}>
+      <div class="diagram-card-top"><span class="diagram-card-icon" aria-hidden="true">↔</span><span class="diagram-card-type">INTERACTION</span></div>
+      <strong>顺序图</strong><span>生命线与消息方向</span><span class="diagram-card-arrow" aria-hidden="true">→</span>
+    </a>
   </div>
   <p class="form-hint">顺序图以“已确认场景”为入口；横向是参与者/系统边界，纵向是时间推进，消息用箭头表达方向。</p>
 </section>

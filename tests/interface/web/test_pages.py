@@ -620,6 +620,23 @@ def test_mbse_design_page_renders_selectable_sequence_diagram(client: TestClient
     assert "Sequence Diagram" in svg.text
 
 
+def test_mbse_design_page_uses_clickable_module_cards(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+
+    page = client.get("/w/demo/requirements/mbse?view=activity")
+
+    assert page.status_code == 200
+    assert page.text.count("diagram-module-card") == 4
+    assert 'href="/w/demo/requirements/mbse?view=all"' in page.text
+    assert 'href="/w/demo/requirements/mbse?view=use_case"' in page.text
+    assert 'href="/w/demo/requirements/mbse?view=activity"' in page.text
+    assert 'href="/w/demo/requirements/mbse/sequence"' in page.text
+    assert "参与者与系统目标" in page.text
+    assert "动作与控制流" in page.text
+    assert "生命线与消息方向" in page.text
+    assert 'class="diagram-module-card active"' in page.text
+
+
 def test_sequence_diagram_keeps_unstructured_steps_as_candidate(client: TestClient) -> None:
     client.post("/workspaces", data={"name": "demo"})
     client.post(
