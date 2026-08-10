@@ -172,6 +172,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     concept_export.add_argument("--run-id", required=True)
     concept_export.add_argument("--format", choices=("json", "svg"), default="json")
     concept_export.add_argument("--candidate-id")
+    concept_acceptance = concept_commands.add_parser("acceptance")
+    concept_acceptance.add_argument("--pack", type=Path, required=True)
+    concept_acceptance.add_argument("--schemes", type=Path, required=True)
+    concept_acceptance.add_argument("--envelope", type=Path, required=True)
+    concept_acceptance.add_argument("--evaluator-profile", type=Path, required=True)
     mlflow_parser = subparsers.add_parser("mlflow", help="track a local run in MLflow")
     mlflow_parser.add_argument("--workspace", type=Path, required=True)
     mlflow_parser.add_argument("--result-hash", required=True)
@@ -274,6 +279,14 @@ def _run_profile(args: argparse.Namespace) -> int:
 
 
 def _run_concept(args: argparse.Namespace) -> int:
+    if args.concept_command == "acceptance":
+        from rflp_lite.application.concept_acceptance import run_concept_acceptance
+
+        report = run_concept_acceptance(
+            args.pack, args.schemes, args.envelope, args.evaluator_profile
+        )
+        print(canonical_json(report))
+        return 0 if report["status"] == "passed" else 1
     if args.concept_command == "import":
         pack = load_domain_pack(args.pack)
         if args.data.suffix.casefold() in {".db", ".sqlite", ".sqlite3"}:

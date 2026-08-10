@@ -1,6 +1,6 @@
 # RFLP-Lite 开发状态
 
-**最后更新：** 2026-08-08
+**最后更新：** 2026-08-10
 **当前版本：** 0.1.0  
 **状态：** 本地最小链路已跑通，需求工作台、Python 项目接入、任务契约执行与测试执行沙箱均已完成首版；CLI 已可无 Web 全自动跑通
 
@@ -28,6 +28,7 @@
 | 任务契约执行 | 已完成首版 | 重扫描项目目录，逐条判定 TaskContract 是否已满足（RESOLVED/UNRESOLVED），确定性、只读、不执行用户代码 |
 | 测试执行沙箱 | 已完成首版 | 支持 pytest/unittest、超时、输出、POSIX 内存/文件句柄限制、确定性缓存和受控并行；统一回填 Evidence 并如实报告每个 runner |
 | 拖拽图编辑、复杂文档版面、多人权限 | 延后 | 首版提供语义编辑 API；CAD/多学科仿真和组织级权限仍在后续 M3-M8 |
+| 总体概念布局与 MDO（验收 2.1/2.2） | 已完成首版 | 版本化领域包、JSON/CSV/SQLite 方案导入、3–5 套可行 SVG 布局、气动/结构/重量重心批量评估、缓存/失败隔离/代理门禁/Pareto、CLI/API/Web 与可执行验收报告 |
 
 ## 已实现链路
 
@@ -121,6 +122,9 @@ rflp workbench build --workspace <path> --requirements <file> [<file> ...]
 rflp acceptance --requirements <file> [--gold <requirements-gold.json>]
 rflp mbse generate --workspace <path>
 rflp mbse export --workspace <path> --format json|sysml|svg
+rflp concept import --workspace <path> --pack <pack.json> --data <schemes.json|csv|db> [--table <table>]
+rflp concept run --workspace <path> --pack <pack.json> --evaluator-profile <profile.json> --envelope <envelope.json>
+rflp concept acceptance --pack <pack.json> --schemes <schemes.json> --envelope <envelope.json> --evaluator-profile <profile.json>
 rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 60]
 ```
 
