@@ -25,6 +25,7 @@
           <a class="nav-subitem {% if active == 'requirements-scenarios' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/scenarios">场景生成</a>
           <a class="nav-subitem {% if active == 'requirements-graph' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/graph">RFLP 规划图</a>
           <a class="nav-subitem {% if active == 'requirements-mbse' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse">MBSE 设计图</a>
+          <a class="nav-subitem {% if active == 'requirements-discovery' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/discovery">智能补全与架构发现</a>
         </div>{% else %}<span class="nav-item muted">需求规划</span>{% endif %}
         {% if workspace %}<a class="nav-item {% if active == 'concept-design' %}active{% endif %}" href="/w/{{ workspace.name }}/concept-design">总体概念设计</a>{% else %}<span class="nav-item muted">总体概念设计</span>{% endif %}
         {% if workspace %}<a class="nav-item {% if active == 'project' %}active{% endif %}" href="/w/{{ workspace.name }}/project">项目验证</a>{% else %}<span class="nav-item muted">项目验证</span>{% endif %}

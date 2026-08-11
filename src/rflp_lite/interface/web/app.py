@@ -11,6 +11,8 @@ from rflp_lite.application.web_facade import WebFacade
 from rflp_lite.domain.errors import ContractViolation, RflpError
 from rflp_lite.interface.web.routes import router, templates
 from rflp_lite.interface.web.api_v1 import api_v1
+from rflp_lite.interface.web.discovery_api import discovery_api
+from rflp_lite.interface.web.discovery_routes import discovery_router
 
 
 def create_app(
@@ -29,6 +31,8 @@ def create_app(
     app.mount("/static", StaticFiles(directory=package_dir / "static"), name="static")
     app.include_router(router)
     app.include_router(api_v1)
+    app.include_router(discovery_router)
+    app.include_router(discovery_api)
 
     @app.exception_handler(ContractViolation)
     async def contract_error(request: Request, exc: ContractViolation) -> HTMLResponse:

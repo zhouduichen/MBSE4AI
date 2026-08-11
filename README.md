@@ -68,6 +68,19 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 
 “运行中心”继续提供 Heuristic 或 CP-SAT 的完整 Candidate、Simulation、Baseline、Delta、TaskContract 和 Evidence 链路。
 
+### 智能 MBSE 发现（候选→审核→图形）
+
+对一句话或零散需求运行城市医疗飞行汽车领域包：
+
+```bash
+.venv/bin/rflp discover draft --workspace workspaces/medical-aam --pack urban-medical-aam-v1
+.venv/bin/rflp discover review --workspace workspaces/medical-aam --candidate-id candidate-0123456789abcdef --decision accepted --revision 4
+.venv/bin/rflp discover finalize --workspace workspaces/medical-aam --pack urban-medical-aam-v1
+.venv/bin/rflp discover export --workspace workspaces/medical-aam --pack urban-medical-aam-v1 --diagram environment
+```
+
+智能输出始终是 `candidate`，必须逐项人工审核后才进入 accepted semantic graph；`unknown` 表示已经评估但仍未解决。发现流程不会批准 Baseline。利益相关方、场景维度、覆盖规则和图形分组都属于版本化领域包，新增可选字段通常只需修改领域包，不需要改 Python 核心。
+
 ### 连接本地 Python 项目
 
 需求建模生成 RFLP 后，进入“项目接入”，把已批准基线（人工批准）与一个本地 Python 项目目录对接：

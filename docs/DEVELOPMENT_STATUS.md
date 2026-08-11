@@ -1,6 +1,6 @@
 # RFLP-Lite 开发状态
 
-**最后更新：** 2026-08-10
+**最后更新：** 2026-08-11
 **当前版本：** 0.1.0  
 **状态：** 本地最小链路已跑通，需求工作台、Python 项目接入、任务契约执行与测试执行沙箱均已完成首版；CLI 已可无 Web 全自动跑通
 
@@ -31,6 +31,7 @@
 | 测试执行沙箱 | 已完成首版 | 支持 pytest/unittest、超时、输出、POSIX 内存/文件句柄限制、确定性缓存和受控并行；统一回填 Evidence 并如实报告每个 runner |
 | 拖拽图编辑、复杂文档版面、多人权限 | 延后 | 首版提供语义编辑 API；CAD/多学科仿真和组织级权限仍在后续 M3-M8 |
 | 总体概念布局与 MDO（验收 2.1/2.2） | 已完成首版 | 版本化领域包、JSON/CSV/SQLite 方案导入、3–5 套可行 SVG 布局、气动/结构/重量重心批量评估、缓存/失败隔离/代理门禁/Pareto、CLI/API/Web 与可执行验收报告 |
+| 智能 MBSE 发现 | 已完成首版 | 一句话/零散输入 → 利益相关方、场景、能力、需求、功能、逻辑/物理候选；覆盖审计、逐项审核、accepted graph、DiagramSpec 与确定性 SVG；城市医疗飞行汽车领域包覆盖极端天气、低能见度、通信/导航和动力故障 |
 
 ## 已实现链路
 
@@ -43,6 +44,19 @@ Artifact
 → R → F → L → P
 → Candidate / Simulation
 → Baseline / Delta / TaskContract / Evidence
+
+智能发现支线：
+
+```text
+Sparse Input
+→ Seed Model
+→ 8 Lens Candidate Sets
+→ Normalization / Coverage
+→ Human Review
+→ Accepted Semantic Graph
+→ DiagramSpec
+→ Deterministic SVG
+```
 ```
 
 关键门禁：

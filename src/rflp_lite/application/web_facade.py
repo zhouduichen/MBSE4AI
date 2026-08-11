@@ -70,6 +70,12 @@ from rflp_lite.application.concept_design_service import (
     run_concept_design,
 )
 from rflp_lite.application.domain_packs import load_domain_pack, validate_domain_pack
+from rflp_lite.application.mbse_domain_packs import load_mbse_domain_pack
+from rflp_lite.application.intelligence.service import IntelligenceService
+from rflp_lite.application.diagrams.service import DiagramService
+from rflp_lite.adapters.deterministic_svg_renderer import DeterministicSvgRenderer
+from rflp_lite.ports.diagram_renderer import RenderedDiagram
+from rflp_lite.application.resources import resource_path
 from rflp_lite.application.scheme_library import import_scheme_rows
 from rflp_lite.adapters.disciplines import discipline_registry
 from rflp_lite.adapters.scheme_sources import read_scheme_rows
@@ -464,6 +470,57 @@ class WebFacade:
             return state
         finally:
             repository.close()
+
+    def _discovery_pack(self, pack_id: str) -> dict[str, object]:
+        clean = pack_id.strip()
+        if not clean or clean != Path(clean).name or "/" in clean or "\\" in clean:
+            raise ContractViolation("invalid discovery pack ID")
+        return load_mbse_domain_pack(resource_path(f"domain-packs/{clean}.json"))
+
+    def _intelligence_service(self, pack_id: str, *, allow_model: bool) -> IntelligenceService:
+        pack = self._discovery_pack(pack_id)
+        config = self.llm.active_config() if allow_model else None
+        from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
+
+        if config is not None and str(config.get("kind", "remote")) == "remote" and not str(config.get("api_key", "")):
+            config = None
+        model = OpenAICompatibleModel(config) if config is not None else None
+        return IntelligenceService(pack, model)
+
+    def draft_discovery(self, workspace_name: str, pack_id: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(workspace_name, self._intelligence_service(pack_id, allow_model=True).draft(current), "discovery.drafted")
+
+    def review_discovery(self, workspace_name: str, candidate_id: str, decision: str, expected_revision: int, pack_id: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        service = self._intelligence_service(pack_id, allow_model=False)
+        return self._save_requirements(workspace_name, service.review(current, candidate_id, decision, expected_revision), "discovery.reviewed")
+
+    def edit_discovery(self, workspace_name: str, candidate_id: str, payload: dict[str, object], expected_revision: int, pack_id: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        service = self._intelligence_service(pack_id, allow_model=False)
+        return self._save_requirements(workspace_name, service.edit(current, candidate_id, payload, expected_revision), "discovery.edited")
+
+    def finalize_discovery(self, workspace_name: str, pack_id: str) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        return self._save_requirements(workspace_name, self._intelligence_service(pack_id, allow_model=False).finalize(current), "discovery.finalized")
+
+    def render_discovery_diagram(self, workspace_name: str, pack_id: str, diagram_type: str) -> tuple[RenderedDiagram, ...]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        graph = current.get("discovery", {}).get("accepted_graph", {}) if isinstance(current.get("discovery"), dict) else {}
+        if not isinstance(graph, dict) or not graph.get("elements"):
+            raise ContractViolation("accepted discovery graph is empty")
+        return DiagramService(DeterministicSvgRenderer()).render_one(graph, self._discovery_pack(pack_id), diagram_type)
 
     def requirements_guide(self, workspace_name: str) -> dict[str, object]:
         """Return one actionable next step for the guided requirements path."""

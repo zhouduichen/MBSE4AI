@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="page-shell">
+  <h1>智能补全 · MBSE 发现</h1>
+  <p>从一句话或零散需求生成可审核的利益相关方、场景、能力、需求与架构候选。</p>
+  {% set discovery = state.get('discovery', {}) if state else {} %}
+  {% set intake = discovery.get('intake', {}) %}
+  <section class="panel"><h2>任务种子</h2><p>{{ intake.get('mission_statement', '尚未生成') }}</p><p>系统：{{ intake.get('system_name', '待定义') }}</p><p>未知项：{{ intake.get('unknowns', [])|join('、') }}</p><p>领域包：{{ pack_id }}</p></section>
+  <section class="panel"><h2>覆盖审计</h2><p>{{ discovery.get('coverage', {}).get('summary', {}) }}</p>{% for cell in discovery.get('coverage', {}).get('cells', []) %}<div>{{ cell.key }} · {{ cell.status }}{% if cell.status != 'covered' %} · 需确认{% endif %}</div>{% endfor %}</section>
+  <section class="panel"><h2>候选（AI 候选，需人工确认）</h2>{% for group in discovery.get('candidate_sets', []) %}<h3>{{ group.get('lens_id') }}</h3>{% for item in group.get('items', []) %}<article><strong>{{ item.get('payload', {}).get('name', item.get('id')) }}</strong> · {{ item.get('status') }} · {{ item.get('confidence', '') }}<div>{{ item.get('provenance', []) }} {{ item.get('assumptions', []) }}</div></article>{% endfor %}{% else %}<p>还没有候选，请先运行草稿。</p>{% endfor %}</section>
+  <section class="panel"><h2>操作</h2><form method="post" action="/w/{{ workspace.name }}/requirements/discovery/draft"><input type="hidden" name="pack_id" value="{{ pack_id }}"><button type="submit">智能补全</button></form><p>审核、编辑和最终确认通过 API 或候选卡片操作；未审核项不会进入图形。</p></section>
+  <section class="panel"><h2>诊断</h2>{% for item in discovery.get('diagnostics', []) %}<div>{{ item.get('severity', 'info') }} · {{ item.get('code') }} · {{ item.get('message', '') }}</div>{% endfor %}</section>
+</main>
+{% endblock %}
