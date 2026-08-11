@@ -119,7 +119,21 @@
         "blocks": {"type": "array", "items": {"type": "string"}}
       },
       "additionalProperties": true
-    }
+    },
+    "concern": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "need": {"type": "object", "required": ["name", "statement"], "properties": {"name": {"type": "string", "minLength": 1}, "statement": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "exchange_flow": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "source": {"type": "string"}, "target": {"type": "string"}}, "additionalProperties": true},
+    "system_boundary": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "lifecycle_phase": {"type": "object", "required": ["name", "phase_id"], "properties": {"name": {"type": "string", "minLength": 1}, "phase_id": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "transition": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "from": {"type": "string"}, "to": {"type": "string"}}, "additionalProperties": true},
+    "operational_scenario": {"type": "object", "required": ["name", "trigger", "expected_outcome"], "properties": {"name": {"type": "string", "minLength": 1}, "actors": {"type": "array", "items": {"type": "string"}}, "preconditions": {"type": "array", "items": {"type": "string"}}, "trigger": {"type": "string", "minLength": 1}, "steps": {"type": "array", "items": {"type": "string"}}, "expected_outcome": {"type": "string", "minLength": 1}, "expected_outcomes": {"type": "array", "items": {"type": "string"}}, "scenario_type": {"type": "string"}, "contexts": {"type": "object"}}, "additionalProperties": true},
+    "functional_flow": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "source": {"type": "string"}, "target": {"type": "string"}}, "additionalProperties": true},
+    "functional_scenario": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "logical_component": {"type": "object", "required": ["name", "responsibilities"], "properties": {"name": {"type": "string", "minLength": 1}, "responsibilities": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
+    "physical_block": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "interface": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "solution_candidate": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "clarification_question": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "question": {"type": "string"}}, "additionalProperties": true}
   },
   "stakeholder_lenses": [
     {"id": "user", "label": "直接使用者"},
