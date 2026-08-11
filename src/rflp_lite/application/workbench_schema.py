@@ -9,7 +9,17 @@ from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import ContractViolation
 
 
-WORKBENCH_SCHEMA_VERSION = 2
+WORKBENCH_SCHEMA_VERSION = 3
+
+_DISCOVERY_DEFAULTS: dict[str, object] = {
+    "intake": {},
+    "candidate_sets": [],
+    "coverage": {},
+    "accepted_graph": {"elements": [], "relations": []},
+    "diagram_specs": [],
+    "diagnostics": [],
+    "revision": 0,
+}
 
 _V2_DEFAULTS: dict[str, object] = {
     "document_pages": [],
@@ -21,6 +31,11 @@ _V2_DEFAULTS: dict[str, object] = {
     "mbse": None,
 }
 
+_WORKBENCH_DEFAULTS: dict[str, object] = {
+    **_V2_DEFAULTS,
+    "discovery": _DISCOVERY_DEFAULTS,
+}
+
 
 def empty_document_state() -> dict[str, object]:
     """Return a fresh state fragment for document intelligence fields."""
@@ -28,8 +43,14 @@ def empty_document_state() -> dict[str, object]:
     return json.loads(canonical_json(_V2_DEFAULTS))
 
 
+def empty_discovery_state() -> dict[str, object]:
+    """Return a fresh default state fragment for intelligent discovery."""
+
+    return json.loads(canonical_json(_DISCOVERY_DEFAULTS))
+
+
 def migrate_workbench_state(state: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Normalize legacy state to schema v2 without mutating repository data."""
+    """Upgrade legacy workbench state to schema v3 without mutating it."""
 
     if state is None:
         return None
@@ -42,10 +63,10 @@ def migrate_workbench_state(state: dict[str, Any] | None) -> dict[str, Any] | No
             f"unsupported workbench schema version: {version}"
         )
     normalized["schema_version"] = WORKBENCH_SCHEMA_VERSION
-    for key, default in _V2_DEFAULTS.items():
+    for key, default in _WORKBENCH_DEFAULTS.items():
         if key not in normalized or normalized[key] is None:
             normalized[key] = json.loads(canonical_json(default))
-    # The old extractor called these spans; v2 treats them as document regions.
+    # The old extractor called these spans; the workbench treats them as regions.
     if not normalized["document_regions"] and normalized.get("spans"):
         normalized["document_regions"] = [
             {

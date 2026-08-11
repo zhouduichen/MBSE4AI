@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rflp-lite.local/schemas/mbse-domain-pack.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "version",
+    "display_name",
+    "element_schemas",
+    "stakeholder_lenses",
+    "lifecycle_phases",
+    "scenario_dimensions",
+    "coverage_rules",
+    "prompt_fragments",
+    "diagram_groups"
+  ],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$"},
+    "version": {"type": "integer", "minimum": 1},
+    "display_name": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "stable_fields": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "core_overrides": {"type": "array", "maxItems": 0},
+    "element_schemas": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "object"}
+    },
+    "stakeholder_lenses": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/namedItem"}
+    },
+    "lifecycle_phases": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/namedItem"}
+    },
+    "stakeholders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "category", "goals", "interactions"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "name": {"type": "string", "minLength": 1},
+          "category": {"type": "string", "minLength": 1},
+          "goals": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "interactions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "concerns": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/namedItem"}
+    },
+    "scenario_dimensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "values"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "label": {"type": "string", "minLength": 1},
+          "values": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1},
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "coverage_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source", "priority"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "source": {
+            "enum": ["stakeholder_lenses", "lifecycle_phases", "scenario_dimensions"]
+          },
+          "priority": {"enum": ["high", "medium", "low"]}
+        }
+      }
+    },
+    "prompt_fragments": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "diagram_groups": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "order"],
+        "properties": {
+          "label": {"type": "string", "minLength": 1},
+          "order": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "namedItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
