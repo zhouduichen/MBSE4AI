@@ -19,6 +19,20 @@ _V2_DEFAULTS: dict[str, object] = {
     "trace_links": [],
     "diagnostics": [],
     "mbse": None,
+    "artifacts": [],
+    "revision": 0,
+    "review_queue": [],
+    "change_set": {
+        "kind": "legacy",
+        "base_revision": 0,
+        "items": [],
+        "summary": {
+            "added": 0,
+            "affected": 0,
+            "removed": 0,
+            "requires_confirmation": 0,
+        },
+    },
 }
 
 

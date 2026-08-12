@@ -84,15 +84,6 @@ def test_api_v1_exposes_reviewed_scenario_sequence_contract(client: TestClient) 
     assert created.status_code == 200
     scenario_id = created.json()["scenario"]["id"]
 
-    pending = client.get(f"/api/v1/workspaces/demo/scenarios/{scenario_id}/sequence")
-    assert pending.status_code == 404
-    assert "尚未确认" in pending.json()["message"]
-
-    reviewed = client.post(
-        f"/api/v1/workspaces/demo/scenarios/{scenario_id}/review",
-        json={"decision": "accepted"},
-    )
-    assert reviewed.status_code == 200
     sequence = client.get(f"/api/v1/workspaces/demo/scenarios/{scenario_id}/sequence")
     assert sequence.status_code == 200
     body = sequence.json()
@@ -174,7 +165,7 @@ def test_api_v1_mbse_requires_explicit_generation_and_confirmation(client: TestC
     generated = client.post("/api/v1/workspaces/demo/requirements/mbse")
     assert generated.status_code == 200
     model = generated.json()["mbse"]
-    assert model["status"] == "review"
+    assert model["status"] == "accepted"
     element_id = model["use_cases"][0]["id"]
 
     reviewed = client.post(
@@ -318,9 +309,10 @@ def test_api_v1_runs_one_click_flow_from_current_input(client: TestClient) -> No
     assert completed.status_code == 200
     body = completed.json()
     assert body["status"] == "ok"
-    assert body["flow"]["status"] == "awaiting_scenario_review"
+    assert body["flow"]["status"] == "completed"
     assert body["requirements"]["scenarios"]
-    assert body["requirements"]["scenario_runs"] == []
+    assert body["requirements"]["scenario_runs"]
+    assert all(run["status"] == "completed" for run in body["requirements"]["scenario_runs"])
 
 
 def test_api_v1_adds_manual_stakeholder(client: TestClient) -> None:

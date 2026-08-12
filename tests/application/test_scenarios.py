@@ -103,19 +103,18 @@ def test_system_generates_a_scenario_from_minimum_natural_language_input():
     assert all(item["status"] == "candidate" for item in state["claims"])
 
 
-def test_generated_scenario_requires_review_before_execution():
+def test_generated_scenario_is_accepted_and_executable():
     state = generate_scenario_drafts(_state())
     scenario = state["scenarios"][0]
-    with pytest.raises(ContractViolation, match="尚未确认"):
-        execute_scenario(state, scenario["id"])
-
-    state = review_scenario(state, scenario["id"], "accepted")
-    assert state["scenarios"][0]["status"] == "accepted"
+    assert scenario["status"] == "accepted"
     result = execute_scenario(state, scenario["id"])
     assert result["verification"] == "declarative-only"
 
+    state = review_scenario(state, scenario["id"], "rejected")
+    assert state["scenarios"][0]["status"] == "rejected"
 
-def test_editing_scenario_returns_it_to_review_and_records_decision():
+
+def test_editing_scenario_keeps_it_accepted_and_records_review():
     state = generate_scenario_drafts(_state())
     scenario = state["scenarios"][0]
     state = review_scenario(state, scenario["id"], "accepted")
@@ -131,7 +130,7 @@ def test_editing_scenario_returns_it_to_review_and_records_decision():
         faults="恢复失败时记录故障",
     )
     edited = state["scenarios"][0]
-    assert edited["status"] == "draft"
+    assert edited["status"] == "accepted"
     assert edited["title"] == "确认恢复"
     assert edited["revision"] == 2
     state = review_scenario(state, scenario["id"], "rejected")

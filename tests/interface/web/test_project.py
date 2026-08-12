@@ -56,14 +56,7 @@ def test_full_project_flow(client: TestClient) -> None:
     _prepare_workbench(client)
 
     page = client.get("/w/demo/project")
-    assert "人工批准基线" in page.text
-    assert "待批准" in page.text
-
-    assert client.post(
-        "/w/demo/project/approve-baseline", follow_redirects=False
-    ).status_code == 303
-    page = client.get("/w/demo/project")
-    assert "已批准" in page.text
+    assert "已自动生成" in page.text
     assert "连接本地 Python 项目" in page.text
 
     assert client.post(
@@ -85,20 +78,21 @@ def test_full_project_flow(client: TestClient) -> None:
     assert client.get("/w/demo/project/download/../../baseline.json").status_code == 404
 
 
-def test_analyze_requires_approved_baseline(client: TestClient) -> None:
+def test_analyze_works_with_auto_generated_baseline(client: TestClient) -> None:
     _prepare_workbench(client)
     response = client.post("/w/demo/project/analyze", data={"source": str(EXAMPLE)})
-    assert response.status_code == 422
-    assert "请先批准基线" in response.text
+    assert response.status_code == 200
+    page = client.get("/w/demo/project")
+    assert "MISSING" in page.text
 
 
-def test_verify_requires_approved_baseline(client: TestClient) -> None:
+def test_verify_requires_analyzed_project(client: TestClient) -> None:
     _prepare_workbench(client)
     response = client.post(
         "/w/demo/project/verify", data={"source": str(EXAMPLE)}
     )
     assert response.status_code == 422
-    assert "请先批准基线" in response.text
+    assert "请先在项目接入中分析项目" in response.text
 
 
 def test_verify_after_analyze_shows_execution_panel(client: TestClient) -> None:

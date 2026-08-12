@@ -56,8 +56,8 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
     """Run the user-entered requirement through the local model workbench.
 
     This is an experience-mode orchestration of the real local adapters. It
-    does not use the fixed demo fixture and marks its generated scenario and
-    baseline so users can distinguish quick output from reviewed delivery.
+    does not use the fixed demo fixture and accepts routine generated output;
+    destructive changes remain explicit actions elsewhere in the UI.
     """
     formal_input = any(
         item.get("source_type") in {"constraint", "need"}
@@ -71,7 +71,7 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
         if result.get("claims") and not result.get("scenarios"):
             result = add_scenario(result, **_draft_system_scenario(result))
             scenario = result["scenarios"][-1]
-            scenario["status"] = "generated-draft"
+            scenario["status"] = "accepted"
             scenario["producer"] = "rule"
             scenario["generated_from"] = "system-context"
             draft_scenario_ids.append(scenario["id"])
@@ -81,12 +81,12 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
                 {"key": "analysis", "status": "completed"},
                 {"key": "draft_graph", "status": "completed"},
                 {"key": "starter_scenario", "status": "completed", "count": len(draft_scenario_ids)},
-                {"key": "scenario_execution", "status": "waiting_for_scenario_review", "count": 0},
-                {"key": "formal_model", "status": "waiting_for_requirement_review"},
+                {"key": "scenario_execution", "status": "waiting_for_formal_model", "count": 0},
+                {"key": "formal_model", "status": "waiting_for_formal_generation"},
                 {"key": "project_validation", "status": "waiting_for_project_path"},
             ],
-            "warning": "原文已建立系统主题、初始 RFLP 草图和起始场景；补充目标、功能和约束后即可确认正式需求。",
-            "next_action": "进入场景生成与确认，补充字段并确认场景后再生成执行轨迹",
+            "warning": "原文已建立系统主题、初始 RFLP 草图和起始场景；补充目标、功能和约束后即可生成正式模型。",
+            "next_action": "进入需求输入或场景生成继续补充模型",
         }
         return result
 
@@ -110,7 +110,7 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
             for item in result["scenarios"]
             if claim["id"] in item.get("requirement_ids", ())
         )
-        scenario["status"] = "generated-draft"
+        scenario["status"] = "accepted"
         scenario["producer"] = "rule"
         scenario["generated_from"] = claim["id"]
         generated_ids.append(scenario["id"])

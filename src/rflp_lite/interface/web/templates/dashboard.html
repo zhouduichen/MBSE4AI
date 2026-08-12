@@ -15,8 +15,8 @@
 {% else %}
 <section class="workflow-steps" aria-label="项目进度">
   <a class="workflow-step" href="/w/{{ workspace.name }}/requirements/input"><span>1</span><strong>输入需求</strong><small>已提交</small></a>
-  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements/input"><span>2</span><strong>查看分析</strong><small>{{ requirements.claims|length }} 条候选</small></a>
-  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements/review"><span>3</span><strong>确认需求</strong><small>待确认</small></a>
+  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements/input"><span>2</span><strong>查看分析</strong><small>{{ requirements.claims|length }} 条已纳入</small></a>
+  <a class="workflow-step" href="/w/{{ workspace.name }}/requirements/review"><span>3</span><strong>检查需求</strong><small>按需调整</small></a>
   <a class="workflow-step" href="/w/{{ workspace.name }}/requirements/graph"><span>4</span><strong>生成规划图</strong><small>{% if requirements.rflp %}已生成{% else %}可直接进入{% endif %}</small></a>
   <a class="workflow-step" href="/w/{{ workspace.name }}/project"><span>5</span><strong>项目验证</strong></a>
 </section>

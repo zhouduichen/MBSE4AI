@@ -1,18 +1,18 @@
 {% extends "base.html" %}
-{% block title %}场景生成与确认 · RFLP-Lite{% endblock %}
+{% block title %}场景生成 · RFLP-Lite{% endblock %}
 {% block content %}
-<div class="page-heading"><div><span class="eyebrow">04 · Scenario</span><h1>场景生成与确认</h1></div><a class="button" href="/w/{{ workspace.name }}/requirements">返回需求规划</a></div>
+<div class="page-heading"><div><span class="eyebrow">04 · Scenario</span><h1>场景生成</h1></div><a class="button" href="/w/{{ workspace.name }}/requirements">返回需求规划</a></div>
 
 {% if not state or (not state.spans and not state.scenarios) %}
 <section class="panel"><div class="callout"><strong>暂无需求文本。</strong></div><a class="button primary" href="/w/{{ workspace.name }}/requirements/input">去输入需求 →</a></section>
 {% else %}
-<section class="panel guide-panel"><div class="panel-head"><div><span class="eyebrow">Review gate</span><h2>场景必须先确认</h2></div><span class="status-badge candidate">逐条审核</span></div><div class="download-actions"><a href="/w/{{ workspace.name }}/requirements/scenarios.json">下载场景 JSON</a><a href="/w/{{ workspace.name }}/requirements/scenario-runs.json">执行记录</a></div></section>
+<section class="panel guide-panel"><div class="panel-head"><div><span class="eyebrow">Auto accepted</span><h2>普通场景自动可用</h2></div><span class="status-badge accepted">已自动接受</span></div><p>新增和编辑后的场景可以直接查看顺序图或生成声明性执行轨迹。删除场景前会单独确认。</p><div class="download-actions"><a href="/w/{{ workspace.name }}/requirements/scenarios.json">下载场景 JSON</a><a href="/w/{{ workspace.name }}/requirements/scenario-runs.json">执行记录</a></div></section>
 
 <section class="panel"><div class="panel-head"><div><span class="eyebrow">Generated scenarios</span><h2>系统输出的场景</h2></div><span class="count-badge">{{ state.scenarios|length }}</span></div>
 {% for scenario in state.scenarios %}
 <article class="card scenario-review-card">
   <div class="panel-head"><div><h3>{{ scenario.title }}</h3><small class="table-secondary">{{ scenario.id }} · revision {{ scenario.revision|default(1) }}</small></div>
-    {% if scenario.status == 'accepted' %}<span class="status-badge accepted">已确认</span>{% elif scenario.status == 'rejected' %}<span class="status-badge rejected">已驳回</span>{% elif scenario.status == 'generated-draft' %}<span class="status-badge candidate">系统草稿</span>{% else %}<span class="status-badge candidate">待确认</span>{% endif %}
+    {% if scenario.status == 'accepted' %}<span class="status-badge accepted">已启用</span>{% elif scenario.status == 'rejected' %}<span class="status-badge rejected">已驳回</span>{% else %}<span class="status-badge candidate">需调整</span>{% endif %}
   </div>
   <form method="post" action="/w/{{ workspace.name }}/requirements/scenarios/edit" class="intake-form">
     <input type="hidden" name="scenario_id" value="{{ scenario.id }}">
@@ -25,14 +25,12 @@
     <label class="field">故障/异常（每行一个）<textarea name="faults" rows="2">{{ scenario.faults|join('\n') }}</textarea></label>
     <label class="field">关联 Requirement ID（每行一个）<textarea name="requirement_ids" rows="2">{{ scenario.requirement_ids|join('\n') }}</textarea></label>
     <div class="workbench-actions">
-      <button class="button" type="submit">保存修改并回到待确认</button>
+      <button class="button" type="submit">保存修改</button>
     </div>
   </form>
   <div class="workbench-actions">
-    <form method="post" action="/w/{{ workspace.name }}/requirements/scenarios/review"><input type="hidden" name="scenario_id" value="{{ scenario.id }}"><input type="hidden" name="decision" value="accepted"><button class="button primary" type="submit" {% if scenario.status == 'accepted' %}disabled{% endif %}>确认场景</button></form>
-    <form method="post" action="/w/{{ workspace.name }}/requirements/scenarios/review"><input type="hidden" name="scenario_id" value="{{ scenario.id }}"><input type="hidden" name="decision" value="rejected"><button class="button danger" type="submit" {% if scenario.status == 'rejected' %}disabled{% endif %}>驳回场景</button></form>
-    {% if scenario.status == 'accepted' %}<a class="button compact" href="/w/{{ workspace.name }}/requirements/mbse/sequence?scenario_id={{ scenario.id }}">查看顺序图</a><form method="post" action="/w/{{ workspace.name }}/requirements/scenarios/execute"><input type="hidden" name="scenario_id" value="{{ scenario.id }}"><button class="button compact primary" type="submit">生成执行轨迹</button></form>{% else %}<span class="muted-inline">确认后才能执行</span>{% endif %}
-    <form method="post" action="/w/{{ workspace.name }}/requirements/scenarios/delete"><input type="hidden" name="scenario_id" value="{{ scenario.id }}"><button class="button compact danger" type="submit">删除场景</button></form>
+    {% if scenario.status == 'accepted' %}<a class="button compact" href="/w/{{ workspace.name }}/requirements/mbse/sequence?scenario_id={{ scenario.id }}">查看顺序图</a><form method="post" action="/w/{{ workspace.name }}/requirements/scenarios/execute"><input type="hidden" name="scenario_id" value="{{ scenario.id }}"><button class="button compact primary" type="submit">生成执行轨迹</button></form>{% else %}<span class="muted-inline">调整后才能执行</span>{% endif %}
+    <form method="post" action="/w/{{ workspace.name }}/requirements/scenarios/delete" onsubmit="return window.confirm('删除场景后无法恢复，是否继续？')"><input type="hidden" name="scenario_id" value="{{ scenario.id }}"><button class="button compact danger" type="submit">删除场景</button></form>
   </div>
   {% if scenario.review_history %}<details><summary>确认历史（{{ scenario.review_history|length }}）</summary><ul>{% for review in scenario.review_history %}<li>{{ review.from }} → {{ review.to }} · revision {{ review.revision }}</li>{% endfor %}</ul></details>{% endif %}
   {% for run in state.scenario_runs|selectattr('scenario_id', 'equalto', scenario.id)|reverse %}<div class="mini-empty">最近执行：{{ run.status }} · {{ run.verification }} · {{ run.events|length }} 个事件 · assertions={{ run.assertions|length }} · <code>{{ short_hash(run.trace_hash) }}</code></div>{% endfor %}

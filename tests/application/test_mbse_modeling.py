@@ -23,7 +23,7 @@ def test_accepted_requirement_generates_all_three_model_views():
     assert model["activities"]
     assert model["messages"]
     assert model["trace_links"]
-    assert model["status"] == "review"
+    assert model["status"] == "accepted"
 
 
 def test_mbse_elements_can_be_reviewed_and_model_confirmed():
@@ -55,7 +55,7 @@ def test_mbse_edit_requires_current_revision():
         apply_mbse_edit(state, "wrong", operation)
 
 
-def test_mbse_edit_returns_accepted_model_to_review():
+def test_mbse_edit_keeps_model_accepted_after_rename():
     state = confirm_mbse(generate_mbse_revision(_reviewed_state()))
     item = state["mbse"]["use_cases"][0]
     edited = apply_mbse_edit(
@@ -63,5 +63,5 @@ def test_mbse_edit_returns_accepted_model_to_review():
         state["mbse"]["revision"],
         {"kind": "rename", "id": item["id"], "name": "修改后的用例"},
     )
-    assert edited["mbse"]["status"] == "review"
-    assert edited["mbse"]["use_cases"][0]["status"] == "candidate"
+    assert edited["mbse"]["status"] == "accepted"
+    assert edited["mbse"]["use_cases"][0]["status"] == "accepted"

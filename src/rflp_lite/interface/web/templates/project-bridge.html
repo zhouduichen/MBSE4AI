@@ -6,14 +6,13 @@
 <section class="panel"><div class="panel-head"><div><span class="eyebrow">Empty workbench</span><h2>先建立需求模型</h2></div></div><a class="button" href="/w/{{ workspace.name }}/requirements">需求建模</a></section>
 {% else %}
 <section class="panel">
-  <div class="panel-head"><div><span class="eyebrow">Baseline gate</span><h2>批准基线</h2></div>{% if state.baseline %}<span class="status-badge accepted">已批准</span>{% else %}<span class="status-badge candidate">待批准</span>{% endif %}</div>
+  <div class="panel-head"><div><span class="eyebrow">Baseline</span><h2>当前基线</h2></div>{% if state.baseline %}<span class="status-badge accepted">已自动生成</span>{% else %}<span class="status-badge candidate">待生成 RFLP</span>{% endif %}</div>
   {% if state.rflp %}
     {% if state.baseline %}
     <dl class="hash-row"><dt>基线</dt><dd>{{ state.baseline.id }}</dd><dt>哈希</dt><dd><code>{{ state.baseline.hash }}</code></dd><dt>元素</dt><dd>{{ state.baseline.elements|length }}</dd><dt>关系</dt><dd>{{ state.baseline.relations|length }}</dd></dl>
-    <p>基线已批准。</p>
+    <p>基线随正式 RFLP 自动生成，可直接用于项目差异分析。</p>
     {% else %}
-    <p>RFLP 已生成（{{ state.rflp.elements|length }} 个元素、{{ state.rflp.relations|length }} 条关系）。</p>
-    <form method="post" action="/w/{{ workspace.name }}/project/approve-baseline" class="generate-action"><button class="button primary" type="submit">人工批准基线</button></form>
+    <p>RFLP 已生成，基线将在刷新后自动准备。</p>
     {% endif %}
   {% else %}
   <p>尚未生成 RFLP 规划图。</p>
@@ -22,7 +21,7 @@
 <section class="panel">
   <div class="panel-head"><div><span class="eyebrow">Project source</span><h2>连接本地 Python 项目</h2></div><span class="count-badge">只读</span></div>
   {% if not state.baseline %}
-  <div class="mini-empty">请先批准基线。</div>
+  <div class="mini-empty">请先生成正式 RFLP。</div>
   {% else %}
   <form method="post" action="/w/{{ workspace.name }}/project/analyze" class="intake-form">
     <label class="field">本地项目目录（绝对路径）<input type="text" name="source" placeholder="/absolute/path/to/project" required></label>

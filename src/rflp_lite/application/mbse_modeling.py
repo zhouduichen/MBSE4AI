@@ -27,7 +27,7 @@ def generate_mbse_revision(state: dict[str, object]) -> dict[str, object]:
     actors: list[dict[str, object]] = []
     use_cases: list[dict[str, object]] = []
     activities: list[dict[str, object]] = []
-    lifelines: list[dict[str, object]] = [{"id": "lifeline-system", "name": "系统"}]
+    lifelines: list[dict[str, object]] = [{"id": "lifeline-system", "name": "系统", "status": "accepted"}]
     messages: list[dict[str, object]] = []
     links: list[dict[str, object]] = []
     for requirement in accepted:
@@ -37,16 +37,16 @@ def generate_mbse_revision(state: dict[str, object]) -> dict[str, object]:
         use_case_id = f"usecase-{canonical_hash((requirement_id,))[:12]}"
         activity_id = f"activity-{canonical_hash((requirement_id, 'main'))[:12]}"
         message_id = f"message-{canonical_hash((requirement_id, 'request'))[:12]}"
-        actors.append({"id": actor_id, "name": subject, "status": "candidate", "requirement_ids": [requirement_id]})
-        use_cases.append({"id": use_case_id, "name": str(requirement.get("statement", requirement.get("object", ""))), "actor_ids": [actor_id], "requirement_ids": [requirement_id], "status": "candidate"})
-        activities.append({"id": activity_id, "name": str(requirement.get("statement", requirement.get("object", ""))), "kind": "action", "predecessor_ids": [], "requirement_ids": [requirement_id], "status": "candidate"})
-        lifelines.append({"id": f"lifeline-{actor_id}", "name": subject})
-        messages.append({"id": message_id, "name": str(requirement.get("statement", requirement.get("object", ""))), "from_id": f"lifeline-{actor_id}", "to_id": "lifeline-system", "sequence": 1, "requirement_ids": [requirement_id], "status": "candidate"})
-        links.append({"source_id": requirement_id, "predicate": "refines", "target_id": use_case_id, "status": "candidate"})
+        actors.append({"id": actor_id, "name": subject, "status": "accepted", "requirement_ids": [requirement_id]})
+        use_cases.append({"id": use_case_id, "name": str(requirement.get("statement", requirement.get("object", ""))), "actor_ids": [actor_id], "requirement_ids": [requirement_id], "status": "accepted"})
+        activities.append({"id": activity_id, "name": str(requirement.get("statement", requirement.get("object", ""))), "kind": "action", "predecessor_ids": [], "requirement_ids": [requirement_id], "status": "accepted"})
+        lifelines.append({"id": f"lifeline-{actor_id}", "name": subject, "status": "accepted"})
+        messages.append({"id": message_id, "name": str(requirement.get("statement", requirement.get("object", ""))), "from_id": f"lifeline-{actor_id}", "to_id": "lifeline-system", "sequence": 1, "requirement_ids": [requirement_id], "status": "accepted"})
+        links.append({"source_id": requirement_id, "predicate": "refines", "target_id": use_case_id, "status": "accepted"})
     model: dict[str, object] = {
         "format": "ai4mbse/mbse",
         "version": 1,
-        "status": "review",
+        "status": "accepted",
         "review_history": [],
         "actors": sorted(_unique(actors), key=lambda item: str(item["id"])),
         "use_cases": sorted(_unique(use_cases), key=lambda item: str(item["id"])),
@@ -83,7 +83,12 @@ def review_mbse_element(
     if len(matches) != 1:
         raise ContractViolation("MBSE 审核对象不存在或不唯一")
     matches[0]["status"] = decision
-    model["status"] = "review"
+    statuses = [
+        item.get("status")
+        for collection in collections
+        for item in model.get(collection, ())
+    ]
+    model["status"] = "accepted" if statuses and all(status == "accepted" for status in statuses) else "review"
     return result
 
 
@@ -140,13 +145,18 @@ def apply_mbse_edit(
         if not name:
             raise ContractViolation("MBSE name cannot be empty")
         target["name"] = name
-        target["status"] = "candidate"
+        target["status"] = "accepted"
     else:
         status = str(operation.get("status", "")).strip()
         if status not in {"candidate", "accepted", "rejected"}:
             raise ContractViolation("invalid MBSE status")
         target["status"] = status
-    model_copy["status"] = "review"
+    statuses = [
+        item.get("status")
+        for collection in collections
+        for item in model_copy.get(collection, ())
+    ]
+    model_copy["status"] = "accepted" if statuses and all(status == "accepted" for status in statuses) else "review"
     revision_payload = {key: value for key, value in model_copy.items() if key != "revision"}
     model_copy["revision"] = canonical_hash(revision_payload)
     result["baseline"] = None

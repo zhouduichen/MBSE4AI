@@ -98,6 +98,16 @@ class SQLiteRepository:
         )
         self._connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS workbench_revisions (
+                revision INTEGER PRIMARY KEY,
+                event TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS requirement_records (
                 id TEXT PRIMARY KEY,
                 status TEXT NOT NULL,
@@ -298,17 +308,54 @@ class SQLiteRepository:
     def candidate_reviews(self) -> tuple[dict[str, object], ...]:
         return self._load_payloads("candidate_reviews")
 
-    def save_workbench(self, value: dict[str, object]) -> None:
+    def save_workbench(
+        self, value: dict[str, object], event: str = "workbench.saved"
+    ) -> dict[str, object]:
+        """Save the current aggregate and an immutable revision atomically."""
+
+        payload = json.loads(canonical_json(value))
+        previous_revision = int(payload.get("revision", 0) or 0)
+        next_revision = int(
+            self._connection.execute(
+                "SELECT COALESCE(MAX(revision), 0) + 1 FROM workbench_revisions"
+            ).fetchone()[0]
+        )
+        created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        payload["revision"] = next_revision
+        payload["revision_parent"] = previous_revision
+        payload["revision_event"] = event
+        serialized = canonical_json(payload)
         self._connection.execute(
             "INSERT OR REPLACE INTO workbench(id, payload) VALUES ('current', ?)",
-            (canonical_json(value),),
+            (serialized,),
         )
+        self._connection.execute(
+            "INSERT INTO workbench_revisions(revision, event, created_at, payload) VALUES (?, ?, ?, ?)",
+            (next_revision, event, created_at, serialized),
+        )
+        value.clear()
+        value.update(payload)
+        return value
 
     def load_workbench(self) -> dict[str, object] | None:
         row = self._connection.execute(
             "SELECT payload FROM workbench WHERE id = 'current'"
         ).fetchone()
         return json.loads(row[0]) if row else None
+
+    def workbench_revisions(self) -> tuple[dict[str, object], ...]:
+        rows = self._connection.execute(
+            "SELECT revision, event, created_at, payload FROM workbench_revisions ORDER BY revision"
+        ).fetchall()
+        return tuple(
+            {
+                "revision": int(revision),
+                "event": event,
+                "created_at": created_at,
+                "state": json.loads(payload),
+            }
+            for revision, event, created_at, payload in rows
+        )
 
     def latest_baseline(self) -> Baseline | None:
         row = self._connection.execute(

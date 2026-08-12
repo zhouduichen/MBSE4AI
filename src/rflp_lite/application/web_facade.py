@@ -25,9 +25,12 @@ from rflp_lite.application.requirements_workbench import (
     generate_draft_model,
     generate_model,
     empty_workbench,
+    initialize_review_state,
     merge_artifact,
     normalize_stakeholder_category,
     review_item,
+    restore_legacy_requirements,
+    sync_review_queue,
     stakeholder_category_label,
     stakeholder_bundle,
 )
@@ -81,6 +84,7 @@ from rflp_lite.application.workspaces import (
 )
 from rflp_lite.application.traceability import build_trace_matrix, refresh_traceability, trace_coverage
 from rflp_lite.domain.errors import AdapterFailure, ContractViolation, InvariantViolation
+from rflp_lite.domain.models import Baseline
 from rflp_lite.governance.profile import Profile
 
 
@@ -444,6 +448,16 @@ class WebFacade:
             state = repository.load_workbench()
             if state is not None:
                 state = migrate_workbench_state(state)
+                legacy_records = repository.requirement_records()
+                if (
+                    legacy_records
+                    and not state.get("artifacts")
+                    and int(state.get("revision", 0) or 0) == 0
+                ):
+                    state = restore_legacy_requirements(state, legacy_records)
+                    with repository.transaction():
+                        repository.save_workbench(state, "requirements.legacy_rehydrated")
+                state = sync_review_queue(state)
                 state.setdefault("scenarios", [])
                 state.setdefault("scenario_runs", [])
                 state.setdefault("flow", None)
@@ -460,6 +474,11 @@ class WebFacade:
                     except InvariantViolation:
                         # A partially rejected legacy workbench may not have
                         # enough provenance for even a draft; keep it viewable.
+                        pass
+                if state.get("rflp") and not state.get("draft") and not state.get("baseline"):
+                    try:
+                        state, _ = approve_workbench_baseline(state)
+                    except (ContractViolation, InvariantViolation):
                         pass
             return state
         finally:
@@ -496,9 +515,9 @@ class WebFacade:
             return {
                 "key": "review",
                 "stage": "第 2 步 / 4",
-                "title": "确认系统对你的理解",
-                "body": f"系统识别了 {len(claims)} 条候选，其中 {len(candidates)} 条还没有确认。确认后才会进入正式 RFLP。",
-                "action_label": "去确认需求",
+                "title": "检查系统对你的理解",
+                "body": f"系统已自动纳入 {len(claims)} 条需求；如需调整，可直接编辑或驳回单条内容。",
+                "action_label": "查看需求检查",
                 "action_url": f"{root}/review",
                 "steps": (("输入需求", "done"), ("确认理解", "current"), ("生成正式 RFLP", "waiting"), ("项目验证", "optional")),
             }
@@ -574,10 +593,22 @@ class WebFacade:
         finally:
             repository.close()
 
-        # Workspaces created before the ledger table existed still get a useful
-        # overview immediately; the next write permanently backfills the rows.
-        if not records and state is not None:
-            records = self._requirement_records_for_state(state, "requirements.current")
+        # The current workbench is authoritative.  The ledger contributes
+        # history/timestamps, but never overrides the current aggregate.
+        if state is not None:
+            current_records = self._requirement_records_for_state(
+                state, "requirements.current"
+            )
+            by_id = {str(item["id"]): dict(item) for item in records}
+            for current in current_records:
+                record_id = str(current["id"])
+                previous = by_id.get(record_id, {})
+                history = previous.get("history", current.get("history", []))
+                merged = dict(previous)
+                merged.update(current)
+                merged["history"] = history
+                by_id[record_id] = merged
+            records = tuple(by_id.values())
         current_ids = {
             str(item["id"]) for item in (state or {}).get("claims", ())
         }
@@ -621,7 +652,7 @@ class WebFacade:
         workspace_name: str,
         filename: str,
         content: bytes,
-        merge: bool = False,
+        merge: bool = True,
     ) -> dict[str, object]:
         workspace = self.workspace(workspace_name)
         filename = Path(filename).name
@@ -630,26 +661,7 @@ class WebFacade:
             state = merge_artifact(current, filename, content)
         else:
             state = analyze_artifact(filename, content)
-            if current is not None:
-                manual_names = {
-                    item["name"].casefold()
-                    for item in current.get("stakeholders", ())
-                    if item.get("candidate_type") == "manual"
-                }
-                detected_names = {
-                    item["name"].casefold() for item in state["stakeholders"]
-                }
-                state["stakeholders"].extend(
-                    item
-                    for item in current.get("stakeholders", ())
-                    if item.get("candidate_type") == "manual"
-                    and item["name"].casefold() not in detected_names
-                    and item["name"].casefold() in manual_names
-                )
-                state["stakeholders"] = sorted(
-                    state["stakeholders"],
-                    key=lambda item: (item["name"], item["id"]),
-                )
+            state = initialize_review_state(state)
         if state.get("spans"):
             # Always leave a visible, local RFLP draft after submission. The
             # draft is intentionally separate from formal review/baselining.
@@ -661,8 +673,8 @@ class WebFacade:
         repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
-                repository.save_workbench(state)
                 event = "requirements.merged" if merge else "requirements.analyzed"
+                repository.save_workbench(state, event)
                 sequence = repository.record_audit(
                     event,
                     {"artifact": safe_name, "sha256": state["artifact"]["sha256"]},
@@ -728,8 +740,9 @@ class WebFacade:
         if current is None:
             raise ContractViolation("requirements workbench is empty")
         current = confirm_requirements(current)
+        current, baseline = approve_workbench_baseline(generate_model(current))
         return self._save_requirements(
-            workspace_name, generate_model(current), "requirements.generated"
+            workspace_name, current, "requirements.generated", baseline=baseline
         )
 
     def confirm_and_generate_requirements(self, workspace_name: str) -> dict[str, object]:
@@ -737,10 +750,12 @@ class WebFacade:
         if current is None:
             raise ContractViolation("requirements workbench is empty")
         confirmed = confirm_requirements(current)
+        confirmed, baseline = approve_workbench_baseline(generate_model(confirmed))
         return self._save_requirements(
             workspace_name,
-            generate_model(confirmed),
+            confirmed,
             "requirements.confirmed_and_generated",
+            baseline=baseline,
         )
 
     def generate_requirements_draft(self, workspace_name: str) -> dict[str, object]:
@@ -1038,13 +1053,17 @@ class WebFacade:
         state: dict[str, object],
         event: str,
         audit_payload: dict[str, object] | None = None,
+        *,
+        baseline: Baseline | None = None,
     ) -> dict[str, object]:
         state = refresh_traceability(state)
         workspace = self.workspace(workspace_name)
         repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
-                repository.save_workbench(state)
+                repository.save_workbench(state, event)
+                if baseline is not None:
+                    repository.save_baseline(baseline)
                 sequence = repository.record_audit(
                     event,
                     audit_payload or {"artifact": state["artifact"]["path"]},

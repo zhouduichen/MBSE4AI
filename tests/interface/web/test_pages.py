@@ -116,11 +116,11 @@ def test_requirements_page_runs_reviewed_rflp_flow(client: TestClient) -> None:
 
     assert page.status_code == 200
     assert "利益相关方" in page.text
-    assert "场景生成与确认" in page.text
+    assert "场景生成" in page.text
     assert "RFLP 规划图" in page.text
     input_page = client.get("/w/demo/requirements/input")
     assert "规则分析已完成" in input_page.text
-    assert "需求候选 2" in input_page.text
+    assert "已纳入需求 2" in input_page.text
     graph_page = client.get("/w/demo/requirements/graph")
     assert "<svg" in graph_page.text
     assert client.get("/w/demo/requirements/model.json").status_code == 200
@@ -143,9 +143,9 @@ def test_requirements_page_can_generate_draft_without_review(client: TestClient)
     assert generated.headers["location"].endswith("/requirements/graph")
     page = client.get("/w/demo/requirements/graph")
     assert "需求理解图" in page.text
-    assert "不能批准" in page.text
-    assert "不是正式 RFLP" not in page.text
-    assert "下一步：确认或修改" not in page.text
+    assert "草稿" in page.text
+    assert "已理解内容" in page.text
+    assert "回到需求输入" in page.text
 
 
 def test_plain_language_can_confirm_and_generate_formal_rflp_directly(client: TestClient) -> None:
@@ -176,8 +176,8 @@ def test_requirements_input_keeps_plain_language_as_a_candidate(client: TestClie
 
     page = client.get("/w/demo/requirements/input")
 
-    assert "需求候选 1" in page.text
-    assert "确认并生成 RFLP" in page.text
+    assert "已纳入需求 1" in page.text
+    assert "生成 RFLP" in page.text
 
 
 def test_mbse_review_page_integrates_regeneration_and_state_labels(client: TestClient) -> None:
@@ -192,45 +192,31 @@ def test_mbse_review_page_integrates_regeneration_and_state_labels(client: TestC
     generated = client.post("/w/demo/requirements/mbse", follow_redirects=False)
     assert generated.status_code == 303
     review_page = client.get("/w/demo/requirements/graph")
-    assert "重新生成 MBSE 草稿" in review_page.text
+    assert "重新生成 MBSE 模型" in review_page.text
     assert 'action="/w/demo/requirements/mbse"' in review_page.text
-    assert "接受" in review_page.text
-    assert "已接受" not in review_page.text
+    assert "已生成" in review_page.text
+    assert "导出 JSON" in review_page.text
 
     model = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]["mbse"]
+    assert model["status"] == "accepted"
     rejected = client.post(
         "/w/demo/requirements/mbse/review",
         data={"element_id": model["actors"][0]["id"], "decision": "rejected"},
         follow_redirects=False,
     )
     assert rejected.status_code == 303
+    rejected_model = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]["mbse"]
+    assert rejected_model["status"] == "review"
+    assert any(item["status"] == "rejected" for item in rejected_model["actors"])
     rejected_page = client.get("/w/demo/requirements/graph")
-    assert "已驳回" in rejected_page.text
+    assert "需调整" in rejected_page.text
+    assert "导出 JSON" not in rejected_page.text
 
     regenerated_for_review = client.post("/w/demo/requirements/mbse", follow_redirects=False)
     assert regenerated_for_review.status_code == 303
     model = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]["mbse"]
-    element_id = model["use_cases"][0]["id"]
-    reviewed = client.post(
-        "/w/demo/requirements/mbse/review",
-        data={"element_id": element_id, "decision": "accepted"},
-        follow_redirects=False,
-    )
-    assert reviewed.status_code == 303
-    partial_page = client.get("/w/demo/requirements/graph")
-    assert "已接受" in partial_page.text
-
-    confirmed = client.post("/w/demo/requirements/mbse/confirm", follow_redirects=False)
-    assert confirmed.status_code == 303
-    confirmed_page = client.get("/w/demo/requirements/graph")
-    assert "已确认" in confirmed_page.text
-    assert "disabled>已接受</button>" in confirmed_page.text
-
-    regenerated = client.post("/w/demo/requirements/mbse", follow_redirects=False)
-    assert regenerated.status_code == 303
-    regenerated_page = client.get("/w/demo/requirements/graph")
-    assert "待确认" in regenerated_page.text
-    assert "已接受" not in regenerated_page.text
+    assert model["status"] == "accepted"
+    assert all(item["status"] == "accepted" for item in model["actors"])
 
 
 def test_requirement_review_uses_local_row_updates_and_direct_generation(client: TestClient) -> None:
@@ -297,7 +283,7 @@ def test_requirements_page_runs_one_click_flow_from_current_input(client: TestCl
     assert "正式模型" in page.text
     scenarios = client.get("/w/demo/requirements/scenarios")
     assert "根据需求“恢复历史版本”生成的最小可执行场景" in scenarios.text
-    assert "确认场景" in scenarios.text
+    assert "生成执行轨迹" in scenarios.text
     assert "<svg" in client.get("/w/demo/requirements/graph").text
 
 
@@ -311,11 +297,9 @@ def test_scenario_page_generates_output_without_manual_scenario_fields(client: T
     page = client.get("/w/demo/requirements/scenarios")
 
     assert page.status_code == 200
-    assert "场景生成与确认" in page.text
-    assert "场景必须先确认" in page.text
-    assert "系统草稿" in page.text
+    assert "场景生成" in page.text
+    assert "普通场景自动可用" in page.text
     assert "航天系统" in page.text
-    assert "必须先确认" in page.text
     assert "手动新增场景" in page.text
     payload = client.get("/w/demo/requirements/scenarios.json").json()
     assert len(payload) == 1
@@ -360,6 +344,53 @@ def test_project_requirement_overview_keeps_submitted_history_and_statuses(
     assert "管理员必须恢复历史版本" in page.text
     assert "系统要有高鲁棒性" in page.text
     assert "已驳回" in page.text
+
+
+def test_incremental_requirement_input_preserves_confirmed_state_and_shows_impact(
+    client: TestClient,
+) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+    client.post("/w/demo/requirements/confirm-and-generate")
+    before = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]
+    old_claim = before["claims"][0]
+    old_stakeholder = before["stakeholders"][0]
+    assert old_claim["status"] == "accepted"
+    assert old_stakeholder["status"] == "accepted"
+
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须查看修复历史。"},
+    )
+    after = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]
+    claims = {item["object"]: item for item in after["claims"]}
+    stakeholders = {item["name"]: item for item in after["stakeholders"]}
+
+    assert claims["恢复历史版本"]["status"] == "accepted"
+    assert claims["查看修复历史"]["status"] == "candidate"
+    assert stakeholders["管理员"]["id"] == old_stakeholder["id"]
+    assert stakeholders["管理员"]["status"] == "accepted"
+    assert any(item["group"] == "claims" and "查看修复历史" in item["text"] for item in after["review_queue"])
+    assert after["change_set"]["summary"]["requires_confirmation"] > 0
+
+    review = client.get("/w/demo/requirements/review")
+    assert "只确认本次新增或受影响的内容" in review.text
+    assert "查看修复历史" in review.text
+    assert "恢复历史版本" not in review.text
+    assert "未受影响的已确认内容不会重复出现" in review.text
+
+    from rflp_lite.adapters.sqlite_repository import SQLiteRepository
+
+    repository = SQLiteRepository(client.app.state.facade.workspace("demo").path / ".rflp" / "model.db")
+    try:
+        revisions = repository.workbench_revisions()
+    finally:
+        repository.close()
+    assert len(revisions) >= 3
+    assert revisions[-1]["state"]["claims"]
 
 
 def test_formal_pages_omit_developer_facing_explanations(client: TestClient) -> None:
@@ -418,7 +449,7 @@ def test_guided_path_separates_understanding_confirmation_and_formal_model(
     )
 
     draft_page = client.get("/w/demo/requirements")
-    assert "确认系统对你的理解" in draft_page.text
+    assert "检查系统对你的理解" in draft_page.text
     assert "一键跑通需求闭环" not in draft_page.text
 
     confirmed = client.post(
@@ -502,7 +533,7 @@ def test_scenario_page_can_start_before_requirements(client: TestClient) -> None
     assert response.status_code == 303
     page = client.get("/w/demo/requirements/scenarios")
     assert "快速恢复" in page.text
-    assert "确认场景" in page.text
+    assert "已启用" in page.text
 
 
 def test_requirements_page_creates_and_exports_scenario(client: TestClient) -> None:
@@ -606,7 +637,7 @@ def test_mbse_design_page_renders_selectable_sequence_diagram(client: TestClient
     )
     assert page.status_code == 200
     assert "MBSE 设计图" in page.text
-    assert "选择已确认场景" in page.text
+    assert "选择场景" in page.text
     assert "sequence-svg" in page.text
     assert "marker-end=\"url(#arrow-filled)\"" in page.text
     assert "横向是参与者/系统边界" in page.text

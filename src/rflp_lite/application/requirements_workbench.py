@@ -47,6 +47,14 @@ _STAKEHOLDER_CATEGORY_ALIASES = {
 }
 _GROUPS = {"stakeholders", "concerns", "needs", "claims", "structured_requirements"}
 _STATUSES = {"candidate", "accepted", "rejected"}
+_REVIEW_FIELDS = {
+    "stakeholders": "name",
+    "concerns": "name",
+    "needs": "statement",
+    "claims": "object",
+    "structured_requirements": "statement",
+}
+_IMPACT_GROUPS = tuple(_REVIEW_FIELDS)
 STAKEHOLDER_CATEGORIES = (
     ("customer", "客户 / 系统拥有者"),
     ("end_user", "最终用户"),
@@ -459,37 +467,451 @@ def empty_workbench() -> dict[str, object]:
         "flow": None,
         "baseline": None,
         "project": None,
+        "artifacts": [],
+        "revision": 0,
+        "review_queue": [],
+        "change_set": {
+            "kind": "initial",
+            "base_revision": 0,
+            "items": [],
+            "summary": {
+                "added": 0,
+                "affected": 0,
+                "removed": 0,
+                "requires_confirmation": 0,
+            },
+        },
     }
+
+
+def _impact_entry(
+    group: str,
+    item_id: str,
+    text: str,
+    change_type: str,
+    reason: str,
+    *,
+    requires_confirmation: bool,
+    status: str = "candidate",
+) -> dict[str, object]:
+    return {
+        "group": group,
+        "item_id": item_id,
+        "text": text,
+        "change_type": change_type,
+        "reason": reason,
+        "requires_confirmation": requires_confirmation,
+        "status": status,
+        "resolved": not requires_confirmation,
+    }
+
+
+def _review_entry(
+    group: str,
+    item: dict[str, object],
+    *,
+    change_type: str = "added",
+    reason: str = "新增内容，需要确认",
+) -> dict[str, object]:
+    field = _REVIEW_FIELDS[group]
+    text = str(item.get(field, ""))
+    if group == "claims":
+        text = " ".join(
+            str(item.get(key, ""))
+            for key in ("subject", "predicate", "object")
+            if str(item.get(key, ""))
+        )
+    return _impact_entry(
+        group,
+        str(item["id"]),
+        text,
+        change_type,
+        reason,
+        requires_confirmation=True,
+        status=str(item.get("status", "candidate")),
+    )
+
+
+def _change_summary(
+    items: list[dict[str, object]], review_queue: list[dict[str, object]]
+) -> dict[str, int]:
+    return {
+        "added": sum(item.get("change_type") == "added" for item in items),
+        "affected": sum(item.get("change_type") == "affected" for item in items),
+        "removed": sum(item.get("change_type") == "removed" for item in items),
+        "requires_confirmation": len(review_queue),
+    }
+
+
+def sync_review_queue(state: dict[str, object]) -> dict[str, object]:
+    """Keep unresolved candidates and review metadata aligned with the graph."""
+
+    result = _clone(state)
+    current: dict[tuple[str, str], dict[str, object]] = {}
+    for group in _IMPACT_GROUPS:
+        for item in result.get(group, ()):
+            current[(group, str(item.get("id", "")))] = item
+
+    queue: list[dict[str, object]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw in result.get("review_queue", ()):
+        group = str(raw.get("group", ""))
+        item_id = str(raw.get("item_id", ""))
+        item = current.get((group, item_id))
+        if item is None or item.get("status") != "candidate":
+            continue
+        entry = dict(raw)
+        entry["status"] = "candidate"
+        entry["resolved"] = False
+        queue.append(entry)
+        seen.add((group, item_id))
+
+    for group in _IMPACT_GROUPS:
+        for item in result.get(group, ()):
+            key = (group, str(item.get("id", "")))
+            if item.get("status") == "candidate" and key not in seen:
+                queue.append(_review_entry(group, item, reason="尚未确认的候选内容"))
+                seen.add(key)
+
+    queue.sort(key=lambda item: (str(item.get("group", "")), str(item.get("item_id", ""))))
+    result["review_queue"] = queue
+    change_set = dict(result.get("change_set") or {})
+    impact_items = [dict(item) for item in change_set.get("items", ())]
+    pending = {(str(item["group"]), str(item["item_id"])) for item in queue}
+    for item in impact_items:
+        key = (str(item.get("group", "")), str(item.get("item_id", "")))
+        current_item = current.get(key)
+        if current_item is not None:
+            item["status"] = current_item.get("status", "candidate")
+        if item.get("requires_confirmation"):
+            item["resolved"] = key not in pending
+    change_set["items"] = sorted(
+        impact_items,
+        key=lambda item: (str(item.get("group", "")), str(item.get("item_id", ""))),
+    )
+    change_set["summary"] = _change_summary(impact_items, queue)
+    result["change_set"] = change_set
+    return result
+
+
+def initialize_review_state(state: dict[str, object]) -> dict[str, object]:
+    """Initialize version and review metadata for the first submitted input."""
+
+    result = _clone(state)
+    result["artifacts"] = [dict(result["artifact"])] if result.get("artifact") else []
+    items = [
+        _review_entry(group, item, reason="首次提交的需求候选")
+        for group in _IMPACT_GROUPS
+        for item in result.get(group, ())
+        if item.get("status") == "candidate"
+    ]
+    result["change_set"] = {
+        "kind": "initial",
+        "base_revision": 0,
+        "source_artifact": dict(result.get("artifact") or {}),
+        "items": items,
+        "summary": _change_summary(items, items),
+    }
+    result["review_queue"] = items
+    return sync_review_queue(result)
+
+
+def restore_legacy_requirements(
+    state: dict[str, object], records: tuple[dict[str, object], ...]
+) -> dict[str, object]:
+    """Rehydrate missing graph objects from the pre-versioned requirement ledger."""
+
+    result = _clone(state)
+    current_ids = {str(item.get("id")) for item in result.get("claims", ())}
+    restored_items: list[dict[str, object]] = []
+    for record in records:
+        record_id = str(record.get("id", ""))
+        if not record_id or record_id in current_ids or str(record.get("status")) == "rejected":
+            continue
+        source = str(record.get("source_text") or record.get("object") or "").strip()
+        if not source:
+            continue
+        fresh = analyze_artifact(f"legacy-{record_id}.txt", (source + "\n").encode("utf-8"))
+        _merge_semantic_candidates(result, fresh)
+        target = next(
+            (
+                item
+                for item in result.get("claims", ())
+                if str(item.get("subject", "")).casefold() == str(record.get("subject", "")).casefold()
+                and str(item.get("predicate", "")).casefold() == str(record.get("predicate", "")).casefold()
+                and str(item.get("object", "")).casefold() == str(record.get("object", "")).casefold()
+                and str(item.get("id")) not in current_ids
+            ),
+            None,
+        )
+        if target is None:
+            continue
+        target["id"] = record_id
+        target["status"] = str(record.get("status", "candidate"))
+        current_ids.add(record_id)
+        need_id = target.get("need_id")
+        if target["status"] == "accepted" and need_id:
+            need = next((item for item in result["needs"] if item.get("id") == need_id), None)
+            if need:
+                need["status"] = "accepted"
+                concern = next((item for item in result["concerns"] if item.get("id") == need.get("concern_id")), None)
+                if concern:
+                    concern["status"] = "accepted"
+                stakeholder = next((item for item in result["stakeholders"] if item.get("id") == need.get("stakeholder_id")), None)
+                if stakeholder:
+                    stakeholder["status"] = "accepted"
+        restored_items.append(
+            _impact_entry(
+                "claims",
+                record_id,
+                str(record.get("object", "")),
+                "restored",
+                "从历史需求台账恢复到统一当前工作台",
+                requires_confirmation=target["status"] == "candidate",
+                status=target["status"],
+            )
+        )
+    if restored_items:
+        result["rflp"], result["coverage"], result["svg"] = None, {}, ""
+        change_set = dict(result.get("change_set") or {})
+        change_set["kind"] = "legacy-rehydrated"
+        change_set["items"] = list(change_set.get("items", ())) + restored_items
+        result["change_set"] = change_set
+        result["review_queue"] = list(result.get("review_queue", ())) + [
+            item for item in restored_items if item.get("requires_confirmation")
+        ]
+    return sync_review_queue(refresh_traceability(result))
+
+
+def _append_source(item: dict[str, object], source_span_id: object) -> None:
+    source = str(source_span_id or "")
+    if not source:
+        return
+    values = list(item.get("source_span_ids", ()))
+    if item.get("source_span_id") and item["source_span_id"] not in values:
+        values.insert(0, item["source_span_id"])
+    if source not in values:
+        values.append(source)
+    item["source_span_ids"] = sorted(set(str(value) for value in values))
+
+
+def _merge_semantic_candidates(
+    result: dict[str, object], fresh: dict[str, object]
+) -> tuple[set[str], set[str], set[str], set[str], set[str]]:
+    """Merge fresh candidates while reusing existing stakeholder graph IDs."""
+
+    existing_ids_by_group = {
+        group: {str(item["id"]) for item in result.get(group, ())}
+        for group in _IMPACT_GROUPS
+    }
+    added_ids = {group: set() for group in _IMPACT_GROUPS}
+    stakeholder_by_name = {
+        str(item.get("name", "")).casefold(): item
+        for item in result.get("stakeholders", ())
+    }
+    stakeholder_map: dict[str, str] = {}
+    for raw in fresh.get("stakeholders", ()):
+        item = dict(raw)
+        name_key = str(item.get("name", "")).casefold()
+        existing = stakeholder_by_name.get(name_key)
+        if existing is not None:
+            stakeholder_map[str(item["id"])] = str(existing["id"])
+            _append_source(existing, item.get("source_span_id"))
+            continue
+        result["stakeholders"].append(item)
+        stakeholder_by_name[name_key] = item
+        stakeholder_map[str(item["id"])] = str(item["id"])
+        added_ids["stakeholders"].add(str(item["id"]))
+
+    concern_by_key = {
+        (str(item.get("stakeholder_id")), str(item.get("name", "")).casefold()): item
+        for item in result.get("concerns", ())
+    }
+    concern_map: dict[str, str] = {}
+    for raw in fresh.get("concerns", ()):
+        item = dict(raw)
+        stakeholder_id = stakeholder_map.get(str(item.get("stakeholder_id")), str(item.get("stakeholder_id", "")))
+        key = (stakeholder_id, str(item.get("name", "")).casefold())
+        existing = concern_by_key.get(key)
+        if existing is not None:
+            concern_map[str(item["id"])] = str(existing["id"])
+            _append_source(existing, item.get("source_span_id"))
+            continue
+        item["stakeholder_id"] = stakeholder_id
+        result["concerns"].append(item)
+        concern_by_key[key] = item
+        concern_map[str(item["id"])] = str(item["id"])
+        added_ids["concerns"].add(str(item["id"]))
+
+    need_by_key = {
+        (str(item.get("stakeholder_id")), str(item.get("statement", "")).casefold()): item
+        for item in result.get("needs", ())
+    }
+    need_map: dict[str, str] = {}
+    for raw in fresh.get("needs", ()):
+        item = dict(raw)
+        stakeholder_id = stakeholder_map.get(str(item.get("stakeholder_id")), str(item.get("stakeholder_id", "")))
+        concern_id = concern_map.get(str(item.get("concern_id")), str(item.get("concern_id", "")))
+        key = (stakeholder_id, str(item.get("statement", "")).casefold())
+        existing = need_by_key.get(key)
+        if existing is not None:
+            need_map[str(item["id"])] = str(existing["id"])
+            _append_source(existing, item.get("source_span_id"))
+            continue
+        item["stakeholder_id"] = stakeholder_id
+        item["concern_id"] = concern_id
+        result["needs"].append(item)
+        need_by_key[key] = item
+        need_map[str(item["id"])] = str(item["id"])
+        added_ids["needs"].add(str(item["id"]))
+
+    for group in ("spans", "structured_requirements", "entities"):
+        existing = {str(item["id"]) for item in result.get(group, ())}
+        for raw in fresh.get(group, ()):
+            item = dict(raw)
+            if str(item["id"]) in existing:
+                continue
+            result[group].append(item)
+            existing.add(str(item["id"]))
+            if group in added_ids:
+                added_ids[group].add(str(item["id"]))
+
+    existing_claims = {str(item["id"]) for item in result.get("claims", ())}
+    for raw in fresh.get("claims", ()):
+        item = dict(raw)
+        item["need_id"] = need_map.get(str(item.get("need_id")), item.get("need_id"))
+        if str(item["id"]) in existing_claims:
+            continue
+        result["claims"].append(item)
+        existing_claims.add(str(item["id"]))
+        added_ids["claims"].add(str(item["id"]))
+
+    for group in _IMPACT_GROUPS:
+        result[group] = sorted(
+            result.get(group, ()), key=lambda item: (str(item.get("name", item.get("statement", item.get("object", "")))), str(item.get("id", "")))
+        )
+    return tuple(added_ids[group] for group in _IMPACT_GROUPS)  # type: ignore[return-value]
 
 
 def merge_artifact(
     state: dict[str, object], filename: str, content: bytes
 ) -> dict[str, object]:
-    """把另一份需求文档的候选并入现有工作台（按 id 去重），并作废旧模型输出。"""
+    """Append a new artifact to the current aggregate and calculate its impact."""
     fresh = analyze_artifact(filename, content)
     result = _clone(state)
+    previous_artifact = result.get("artifact")
     result["artifact"] = fresh["artifact"]
     result["system_context"] = fresh["system_context"]
-    for group in ("spans", "stakeholders", "concerns", "needs", "claims", "structured_requirements", "entities"):
-        existing_ids = {item["id"] for item in result[group]}
-        result[group] = sorted(
-            result[group]
-            + [item for item in fresh[group] if item["id"] not in existing_ids],
-            key=lambda item: item["id"],
-        )
+    if state.get("system_context"):
+        result["system_context"] = state["system_context"]
+    _merge_semantic_candidates(result, fresh)
     result["document_regions"] = result.get("document_regions", []) + [
         item for item in fresh.get("document_regions", ())
         if item.get("id") not in {value.get("id") for value in result.get("document_regions", ())}
     ]
     result["document_pages"] = list(result.get("document_pages", ())) + list(fresh.get("document_pages", ()))
     result["diagnostics"] = list(result.get("diagnostics", ())) + list(fresh.get("diagnostics", ()))
-    result["checklist"] = fresh["checklist"]
+    result["checklist"] = sorted(
+        set(result.get("checklist", ())) | set(fresh.get("checklist", ()))
+    )
+    artifacts = list(result.get("artifacts", ()))
+    for artifact in (previous_artifact, fresh.get("artifact")):
+        if artifact and str(artifact.get("id")) not in {str(item.get("id")) for item in artifacts}:
+            artifacts.append(dict(artifact))
+    result["artifacts"] = artifacts
+    previous_rflp = bool(result.get("rflp"))
+    previous_mbse = bool(result.get("mbse"))
     result["rflp"], result["coverage"], result["svg"] = None, {}, ""
+    result["mbse"] = None
     result["draft_graph"] = None
     result["baseline"], result["project"] = None, None
     result["draft"], result["draft_warnings"] = False, []
     result["flow"] = None
-    return refresh_traceability(result)
+    impact_items: list[dict[str, object]] = []
+    # The semantic merge above already changed the aggregate.  Compare against
+    # the previous snapshot to identify genuinely new reviewable objects.
+    for group in _IMPACT_GROUPS:
+        previous_ids = {str(item["id"]) for item in state.get(group, ())}
+        for item in result.get(group, ()):
+            if str(item["id"]) in previous_ids:
+                continue
+            impact_items.append(
+                _review_entry(
+                    group,
+                    item,
+                    reason="本次新增需求产生的候选，需要确认",
+                )
+            )
+    existing_stakeholder_ids = {str(item["id"]) for item in state.get("stakeholders", ())}
+    existing_concern_ids = {str(item["id"]) for item in state.get("concerns", ())}
+    for need in result.get("needs", ()):
+        stakeholder_id = str(need.get("stakeholder_id", ""))
+        concern_id = str(need.get("concern_id", ""))
+        if stakeholder_id in existing_stakeholder_ids:
+            stakeholder = next(item for item in result["stakeholders"] if str(item["id"]) == stakeholder_id)
+            impact_items.append(
+                _impact_entry(
+                    "stakeholders",
+                    stakeholder_id,
+                    str(stakeholder.get("name", "")),
+                    "affected",
+                    "新增需求关联了该利益相关方，但不要求重新确认",
+                    requires_confirmation=False,
+                    status=str(stakeholder.get("status", "accepted")),
+                )
+            )
+        if concern_id in existing_concern_ids:
+            concern = next(item for item in result["concerns"] if str(item["id"]) == concern_id)
+            impact_items.append(
+                _impact_entry(
+                    "concerns",
+                    concern_id,
+                    str(concern.get("name", "")),
+                    "affected",
+                    "新增需求继续使用该关注点，但不要求重新确认",
+                    requires_confirmation=False,
+                    status=str(concern.get("status", "accepted")),
+                )
+            )
+    if previous_rflp:
+        impact_items.append(
+            _impact_entry(
+                "rflp",
+                "rflp-current",
+                "正式 RFLP 模型",
+                "affected",
+                "新增需求确认后需要重新生成正式模型",
+                requires_confirmation=False,
+                status="stale",
+            )
+        )
+    if previous_mbse:
+        impact_items.append(
+            _impact_entry(
+                "mbse",
+                "mbse-current",
+                "MBSE 语义模型",
+                "affected",
+                "需求版本变化后需要重新生成 MBSE 审核版本",
+                requires_confirmation=False,
+                status="stale",
+            )
+        )
+    prior_queue = list(state.get("review_queue", ()))
+    result["review_queue"] = prior_queue + [
+        item for item in impact_items if item.get("requires_confirmation")
+    ]
+    result["change_set"] = {
+        "kind": "append",
+        "base_revision": int(state.get("revision", 0)),
+        "source_artifact": dict(fresh["artifact"]),
+        "items": impact_items,
+        "summary": _change_summary(
+            impact_items,
+            [item for item in result["review_queue"] if item.get("requires_confirmation")],
+        ),
+    }
+    return sync_review_queue(refresh_traceability(result))
 
 
 def suggest_implicit_constraints(
@@ -531,12 +953,12 @@ def suggest_implicit_constraints(
             "id": _id("diagnostic", "implicit-requirements-suggested", len(values)),
             "scope": "structured_requirements",
             "code": "implicit-requirements-suggested",
-            "message": f"已生成 {len(values)} 条隐含约束候选，需逐条人工确认",
+            "message": f"已生成并自动纳入 {len(values)} 条隐含约束",
             "source_id": "",
             "severity": "info",
         }
     )
-    return result
+    return sync_review_queue(result)
 
 
 def add_stakeholder(
@@ -553,7 +975,7 @@ def add_stakeholder(
         None,
     )
     if existing is not None:
-        return result
+        return sync_review_queue(result)
     source_span_id = result["spans"][0]["id"] if result["spans"] else "manual"
     result["stakeholders"].append(
         {
@@ -566,7 +988,7 @@ def add_stakeholder(
             "confidence": 1.0,
             "reason": "用户手动输入",
             "producer": "user",
-            "status": "candidate",
+            "status": "accepted",
         }
     )
     result["stakeholders"] = sorted(
@@ -577,7 +999,7 @@ def add_stakeholder(
     result["baseline"], result["project"] = None, None
     result["flow"] = None
     result["draft"], result["draft_warnings"] = False, []
-    return result
+    return sync_review_queue(result)
 
 
 def stakeholder_bundle(state: dict[str, object], name: str = "") -> dict[str, object]:
@@ -698,7 +1120,7 @@ def review_item(
     result["draft_graph"] = None
     result["baseline"], result["project"] = None, None
     result["flow"] = None
-    return result
+    return sync_review_queue(result)
 
 
 def accept_traceable(state: dict[str, object]) -> dict[str, object]:
@@ -737,7 +1159,7 @@ def accept_traceable(state: dict[str, object]) -> dict[str, object]:
     for requirement in result.get("structured_requirements", ()):
         if requirement.get("status") == "candidate" and requirement.get("bulk_approvable", requirement.get("source_type") != "inferred"):
             requirement["status"] = "accepted"
-    return result
+    return sync_review_queue(result)
 
 
 def confirm_requirements(state: dict[str, object]) -> dict[str, object]:
@@ -749,7 +1171,7 @@ def confirm_requirements(state: dict[str, object]) -> dict[str, object]:
     for requirement in result.get("structured_requirements", ()):
         if requirement.get("status") == "candidate" and requirement.get("source_type") != "inferred" and requirement.get("producer") != "llm":
             requirement["status"] = "accepted"
-    return result
+    return sync_review_queue(result)
 
 
 def _coverage(elements: tuple[ModelElement, ...], relations: tuple[Relation, ...]) -> dict[str, int]:
@@ -1120,4 +1542,4 @@ def add_llm_suggestions(
                 }
             )
             existing_need_ids.add(need_id)
-    return result
+    return sync_review_queue(result)

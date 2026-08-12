@@ -49,7 +49,7 @@ def build_scenario(
     return {
         "id": f"scenario-{digest[:12]}",
         **payload,
-        "status": "draft",
+        "status": "accepted",
         "revision": 1,
         "review_history": (),
         "hash": digest,
@@ -140,7 +140,7 @@ def generate_scenario_drafts(state: dict[str, object]) -> dict[str, object]:
         scenario = build_scenario(**payload)
         scenario.update(
             {
-                "status": "generated-draft",
+                "status": "accepted",
                 "producer": "system",
                 "generated_from": str(claim["id"]) if claim else "system-context",
                 "generation_mode": "minimum-input",
@@ -164,7 +164,7 @@ def revise_scenario(
     faults: str | list[str] | tuple[str, ...] = (),
     requirement_ids: str | list[str] | tuple[str, ...] = (),
 ) -> dict[str, object]:
-    """Edit a scenario and return it to the review gate."""
+    """Edit a scenario and keep the revised version active immediately."""
 
     result = json.loads(canonical_json(state))
     existing = next(
@@ -190,7 +190,7 @@ def revise_scenario(
     revision = int(existing.get("revision", 1)) + 1
     updated["id"] = scenario_id
     updated["revision"] = revision
-    updated["status"] = "draft"
+    updated["status"] = "accepted"
     updated["producer"] = existing.get("producer", "user")
     updated["generated_from"] = existing.get("generated_from", "")
     updated["generation_mode"] = existing.get("generation_mode", "manual")

@@ -66,6 +66,24 @@ def _requirements_context(
     workspace = facade.workspace(workspace_name)
     runs = facade.runs(workspace_name)
     llm = facade.llm_snapshot()
+    state = facade.requirements(workspace_name)
+    pending_keys = {
+        (str(entry.get("group", "")), str(entry.get("item_id", "")))
+        for entry in (state or {}).get("review_queue", ())
+    }
+    show_all_review_items = not pending_keys
+    review_groups = {
+        group: tuple(
+            item
+            for item in (state or {}).get(group, ())
+            if (
+                show_all_review_items
+                or (group, str(item.get("id", ""))) in pending_keys
+            )
+            and item.get("status") != "rejected"
+        )
+        for group in ("stakeholders", "concerns", "needs", "claims", "structured_requirements")
+    }
     active_llm = next(
         (item for item in llm["profiles"] if item["id"] == llm.get("active_id")),
         None,
@@ -82,7 +100,8 @@ def _requirements_context(
         workspaces=facade.workspaces(),
         active=active,
         nav_result_hash=runs[0].result_hash if runs else None,
-        state=facade.requirements(workspace_name),
+        state=state,
+        review_groups=review_groups,
         guide=facade.requirements_guide(workspace_name),
         requirement_overview=facade.requirement_overview(workspace_name),
         active_llm=active_llm,
@@ -391,6 +410,7 @@ async def analyze_requirements(
     text: Annotated[str, Form()] = "",
     artifact: UploadFile | None = File(default=None),
     merge: Annotated[str, Form()] = "",
+    replace: Annotated[str, Form()] = "",
 ) -> Response:
     try:
         if artifact is not None and artifact.filename:
@@ -398,7 +418,7 @@ async def analyze_requirements(
         else:
             filename, content = "requirements.txt", text.encode("utf-8")
         _facade(request).analyze_requirements(
-            workspace_name, filename, content, merge=bool(merge)
+            workspace_name, filename, content, merge=not bool(replace)
         )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
