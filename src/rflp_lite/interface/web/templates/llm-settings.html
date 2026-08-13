@@ -1,12 +1,12 @@
 {% extends "base.html" %}{% block title %}LLM 设置 · RFLP-Lite{% endblock %}{% block content %}
-<div class="page-heading"><div><span class="eyebrow">Local AI Gateway</span><h1>LLM 连接</h1></div></div>
+<div class="page-heading"><div><h1>LLM 连接</h1></div></div>
 
 {% if llm_error %}<div class="error-banner"><strong>操作失败</strong><span>{{ llm_error }}</span></div>{% endif %}
-{% if llm_result %}<div class="panel"><div class="panel-head"><div><span class="eyebrow">Connection check</span><h2>连接成功</h2></div><span class="status-badge passed">connected</span></div><p class="source-summary">{{ llm_result.provider }} · {{ llm_result.model }} · {{ llm_result.base_url }}</p><p class="source-summary">返回预览：{{ llm_result.preview }}</p></div>{% endif %}
+{% if llm_result %}<div class="panel"><div class="panel-head"><div><h2>连接成功</h2></div><span class="status-badge passed">connected</span></div><p class="source-summary">{{ llm_result.provider }} · {{ llm_result.model }} · {{ llm_result.base_url }}</p><p class="source-summary">返回预览：{{ llm_result.preview }}</p></div>{% endif %}
 
 <div class="two-column">
   <section class="panel">
-    <div class="panel-head"><div><span class="eyebrow">Provider profile</span><h2>新增或修改连接</h2></div></div>
+    <div class="panel-head"><div><h2>新增或修改连接</h2></div></div>
     <form method="post" action="/settings/llm/save" class="intake-form">
       <label class="field">档案 ID
         <input name="profile_id" value="{{ selected_profile.id }}" placeholder="例如 deepseek-main" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}">
@@ -50,7 +50,7 @@
   </section>
 
   <section class="panel">
-    <div class="panel-head"><div><span class="eyebrow">Saved profiles</span><h2>已保存连接</h2></div><span class="count-badge">{{ llm.profiles|length }}</span></div>
+    <div class="panel-head"><div><h2>已保存连接</h2></div><span class="count-badge">{{ llm.profiles|length }}</span></div>
     {% if llm.profiles %}<div class="profile-list">{% for item in llm.profiles %}<article class="profile-card {% if item.id == llm.active_id %}active{% endif %}"><div><strong>{{ item.label }}</strong><span class="status-badge {% if item.id == llm.active_id %}passed{% else %}partial{% endif %}">{% if item.id == llm.active_id %}active{% else %}inactive{% endif %}</span></div><p><code>{{ item.id }}</code> · {{ item.kind }} · {{ item.model }}</p><p class="profile-url">{{ item.base_url }}</p><small>Key：{% if item.api_key_configured %}{{ item.credential_storage }} 已配置{% else %}未配置{% endif %}</small><div class="workbench-actions"><a class="button compact" href="/settings/llm?profile_id={{ item.id }}">编辑</a>{% if item.id != llm.active_id %}<form method="post" action="/settings/llm/{{ item.id }}/activate"><button class="button compact" type="submit">启用</button></form>{% endif %}<form method="post" action="/settings/llm/{{ item.id }}/delete"><button class="button compact danger" type="submit">删除</button></form></div></article>{% endfor %}</div>{% else %}<div class="mini-empty">还没有连接档案。先从左侧选择一个预设。</div>{% endif %}
     <div class="locked-settings"><span>本地服务 <b>默认优先</b></span><span>远程服务 <b>手动启用</b></span></div>
   </section>

@@ -13,6 +13,6 @@ def test_app_serves_local_assets_and_empty_dashboard(tmp_path: Path) -> None:
     assert "尚无工作区" in response.text
     css = client.get("/static/app.css")
     assert css.status_code == 200
-    assert "--color-accent" in css.text
+    assert "--acc" in css.text
     htmx = client.get("/static/vendor/htmx.min.js")
     assert htmx.status_code == 200

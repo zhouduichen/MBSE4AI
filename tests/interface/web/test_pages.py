@@ -57,7 +57,7 @@ def test_run_form_rejects_invalid_seed_without_starting(client: TestClient) -> N
     (
         ("model/artifacts", "TextSpan"),
         ("model/rflp", "Requirement"),
-        ("decision/candidates", "Candidate"),
+        ("decision/candidates", "候选与权衡"),
         ("decision/simulation", "trace_hash"),
         ("governance/baselines", "Baseline"),
         ("governance/tasks", "TaskContract"),

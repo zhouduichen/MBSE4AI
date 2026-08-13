@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block title %}运行中心 · RFLP-Lite{% endblock %}
 {% block content %}
-<div class="page-heading"><div><span class="eyebrow">Example run</span><h1>运行中心</h1></div><a class="button primary" href="/w/{{ workspace.name }}/requirements">需求规划</a></div>
+<div class="page-heading"><div><h1>运行中心</h1></div><a class="button primary" href="/w/{{ workspace.name }}/requirements">需求规划</a></div>
 <div class="two-column">
-  <section class="panel run-form-panel"><div class="panel-head"><div><span class="eyebrow">New run</span><h2>启动完整链路</h2></div></div>
+  <section class="panel run-form-panel"><div class="panel-head"><div><h2>启动完整链路</h2></div></div>
     <form method="post" action="/w/{{ workspace.name }}/runs" hx-post="/w/{{ workspace.name }}/runs" hx-target="#run-feedback" hx-swap="innerHTML" hx-disabled-elt="find button" hx-indicator="#run-indicator">
       <label class="field">Solver<select name="solver"><option value="heuristic">Heuristic · 快速确定性</option><option value="cp-sat">CP-SAT · 约束求解</option></select></label>
       <label class="field">Seed<input name="seed" type="number" min="0" value="42" required></label>
@@ -13,7 +13,7 @@
       <div id="run-feedback"></div>
     </form>
   </section>
-  <section class="panel"><div class="panel-head"><div><span class="eyebrow">History</span><h2>运行记录</h2></div><span class="count-badge">{{ runs|length }}</span></div>
+  <section class="panel"><div class="panel-head"><div><h2>运行记录</h2></div><span class="count-badge">{{ runs|length }}</span></div>
     {% if runs %}<div class="run-list">{% for item in runs %}<a href="/w/{{ workspace.name }}/runs/{{ item.result_hash }}"><span class="status-badge passed">{{ item.manifest.status }}</span><div><strong>{{ item.manifest.profile.solver }}</strong><small>Seed {{ item.manifest.profile.seed }} · {{ short_hash(item.result_hash) }}</small></div><span>→</span></a>{% endfor %}</div>{% else %}<div class="mini-empty">还没有运行记录。</div>{% endif %}
   </section>
 </div>

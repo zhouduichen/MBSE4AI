@@ -3,12 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="light">
   <title>{% block title %}RFLP-Lite{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
   <script src="{{ url_for('static', path='/vendor/htmx.min.js') }}" defer></script>
 </head>
 <body>
+<!-- direction=RFLP-Lite-PrecisionInstrument
+THESIS: RFLP-Lite is a precision instrument for engineering model truth, not a SaaS dashboard; it refuses the dark-teal AI-console look, nested cards, and teal-on-black accents.
+OWN-WORLD: paper-white #f6f7f9 canvas, white panels, hairline #d7dbe2 separators, ink #191c22 text, single deep-blue accent #1b4fd8, 4px radii, tabular numerals, flat surfaces.
+STORY: the engineer reads a dense dependable instrument where every model object — claims, baselines, candidates, evidence — is a visible, verifiable unit and each run's state is legible at a glance.
+FIRST VIEWPORT: fixed side-rail with grouped labels, white topbar with service-state dot, content heading, four hairline metric tiles, pipeline rows with status pills.
+FORM: Light Precision Instrument, user-pinned in brainstorming (screen B1). No seed.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md. -->
   <a class="skip-link" href="#main-content">跳到主要内容</a>
   <div class="app-shell">
     <aside class="sidebar">

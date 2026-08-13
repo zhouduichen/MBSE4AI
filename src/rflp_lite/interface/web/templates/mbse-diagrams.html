@@ -2,7 +2,7 @@
 {% block title %}MBSE 设计图 · RFLP-Lite{% endblock %}
 {% block content %}
 <div class="page-heading">
-  <div><span class="eyebrow">05 · Design diagrams</span><h1>MBSE 设计图</h1><p>按语义模型分层查看用例图、活动图与 UML 顺序图。</p></div>
+  <div><h1>MBSE 设计图</h1><p>按语义模型分层查看用例图、活动图与 UML 顺序图。</p></div>
   <a class="button" href="/w/{{ workspace.name }}/requirements">返回需求规划</a>
 </div>
 
@@ -30,7 +30,7 @@
 
 {% if diagram_view == 'sequence' %}
 <section class="panel sequence-selector-panel">
-  <div class="panel-head"><div><span class="eyebrow">Scenario source</span><h2>选择场景</h2></div><span class="status-badge accepted">自动可用</span></div>
+  <div class="panel-head"><div><h2>选择场景</h2></div><span class="status-badge accepted">自动可用</span></div>
   {% if sequence_scenarios %}
   <form method="get" action="/w/{{ workspace.name }}/requirements/mbse/sequence" class="inline-form diagram-selector-form">
     <label>场景<select name="scenario_id" onchange="this.form.submit()" required>{% for scenario in sequence_scenarios %}<option value="{{ scenario.id }}" {% if selected_scenario_id == scenario.id %}selected{% endif %}>{{ scenario.title }} · {{ scenario.id }}</option>{% endfor %}</select></label>
@@ -47,7 +47,7 @@
 
 {% if diagram_svg %}
 <section class="panel diagram-canvas-panel">
-  <div class="panel-head"><div><span class="eyebrow">{{ 'UML Interaction' if diagram_view == 'sequence' else 'MBSE semantic view' }}</span><h2>{{ diagram_result.scenario.title if diagram_result else '语义设计图' }}</h2></div><div class="download-actions">{% if diagram_view == 'sequence' and selected_scenario_id %}<a href="/w/{{ workspace.name }}/requirements/mbse/sequence.svg?scenario_id={{ selected_scenario_id }}">下载顺序图 SVG</a>{% else %}<a href="/w/{{ workspace.name }}/requirements/mbse.svg?view={{ diagram_view }}">下载 SVG</a>{% endif %}</div></div>
+  <div class="panel-head"><div><h2>{{ diagram_result.scenario.title if diagram_result else '语义设计图' }}</h2></div><div class="download-actions">{% if diagram_view == 'sequence' and selected_scenario_id %}<a href="/w/{{ workspace.name }}/requirements/mbse/sequence.svg?scenario_id={{ selected_scenario_id }}">下载顺序图 SVG</a>{% else %}<a href="/w/{{ workspace.name }}/requirements/mbse.svg?view={{ diagram_view }}">下载 SVG</a>{% endif %}</div></div>
   <div class="svg-canvas design-diagram-canvas">{{ diagram_svg|safe }}</div>
 </section>
 {% elif diagram_view != 'sequence' %}
@@ -55,6 +55,6 @@
 {% endif %}
 
 {% if diagram_result %}
-<section class="panel diagram-meta-panel"><div class="panel-head"><div><span class="eyebrow">Interaction contract</span><h2>顺序图语义状态</h2></div><span class="status-badge {% if diagram_result.interaction.status == 'ready' %}accepted{% else %}candidate{% endif %}">{{ diagram_result.interaction.status }}</span></div><div class="metric-row"><article><span>参与者</span><strong>{{ diagram_result.interaction.lifelines|length }}</strong></article><article><span>消息</span><strong>{{ diagram_result.interaction.messages|length }}</strong></article><article><span>执行条</span><strong>{{ diagram_result.interaction.executions|length }}</strong></article><article><span>追踪链接</span><strong>{{ diagram_result.interaction.trace_links|length }}</strong></article></div></section>
+<section class="panel diagram-meta-panel"><div class="panel-head"><div><h2>顺序图语义状态</h2></div><span class="status-badge {% if diagram_result.interaction.status == 'ready' %}accepted{% else %}candidate{% endif %}">{{ diagram_result.interaction.status }}</span></div><div class="metric-row"><article><span>参与者</span><strong>{{ diagram_result.interaction.lifelines|length }}</strong></article><article><span>消息</span><strong>{{ diagram_result.interaction.messages|length }}</strong></article><article><span>执行条</span><strong>{{ diagram_result.interaction.executions|length }}</strong></article><article><span>追踪链接</span><strong>{{ diagram_result.interaction.trace_links|length }}</strong></article></div></section>
 {% endif %}
 {% endblock %}
