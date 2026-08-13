@@ -289,6 +289,12 @@ export RFLP_LLM_API_KEY=local-key
 - CLI：`rflp discover draft --input <file>` 从一句话/资料文件直接建立发现工作台（全中文输入可生成 seed 与覆盖审计），无需先建立已接受需求。
 - 新增 Web 表单流程 6 个测试与 CLI 2 个测试；README 同步补 `--input` 用法并修正“人工批准基线”等过时描述。
 
+2026-08-13（Web UI 重构为浅色精密仪表风 + 发现页完善收尾）：
+
+- `pytest`：365 passed；Import Linter：4 contracts kept；`python -m build` 成功。
+- 全站样式重构：dark-teal 控制台 → 纸白画布/发丝分隔/墨色文字/单一深蓝强调（B1 方向）；26 个模板迁移到新 token 词汇（`--bg/--acc/--ok` 等）；`meta color-scheme` 改为 `light`；测试中 `--color-accent` 断言迁移到 `--acc`。
+- DESIGN.md 记录方向、token 表与布局叙事（兑现接口注释中的完成承诺）。
+
 ## 关键提交
 
 | 提交 | 内容 |
