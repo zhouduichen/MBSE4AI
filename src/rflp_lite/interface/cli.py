@@ -107,6 +107,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--requirements", type=Path, nargs="+", required=True,
         help="一个或多个需求文件；首个创建，其余并入",
     )
+    discover_parser = subparsers.add_parser("discover", help="从稀疏输入生成可审核 MBSE 候选")
+    discover_commands = discover_parser.add_subparsers(dest="discover_command", required=True)
+    discover_draft = discover_commands.add_parser("draft")
+    discover_draft.add_argument("--workspace", type=Path, required=True)
+    discover_draft.add_argument("--pack", default="urban-medical-aam-v1")
+    discover_review = discover_commands.add_parser("review")
+    discover_review.add_argument("--workspace", type=Path, required=True)
+    discover_review.add_argument("--candidate-id", required=True)
+    discover_review.add_argument("--decision", choices=("accepted", "rejected"), required=True)
+    discover_review.add_argument("--revision", type=int, required=True)
+    discover_review.add_argument("--pack", default="urban-medical-aam-v1")
+    discover_finalize = discover_commands.add_parser("finalize")
+    discover_finalize.add_argument("--workspace", type=Path, required=True)
+    discover_finalize.add_argument("--pack", default="urban-medical-aam-v1")
+    discover_export = discover_commands.add_parser("export")
+    discover_export.add_argument("--workspace", type=Path, required=True)
+    discover_export.add_argument("--pack", default="urban-medical-aam-v1")
+    discover_export.add_argument("--diagram", default="environment")
+    discover_export.add_argument("--page", type=int)
     assess_parser = subparsers.add_parser(
         "assess", help="one-shot: requirements + project -> baseline/delta/tasks/test report"
     )
@@ -242,6 +261,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_project(args)
         if args.command == "workbench":
             return _run_workbench(args)
+        if args.command == "discover":
+            return _run_discover(args)
         if args.command == "assess":
             return _run_assess(args)
         if args.command == "profile":
@@ -475,6 +496,34 @@ def _run_mlflow(args: argparse.Namespace) -> int:
     )
     print(canonical_json(result))
     return 0 if result["status"] != "failed" else 1
+
+
+def _run_discover(args: argparse.Namespace) -> int:
+    facade = WebFacade(args.workspace.parent)
+    workspace_name = args.workspace.name
+    if args.discover_command == "draft":
+        state = facade.draft_discovery(workspace_name, args.pack)
+        discovery = state.get("discovery", {})
+        print(canonical_json({"status": "ok", "revision": discovery.get("revision", 0), "candidate_count": sum(len(group.get("items", [])) for group in discovery.get("candidate_sets", []) if isinstance(group, dict)), "coverage": discovery.get("coverage", {})}))
+        return 0
+    if args.discover_command == "review":
+        state = facade.review_discovery(workspace_name, args.candidate_id, args.decision, args.revision, args.pack)
+        print(canonical_json({"status": "ok", "revision": state.get("discovery", {}).get("revision", 0)}))
+        return 0
+    if args.discover_command == "finalize":
+        state = facade.finalize_discovery(workspace_name, args.pack)
+        print(canonical_json({"status": "ok", "revision": state.get("discovery", {}).get("revision", 0), "accepted_graph": state.get("discovery", {}).get("accepted_graph", {})}))
+        return 0
+    if args.discover_command == "export":
+        pages = facade.render_discovery_diagram(workspace_name, args.pack, args.diagram)
+        if len(pages) > 1 and args.page is None:
+            raise ContractViolation("diagram has multiple pages; use --page")
+        page = (args.page or 1) - 1
+        if page < 0 or page >= len(pages):
+            raise ContractViolation("diagram page is out of range")
+        sys.stdout.buffer.write(pages[page].content)
+        return 0
+    raise ContractViolation("unknown discover command")
 
 
 def _run_workbench(args: argparse.Namespace) -> int:

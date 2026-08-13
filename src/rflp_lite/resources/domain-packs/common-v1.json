@@ -1,0 +1,178 @@
+{
+  "id": "common-v1",
+  "version": 1,
+  "display_name": "通用 MBSE 发现框架",
+  "description": "与行业无关的利益相关方、场景、需求、功能和架构发现字段。",
+  "stable_fields": ["id", "name", "description", "source", "confidence", "status", "assumptions", "relations"],
+  "extensions": {
+    "policy": "domain-pack-only",
+    "unknowns_are_first_class": true,
+    "review_required_before_diagram": true
+  },
+  "core_overrides": [],
+  "element_schemas": {
+    "stakeholder": {
+      "type": "object",
+      "required": ["name", "category", "goals", "interactions"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "category": {"type": "string", "minLength": 1},
+        "goals": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "interactions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "concerns": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "environment": {
+      "type": "object",
+      "required": ["name", "category", "conditions"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "category": {"type": "string", "minLength": 1},
+        "conditions": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": true
+    },
+    "use_case": {
+      "type": "object",
+      "required": ["name", "actors", "goal"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "actors": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "goal": {"type": "string", "minLength": 1},
+        "preconditions": {"type": "array", "items": {"type": "string"}},
+        "postconditions": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "scenario": {
+      "type": "object",
+      "required": ["name", "trigger", "expected_outcome"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "trigger": {"type": "string", "minLength": 1},
+        "expected_outcome": {"type": "string", "minLength": 1},
+        "dimensions": {"type": "object"},
+        "steps": {"type": "array", "items": {"type": "string"}},
+        "hazards": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "capability": {
+      "type": "object",
+      "required": ["name", "outcome", "enablers"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "outcome": {"type": "string", "minLength": 1},
+        "enablers": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "requirement": {
+      "type": "object",
+      "required": ["statement", "verification", "priority"],
+      "properties": {
+        "statement": {"type": "string", "minLength": 1},
+        "verification": {"type": "string", "minLength": 1},
+        "priority": {"type": "string", "enum": ["must", "should", "could"]},
+        "rationale": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "function": {
+      "type": "object",
+      "required": ["name", "input", "output"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "input": {"type": "array", "items": {"type": "string"}},
+        "output": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "component": {
+      "type": "object",
+      "required": ["name", "responsibilities", "interfaces"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "responsibilities": {"type": "array", "items": {"type": "string"}},
+        "interfaces": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "risk": {
+      "type": "object",
+      "required": ["name", "cause", "effect", "mitigations"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "cause": {"type": "string", "minLength": 1},
+        "effect": {"type": "string", "minLength": 1},
+        "mitigations": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "question": {
+      "type": "object",
+      "required": ["question", "why_it_matters", "blocks"],
+      "properties": {
+        "question": {"type": "string", "minLength": 1},
+        "why_it_matters": {"type": "string", "minLength": 1},
+        "blocks": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "concern": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "need": {"type": "object", "required": ["name", "statement"], "properties": {"name": {"type": "string", "minLength": 1}, "statement": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "exchange_flow": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "source": {"type": "string"}, "target": {"type": "string"}}, "additionalProperties": true},
+    "system_boundary": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "lifecycle_phase": {"type": "object", "required": ["name", "phase_id"], "properties": {"name": {"type": "string", "minLength": 1}, "phase_id": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "transition": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "from": {"type": "string"}, "to": {"type": "string"}}, "additionalProperties": true},
+    "operational_scenario": {"type": "object", "required": ["name", "trigger", "expected_outcome"], "properties": {"name": {"type": "string", "minLength": 1}, "actors": {"type": "array", "items": {"type": "string"}}, "preconditions": {"type": "array", "items": {"type": "string"}}, "trigger": {"type": "string", "minLength": 1}, "steps": {"type": "array", "items": {"type": "string"}}, "expected_outcome": {"type": "string", "minLength": 1}, "expected_outcomes": {"type": "array", "items": {"type": "string"}}, "scenario_type": {"type": "string"}, "contexts": {"type": "object"}}, "additionalProperties": true},
+    "functional_flow": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "source": {"type": "string"}, "target": {"type": "string"}}, "additionalProperties": true},
+    "functional_scenario": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "logical_component": {"type": "object", "required": ["name", "responsibilities"], "properties": {"name": {"type": "string", "minLength": 1}, "responsibilities": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
+    "physical_block": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "interface": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "solution_candidate": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "clarification_question": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "question": {"type": "string"}}, "additionalProperties": true}
+  },
+  "stakeholder_lenses": [
+    {"id": "user", "label": "直接使用者"},
+    {"id": "operator", "label": "运营与维护"},
+    {"id": "regulatory", "label": "监管与合规"},
+    {"id": "public_environment", "label": "公众与环境"},
+    {"id": "supplier", "label": "供应链与服务方"}
+  ],
+  "lifecycle_phases": [
+    {"id": "concept", "label": "概念与任务定义"},
+    {"id": "design", "label": "系统设计与验证"},
+    {"id": "manufacture", "label": "制造与交付"},
+    {"id": "operate", "label": "运行与保障"},
+    {"id": "retire", "label": "退役与处置"}
+  ],
+  "scenario_dimensions": [
+    {"id": "weather", "label": "天气", "values": ["晴天", "雨天", "强风", "雷暴", "冰雪", "高温", "低温"]},
+    {"id": "visibility", "label": "能见度", "values": ["正常", "夜间", "雾霾", "低能见度"]},
+    {"id": "mission_phase", "label": "任务阶段", "values": ["准备", "起飞", "巡航", "到达", "降落", "返航", "应急"]},
+    {"id": "system_state", "label": "系统状态", "values": ["正常", "降级", "故障", "失效安全"]},
+    {"id": "human_context", "label": "人员状态", "values": ["熟练", "新手", "疲劳", "高压力"]}
+  ],
+  "coverage_rules": [
+    {"id": "stakeholder-each", "source": "stakeholder_lenses", "priority": "high"},
+    {"id": "lifecycle-each", "source": "lifecycle_phases", "priority": "high"},
+    {"id": "scenario-cross-product", "source": "scenario_dimensions", "priority": "high"},
+    {"id": "failure-and-recovery", "source": "scenario_dimensions", "priority": "high"}
+  ],
+  "prompt_fragments": {
+    "completeness": "逐个列出利益相关方、生命周期阶段和正常/异常/恢复场景；不把推断当成事实。",
+    "safety": "必须考虑极端环境、人员失误、通信中断、能源/控制/感知故障和安全降级。",
+    "review": "每个候选项都带来源、假设、置信度和需要用户确认的问题。"
+  },
+  "diagram_groups": {
+    "stakeholder_context": {"label": "利益相关方与环境", "order": 10},
+    "scenario_flow": {"label": "场景与流程", "order": 20},
+    "functional_decomposition": {"label": "功能分解", "order": 30},
+    "logical_architecture": {"label": "逻辑架构", "order": 40},
+    "physical_architecture": {"label": "物理架构", "order": 50},
+    "traceability": {"label": "需求与追溯", "order": 60}
+  }
+}

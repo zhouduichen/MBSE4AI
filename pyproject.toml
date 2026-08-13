@@ -51,6 +51,7 @@ where = ["src"]
   "resources/examples/customer-acceptance/*",
   "resources/examples/versioned-content-service/*",
   "resources/examples/concept-design/*.json",
+  "resources/examples/discovery/*",
 ]
 "rflp_lite.interface.web" = [
   "templates/*.html",
