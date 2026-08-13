@@ -1,6 +1,6 @@
 # RFLP-Lite 开发状态
 
-**最后更新：** 2026-08-11
+**最后更新：** 2026-08-13
 **当前版本：** 0.1.0  
 **状态：** 本地最小链路已跑通，需求工作台、Python 项目接入、任务契约执行与测试执行沙箱均已完成首版；CLI 已可无 Web 全自动跑通
 
@@ -26,7 +26,7 @@
 | MLflow Tracking | 已完成 MVP | 安装可选 SDK 后将 Profile、指标、Tag 和运行 Artifact 写入本地/远程 MLflow；缺失时返回 `not_configured` |
 | 本地 Job / API / Plugin | 已完成 MVP | 持久化同步 Job 状态、`/api/v1` JSON API、进程内插件注册与结构化调用 |
 | LLM API | 代码已完成，待真实模型实测 | 手动调用 OpenAI-compatible API，只生成待审核 inferred 候选 |
-| Python ActualModel / Delta / Evidence 接入 | 已完成首版 | 工作台 RFLP 人工批准为基线，扫描本地 Python 项目（AST/OpenAPI/JUnit）生成 ActualModel 与 Evidence，计算 MISSING/EXTRA Delta，派生 TaskContract；Web 页面与 CLI 均可操作 |
+| Python ActualModel / Delta / Evidence 接入 | 已完成首版 | 工作台 RFLP 生成后自动建立基线，扫描本地 Python 项目（AST/OpenAPI/JUnit）生成 ActualModel 与 Evidence，计算 MISSING/EXTRA Delta，派生 TaskContract；Web 页面与 CLI 均可操作 |
 | 任务契约执行 | 已完成首版 | 重扫描项目目录，逐条判定 TaskContract 是否已满足（RESOLVED/UNRESOLVED），确定性、只读、不执行用户代码 |
 | 测试执行沙箱 | 已完成首版 | 支持 pytest/unittest、超时、输出、POSIX 内存/文件句柄限制、确定性缓存和受控并行；统一回填 Evidence 并如实报告每个 runner |
 | 拖拽图编辑、复杂文档版面、多人权限 | 延后 | 首版提供语义编辑 API；CAD/多学科仿真和组织级权限仍在后续 M3-M8 |
@@ -62,10 +62,10 @@ Sparse Input
 关键门禁：
 
 - 原文明确角色可由规则产生候选；隐含角色只能由 LLM 提议或人工补充。
-- inferred 候选不会被“批量接受”自动批准。
+- 普通流程的常规生成输出（规则需求、起始场景、动态 RFLP、MBSE 草稿、快速流程基线）自动接受；AI 生成的 inferred 候选和发现流水线候选不会被“批量接受”自动批准，必须逐条人工审核。
 - Need 必须关联已接受的 Stakeholder、Concern 和来源 TextSpan。
 - Requirement 必须来自已接受 Need，或明确标记为法规/系统约束。
-- AI 不得批准 Stakeholder、Requirement、RFLP 或 Baseline。
+- 智能发现流水线中 AI 不得批准 Stakeholder、Requirement、RFLP 或 Baseline；普通快速流程基线自动建立，正式交付前标注人工复核提示。
 
 ## 需求工作台
 
@@ -110,7 +110,7 @@ Sparse Input
 操作流程：
 
 1. 在需求建模中生成 RFLP 规划图。
-2. 在“项目接入”页面点击“人工批准基线”（基线只能由人批准，规范：`approve_baseline` 要求元素全部 `approved`）。
+2. 基线随正式 RFLP 自动生成（原“人工批准基线”改为“已自动生成”状态；`approve-baseline` 路由保留用于补齐历史工作区）。
 3. 填写本地 Python 项目目录的绝对路径，点击“分析项目”。
 4. 查看 ActualModel 元素、基线→实际匹配、MISSING/EXTRA 差异、任务契约与证据。
 5. 对项目作出修改后，点击“执行验证”重扫描判定每条任务契约是否已满足（RESOLVED/UNRESOLVED）。
@@ -124,7 +124,7 @@ Sparse Input
 | 方法 | 路由 | 用途 |
 |---|---|---|
 | GET | `/w/{workspace}/project` | 项目接入页面 |
-| POST | `/w/{workspace}/project/approve-baseline` | 人工批准基线 |
+| POST | `/w/{workspace}/project/approve-baseline` | 手动补齐基线（新流程随 RFLP 自动生成） |
 | POST | `/w/{workspace}/project/analyze` | 扫描项目并生成 Delta/TaskContract/Evidence |
 | POST | `/w/{workspace}/project/verify` | 重扫描并判定任务契约是否已满足 |
 | POST | `/w/{workspace}/project/test` | 运行 allowlist runner 并回填测试 Evidence（默认 pytest、60s 超时） |
@@ -145,6 +145,10 @@ rflp mbse export --workspace <path> --format json|sysml|svg
 rflp concept import --workspace <path> --pack <pack.json> --data <schemes.json|csv|db> [--table <table>]
 rflp concept run --workspace <path> --pack <pack.json> --evaluator-profile <profile.json> --envelope <envelope.json>
 rflp concept acceptance --pack <pack.json> --schemes <schemes.json> --envelope <envelope.json> --evaluator-profile <profile.json>
+rflp discover draft --workspace <path> --pack urban-medical-aam-v1
+rflp discover review --workspace <path> --candidate-id <id> --decision accepted --revision <n> --pack urban-medical-aam-v1
+rflp discover finalize --workspace <path> --pack urban-medical-aam-v1
+rflp discover export --workspace <path> --pack urban-medical-aam-v1 --diagram environment
 rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 60]
 ```
 
@@ -271,6 +275,13 @@ export RFLP_LLM_API_KEY=local-key
 .venv/bin/rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 60]
 ```
 
+2026-08-13（确认流程简化 + 智能发现合并）：
+
+- `pytest`：359 passed；Import Linter：4 contracts kept（新增 intelligence/diagrams 边界）；schema 校验与 `python -m build` 成功。
+- 确认流程简化：常规生成输出（场景、MBSE、快速流程基线）自动接受；新增增量审核队列、变更集影响分析、历史需求台账回灌（`restore_legacy_requirements`）和工作台修订版本；页面文案与路由同步更新。
+- 智能发现垂直切片（`codex/intelligent-mbse-discovery` 分支）合并回 main：稀疏输入 → seed → 8 视角候选 → 规范化/覆盖审计 → 逐项审核 → accepted graph → DiagramSpec → 确定性 SVG；`rflp discover draft/review/finalize/export` 可用；Web `/w/{workspace}/requirements/discovery` 与 `/api/v1/.../discovery/*` 入口。
+- 合并无冲突：`workbench_schema.py`（v3 + 修订/审计字段）、`web_facade.py`（发现编排方法）、`base.html`（导航链接）三处重叠文件自动合并。
+
 ## 关键提交
 
 | 提交 | 内容 |
@@ -289,6 +300,6 @@ export RFLP_LLM_API_KEY=local-key
 - 匹配只在基线 R/F 与 actual class/function/api-operation 之间按分词交集进行；中英文、缩写与长句义务的匹配需要更多工程样本校准。
 - 项目扫描只读 `.py` / OpenAPI JSON / JUnit XML；测试执行沙箱只运行固定的 `pytest` / `unittest` allowlist 命令（默认 60s 超时）。
 - 测试结果作为独立客观 Evidence 呈现，不改变实现符号层面的 R/F 匹配与契约 RESOLVED/UNRESOLVED。
-- 场景先经过编辑、确认/驳回和审核历史，再允许生成 `declarative-only` 轨迹和 Evidence；轨迹不连接真实运行时，不自动驱动仿真、测试或契约验收。
+- 场景和 MBSE 常规输出自动接受后可直接生成 `declarative-only` 轨迹和顺序图；删除、驳回仍保留确认历史；轨迹不连接真实运行时，不自动驱动仿真、测试或契约验收。
 - API 默认只用于本地受控客户端；登录、角色权限、限流、公网部署和远程插件隔离仍未配置。
 - 测试运行器仅支持固定的 pytest/unittest allowlist；POSIX 资源限制在其他平台以不支持状态报告。
