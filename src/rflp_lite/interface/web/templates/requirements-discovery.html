@@ -1,14 +1,42 @@
 {% extends "base.html" %}
+{% block title %}智能补全 · RFLP-Lite{% endblock %}
 {% block content %}
-<main class="page-shell">
-  <h1>智能补全 · MBSE 发现</h1>
-  <p>从一句话或零散需求生成可审核的利益相关方、场景、能力、需求与架构候选。</p>
-  {% set discovery = state.get('discovery', {}) if state else {} %}
-  {% set intake = discovery.get('intake', {}) %}
-  <section class="panel"><h2>任务种子</h2><p>{{ intake.get('mission_statement', '尚未生成') }}</p><p>系统：{{ intake.get('system_name', '待定义') }}</p><p>未知项：{{ intake.get('unknowns', [])|join('、') }}</p><p>领域包：{{ pack_id }}</p></section>
-  <section class="panel"><h2>覆盖审计</h2><p>{{ discovery.get('coverage', {}).get('summary', {}) }}</p>{% for cell in discovery.get('coverage', {}).get('cells', []) %}<div>{{ cell.key }} · {{ cell.status }}{% if cell.status != 'covered' %} · 需确认{% endif %}</div>{% endfor %}</section>
-  <section class="panel"><h2>候选（AI 候选，需人工确认）</h2>{% for group in discovery.get('candidate_sets', []) %}<h3>{{ group.get('lens_id') }}</h3>{% for item in group.get('items', []) %}<article><strong>{{ item.get('payload', {}).get('name', item.get('id')) }}</strong> · {{ item.get('status') }} · {{ item.get('confidence', '') }}<div>{{ item.get('provenance', []) }} {{ item.get('assumptions', []) }}</div></article>{% endfor %}{% else %}<p>还没有候选，请先运行草稿。</p>{% endfor %}</section>
-  <section class="panel"><h2>操作</h2><form method="post" action="/w/{{ workspace.name }}/requirements/discovery/draft"><input type="hidden" name="pack_id" value="{{ pack_id }}"><button type="submit">智能补全</button></form><p>审核、编辑和最终确认通过 API 或候选卡片操作；未审核项不会进入图形。</p></section>
-  <section class="panel"><h2>诊断</h2>{% for item in discovery.get('diagnostics', []) %}<div>{{ item.get('severity', 'info') }} · {{ item.get('code') }} · {{ item.get('message', '') }}</div>{% endfor %}</section>
-</main>
+<div class="page-heading"><div><span class="eyebrow">05 · Discovery</span><h1>智能补全与架构发现</h1></div><a class="button" href="/w/{{ workspace.name }}/requirements">返回需求规划</a></div>
+{% set discovery = state.get('discovery', {}) if state else {} %}
+{% set intake = discovery.get('intake', {}) %}
+{% set coverage = discovery.get('coverage', {}) %}
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Seed model</span><h2>任务种子</h2></div><span class="count-badge">{{ pack_id }}</span></div>
+<div class="compact-list"><article><span><strong>{{ intake.get('system_name', '待定义系统') }}</strong><small class="table-secondary">{{ intake.get('application_type', '未分类应用') }}</small></span></article>{% if intake.get('mission_statement') %}<article><span>任务陈述</span><small class="table-secondary">{{ intake.mission_statement }}</small></article>{% endif %}</div>
+{% if intake.get('unknowns') %}<p class="metrics-note">待澄清未知项：{{ intake.unknowns|join('、') }}</p>{% endif %}
+<form method="post" action="/w/{{ workspace.name }}/requirements/discovery/draft"><input type="hidden" name="pack_id" value="{{ pack_id }}"><button class="button primary" type="submit">{% if discovery %}重新{% endif %}智能补全 →</button></form></section>
+
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Coverage audit</span><h2>覆盖审计</h2></div><span class="count-badge">{{ coverage.get('summary', {}).get('covered', 0) }} 已覆盖</span></div>
+{% if coverage.get('cells') %}<div class="compact-list">{% for cell in coverage.get('cells', []) %}{% if cell.status == 'unknown' or cell.status == 'candidate' %}<article><span>{{ cell.key }} · {{ cell.get('rule_id', '') }}</span><span class="status-badge {{ cell.status }}">{{ '需确认' if cell.status == 'candidate' else '未覆盖' }}</span></article>{% endif %}{% endfor %}</div>
+<p class="metrics-note">每格状态：已覆盖 / 候选中 / 未覆盖（已评估但未解决）/ 不适用。</p>{% else %}<div class="mini-empty">尚未评估覆盖情况，先运行智能补全。</div>{% endif %}</section>
+
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Candidates</span><h2>候选（AI 候选，需人工确认）</h2></div><span class="count-badge">{{ candidate_count }}</span></div>
+{% for group in discovery.get('candidate_sets', []) %}
+<div class="panel"><div class="panel-head"><h3>{{ group.get('lens_id') }}</h3><span class="count-badge">{{ group.get('items', [])|length }}</span><small class="table-secondary">模型 {{ group.get('model_id', 'degraded') }} · {{ group.get('status', '') }}</small></div>
+{% for item in group.get('items', []) %}
+<article class="card discovery-candidate-card">
+  <div class="panel-head"><div><strong>{{ item.get('payload', {}).get('name', item.get('id')) }}</strong><small class="table-secondary">{{ item.get('element_type') }} · {{ item.get('id') }} · 置信度 {{ item.get('confidence', '') }}</small></div><span class="status-badge {{ item.status }}">{{ item.status }}</span></div>
+  <p class="metrics-note">来源：{% for ref in item.get('provenance', []) %}{{ ref.get('source_type', '') }}（{{ ref.get('source_id', '') }}）{{ ref.get('rationale', '') }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  {% if item.get('assumptions') %}<p class="metrics-note">假设：{{ item.assumptions|join('、') }}</p>{% endif %}
+  {% if item.status == 'candidate' %}
+  <div class="workbench-actions">
+    <form method="post" action="/w/{{ workspace.name }}/requirements/discovery/review"><input type="hidden" name="pack_id" value="{{ pack_id }}"><input type="hidden" name="candidate_id" value="{{ item.id }}"><input type="hidden" name="expected_revision" value="{{ discovery.get('revision', 0) }}"><button class="button compact primary" name="decision" value="accepted" type="submit">接受</button><button class="button compact danger" name="decision" value="rejected" type="submit">驳回</button></form>
+    <details class="inline-details"><summary>编辑</summary><form method="post" action="/w/{{ workspace.name }}/requirements/discovery/edit"><input type="hidden" name="pack_id" value="{{ pack_id }}"><input type="hidden" name="candidate_id" value="{{ item.id }}"><input type="hidden" name="expected_revision" value="{{ discovery.get('revision', 0) }}"><input type="hidden" name="payload" value="{{ item.payload|tojson }}"><label class="field">名称<input name="name" value="{{ item.get('payload', {}).get('name', '') }}" required></label><button class="button compact" type="submit">保存修改</button></form></details>
+  </div>
+  {% endif %}
+</article>
+{% endfor %}</div>
+{% else %}<div class="mini-empty">还没有候选，先运行智能补全；未配置大模型时仅完成覆盖审计。</div>{% endfor %}</section>
+
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Finalize</span><h2>确认与图形</h2></div></div>
+<form method="post" action="/w/{{ workspace.name }}/requirements/discovery/finalize"><input type="hidden" name="pack_id" value="{{ pack_id }}"><button class="button primary" type="submit" {% if accepted_count == 0 %}disabled{% endif %}>纳入统一工作台 {% if accepted_count %}（{{ accepted_count }} 项已接受）{% endif %}</button></form>
+{% if accepted_count == 0 %}<p class="metrics-note">至少接受一项候选后才能纳入统一工作台；finalize 不批准 Baseline。</p>{% endif %}
+{% if has_accepted_graph %}<div class="link-grid compact-links">{% for type in diagram_types %}<a class="button compact" href="/w/{{ workspace.name }}/requirements/discovery/diagram.svg?type={{ type }}">{{ type }}</a>{% endfor %}</div><p class="metrics-note">全部图形从同一 accepted graph 生成，字节稳定且转义；超 40 节点会自动拆分。</p>{% else %}<div class="mini-empty">完成审核并纳入工作台后，这里会出现 15 种确定性图形入口。</div>{% endif %}</section>
+
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">Diagnostics</span><h2>诊断</h2></div></div>
+<div class="compact-list">{% for item in discovery.get('diagnostics', []) %}<article><span>{{ item.get('code', '') }} · {{ item.get('message', '') }}</span><span class="status-badge {{ item.get('severity', 'info') }}">{{ item.get('severity', 'info') }}</span></article>{% else %}<div class="mini-empty">暂无诊断。</div>{% endfor %}</div></section>
 {% endblock %}

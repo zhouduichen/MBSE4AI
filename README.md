@@ -73,24 +73,28 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 对一句话或零散需求运行城市医疗飞行汽车领域包：
 
 ```bash
+# 从需求/工程资料文件直接开始（无需先建立已接受需求）
+.venv/bin/rflp discover draft --workspace workspaces/medical-aam --pack urban-medical-aam-v1 --input needs.txt
+# 或在已有需求工作台上运行智能补全
 .venv/bin/rflp discover draft --workspace workspaces/medical-aam --pack urban-medical-aam-v1
 .venv/bin/rflp discover review --workspace workspaces/medical-aam --candidate-id candidate-0123456789abcdef --decision accepted --revision 4
 .venv/bin/rflp discover finalize --workspace workspaces/medical-aam --pack urban-medical-aam-v1
 .venv/bin/rflp discover export --workspace workspaces/medical-aam --pack urban-medical-aam-v1 --diagram environment
 ```
 
+Web 页面位于 `/w/{workspace}/requirements/discovery`：逐项接受/驳回/编辑候选、finalize 纳入统一工作台，并在最终确定后提供 15 种确定性图形入口（同源 accepted graph，超出 40 节点自动拆分，SVG 转义且字节稳定）。
+
 智能输出始终是 `candidate`，必须逐项人工审核后才进入 accepted semantic graph；`unknown` 表示已经评估但仍未解决。发现流程不会批准 Baseline。利益相关方、场景维度、覆盖规则和图形分组都属于版本化领域包，新增可选字段通常只需修改领域包，不需要改 Python 核心。
 
 ### 连接本地 Python 项目
 
-需求建模生成 RFLP 后，进入“项目接入”，把已批准基线（人工批准）与一个本地 Python 项目目录对接：
+需求建模生成 RFLP 后，进入“项目接入”（基线随正式 RFLP 自动生成），把一个本地 Python 项目目录对接：
 
-1. 在“项目接入”页面点击“人工批准基线”；
-2. 填写本地项目目录的绝对路径，点击“分析项目”；
-3. 查看 ActualModel、基线→实际匹配、MISSING/EXTRA 差异、任务契约与证据；
-4. 对项目作出修改后，点击“执行验证”重扫描判定每条任务契约是否已满足（RESOLVED/UNRESOLVED）；
-5. 点击“运行项目测试”，选择 pytest/unittest、资源上限、并行度和缓存策略，在超时与隔离沙箱中运行并查看每个 runner 的结果；
-6. 下载规范化 JSON：baseline、actual-model、matches、delta、task-contracts、evidence、project。
+1. 填写本地项目目录的绝对路径，点击“分析项目”；
+2. 查看 ActualModel、基线→实际匹配、MISSING/EXTRA 差异、任务契约与证据；
+3. 对项目作出修改后，点击“执行验证”重扫描判定每条任务契约是否已满足（RESOLVED/UNRESOLVED）；
+4. 点击“运行项目测试”，选择 pytest/unittest、资源上限、并行度和缓存策略，在超时与隔离沙箱中运行并查看每个 runner 的结果；
+5. 下载规范化 JSON：baseline、actual-model、matches、delta、task-contracts、evidence、project。
 
 场景描述和执行记录保存在现有工作台 JSON 中，不新增数据库表；步骤和预期结果按行记录，可选关联 Requirement ID。执行轨迹只处理结构化文本，不执行任意代码，结果明确标记为 `declarative-only`，可通过 `/w/{workspace}/requirements/scenarios.json`、`/w/{workspace}/requirements/scenario-runs.json` 下载。
 

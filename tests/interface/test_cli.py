@@ -367,3 +367,66 @@ def test_concept_cli_import_run_and_svg_export(tmp_path, capsys):
         ]
     ) == 0
     assert '"decision":"rejected"' in capsys.readouterr().out
+
+
+def test_discover_draft_from_sparse_input(tmp_path, capsys):
+    seed = tmp_path / "seed.txt"
+    seed.write_text("设计一款城市医疗用途的飞行汽车。\n", encoding="utf-8")
+    workspace = tmp_path / "ws"
+
+    assert main(
+        [
+            "discover", "draft",
+            "--workspace", str(workspace),
+            "--pack", "urban-medical-aam-v1",
+            "--input", str(seed),
+        ]
+    ) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["status"] == "ok"
+    assert out["revision"] >= 1
+    assert out["candidate_count"] == 0  # degraded mode without an LLM
+    assert len(out["coverage"]["cells"]) > 100
+
+    # a follow-up run without --input reuses the same workspace
+    assert main(
+        [
+            "discover", "draft",
+            "--workspace", str(workspace),
+            "--pack", "urban-medical-aam-v1",
+        ]
+    ) == 0
+    out2 = json.loads(capsys.readouterr().out)
+    assert out2["revision"] > out["revision"]
+
+    # export requires an accepted graph and fails cleanly
+    assert main(
+        [
+            "discover", "export",
+            "--workspace", str(workspace),
+            "--pack", "urban-medical-aam-v1",
+            "--diagram", "environment",
+        ]
+    ) != 0
+    assert "accepted discovery graph is empty" in capsys.readouterr().err
+
+
+def test_discover_review_requires_current_revision(tmp_path, capsys):
+    seed = tmp_path / "seed.txt"
+    seed.write_text("设计一款城市医疗用途的飞行汽车。\n", encoding="utf-8")
+    workspace = tmp_path / "ws"
+    assert main(
+        ["discover", "draft", "--workspace", str(workspace), "--pack", "urban-medical-aam-v1", "--input", str(seed)]
+    ) == 0
+    capsys.readouterr()
+
+    assert main(
+        [
+            "discover", "review",
+            "--workspace", str(workspace),
+            "--candidate-id", "candidate-0000000000000000",
+            "--decision", "accepted",
+            "--revision", "0",
+            "--pack", "urban-medical-aam-v1",
+        ]
+    ) != 0

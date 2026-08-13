@@ -37,6 +37,7 @@ from rflp_lite.application.requirements_workbench import (
     generate_model,
     merge_artifact,
 )
+from rflp_lite.application.workbench_schema import migrate_workbench_state
 from rflp_lite.application.scenario_execution import append_scenario_run, execute_scenario
 from rflp_lite.application.run_catalog import load_run
 from rflp_lite.application.sysml_v2 import export_sysml_v2_text, import_sysml_v2_text
@@ -112,6 +113,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     discover_draft = discover_commands.add_parser("draft")
     discover_draft.add_argument("--workspace", type=Path, required=True)
     discover_draft.add_argument("--pack", default="urban-medical-aam-v1")
+    discover_draft.add_argument(
+        "--input", type=Path, nargs="+", metavar="FILE",
+        help="需求/工程资料文件；提供后从稀疏输入直接建立发现工作台",
+    )
     discover_review = discover_commands.add_parser("review")
     discover_review.add_argument("--workspace", type=Path, required=True)
     discover_review.add_argument("--candidate-id", required=True)
@@ -502,6 +507,31 @@ def _run_discover(args: argparse.Namespace) -> int:
     facade = WebFacade(args.workspace.parent)
     workspace_name = args.workspace.name
     if args.discover_command == "draft":
+        if getattr(args, "input", None):
+            workspace = args.workspace.resolve()
+            try:
+                WebFacade(args.workspace.parent).workspace(workspace_name)
+            except ContractViolation:
+                initialize_workspace(workspace)
+            state = None
+            for path in args.input:
+                content = path.read_bytes()
+                state = (
+                    analyze_artifact(path.name, content)
+                    if state is None
+                    else merge_artifact(state, path.name, content)
+                )
+            state = migrate_workbench_state(state)
+            repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+            try:
+                with repository.transaction():
+                    repository.save_workbench(state, "requirements.analyzed")
+                    repository.record_audit(
+                        "requirements.analyzed",
+                        {"artifact": state["artifact"]["path"]},
+                    )
+            finally:
+                repository.close()
         state = facade.draft_discovery(workspace_name, args.pack)
         discovery = state.get("discovery", {})
         print(canonical_json({"status": "ok", "revision": discovery.get("revision", 0), "candidate_count": sum(len(group.get("items", [])) for group in discovery.get("candidate_sets", []) if isinstance(group, dict)), "coverage": discovery.get("coverage", {})}))

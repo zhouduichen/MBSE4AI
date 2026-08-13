@@ -282,6 +282,13 @@ export RFLP_LLM_API_KEY=local-key
 - 智能发现垂直切片（`codex/intelligent-mbse-discovery` 分支）合并回 main：稀疏输入 → seed → 8 视角候选 → 规范化/覆盖审计 → 逐项审核 → accepted graph → DiagramSpec → 确定性 SVG；`rflp discover draft/review/finalize/export` 可用；Web `/w/{workspace}/requirements/discovery` 与 `/api/v1/.../discovery/*` 入口。
 - 合并无冲突：`workbench_schema.py`（v3 + 修订/审计字段）、`web_facade.py`（发现编排方法）、`base.html`（导航链接）三处重叠文件自动合并。
 
+2026-08-13（发现功能完善 + CLI 稀疏输入）：
+
+- `pytest`：365 passed；Import Linter：4 contracts kept。
+- Web 发现页补全：逐项接受/驳回/编辑（携带修订版本）控件、finalize 纳入统一工作台、15 种图形卡片（同源 accepted graph、40 节点自动拆分）、覆盖审计只列出未覆盖/候选中单元格、完整诊断；新增 `/discovery/review`、`/discovery/edit`、`/discovery/finalize` HTML 路由。
+- CLI：`rflp discover draft --input <file>` 从一句话/资料文件直接建立发现工作台（全中文输入可生成 seed 与覆盖审计），无需先建立已接受需求。
+- 新增 Web 表单流程 6 个测试与 CLI 2 个测试；README 同步补 `--input` 用法并修正“人工批准基线”等过时描述。
+
 ## 关键提交
 
 | 提交 | 内容 |
