@@ -2,6 +2,7 @@ import pytest
 
 from rflp_lite.application.requirements_workbench import (
     accept_traceable,
+    accept_initial_workbench,
     add_llm_suggestions,
     analyze_artifact,
     add_stakeholder,
@@ -60,6 +61,37 @@ def test_draft_model_is_available_before_review_without_mutating_candidates():
     assert "需求理解图" in draft["svg"]
     assert all(item["status"] == "candidate" for item in draft["claims"])
     assert state["rflp"] is None
+
+
+def test_initial_workbench_accepts_rule_results_without_llm():
+    state = analyze_artifact("requirements.txt", "系统应支持备份。".encode())
+
+    accepted = accept_initial_workbench(state)
+
+    assert accepted["claims"]
+    assert all(item["status"] == "accepted" for item in accepted["claims"])
+    assert all(item["status"] == "accepted" for item in accepted["structured_requirements"])
+    assert accepted["review_queue"] == []
+
+
+def test_initial_workbench_keeps_implicit_model_suggestion_reviewable():
+    state = analyze_artifact("requirements.txt", "系统应支持备份。".encode())
+    state["claims"].append(
+        {
+            "id": "implicit-1",
+            "subject": "系统",
+            "predicate": "应",
+            "object": "应考虑恢复时间",
+            "source_type": "inferred",
+            "producer": "llm",
+            "status": "candidate",
+        }
+    )
+
+    accepted = accept_initial_workbench(state)
+
+    assert next(item for item in accepted["claims"] if item["id"] == "implicit-1")["status"] == "candidate"
+    assert any(item["item_id"] == "implicit-1" for item in accepted["review_queue"])
 
 
 def test_draft_model_accepts_plain_language_as_provisional_nodes():

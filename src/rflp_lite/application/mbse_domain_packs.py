@@ -130,6 +130,136 @@ def load_mbse_domain_pack(path: Path, validate: bool = True) -> dict[str, object
     return _load_domain_pack(Path(path), validate=validate)
 
 
+_SOURCE_TRACKED_LISTS = (
+    "stakeholder_lenses",
+    "lifecycle_phases",
+    "lifecycle",
+    "stakeholders",
+    "scenario_dimensions",
+    "coverage_rules",
+)
+
+
+def _merge_prompt_fragments(
+    target: dict[str, object], source: dict[str, object]
+) -> dict[str, object]:
+    result = dict(target)
+    for key, value in source.items():
+        if isinstance(result.get(key), dict) and isinstance(value, dict):
+            result[key] = _merge_prompt_fragments(
+                result[key], value  # type: ignore[arg-type]
+            )
+        else:
+            result[key] = value
+    return result
+
+
+def _merge_composed_documents(
+    documents: list[tuple[dict[str, object], str]]
+) -> dict[str, object]:
+    """Merge parent-first pack documents while retaining source metadata."""
+
+    if not documents:
+        raise ContractViolation("至少需要一个 MBSE 领域包")
+    result: dict[str, object] = {}
+    keyed_lists: dict[str, dict[str, dict[str, object]]] = {
+        key: {} for key in _SOURCE_TRACKED_LISTS
+    }
+    keyed_order: dict[str, list[str]] = {key: [] for key in _SOURCE_TRACKED_LISTS}
+    source_ids: list[str] = []
+    source_hashes: dict[str, str] = {}
+
+    for pack, source_id in documents:
+        source_ids.append(source_id)
+        source_hashes[source_id] = mbse_domain_pack_hash(pack)
+        for key, value in pack.items():
+            if key in {"id", "version", "display_name", "description"}:
+                result[key] = value
+                continue
+            if key in _SOURCE_TRACKED_LISTS:
+                if not isinstance(value, list):
+                    continue
+                for item in value:
+                    if not isinstance(item, dict):
+                        continue
+                    identity = str(item.get("id", canonical_hash(item)))
+                    merged_item = {**item, "source_pack_id": source_id}
+                    if identity not in keyed_lists[key]:
+                        keyed_order[key].append(identity)
+                    keyed_lists[key][identity] = merged_item
+                continue
+            if key == "prompt_fragments":
+                if isinstance(value, dict):
+                    result[key] = _merge_prompt_fragments(
+                        result.get(key, {}) if isinstance(result.get(key), dict) else {},
+                        value,
+                    )
+                continue
+            if key in {"element_schemas", "extensions", "diagram_groups"}:
+                current = result.get(key)
+                if isinstance(current, dict) and isinstance(value, dict):
+                    result[key] = {**current, **value}
+                elif isinstance(value, dict):
+                    result[key] = dict(value)
+                continue
+            if key in {"extends", "disciplines", "core_overrides"}:
+                continue
+            if key == "stable_fields":
+                current = result.get(key, [])
+                existing = list(current) if isinstance(current, list) else []
+                for field in value if isinstance(value, list) else []:
+                    if field not in existing:
+                        existing.append(field)
+                result[key] = existing
+                continue
+            result[key] = value
+
+    for key in _SOURCE_TRACKED_LISTS:
+        result[key] = [keyed_lists[key][item_id] for item_id in keyed_order[key]]
+    result["pack_ids"] = source_ids
+    result["pack_hashes"] = source_hashes
+    result["sources"] = [
+        {"id": source_id, "hash": source_hashes[source_id]}
+        for source_id in source_ids
+    ]
+    result["source_pack_id"] = source_ids[-1]
+    return json.loads(canonical_json(result))
+
+
+def load_composed_pack(selection: dict[str, object]) -> dict[str, object]:
+    """Load selected packs and recursively expand ``extends``/``disciplines``."""
+
+    raw_ids = selection.get("pack_ids") if isinstance(selection, dict) else None
+    if not isinstance(raw_ids, (list, tuple)) or not raw_ids:
+        raise ContractViolation("pack_ids 必须是非空字符串数组")
+    documents: list[tuple[dict[str, object], str]] = []
+    visited: set[str] = set()
+
+    def visit(pack_id: object, ancestors: tuple[str, ...]) -> None:
+        clean_id = _clean_pack_id(pack_id)  # type: ignore[arg-type]
+        if clean_id in ancestors:
+            cycle = " -> ".join((*ancestors, clean_id))
+            raise ContractViolation(f"MBSE domain pack inheritance cycle: {cycle}")
+        if clean_id in visited:
+            return
+        pack = load_domain_pack(clean_id)
+        parents: list[str] = []
+        for field in ("extends", "disciplines"):
+            values = pack.get(field, [])
+            if not values and isinstance(pack.get("extensions"), dict):
+                values = pack["extensions"].get(field, [])  # type: ignore[index]
+            if isinstance(values, list):
+                parents.extend(str(value) for value in values)
+        for parent_id in parents:
+            visit(parent_id, (*ancestors, clean_id))
+        visited.add(clean_id)
+        documents.append((pack, clean_id))
+
+    for pack_id in raw_ids:
+        visit(pack_id, ())
+    return _merge_composed_documents(documents)
+
+
 def mbse_domain_pack_hash(pack: object) -> str:
     """Return the deterministic content hash of a domain pack."""
 

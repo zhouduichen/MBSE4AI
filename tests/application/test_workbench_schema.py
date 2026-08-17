@@ -16,6 +16,24 @@ def test_migrate_legacy_state_adds_v3_fields_regions_and_discovery():
     assert state["document_regions"][0]["id"] == "s1"
     assert state["structured_requirements"] == []
     assert state["discovery"] == empty_discovery_state()
+    assert state["analysis_config"]["base_pack_id"] == "common-v1"
+    assert state["analysis_config"]["overlay_pack_ids"] == []
+
+
+def test_migrate_legacy_single_scenario_pack_to_overlay_selection():
+    state = migrate_workbench_state(
+        {
+            "schema_version": 2,
+            "analysis_config": {
+                "enabled": True,
+                "domain_pack_id": "urban-medical-aam-v1",
+                "domain_pack_version": 1,
+            },
+        }
+    )
+
+    assert state["analysis_config"]["base_pack_id"] == "common-v1"
+    assert state["analysis_config"]["overlay_pack_ids"] == ["urban-medical-aam-v1"]
 
 
 def test_migrate_v2_preserves_existing_model_and_adds_empty_discovery():

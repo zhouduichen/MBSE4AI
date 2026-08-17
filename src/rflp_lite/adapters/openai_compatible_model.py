@@ -6,10 +6,18 @@ import json
 import time
 from collections.abc import Callable
 
-from rflp_lite.adapters.llm_client import chat_completion
+from rflp_lite.adapters.llm_client import _bounded_max_tokens, chat_completion
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.errors import AdapterFailure
 from rflp_lite.ports.generative_model import GenerationRequest, GenerationResponse
+
+
+_REPAIR_MAX_TOKENS = 512
+_REPAIR_FAILURE = "LLM response is not valid JSON after one repair"
+
+
+class _InvalidStructuredResponse(ValueError):
+    """The provider returned JSON that cannot be accepted for this request."""
 
 
 class OpenAICompatibleModel:
@@ -27,32 +35,75 @@ class OpenAICompatibleModel:
     @staticmethod
     def _parse_json(raw: object) -> dict[str, object]:
         text = str(raw or "").strip()
+        if not text:
+            raise _InvalidStructuredResponse("empty content")
         if text.startswith("```"):
             lines = text.splitlines()
+            if len(lines) < 3 or not lines[-1].strip().startswith("```"):
+                raise _InvalidStructuredResponse("unclosed JSON fence")
             text = "\n".join(lines[1:-1]).strip()
             if text.casefold().startswith("json"):
                 text = text[4:].lstrip()
         try:
             value = json.loads(text)
-        except (TypeError, json.JSONDecodeError):
+        except (TypeError, json.JSONDecodeError) as exc:
             start, end = text.find("{"), text.rfind("}")
             if start < 0 or end <= start:
-                raise
-            value = json.loads(text[start : end + 1])
+                raise _InvalidStructuredResponse("no complete JSON object") from exc
+            try:
+                value = json.loads(text[start : end + 1])
+            except (TypeError, json.JSONDecodeError) as boundary_exc:
+                raise _InvalidStructuredResponse("invalid JSON object") from boundary_exc
         if not isinstance(value, dict):
-            raise ValueError("LLM JSON response must be an object")
+            raise _InvalidStructuredResponse("response must be an object")
         return value
+
+    @classmethod
+    def _parse_and_validate(
+        cls, raw: object, response_schema: dict[str, object]
+    ) -> dict[str, object]:
+        payload = cls._parse_json(raw)
+        try:
+            import jsonschema
+        except ImportError as exc:
+            raise AdapterFailure("JSON schema validation is unavailable") from exc
+        try:
+            jsonschema.validate(instance=payload, schema=response_schema)
+        except jsonschema.ValidationError as exc:
+            raise _InvalidStructuredResponse("response does not match schema") from exc
+        except jsonschema.SchemaError as exc:
+            raise AdapterFailure("LLM response schema is invalid") from exc
+        return payload
+
+    @staticmethod
+    def _repair_messages(
+        request: GenerationRequest, raw: object
+    ) -> list[dict[str, str]]:
+        max_items = request.user_payload.get("max_items")
+        if not isinstance(max_items, int) or max_items < 1:
+            max_items = 8
+        envelope = {
+            "input": request.user_payload,
+            "response_schema": request.response_schema,
+            "invalid_response": str(raw or "")[:6000],
+        }
+        return [
+            {
+                "role": "system",
+                "content": (
+                    f"只修复 JSON 结构，最多返回 {max_items} 项，不要解释；"
+                    "缺失内容返回空数组。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(envelope, ensure_ascii=False, sort_keys=True),
+            },
+        ]
 
     def complete_json(self, request: GenerationRequest) -> GenerationResponse:
         started = time.monotonic()
-        max_tokens = request.max_tokens
-        local_cap = self._config.get("local_max_tokens")
-        if str(self._config.get("kind", "")).casefold() == "local":
-            try:
-                if int(local_cap) > 0:
-                    max_tokens = min(max_tokens, int(local_cap))
-            except (TypeError, ValueError):
-                pass
+        max_tokens = _bounded_max_tokens(self._config, request.max_tokens)
         messages = [
             {"role": "system", "content": request.system_prompt},
             {
@@ -75,24 +126,24 @@ class OpenAICompatibleModel:
             raise AdapterFailure("LLM completion failed") from exc
         repaired = False
         try:
-            payload = self._parse_json(raw)
-        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = self._parse_and_validate(raw, request.response_schema)
+        except _InvalidStructuredResponse:
             repaired = True
-            repair_messages = messages + [
-                {"role": "assistant", "content": str(raw)},
-                {"role": "user", "content": "上一个响应不是合法 JSON。只返回满足 schema 的 JSON 对象。"},
-            ]
             try:
                 repaired_raw = self._complete(
-                    call_config, repair_messages, max_tokens=max_tokens
+                    call_config,
+                    self._repair_messages(request, raw),
+                    max_tokens=(
+                        _REPAIR_MAX_TOKENS
+                        if max_tokens is None
+                        else min(max_tokens, _REPAIR_MAX_TOKENS)
+                    ),
                 )
-                payload = self._parse_json(repaired_raw)
-            except (TypeError, ValueError, json.JSONDecodeError) as exc:
-                raise AdapterFailure("LLM response is not valid JSON after one repair") from exc
+                payload = self._parse_and_validate(
+                    repaired_raw, request.response_schema
+                )
             except Exception as exc:
-                if isinstance(exc, AdapterFailure):
-                    raise
-                raise AdapterFailure("LLM repair completion failed") from exc
+                raise AdapterFailure(_REPAIR_FAILURE) from exc
         return GenerationResponse(
             lens_id=request.lens_id,
             payload=payload,

@@ -7,6 +7,7 @@ from typing import Any
 
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.application.intelligence.analysis_config import normalize_analysis_config
 
 
 WORKBENCH_SCHEMA_VERSION = 3
@@ -36,6 +37,10 @@ _V2_DEFAULTS: dict[str, object] = {
         "enabled": False,
         "domain_pack_id": None,
         "domain_pack_version": None,
+        "base_pack_id": "common-v1",
+        "industry_pack_ids": [],
+        "discipline_pack_ids": [],
+        "overlay_pack_ids": [],
         "provenance": {"source": "default", "reason": "domain-neutral-analysis"},
     },
     "review_queue": [],
@@ -87,6 +92,19 @@ def migrate_workbench_state(state: dict[str, Any] | None) -> dict[str, Any] | No
     for key, default in _WORKBENCH_DEFAULTS.items():
         if key not in normalized or normalized[key] is None:
             normalized[key] = json.loads(canonical_json(default))
+    try:
+        normalized["analysis_config"] = normalize_analysis_config(
+            normalized.get("analysis_config")
+        )
+    except ContractViolation:
+        normalized["analysis_config"] = normalize_analysis_config(None)
+        normalized.setdefault("diagnostics", []).append(
+            {
+                "code": "analysis_config_migrated_to_common",
+                "severity": "warning",
+                "message": "旧的领域包配置无法解析，已回退到 common-v1。",
+            }
+        )
     # The old extractor called these spans; the workbench treats them as regions.
     if not normalized["document_regions"] and normalized.get("spans"):
         normalized["document_regions"] = [

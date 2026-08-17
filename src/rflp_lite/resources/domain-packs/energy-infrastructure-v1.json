@@ -1,0 +1,392 @@
+{
+  "id": "energy-infrastructure-v1",
+  "version": 1,
+  "display_name": "能源与关键基础设施",
+  "description": "覆盖发电、输配、储能、充换能、水务、通信站点等基础设施系统的通用指导。",
+  "stable_fields": [
+    "id",
+    "name",
+    "description",
+    "source",
+    "confidence",
+    "status",
+    "assumptions",
+    "relations"
+  ],
+  "extensions": {
+    "pack_layer": "industry",
+    "reusable": true,
+    "activation_terms": [
+      "能源",
+      "电力",
+      "储能",
+      "水务",
+      "基础设施",
+      "调度",
+      "电网"
+    ],
+    "unknowns_are_first_class": true,
+    "review_required_before_diagram": true
+  },
+  "core_overrides": [],
+  "element_schemas": {
+    "stakeholder": {
+      "type": "object",
+      "required": [
+        "name",
+        "category",
+        "goals",
+        "interactions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "interactions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "concerns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "name",
+        "trigger",
+        "expected_outcome"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dimensions": {
+          "type": "object"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hazards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "requirement": {
+      "type": "object",
+      "required": [
+        "statement",
+        "verification",
+        "priority"
+      ],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "must",
+            "should",
+            "could"
+          ]
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "name",
+        "responsibilities",
+        "interfaces"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "responsibilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk": {
+      "type": "object",
+      "required": [
+        "name",
+        "cause",
+        "effect",
+        "mitigations"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cause": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mitigations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "stakeholder_lenses": [
+    {
+      "id": "service-consumer",
+      "label": "能源/基础设施服务使用者"
+    },
+    {
+      "id": "asset-owner",
+      "label": "资产所有者、规划与投资方"
+    },
+    {
+      "id": "control-operator",
+      "label": "调度、控制室与现场运营人员"
+    },
+    {
+      "id": "field-maintenance",
+      "label": "巡检、维修、施工与应急队伍"
+    },
+    {
+      "id": "regulator-community",
+      "label": "监管、市场、社区与环境相关方"
+    },
+    {
+      "id": "technology-supplier",
+      "label": "设备、燃料、通信与服务供应方"
+    }
+  ],
+  "lifecycle_phases": [
+    {
+      "id": "service-planning",
+      "label": "服务能力、负荷与韧性规划"
+    },
+    {
+      "id": "asset-concept",
+      "label": "设施、网络与资产概念设计"
+    },
+    {
+      "id": "engineering-integration",
+      "label": "工程设计、集成与并网/接入"
+    },
+    {
+      "id": "commissioning-acceptance",
+      "label": "调试、试运行与验收"
+    },
+    {
+      "id": "operation-maintenance",
+      "label": "运行、调度、巡检与维护"
+    },
+    {
+      "id": "upgrade-decommission",
+      "label": "扩容、改造、退役与环境恢复"
+    }
+  ],
+  "scenario_dimensions": [
+    {
+      "id": "demand_profile",
+      "label": "负荷与服务需求",
+      "values": [
+        "低负荷",
+        "基线",
+        "峰值",
+        "突发增长",
+        "反向潮流",
+        "关键负荷"
+      ]
+    },
+    {
+      "id": "network_state",
+      "label": "网络与资产状态",
+      "values": [
+        "正常",
+        "拥塞",
+        "孤岛",
+        "降级",
+        "故障",
+        "维修隔离"
+      ]
+    },
+    {
+      "id": "resource_availability",
+      "label": "资源可用性",
+      "values": [
+        "充足",
+        "受限",
+        "备用",
+        "中断",
+        "替代供应",
+        "不可用"
+      ]
+    },
+    {
+      "id": "weather_hazard",
+      "label": "天气与灾害",
+      "values": [
+        "常规",
+        "高温",
+        "低温",
+        "暴雨洪水",
+        "大风",
+        "雷击",
+        "地震/火灾"
+      ]
+    },
+    {
+      "id": "cyber_connectivity",
+      "label": "通信与网络安全",
+      "values": [
+        "可信在线",
+        "延迟",
+        "弱链路",
+        "中断",
+        "攻击疑似",
+        "人工模式"
+      ]
+    },
+    {
+      "id": "workforce_emergency",
+      "label": "人员与应急状态",
+      "values": [
+        "日常",
+        "交接",
+        "高负荷",
+        "抢修",
+        "多部门协同",
+        "恢复评估"
+      ]
+    }
+  ],
+  "coverage_rules": [
+    {
+      "id": "energy-stakeholder-coverage",
+      "source": "stakeholder_lenses",
+      "priority": "high"
+    },
+    {
+      "id": "energy-lifecycle-coverage",
+      "source": "lifecycle_phases",
+      "priority": "high"
+    },
+    {
+      "id": "demand-network-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "weather-resource-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "cyber-physical-continuity",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "community-environment-evidence",
+      "source": "stakeholder_lenses",
+      "priority": "medium"
+    }
+  ],
+  "prompt_fragments": {
+    "stakeholders": "识别用户、资产方、调度方、现场队伍、监管市场、社区环境和供应链角色及其服务承诺。",
+    "scenarios": "覆盖正常供给、峰值、资源受限、孤岛/降级、灾害、网络异常、抢修、恢复和复盘。",
+    "requirements": "把容量、可靠性、韧性、安全、环境、网络安全、可维护性和服务质量转为可验证需求。",
+    "architecture": "分别分析资产、控制保护、通信、数据、现场操作、市场服务和跨组织接口。",
+    "resilience": "明确备用、隔离、降级、黑启动/恢复、人工接管、优先负荷和恢复授权。",
+    "evidence": "要求运行数据、测试记录、检修记录、事件时间线和环境/合规证据可追溯。"
+  },
+  "diagram_groups": {
+    "stakeholder_context": {
+      "label": "利益相关方与系统边界",
+      "order": 10
+    },
+    "scenario_flow": {
+      "label": "场景、状态与流程",
+      "order": 20
+    },
+    "functional_decomposition": {
+      "label": "能力与功能分解",
+      "order": 30
+    },
+    "logical_architecture": {
+      "label": "逻辑架构与接口",
+      "order": 40
+    },
+    "physical_architecture": {
+      "label": "物理实现与部署",
+      "order": 50
+    },
+    "traceability": {
+      "label": "需求、验证与追溯",
+      "order": 60
+    }
+  }
+}

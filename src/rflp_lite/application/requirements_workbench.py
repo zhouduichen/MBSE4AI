@@ -438,6 +438,10 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
             "enabled": False,
             "domain_pack_id": None,
             "domain_pack_version": None,
+            "base_pack_id": "common-v1",
+            "industry_pack_ids": [],
+            "discipline_pack_ids": [],
+            "overlay_pack_ids": [],
             "provenance": {"source": "default", "reason": "domain-neutral-analysis"},
         },
         "mbse": None,
@@ -483,6 +487,10 @@ def empty_workbench() -> dict[str, object]:
             "enabled": False,
             "domain_pack_id": None,
             "domain_pack_version": None,
+            "base_pack_id": "common-v1",
+            "industry_pack_ids": [],
+            "discipline_pack_ids": [],
+            "overlay_pack_ids": [],
             "provenance": {"source": "default", "reason": "domain-neutral-analysis"},
         },
         "mbse": None,
@@ -628,6 +636,34 @@ def sync_review_queue(state: dict[str, object]) -> dict[str, object]:
     change_set["summary"] = _change_summary(impact_items, queue)
     result["change_set"] = change_set
     return result
+
+
+def accept_initial_workbench(state: dict[str, object]) -> dict[str, object]:
+    """Accept deterministic input and pack seeds before any model enrichment.
+
+    The first submission is useful even when Ollama is unavailable.  Only
+    inferred/LLM suggestions remain reviewable; explicit text, rule results,
+    manual edits, and domain-pack seeds are part of the accepted baseline.
+    """
+
+    result = _clone(state)
+    groups = ("stakeholders", "concerns", "needs", "claims", "structured_requirements")
+    for group in groups:
+        for item in result.get(group, ()):
+            if not isinstance(item, dict) or item.get("status") != "candidate":
+                continue
+            producer = str(item.get("producer", "")).casefold()
+            source_type = str(item.get("source_type", "")).casefold()
+            candidate_type = str(item.get("candidate_type", "")).casefold()
+            if (
+                producer in {"llm", "model"}
+                or source_type in {"inferred", "implicit"}
+                or (candidate_type == "inferred" and producer != "domain-pack")
+            ):
+                continue
+            item["status"] = "accepted"
+            item["baseline_accepted"] = True
+    return sync_review_queue(result)
 
 
 def remove_requirement(
@@ -784,7 +820,7 @@ def remove_requirement(
 def initialize_review_state(state: dict[str, object]) -> dict[str, object]:
     """Initialize version and review metadata for the first submitted input."""
 
-    result = _clone(state)
+    result = accept_initial_workbench(state)
     result["artifacts"] = [dict(result["artifact"])] if result.get("artifact") else []
     items = [
         _review_entry(group, item, reason="首次提交的需求候选")
@@ -992,6 +1028,7 @@ def merge_artifact(
     if state.get("system_context"):
         result["system_context"] = state["system_context"]
     _merge_semantic_candidates(result, fresh)
+    result = accept_initial_workbench(result)
     result["document_regions"] = result.get("document_regions", []) + [
         item for item in fresh.get("document_regions", ())
         if item.get("id") not in {value.get("id") for value in result.get("document_regions", ())}

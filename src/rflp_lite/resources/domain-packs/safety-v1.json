@@ -1,0 +1,391 @@
+{
+  "id": "safety-v1",
+  "version": 1,
+  "display_name": "系统安全与风险工程",
+  "description": "覆盖危险识别、风险控制、安全论证、应急响应和独立保证的通用工程指导。",
+  "stable_fields": [
+    "id",
+    "name",
+    "description",
+    "source",
+    "confidence",
+    "status",
+    "assumptions",
+    "relations"
+  ],
+  "extensions": {
+    "pack_layer": "discipline",
+    "reusable": true,
+    "activation_terms": [
+      "安全",
+      "风险",
+      "危险",
+      "防护",
+      "应急",
+      "合规",
+      "保证"
+    ],
+    "unknowns_are_first_class": true,
+    "review_required_before_diagram": true
+  },
+  "core_overrides": [],
+  "element_schemas": {
+    "stakeholder": {
+      "type": "object",
+      "required": [
+        "name",
+        "category",
+        "goals",
+        "interactions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "interactions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "concerns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "name",
+        "trigger",
+        "expected_outcome"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dimensions": {
+          "type": "object"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hazards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "requirement": {
+      "type": "object",
+      "required": [
+        "statement",
+        "verification",
+        "priority"
+      ],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "must",
+            "should",
+            "could"
+          ]
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "name",
+        "responsibilities",
+        "interfaces"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "responsibilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk": {
+      "type": "object",
+      "required": [
+        "name",
+        "cause",
+        "effect",
+        "mitigations"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cause": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mitigations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "stakeholder_lenses": [
+    {
+      "id": "affected-persons",
+      "label": "使用者、受影响人员与公众"
+    },
+    {
+      "id": "operator-responder",
+      "label": "操作员、维护人员与应急响应者"
+    },
+    {
+      "id": "engineering-owner",
+      "label": "系统、项目与安全负责人"
+    },
+    {
+      "id": "regulator-assurance",
+      "label": "监管、认证与独立保证机构"
+    },
+    {
+      "id": "organization-supplier",
+      "label": "组织管理、供应链与服务方"
+    },
+    {
+      "id": "environment-community",
+      "label": "环境、社区与长期影响相关方"
+    }
+  ],
+  "lifecycle_phases": [
+    {
+      "id": "safety-goals",
+      "label": "安全目标、边界与责任定义"
+    },
+    {
+      "id": "hazard-analysis",
+      "label": "危险识别、风险分析与控制设计"
+    },
+    {
+      "id": "safety-architecture",
+      "label": "安全机制、监测与隔离架构"
+    },
+    {
+      "id": "verification-assurance",
+      "label": "验证、确认与安全论证"
+    },
+    {
+      "id": "operation-emergency",
+      "label": "运行监测、事件响应与复盘"
+    },
+    {
+      "id": "change-retirement",
+      "label": "变更影响、退役与经验反馈"
+    }
+  ],
+  "scenario_dimensions": [
+    {
+      "id": "hazard_state",
+      "label": "危险状态",
+      "values": [
+        "未识别",
+        "潜在",
+        "触发",
+        "扩展",
+        "受控",
+        "恢复后"
+      ]
+    },
+    {
+      "id": "risk_exposure",
+      "label": "暴露与后果",
+      "values": [
+        "低暴露",
+        "局部",
+        "多人",
+        "关键任务",
+        "环境扩散",
+        "不确定"
+      ]
+    },
+    {
+      "id": "barrier_state",
+      "label": "防护屏障",
+      "values": [
+        "完整",
+        "退化",
+        "旁路",
+        "失效",
+        "隔离",
+        "待验证"
+      ]
+    },
+    {
+      "id": "detection_state",
+      "label": "检测与告警",
+      "values": [
+        "可检测",
+        "延迟",
+        "漏检风险",
+        "误报",
+        "不可用",
+        "人工观察"
+      ]
+    },
+    {
+      "id": "response_context",
+      "label": "响应条件",
+      "values": [
+        "正常资源",
+        "资源受限",
+        "通信中断",
+        "多方协同",
+        "现场混乱",
+        "恢复评估"
+      ]
+    },
+    {
+      "id": "evidence_state",
+      "label": "安全证据状态",
+      "values": [
+        "计划",
+        "进行中",
+        "通过",
+        "有条件通过",
+        "不充分",
+        "过期"
+      ]
+    }
+  ],
+  "coverage_rules": [
+    {
+      "id": "safety-stakeholder-coverage",
+      "source": "stakeholder_lenses",
+      "priority": "high"
+    },
+    {
+      "id": "safety-lifecycle-coverage",
+      "source": "lifecycle_phases",
+      "priority": "high"
+    },
+    {
+      "id": "hazard-barrier-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "detection-response-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "evidence-change-impact",
+      "source": "lifecycle_phases",
+      "priority": "high"
+    },
+    {
+      "id": "human-organization-factors",
+      "source": "stakeholder_lenses",
+      "priority": "medium"
+    }
+  ],
+  "prompt_fragments": {
+    "stakeholders": "识别受影响人员、操作维护、工程、应急、监管、供应链和社区角色，明确风险所有者。",
+    "scenarios": "从正常、误操作、单点故障、组合故障、外部扰动、应急响应到恢复复盘建立场景链。",
+    "requirements": "把危险、后果、风险控制、独立性、证据和残余风险转为可追溯需求。",
+    "architecture": "检查预防、检测、隔离、缓解、告警、人工接管、应急和恢复机制的分层与独立性。",
+    "assurance": "区分假设、分析、试验、运行证据和专家判断，记录证据适用范围与过期条件。",
+    "change": "任何功能、接口、参数、供应商、运行环境或组织变更都必须触发安全影响评估。"
+  },
+  "diagram_groups": {
+    "stakeholder_context": {
+      "label": "利益相关方与系统边界",
+      "order": 10
+    },
+    "scenario_flow": {
+      "label": "场景、状态与流程",
+      "order": 20
+    },
+    "functional_decomposition": {
+      "label": "能力与功能分解",
+      "order": 30
+    },
+    "logical_architecture": {
+      "label": "逻辑架构与接口",
+      "order": 40
+    },
+    "physical_architecture": {
+      "label": "物理实现与部署",
+      "order": 50
+    },
+    "traceability": {
+      "label": "需求、验证与追溯",
+      "order": 60
+    }
+  }
+}

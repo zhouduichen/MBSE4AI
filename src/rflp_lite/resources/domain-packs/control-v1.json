@@ -1,0 +1,391 @@
+{
+  "id": "control-v1",
+  "version": 1,
+  "display_name": "控制与自动化工程",
+  "description": "覆盖测量、决策、控制、执行、监督和人机协同闭环的通用工程指导。",
+  "stable_fields": [
+    "id",
+    "name",
+    "description",
+    "source",
+    "confidence",
+    "status",
+    "assumptions",
+    "relations"
+  ],
+  "extensions": {
+    "pack_layer": "discipline",
+    "reusable": true,
+    "activation_terms": [
+      "控制",
+      "自动化",
+      "闭环",
+      "传感",
+      "执行器",
+      "调节",
+      "接管"
+    ],
+    "unknowns_are_first_class": true,
+    "review_required_before_diagram": true
+  },
+  "core_overrides": [],
+  "element_schemas": {
+    "stakeholder": {
+      "type": "object",
+      "required": [
+        "name",
+        "category",
+        "goals",
+        "interactions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "interactions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "concerns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "name",
+        "trigger",
+        "expected_outcome"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dimensions": {
+          "type": "object"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hazards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "requirement": {
+      "type": "object",
+      "required": [
+        "statement",
+        "verification",
+        "priority"
+      ],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "must",
+            "should",
+            "could"
+          ]
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "name",
+        "responsibilities",
+        "interfaces"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "responsibilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk": {
+      "type": "object",
+      "required": [
+        "name",
+        "cause",
+        "effect",
+        "mitigations"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cause": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mitigations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "stakeholder_lenses": [
+    {
+      "id": "plant-owner",
+      "label": "被控对象、任务与系统负责人"
+    },
+    {
+      "id": "operator",
+      "label": "操作员、调度员与远程控制者"
+    },
+    {
+      "id": "control-engineer",
+      "label": "控制、自动化与算法工程师"
+    },
+    {
+      "id": "instrumentation",
+      "label": "传感、执行与现场仪表人员"
+    },
+    {
+      "id": "safety-regulatory",
+      "label": "功能安全、监管与验证人员"
+    },
+    {
+      "id": "integrator-maintainer",
+      "label": "系统集成、调试与维护人员"
+    }
+  ],
+  "lifecycle_phases": [
+    {
+      "id": "control-objectives",
+      "label": "控制目标、边界与约束定义"
+    },
+    {
+      "id": "sensing-actuation",
+      "label": "测量、执行与闭环架构设计"
+    },
+    {
+      "id": "algorithm-tuning",
+      "label": "算法、参数与仿真设计"
+    },
+    {
+      "id": "integration-commissioning",
+      "label": "集成、调试与性能验证"
+    },
+    {
+      "id": "operation-supervision",
+      "label": "运行、监控、接管与维护"
+    },
+    {
+      "id": "change-retirement",
+      "label": "参数变更、升级与停用"
+    }
+  ],
+  "scenario_dimensions": [
+    {
+      "id": "control_mode",
+      "label": "控制模式",
+      "values": [
+        "手动",
+        "辅助",
+        "自动",
+        "监督",
+        "降级",
+        "最小风险"
+      ]
+    },
+    {
+      "id": "plant_state",
+      "label": "被控对象状态",
+      "values": [
+        "稳态",
+        "瞬态",
+        "扰动",
+        "约束边界",
+        "故障",
+        "恢复"
+      ]
+    },
+    {
+      "id": "measurement_quality",
+      "label": "测量质量",
+      "values": [
+        "可信",
+        "噪声",
+        "延迟",
+        "丢失",
+        "漂移",
+        "不一致"
+      ]
+    },
+    {
+      "id": "actuator_state",
+      "label": "执行器状态",
+      "values": [
+        "可用",
+        "饱和",
+        "受限",
+        "卡滞",
+        "失效",
+        "备用"
+      ]
+    },
+    {
+      "id": "network_timing",
+      "label": "时序与通信",
+      "values": [
+        "确定",
+        "抖动",
+        "延迟",
+        "丢包",
+        "中断",
+        "异步"
+      ]
+    },
+    {
+      "id": "human_context",
+      "label": "人机协同状态",
+      "values": [
+        "正常",
+        "监视",
+        "接管请求",
+        "高负荷",
+        "培训",
+        "应急"
+      ]
+    }
+  ],
+  "coverage_rules": [
+    {
+      "id": "control-stakeholder-coverage",
+      "source": "stakeholder_lenses",
+      "priority": "high"
+    },
+    {
+      "id": "control-lifecycle-coverage",
+      "source": "lifecycle_phases",
+      "priority": "high"
+    },
+    {
+      "id": "mode-plant-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "measurement-actuator-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "timing-and-recovery",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "human-override-evidence",
+      "source": "stakeholder_lenses",
+      "priority": "medium"
+    }
+  ],
+  "prompt_fragments": {
+    "stakeholders": "识别被控对象负责人、操作员、控制工程师、仪表维护、集成和安全验证角色。",
+    "scenarios": "覆盖启停、稳态、扰动、测量不可信、执行器受限、通信异常、模式切换、接管和恢复。",
+    "requirements": "明确控制目标、稳定性、响应、约束、模式、时序、可观测性和人工接管条件。",
+    "architecture": "描述被控对象、传感、估计、决策、控制律、执行器、通信、监控和人工接口。",
+    "verification": "结合模型、仿真、硬件在环、台架、现场和异常注入定义证据。",
+    "safety": "不假设传感、执行、通信或算法永远可信；必须定义检测、隔离、降级和恢复。"
+  },
+  "diagram_groups": {
+    "stakeholder_context": {
+      "label": "利益相关方与系统边界",
+      "order": 10
+    },
+    "scenario_flow": {
+      "label": "场景、状态与流程",
+      "order": 20
+    },
+    "functional_decomposition": {
+      "label": "能力与功能分解",
+      "order": 30
+    },
+    "logical_architecture": {
+      "label": "逻辑架构与接口",
+      "order": 40
+    },
+    "physical_architecture": {
+      "label": "物理实现与部署",
+      "order": 50
+    },
+    "traceability": {
+      "label": "需求、验证与追溯",
+      "order": 60
+    }
+  }
+}

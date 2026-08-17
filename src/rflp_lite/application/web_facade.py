@@ -16,6 +16,7 @@ from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
 from rflp_lite.application.run_catalog import RunRecord, list_runs, load_run
 from rflp_lite.application.requirements_workbench import (
     STAKEHOLDER_CATEGORIES,
+    accept_initial_workbench,
     accept_traceable,
     confirm_requirements,
     add_stakeholder,
@@ -43,6 +44,7 @@ from rflp_lite.application.project_scope import (
 )
 from rflp_lite.application.requirements_flow import run_requirements_flow
 from rflp_lite.application.jobs import JobService
+from rflp_lite.application.intelligence.enrichment_jobs import EnrichmentJobRunner
 from rflp_lite.application.llm_profiles import LLMProfileService
 from rflp_lite.application.interchange import export_rflp, import_rflp
 from rflp_lite.application.mbse_exchange import export_mbse_json, export_mbse_sysml_v2_text
@@ -93,6 +95,7 @@ from rflp_lite.application.intelligence.analysis_config import (
     available_analysis_domain_packs,
     normalize_analysis_config,
 )
+from rflp_lite.application.intelligence.pack_composition import compose_pack_selection
 from rflp_lite.application.diagrams.service import DiagramService
 from rflp_lite.adapters.deterministic_svg_renderer import DeterministicSvgRenderer
 from rflp_lite.ports.diagram_renderer import RenderedDiagram
@@ -695,26 +698,30 @@ class WebFacade:
 
     @staticmethod
     def _project_analysis_config(state: dict[str, object]) -> dict[str, object]:
-        """Resolve optional common-pack guidance only when explicitly enabled."""
+        """Resolve the layered pack composition for one project analysis."""
 
         config = normalize_analysis_config(state.get("analysis_config"))
         if not config["enabled"]:
             return config
-        pack = load_mbse_domain_pack(
-            resource_path(f"domain-packs/{config['domain_pack_id']}.json")
-        )
+        pack = compose_pack_selection(config)
         guidance = {
             "id": pack.get("id"),
             "version": pack.get("version"),
             "display_name": pack.get("display_name"),
             "description": pack.get("description"),
+            "pack_ids": pack.get("pack_ids", ()),
+            "pack_hashes": pack.get("pack_hashes", {}),
             "stakeholder_lenses": pack.get("stakeholder_lenses", ()),
             "lifecycle_phases": pack.get("lifecycle_phases", ()),
             "scenario_dimensions": pack.get("scenario_dimensions", ()),
             "coverage_rules": pack.get("coverage_rules", ()),
             "prompt_fragments": pack.get("prompt_fragments", {}),
         }
-        return {**config, "guidance": guidance}
+        return {
+            **config,
+            "guidance": guidance,
+            "pack_selection_hash": pack.get("pack_selection_hash"),
+        }
 
     def draft_discovery(self, workspace_name: str, pack_id: str) -> dict[str, object]:
         current = self.requirements(workspace_name)
@@ -936,7 +943,23 @@ class WebFacade:
         )
         if state.get("spans"):
             state = generate_draft_model(state)
-            state = self._auto_complete_requirements(state)
+            state = accept_initial_workbench(state)
+            state["auto_analysis"] = {
+                "status": "baseline_ready",
+                "job_id": None,
+                "input_hash": str(state.get("project_scope", {}).get("input_hash", ""))
+                if isinstance(state.get("project_scope"), dict)
+                else "",
+                "blocks": {},
+                "diagnostics": [
+                    {
+                        "code": "baseline_ready",
+                        "severity": "info",
+                        "message": "规则和明确输入已先保存为 accepted 基线，LLM 补全将在后台分块执行。",
+                    }
+                ],
+                "modules": {"baseline": True},
+            }
         state = refresh_traceability(state)
         validate_project_scope(state, workspace_name)
         validate_project_references(state)
@@ -958,6 +981,49 @@ class WebFacade:
                 )
         finally:
             repository.close()
+        if state.get("spans"):
+            input_hash = str(state.get("project_scope", {}).get("input_hash", "")) if isinstance(state.get("project_scope"), dict) else ""
+            job = EnrichmentJobRunner(workspace.path).submit(
+                self._project_analysis_model(), input_hash=input_hash
+            )
+            latest = self.requirements(workspace_name) or state
+            job_status = str(job.get("status", ""))
+            if job_status in {"queued", "running"}:
+                latest["auto_analysis"] = {
+                    **dict(latest.get("auto_analysis") or {}),
+                    "status": "enriching",
+                    "job_id": job.get("id"),
+                    "blocks": dict(job.get("blocks") or {}),
+                }
+                state = self._save_requirements(
+                    workspace_name,
+                    latest,
+                    "requirements.enrichment_queued",
+                    {"job_id": job.get("id"), "input_hash": input_hash},
+                )
+            else:
+                job_result = job.get("result") if isinstance(job.get("result"), dict) else {}
+                final_status = str(job_result.get("status", "")) or (
+                    "degraded" if job_status == "failed" else job_status
+                )
+                current_analysis = dict(latest.get("auto_analysis") or {})
+                if not current_analysis.get("job_id") or current_analysis.get("status") in {"baseline_ready", "enriching"}:
+                    latest["auto_analysis"] = {
+                        **current_analysis,
+                        "status": final_status,
+                        "job_id": job.get("id"),
+                        "blocks": dict(job.get("blocks") or current_analysis.get("blocks") or {}),
+                        "diagnostics": list(current_analysis.get("diagnostics") or [])
+                        + ([job.get("error")] if isinstance(job.get("error"), dict) else []),
+                    }
+                    state = self._save_requirements(
+                        workspace_name,
+                        latest,
+                        "requirements.enrichment_finished",
+                        {"job_id": job.get("id"), "status": final_status},
+                    )
+                else:
+                    state = latest
         return state
 
     def _auto_complete_requirements(self, state: dict[str, object]) -> dict[str, object]:
@@ -1246,6 +1312,32 @@ class WebFacade:
 
     def job(self, workspace_name: str, job_id: str) -> dict[str, object] | None:
         return JobService(self.workspace(workspace_name).path).get(job_id)
+
+    def retry_requirement_enrichment(
+        self, workspace_name: str, job_id: str
+    ) -> dict[str, object]:
+        workspace = self.workspace(workspace_name)
+        job = JobService(workspace.path).get(job_id)
+        if job is None:
+            raise ContractViolation("enrichment job not found")
+        new_job = EnrichmentJobRunner(workspace.path).retry(
+            job_id, self._project_analysis_model()
+        )
+        current = self.requirements(workspace_name)
+        if current is not None:
+            current["auto_analysis"] = {
+                **dict(current.get("auto_analysis") or {}),
+                "status": "enriching",
+                "job_id": new_job.get("id"),
+                "blocks": dict(new_job.get("blocks") or {}),
+            }
+            self._save_requirements(
+                workspace_name,
+                current,
+                "requirements.enrichment_retry_queued",
+                {"previous_job_id": job_id, "job_id": new_job.get("id")},
+            )
+        return new_job
 
     def approve_requirements_baseline(self, workspace_name: str) -> dict[str, object]:
         current = self.requirements(workspace_name)

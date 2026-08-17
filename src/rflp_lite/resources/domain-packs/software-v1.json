@@ -1,0 +1,391 @@
+{
+  "id": "software-v1",
+  "version": 1,
+  "display_name": "软件工程学科",
+  "description": "覆盖软件需求、架构、实现、测试、部署、运维和生命周期治理的通用工程指导。",
+  "stable_fields": [
+    "id",
+    "name",
+    "description",
+    "source",
+    "confidence",
+    "status",
+    "assumptions",
+    "relations"
+  ],
+  "extensions": {
+    "pack_layer": "discipline",
+    "reusable": true,
+    "activation_terms": [
+      "软件工程",
+      "架构",
+      "接口",
+      "测试",
+      "部署",
+      "运维",
+      "代码"
+    ],
+    "unknowns_are_first_class": true,
+    "review_required_before_diagram": true
+  },
+  "core_overrides": [],
+  "element_schemas": {
+    "stakeholder": {
+      "type": "object",
+      "required": [
+        "name",
+        "category",
+        "goals",
+        "interactions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "interactions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "concerns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "name",
+        "trigger",
+        "expected_outcome"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dimensions": {
+          "type": "object"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hazards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "requirement": {
+      "type": "object",
+      "required": [
+        "statement",
+        "verification",
+        "priority"
+      ],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "must",
+            "should",
+            "could"
+          ]
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "name",
+        "responsibilities",
+        "interfaces"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "responsibilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk": {
+      "type": "object",
+      "required": [
+        "name",
+        "cause",
+        "effect",
+        "mitigations"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cause": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mitigations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "stakeholder_lenses": [
+    {
+      "id": "software-user",
+      "label": "软件用户与产品负责人"
+    },
+    {
+      "id": "developer-architect",
+      "label": "开发、架构与技术负责人"
+    },
+    {
+      "id": "tester-quality",
+      "label": "测试、质量与发布团队"
+    },
+    {
+      "id": "operator-support",
+      "label": "运维、平台与客户支持人员"
+    },
+    {
+      "id": "security-governance",
+      "label": "安全、隐私、合规与审计人员"
+    },
+    {
+      "id": "integration-data",
+      "label": "数据、第三方服务与集成方"
+    }
+  ],
+  "lifecycle_phases": [
+    {
+      "id": "software-requirements",
+      "label": "需求、质量属性与边界定义"
+    },
+    {
+      "id": "architecture-design",
+      "label": "架构、接口与数据设计"
+    },
+    {
+      "id": "implementation-test",
+      "label": "实现、评审与自动化测试"
+    },
+    {
+      "id": "release-migration",
+      "label": "发布、迁移与回滚准备"
+    },
+    {
+      "id": "operation-improvement",
+      "label": "运行、监控、支持与改进"
+    },
+    {
+      "id": "version-retirement",
+      "label": "版本治理、停用与数据归档"
+    }
+  ],
+  "scenario_dimensions": [
+    {
+      "id": "execution_context",
+      "label": "执行上下文",
+      "values": [
+        "交互",
+        "批处理",
+        "实时",
+        "离线",
+        "高并发",
+        "资源受限"
+      ]
+    },
+    {
+      "id": "quality_attribute",
+      "label": "质量属性关注",
+      "values": [
+        "功能正确",
+        "低延迟",
+        "高吞吐",
+        "高可用",
+        "可维护",
+        "可解释"
+      ]
+    },
+    {
+      "id": "change_state",
+      "label": "变更状态",
+      "values": [
+        "基线",
+        "开发",
+        "评审",
+        "灰度",
+        "回滚",
+        "迁移"
+      ]
+    },
+    {
+      "id": "dependency_state",
+      "label": "依赖状态",
+      "values": [
+        "稳定",
+        "版本漂移",
+        "延迟",
+        "不可用",
+        "不兼容",
+        "替代中"
+      ]
+    },
+    {
+      "id": "data_state",
+      "label": "数据状态",
+      "values": [
+        "有效",
+        "缺失",
+        "重复",
+        "冲突",
+        "敏感",
+        "漂移"
+      ]
+    },
+    {
+      "id": "incident_state",
+      "label": "事件状态",
+      "values": [
+        "无事件",
+        "告警",
+        "影响扩大",
+        "隔离",
+        "恢复",
+        "复盘"
+      ]
+    }
+  ],
+  "coverage_rules": [
+    {
+      "id": "software-discipline-stakeholders",
+      "source": "stakeholder_lenses",
+      "priority": "high"
+    },
+    {
+      "id": "software-discipline-lifecycle",
+      "source": "lifecycle_phases",
+      "priority": "high"
+    },
+    {
+      "id": "execution-quality-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "dependency-data-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "release-rollback-evidence",
+      "source": "lifecycle_phases",
+      "priority": "high"
+    },
+    {
+      "id": "security-operability",
+      "source": "stakeholder_lenses",
+      "priority": "medium"
+    }
+  ],
+  "prompt_fragments": {
+    "stakeholders": "区分用户、产品、开发、测试、运维、安全、数据和集成方的目标、权限和交接。",
+    "scenarios": "覆盖首次使用、并发、依赖异常、数据异常、发布、回滚、故障隔离、恢复和复盘。",
+    "requirements": "同时表达功能、性能、可靠性、可维护性、可测试性、可观测性、安全和隐私需求。",
+    "architecture": "从上下文、领域能力、组件、接口、数据流、部署和运行边界逐层分解。",
+    "verification": "为单元、集成、系统、性能、安全、恢复、迁移和用户验收定义可追溯证据。",
+    "governance": "明确版本、配置、依赖、变更审批、审计、技术债和停用归档的责任。"
+  },
+  "diagram_groups": {
+    "stakeholder_context": {
+      "label": "利益相关方与系统边界",
+      "order": 10
+    },
+    "scenario_flow": {
+      "label": "场景、状态与流程",
+      "order": 20
+    },
+    "functional_decomposition": {
+      "label": "能力与功能分解",
+      "order": 30
+    },
+    "logical_architecture": {
+      "label": "逻辑架构与接口",
+      "order": 40
+    },
+    "physical_architecture": {
+      "label": "物理实现与部署",
+      "order": 50
+    },
+    "traceability": {
+      "label": "需求、验证与追溯",
+      "order": 60
+    }
+  }
+}

@@ -2,10 +2,28 @@
   "id": "urban-medical-aam-v1",
   "version": 1,
   "display_name": "城市医疗用途飞行汽车",
-  "description": "面向院前急救、院际转运和灾害医疗的城市空中交通系统发现包。",
-  "stable_fields": ["id", "name", "description", "source", "confidence", "status", "assumptions", "relations"],
+  "description": "面向城市医疗空中交通的场景覆盖层；通过组合医疗、航空和工程学科包形成完整分析语境。",
+  "extends": ["medical-v1", "aviation-v1"],
+  "disciplines": ["mechanical-v1", "electrical-v1", "control-v1", "safety-v1"],
+  "activation_terms": ["城市医疗飞行", "院前急救", "院际转运", "城市空中交通", "医疗起降点"],
+  "mappings": [
+    {"id": "mission", "value": "医疗任务与航空任务的联合场景"},
+    {"id": "handoff", "value": "医疗交接、飞行放行与起降点协同"},
+    {"id": "urban_constraints", "value": "人口密集区、城市障碍物、医院屋顶和应急空域"}
+  ],
+  "stable_fields": [
+    "id",
+    "name",
+    "description",
+    "source",
+    "confidence",
+    "status",
+    "assumptions",
+    "relations"
+  ],
   "extensions": {
-    "mission": "城市医疗运输",
+    "pack_layer": "scenario-overlay",
+    "reusable": true,
     "vehicle_type": "electric_vertical_takeoff_aircraft",
     "safety_posture": "fail_safe_and_degraded_operation",
     "unknowns_are_first_class": true,
@@ -13,101 +31,406 @@
   },
   "core_overrides": [],
   "element_schemas": {
-    "stakeholder": {"type": "object", "required": ["name", "category", "goals", "interactions"], "properties": {"name": {"type": "string", "minLength": 1}, "category": {"type": "string", "minLength": 1}, "goals": {"type": "array", "items": {"type": "string", "minLength": 1}}, "interactions": {"type": "array", "items": {"type": "string", "minLength": 1}}, "concerns": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
-    "environment": {"type": "object", "required": ["name", "category", "conditions"], "properties": {"name": {"type": "string", "minLength": 1}, "category": {"type": "string", "minLength": 1}, "conditions": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "additionalProperties": true},
-    "use_case": {"type": "object", "required": ["name", "actors", "goal"], "properties": {"name": {"type": "string", "minLength": 1}, "actors": {"type": "array", "items": {"type": "string", "minLength": 1}}, "goal": {"type": "string", "minLength": 1}, "preconditions": {"type": "array", "items": {"type": "string"}}, "postconditions": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
-    "scenario": {"type": "object", "required": ["name", "trigger", "expected_outcome"], "properties": {"name": {"type": "string", "minLength": 1}, "trigger": {"type": "string", "minLength": 1}, "expected_outcome": {"type": "string", "minLength": 1}, "dimensions": {"type": "object"}, "steps": {"type": "array", "items": {"type": "string"}}, "hazards": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
-    "capability": {"type": "object", "required": ["name", "outcome", "enablers"], "properties": {"name": {"type": "string", "minLength": 1}, "outcome": {"type": "string", "minLength": 1}, "enablers": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
-    "requirement": {"type": "object", "required": ["statement", "verification", "priority"], "properties": {"statement": {"type": "string", "minLength": 1}, "verification": {"type": "string", "minLength": 1}, "priority": {"type": "string", "enum": ["must", "should", "could"]}, "rationale": {"type": "string"}}, "additionalProperties": true},
-    "function": {"type": "object", "required": ["name", "input", "output"], "properties": {"name": {"type": "string", "minLength": 1}, "input": {"type": "array", "items": {"type": "string"}}, "output": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
-    "component": {"type": "object", "required": ["name", "responsibilities", "interfaces"], "properties": {"name": {"type": "string", "minLength": 1}, "responsibilities": {"type": "array", "items": {"type": "string"}}, "interfaces": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
-    "risk": {"type": "object", "required": ["name", "cause", "effect", "mitigations"], "properties": {"name": {"type": "string", "minLength": 1}, "cause": {"type": "string", "minLength": 1}, "effect": {"type": "string", "minLength": 1}, "mitigations": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
-    "question": {"type": "object", "required": ["question", "why_it_matters", "blocks"], "properties": {"question": {"type": "string", "minLength": 1}, "why_it_matters": {"type": "string", "minLength": 1}, "blocks": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
+    "stakeholder": {
+      "type": "object",
+      "required": [
+        "name",
+        "category",
+        "goals",
+        "interactions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "interactions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "concerns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "name",
+        "trigger",
+        "expected_outcome"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dimensions": {
+          "type": "object"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hazards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "requirement": {
+      "type": "object",
+      "required": [
+        "statement",
+        "verification",
+        "priority"
+      ],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "must",
+            "should",
+            "could"
+          ]
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "name",
+        "responsibilities",
+        "interfaces"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "responsibilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk": {
+      "type": "object",
+      "required": [
+        "name",
+        "cause",
+        "effect",
+        "mitigations"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cause": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mitigations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
     "concern": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
     "need": {"type": "object", "required": ["name", "statement"], "properties": {"name": {"type": "string", "minLength": 1}, "statement": {"type": "string", "minLength": 1}}, "additionalProperties": true},
     "exchange_flow": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "source": {"type": "string"}, "target": {"type": "string"}}, "additionalProperties": true},
     "system_boundary": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
     "lifecycle_phase": {"type": "object", "required": ["name", "phase_id"], "properties": {"name": {"type": "string", "minLength": 1}, "phase_id": {"type": "string", "minLength": 1}}, "additionalProperties": true},
     "transition": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "from": {"type": "string"}, "to": {"type": "string"}}, "additionalProperties": true},
-    "operational_scenario": {"type": "object", "required": ["name", "trigger", "expected_outcome"], "properties": {"name": {"type": "string", "minLength": 1}, "actors": {"type": "array", "items": {"type": "string"}}, "preconditions": {"type": "array", "items": {"type": "string"}}, "trigger": {"type": "string", "minLength": 1}, "steps": {"type": "array", "items": {"type": "string"}}, "expected_outcome": {"type": "string", "minLength": 1}, "expected_outcomes": {"type": "array", "items": {"type": "string"}}, "scenario_type": {"type": "string"}, "contexts": {"type": "object"}}, "additionalProperties": true},
-    "functional_flow": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "source": {"type": "string"}, "target": {"type": "string"}}, "additionalProperties": true},
+    "use_case": {"type": "object", "required": ["name", "actors", "goal"], "properties": {"name": {"type": "string", "minLength": 1}, "actors": {"type": "array", "items": {"type": "string"}}, "goal": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "operational_scenario": {"type": "object", "required": ["name", "trigger", "expected_outcome"], "properties": {"name": {"type": "string", "minLength": 1}, "trigger": {"type": "string", "minLength": 1}, "expected_outcome": {"type": "string", "minLength": 1}, "actors": {"type": "array", "items": {"type": "string"}}, "steps": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
+    "capability": {"type": "object", "required": ["name", "outcome", "enablers"], "properties": {"name": {"type": "string", "minLength": 1}, "outcome": {"type": "string", "minLength": 1}, "enablers": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
+    "function": {"type": "object", "required": ["name", "input", "output"], "properties": {"name": {"type": "string", "minLength": 1}, "input": {"type": "array", "items": {"type": "string"}}, "output": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
+    "functional_flow": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
     "functional_scenario": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
     "logical_component": {"type": "object", "required": ["name", "responsibilities"], "properties": {"name": {"type": "string", "minLength": 1}, "responsibilities": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true},
     "physical_block": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
     "interface": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
     "solution_candidate": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}, "additionalProperties": true},
-    "clarification_question": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "question": {"type": "string"}}, "additionalProperties": true}
+    "clarification_question": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "question": {"type": "string"}}, "additionalProperties": true},
+    "environment": {"type": "object", "required": ["name", "category", "conditions"], "properties": {"name": {"type": "string", "minLength": 1}, "category": {"type": "string", "minLength": 1}, "conditions": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": true}
   },
   "stakeholder_lenses": [
-    {"id": "medical", "label": "患者、家属与医疗团队"},
-    {"id": "operations", "label": "运营、调度、飞行与维修"},
-    {"id": "regulatory", "label": "监管、适航、空管与公共安全"},
-    {"id": "public_environment", "label": "公众、城市环境与基础设施"},
-    {"id": "supplier", "label": "能源、通信、导航与设备供应商"}
-  ],
-  "stakeholders": [
-    {"id": "patient", "name": "患者", "category": "medical", "goals": ["及时到达合适医院", "转运过程中生命体征稳定", "隐私与尊严得到保护"], "interactions": ["接受医疗转运", "连接监护设备", "触发紧急撤离"], "concerns": ["舒适性", "噪声", "晕动", "生命安全"]},
-    {"id": "family", "name": "患者家属", "category": "medical", "goals": ["获得状态和预计到达时间", "确认交接医院和陪护安排"], "interactions": ["授权转运", "接收通知", "提供病史信息"], "concerns": ["信息透明", "数据隐私", "费用"]},
-    {"id": "emergency-physician", "name": "急救医生", "category": "medical", "goals": ["稳定患者", "持续监护并在途中处置", "按临床优先级选择路线"], "interactions": ["提交医疗任务", "设置生命支持参数", "请求优先降落"], "concerns": ["医疗设备可用性", "氧气与电源", "振动和气压"]},
-    {"id": "emergency-nurse", "name": "急救护士", "category": "medical", "goals": ["执行护理和用药", "准确记录生命体征", "保障患者固定"], "interactions": ["操作舱内设备", "确认起降安全", "报告患者恶化"], "concerns": ["人体工学", "卫生消毒", "应急照明"]},
-    {"id": "hospital-dispatch", "name": "医院调度中心", "category": "medical", "goals": ["匹配医院床位和车辆", "协调起降点", "减少黄金救治时间"], "interactions": ["创建/改派任务", "获取飞行状态", "协调交接"], "concerns": ["时效", "容量", "追溯"]},
-    {"id": "pilot", "name": "飞行员或远程操作者", "category": "operations", "goals": ["安全完成任务", "保持态势感知", "在异常时执行处置"], "interactions": ["批准航线", "接管控制", "执行返航或备降"], "concerns": ["人机界面", "工作负荷", "权限"]},
-    {"id": "operator", "name": "飞行汽车运营商", "category": "operations", "goals": ["高可用运营", "按许可和服务等级完成任务", "控制运营成本"], "interactions": ["排班", "放行", "监控机队", "事故报告"], "concerns": ["安全绩效", "容量", "服务连续性"]},
-    {"id": "maintenance", "name": "维修与适航保障人员", "category": "operations", "goals": ["发现并隔离故障", "按状态维护", "保持放行记录"], "interactions": ["读取健康数据", "更换部件", "执行地面测试"], "concerns": ["可维护性", "备件", "高压电安全"]},
-    {"id": "air-traffic-control", "name": "空中交通管理与机场/起降点管理者", "category": "regulatory", "goals": ["保持空域有序", "协调优先医疗航班", "避免冲突"], "interactions": ["批准/调整航线", "发布限制", "处理失联飞机"], "concerns": ["识别", "通信", "空域容量"]},
-    {"id": "aviation-regulator", "name": "民航与适航监管机构", "category": "regulatory", "goals": ["验证安全合规", "监督运行和事故调查", "批准新能力"], "interactions": ["审查证据", "签发许可", "查看运行记录"], "concerns": ["可验证性", "安全目标", "数据留存"]},
-    {"id": "public-safety", "name": "消防、警察与应急管理机构", "category": "regulatory", "goals": ["协同灾害响应", "保护地面公众", "处理坠落/火灾/入侵"], "interactions": ["发布禁飞/救援指令", "设置警戒区", "联合搜救"], "concerns": ["互操作", "现场安全", "信息共享"]},
-    {"id": "public", "name": "地面公众、居民与道路使用者", "category": "public_environment", "goals": ["不被噪声和坠落风险伤害", "了解异常飞行影响"], "interactions": ["处于起降点周边", "报告异常", "接受告警"], "concerns": ["噪声", "隐私", "安全", "公平可达"]},
-    {"id": "weather-service", "name": "气象服务提供方", "category": "supplier", "goals": ["提供局地和实时气象", "发布雷暴、风切变和低能见度预警"], "interactions": ["提供预报", "推送告警", "确认数据质量"], "concerns": ["时空分辨率", "完整性", "延迟"]},
-    {"id": "communication-navigation", "name": "通信、导航与定位服务方", "category": "supplier", "goals": ["保持城市空域连接和定位", "在网络异常时提供降级能力"], "interactions": ["提供链路", "提供定位校正", "报告服务状态"], "concerns": ["覆盖", "抗干扰", "网络安全"]},
-    {"id": "energy-provider", "name": "充换电与能源供应商", "category": "supplier", "goals": ["提供安全可追溯能源", "在高峰和灾害中保持供应"], "interactions": ["预约充电", "确认电池健康", "处理热事件"], "concerns": ["容量", "消防", "循环寿命"]}
+    {
+      "id": "medical",
+      "label": "患者、家属与医疗团队"
+    },
+    {
+      "id": "operations",
+      "label": "运营、调度、飞行与维修"
+    },
+    {
+      "id": "regulatory",
+      "label": "监管、适航、空管与公共安全"
+    },
+    {
+      "id": "public_environment",
+      "label": "公众、城市环境与基础设施"
+    },
+    {
+      "id": "supplier",
+      "label": "能源、通信、导航与设备供应商"
+    },
+    {
+      "id": "receiving-care",
+      "label": "接收医院、起降点与交接方"
+    }
   ],
   "lifecycle_phases": [
-    {"id": "mission-definition", "label": "医疗任务与服务定义"},
-    {"id": "concept", "label": "概念与利益相关方确认"},
-    {"id": "system-design", "label": "系统、功能与架构设计"},
-    {"id": "verification-certification", "label": "验证、确认与适航取证"},
-    {"id": "manufacture", "label": "制造、交付与培训"},
-    {"id": "operation", "label": "日常运行、调度与医疗交接"},
-    {"id": "maintenance", "label": "维修、升级与持续适航"},
-    {"id": "incident", "label": "事件响应、调查与改进"},
-    {"id": "retirement", "label": "退役、电池处置与数据归档"}
+    {
+      "id": "mission-definition",
+      "label": "医疗任务与服务定义"
+    },
+    {
+      "id": "concept",
+      "label": "城市空域、车辆与利益相关方确认"
+    },
+    {
+      "id": "system-design",
+      "label": "系统、功能与架构设计"
+    },
+    {
+      "id": "verification-certification",
+      "label": "验证、确认与适航取证"
+    },
+    {
+      "id": "operation",
+      "label": "调度、飞行、医疗交接与运行"
+    },
+    {
+      "id": "maintenance",
+      "label": "维修、升级与持续适航"
+    },
+    {
+      "id": "incident",
+      "label": "事件响应、调查与改进"
+    },
+    {
+      "id": "retirement",
+      "label": "退役、电池处置与数据归档"
+    }
   ],
   "scenario_dimensions": [
-    {"id": "weather", "label": "天气", "values": ["晴天", "雨天", "暴雨", "强风", "阵风", "雷暴", "冰雪", "高温", "低温"]},
-    {"id": "visibility", "label": "能见度", "values": ["正常", "夜间", "雾", "霾", "低能见度", "强逆光"]},
-    {"id": "mission_phase", "label": "任务阶段", "values": ["接警", "医疗准备", "起飞", "爬升", "城市巡航", "接近医院", "悬停", "降落", "患者交接", "返航", "应急备降"]},
-    {"id": "system_state", "label": "系统状态", "values": ["正常", "负载升高", "降级", "故障", "部分失效", "完全失效", "失效安全"]},
-    {"id": "medical_urgency", "label": "医疗紧急程度", "values": ["常规转运", "优先", "危重", "生命垂危", "群体伤亡"]},
-    {"id": "urban_context", "label": "城市环境", "values": ["高层建筑群", "狭窄起降点", "高架道路", "人口密集区", "灾害封锁区", "医院屋顶"]},
-    {"id": "connectivity", "label": "通信导航条件", "values": ["全连接", "弱覆盖", "通信中断", "导航不可信", "GNSS受干扰"]},
-    {"id": "time", "label": "时间与流量", "values": ["白天", "夜间", "高峰", "低流量", "大型活动", "灾害响应"]}
+    {
+      "id": "weather",
+      "label": "天气",
+      "values": [
+        "晴天",
+        "雨天",
+        "暴雨",
+        "强风",
+        "雷暴",
+        "冰雪",
+        "高温",
+        "低温"
+      ]
+    },
+    {
+      "id": "visibility",
+      "label": "能见度",
+      "values": [
+        "正常",
+        "夜间",
+        "雾",
+        "霾",
+        "低能见度",
+        "强逆光"
+      ]
+    },
+    {
+      "id": "mission_phase",
+      "label": "任务阶段",
+      "values": [
+        "接警",
+        "医疗准备",
+        "起飞",
+        "爬升",
+        "城市巡航",
+        "接近医院",
+        "悬停",
+        "降落",
+        "患者交接",
+        "返航",
+        "应急备降"
+      ]
+    },
+    {
+      "id": "system_state",
+      "label": "系统状态",
+      "values": [
+        "正常",
+        "负载升高",
+        "降级",
+        "故障",
+        "部分失效",
+        "完全失效",
+        "失效安全"
+      ]
+    },
+    {
+      "id": "urban_context",
+      "label": "城市环境",
+      "values": [
+        "高层建筑群",
+        "狭窄起降点",
+        "高架道路",
+        "人口密集区",
+        "灾害封锁区",
+        "医院屋顶"
+      ]
+    },
+    {
+      "id": "connectivity",
+      "label": "通信导航条件",
+      "values": [
+        "全连接",
+        "弱覆盖",
+        "通信中断",
+        "导航不可信",
+        "GNSS受干扰"
+      ]
+    },
+    {
+      "id": "medical_urgency",
+      "label": "医疗紧急程度",
+      "values": [
+        "常规转运",
+        "优先",
+        "危重",
+        "生命垂危",
+        "群体伤亡"
+      ]
+    }
   ],
   "coverage_rules": [
-    {"id": "every-stakeholder", "source": "stakeholder_lenses", "priority": "high"},
-    {"id": "every-lifecycle-phase", "source": "lifecycle_phases", "priority": "high"},
-    {"id": "weather-visibility-cross", "source": "scenario_dimensions", "priority": "high"},
-    {"id": "medical-urgency-cross", "source": "scenario_dimensions", "priority": "high"},
-    {"id": "communication-navigation-loss", "source": "scenario_dimensions", "priority": "high"},
-    {"id": "power-propulsion-sensor-failure", "source": "scenario_dimensions", "priority": "high"},
-    {"id": "takeoff-landing-obstruction", "source": "scenario_dimensions", "priority": "high"},
-    {"id": "recovery-and-human-override", "source": "scenario_dimensions", "priority": "high"},
-    {"id": "privacy-cybersecurity-equity", "source": "stakeholder_lenses", "priority": "medium"}
+    {
+      "id": "every-stakeholder",
+      "source": "stakeholder_lenses",
+      "priority": "high"
+    },
+    {
+      "id": "every-lifecycle-phase",
+      "source": "lifecycle_phases",
+      "priority": "high"
+    },
+    {
+      "id": "weather-visibility-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "medical-urgency-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "urban-connectivity-loss",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "takeoff-landing-recovery",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    }
   ],
   "prompt_fragments": {
-    "stakeholders": "逐个列出医疗、运营、监管、公共安全、公众、基础设施和供应链利益相关方，写明目标、担忧、决策权、输入、输出和交互。",
-    "scenarios": "对每个任务生成正常、边界、异常、故障、恢复和人为误操作场景；至少覆盖雨天、低能见度、夜间、雷暴、强风、通信中断、导航异常、动力/电源/感知故障、起降点受阻和患者恶化。",
-    "requirements": "将目标转为可验证需求，区分明确输入、规则推断、假设和未知；为安全关键需求给出验证方法、优先级和追溯关系。",
-    "architecture": "先生成黑盒利益相关方/环境图，再生成灰盒功能分解，最后生成白盒逻辑/物理架构；未审核的候选不能进入架构图。",
-    "safety": "不得假设天气、链路、导航、能源、感知、控制和起降基础设施永远可用；必须提出降级、备降、人工接管、告警和复盘问题。"
+    "stakeholders": "在医疗、航空、运营、空管、城市公共安全、公众、起降点和供应链之间建立责任与信息交接。",
+    "scenarios": "组合医疗紧急程度、任务阶段、城市环境、天气、能见度、链路和系统状态，覆盖正常、异常、备降与恢复。",
+    "requirements": "将医疗时效、飞行安全、城市运行、患者照护、隐私和基础设施约束转为可验证需求。",
+    "architecture": "以医疗任务和城市空域为场景边界，逐层检查车辆、医疗舱、地面站、起降点、通信导航和医院接口。",
+    "handoff": "明确接警、放行、起降、患者交接、返航、事件响应和数据归档的责任转移与确认条件。",
+    "safety": "不得假设天气、链路、导航、能源、感知、控制和起降基础设施始终可用，必须定义降级和人工接管。"
   },
   "diagram_groups": {
-    "stakeholder_context": {"label": "城市医疗任务、利益相关方与环境", "order": 10},
-    "scenario_flow": {"label": "医疗任务场景与异常流程", "order": 20},
-    "functional_decomposition": {"label": "功能分解与能力链", "order": 30},
-    "logical_architecture": {"label": "逻辑架构与接口", "order": 40},
-    "physical_architecture": {"label": "飞行汽车物理架构", "order": 50},
-    "traceability": {"label": "利益相关方—场景—需求—架构追溯", "order": 60},
-    "safety_case": {"label": "安全风险与验证证据", "order": 70}
+    "stakeholder_context": {
+      "label": "利益相关方与系统边界",
+      "order": 10
+    },
+    "scenario_flow": {
+      "label": "场景、状态与流程",
+      "order": 20
+    },
+    "functional_decomposition": {
+      "label": "能力与功能分解",
+      "order": 30
+    },
+    "logical_architecture": {
+      "label": "逻辑架构与接口",
+      "order": 40
+    },
+    "physical_architecture": {
+      "label": "物理实现与部署",
+      "order": 50
+    },
+    "traceability": {
+      "label": "需求、验证与追溯",
+      "order": 60
+    }
   }
 }

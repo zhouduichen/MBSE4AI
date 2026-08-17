@@ -1,0 +1,385 @@
+{
+  "id": "medical-v1",
+  "version": 1,
+  "display_name": "医疗与健康服务系统",
+  "description": "覆盖医疗服务、健康管理、临床支持和生命健康相关系统的通用 MBSE 发现指导。",
+  "stable_fields": [
+    "id",
+    "name",
+    "description",
+    "source",
+    "confidence",
+    "status",
+    "assumptions",
+    "relations"
+  ],
+  "extensions": {
+    "pack_layer": "industry",
+    "reusable": true,
+    "activation_terms": [
+      "患者",
+      "临床",
+      "照护",
+      "诊疗",
+      "健康",
+      "医疗服务"
+    ],
+    "unknowns_are_first_class": true,
+    "review_required_before_diagram": true
+  },
+  "core_overrides": [],
+  "element_schemas": {
+    "stakeholder": {
+      "type": "object",
+      "required": [
+        "name",
+        "category",
+        "goals",
+        "interactions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "interactions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "concerns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "name",
+        "trigger",
+        "expected_outcome"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dimensions": {
+          "type": "object"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hazards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "requirement": {
+      "type": "object",
+      "required": [
+        "statement",
+        "verification",
+        "priority"
+      ],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "must",
+            "should",
+            "could"
+          ]
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "name",
+        "responsibilities",
+        "interfaces"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "responsibilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk": {
+      "type": "object",
+      "required": [
+        "name",
+        "cause",
+        "effect",
+        "mitigations"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cause": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mitigations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "stakeholder_lenses": [
+    {
+      "id": "service-user",
+      "label": "患者、照护对象与直接使用者"
+    },
+    {
+      "id": "clinical-team",
+      "label": "临床、照护与专业服务团队"
+    },
+    {
+      "id": "service-operator",
+      "label": "机构运营、调度与维护人员"
+    },
+    {
+      "id": "regulatory",
+      "label": "监管、伦理、合规与质量机构"
+    },
+    {
+      "id": "care-network",
+      "label": "家属、社区与转诊协作方"
+    },
+    {
+      "id": "supplier-research",
+      "label": "设备、药品、数据与技术供应方"
+    }
+  ],
+  "lifecycle_phases": [
+    {
+      "id": "care-need",
+      "label": "服务需求与健康目标定义"
+    },
+    {
+      "id": "clinical-concept",
+      "label": "临床概念、流程与人因设计"
+    },
+    {
+      "id": "system-integration",
+      "label": "系统集成、互操作与验证"
+    },
+    {
+      "id": "deployment-training",
+      "label": "部署、培训与准入"
+    },
+    {
+      "id": "care-operation",
+      "label": "服务运行、监测与持续改进"
+    },
+    {
+      "id": "retirement-archive",
+      "label": "退役、替换、数据归档与处置"
+    }
+  ],
+  "scenario_dimensions": [
+    {
+      "id": "care_urgency",
+      "label": "服务紧急程度",
+      "values": [
+        "常规",
+        "优先",
+        "紧急",
+        "危重",
+        "群体事件"
+      ]
+    },
+    {
+      "id": "care_setting",
+      "label": "服务环境",
+      "values": [
+        "家庭",
+        "社区",
+        "门诊",
+        "住院",
+        "移动现场",
+        "远程"
+      ]
+    },
+    {
+      "id": "patient_state",
+      "label": "服务对象状态",
+      "values": [
+        "稳定",
+        "变化中",
+        "高风险",
+        "失代偿",
+        "信息不完整"
+      ]
+    },
+    {
+      "id": "resource_state",
+      "label": "资源与能力状态",
+      "values": [
+        "充足",
+        "受限",
+        "过载",
+        "不可用",
+        "临时替代"
+      ]
+    },
+    {
+      "id": "information_quality",
+      "label": "信息质量",
+      "values": [
+        "已验证",
+        "部分验证",
+        "延迟",
+        "冲突",
+        "缺失"
+      ]
+    },
+    {
+      "id": "handoff_state",
+      "label": "交接与连续性",
+      "values": [
+        "未交接",
+        "准备中",
+        "已确认",
+        "异常交接",
+        "恢复中"
+      ]
+    }
+  ],
+  "coverage_rules": [
+    {
+      "id": "medical-stakeholder-coverage",
+      "source": "stakeholder_lenses",
+      "priority": "high"
+    },
+    {
+      "id": "medical-lifecycle-coverage",
+      "source": "lifecycle_phases",
+      "priority": "high"
+    },
+    {
+      "id": "care-urgency-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "information-quality-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "continuity-and-handoff",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "privacy-safety-equity",
+      "source": "stakeholder_lenses",
+      "priority": "medium"
+    }
+  ],
+  "prompt_fragments": {
+    "stakeholders": "覆盖服务对象、临床团队、运营方、监管方、照护网络和供应方，区分决策权、责任、信息输入输出与未满足目标。",
+    "lifecycle": "沿需求、概念、集成、部署、运行、改进和退役阶段追踪服务目标、证据、培训和责任转移。",
+    "scenarios": "为常规、紧急、资源受限、信息缺失、交接异常和恢复场景建立可复核的步骤与预期结果。",
+    "requirements": "把服务目标转为可验证、可追溯的需求，明确临床假设、操作约束、证据来源和未知项。",
+    "interoperability": "检查人员、设备、机构、数据和外部服务之间的接口、语义一致性、时延和交接责任。",
+    "safety": "同时分析患者安全、人员安全、隐私、伦理、公平可及性、误操作和服务连续性。"
+  },
+  "diagram_groups": {
+    "stakeholder_context": {
+      "label": "利益相关方与系统边界",
+      "order": 10
+    },
+    "scenario_flow": {
+      "label": "场景、状态与流程",
+      "order": 20
+    },
+    "functional_decomposition": {
+      "label": "能力与功能分解",
+      "order": 30
+    },
+    "logical_architecture": {
+      "label": "逻辑架构与接口",
+      "order": 40
+    },
+    "physical_architecture": {
+      "label": "物理实现与部署",
+      "order": 50
+    },
+    "traceability": {
+      "label": "需求、验证与追溯",
+      "order": 60
+    }
+  }
+}

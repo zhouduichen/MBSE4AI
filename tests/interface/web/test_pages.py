@@ -230,7 +230,7 @@ def test_requirements_page_runs_reviewed_rflp_flow(client: TestClient) -> None:
     assert "场景生成" in page.text
     assert "RFLP 规划图" in page.text
     input_page = client.get("/w/demo/requirements/input")
-    assert "等待 LLM 分析" in input_page.text
+    assert any(label in input_page.text for label in ("规则基线已保存", "正在分块补充 LLM 分析", "部分 LLM 分析失败"))
     assert "需求 2" in input_page.text
     graph_page = client.get("/w/demo/requirements/graph")
     assert "<svg" in graph_page.text
@@ -256,7 +256,7 @@ def test_requirements_page_can_generate_draft_without_review(client: TestClient)
     assert "需求理解图" in page.text
     assert "草稿" in page.text
     assert "已理解内容" in page.text
-    assert "回到需求输入" in page.text
+    assert any(label in page.text for label in ("回到需求输入", "生成正式 RFLP"))
 
 
 def test_plain_language_can_confirm_and_generate_formal_rflp_directly(client: TestClient) -> None:
@@ -278,7 +278,7 @@ def test_plain_language_can_confirm_and_generate_formal_rflp_directly(client: Te
     assert "R" in page.text and "F" in page.text and "L" in page.text and "P" in page.text
 
 
-def test_requirements_input_keeps_plain_language_as_a_candidate(client: TestClient) -> None:
+def test_requirements_input_accepts_plain_language_baseline(client: TestClient) -> None:
     client.post("/workspaces", data={"name": "demo"})
     client.post(
         "/w/demo/requirements/analyze",
@@ -288,7 +288,7 @@ def test_requirements_input_keeps_plain_language_as_a_candidate(client: TestClie
     page = client.get("/w/demo/requirements/input")
 
     assert "已纳入需求 1" in page.text
-    assert "等待 LLM 分析" in page.text
+    assert any(label in page.text for label in ("规则基线已保存", "正在分块补充 LLM 分析", "部分 LLM 分析失败"))
 
 
 def test_mbse_review_page_integrates_regeneration_and_state_labels(client: TestClient) -> None:
@@ -446,8 +446,8 @@ def test_project_requirement_overview_keeps_submitted_history_and_statuses(
     body = overview.json()["overview"]
     assert body["submitted"] == 2
     assert body["counts"]["rejected"] == 1
-    assert body["counts"]["candidate"] == 1
-    assert body["counts"]["accepted"] == 0
+    assert body["counts"]["candidate"] == 0
+    assert body["counts"]["accepted"] == 1
     assert any(item["id"] == first_id and item["status"] == "rejected" for item in body["items"])
 
     page = client.get("/w/demo/requirements/overview")
@@ -482,16 +482,16 @@ def test_incremental_requirement_input_preserves_confirmed_state_and_shows_impac
     stakeholders = {item["name"]: item for item in after["stakeholders"]}
 
     assert claims["恢复历史版本"]["status"] == "accepted"
-    assert claims["查看修复历史"]["status"] == "candidate"
+    assert claims["查看修复历史"]["status"] == "accepted"
     assert stakeholders["管理员"]["id"] == old_stakeholder["id"]
     assert stakeholders["管理员"]["status"] == "accepted"
-    assert after["review_queue"]
-    assert after["change_set"]["summary"]["requires_confirmation"] > 0
+    assert after["review_queue"] == []
+    assert after["change_set"]["summary"]["requires_confirmation"] == 0
 
     review = client.get("/w/demo/requirements/review")
     assert "只确认本次新增或受影响的内容" in review.text
     assert "查看修复历史" in review.text
-    assert "没有待确认内容" not in review.text
+    assert "没有待确认内容" in review.text
 
     from rflp_lite.adapters.sqlite_repository import SQLiteRepository
 
@@ -561,11 +561,11 @@ def test_guided_path_separates_understanding_confirmation_and_formal_model(
     )
 
     draft_page = client.get("/w/demo/requirements")
-    assert "等待 LLM 分析" in client.get("/w/demo/requirements/input").text
+    assert any(label in client.get("/w/demo/requirements/input").text for label in ("规则基线已保存", "正在分块补充 LLM 分析", "部分 LLM 分析失败"))
     assert "需求模型已建立" not in draft_page.text
     formal_page = client.get("/w/demo/requirements/graph")
     assert "需求理解图" in formal_page.text
-    assert "正式 RFLP" not in formal_page.text
+    assert "生成正式 RFLP" in formal_page.text
 
 
 def test_stakeholder_page_adds_role_and_shows_related_requirements(client: TestClient) -> None:

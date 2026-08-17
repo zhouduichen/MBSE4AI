@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from fastapi.testclient import TestClient
 
 from rflp_lite.domain.canonical import canonical_hash
@@ -70,6 +72,24 @@ def _client(tmp_path, monkeypatch, model) -> TestClient:
     return client
 
 
+def _wait_for_enrichment(client: TestClient, workspace: str = "medical") -> dict[str, object]:
+    job_id = None
+    state = {}
+    for _ in range(120):
+        state = client.get(f"/api/v1/workspaces/{workspace}/requirements").json()["requirements"]
+        job_id = state.get("auto_analysis", {}).get("job_id")
+        if job_id:
+            break
+        time.sleep(0.02)
+    assert job_id
+    for _ in range(120):
+        job = client.get(f"/api/v1/workspaces/{workspace}/jobs/{job_id}").json()["job"]
+        if job["status"] in {"completed", "degraded", "failed"}:
+            return client.get(f"/api/v1/workspaces/{workspace}/requirements").json()["requirements"]
+        time.sleep(0.02)
+    raise AssertionError("enrichment job did not finish")
+
+
 def test_submit_uses_one_current_domain_analysis_and_populates_modules(tmp_path, monkeypatch) -> None:
     model = FixtureModel(_payload())
     client = _client(tmp_path, monkeypatch, model)
@@ -81,8 +101,8 @@ def test_submit_uses_one_current_domain_analysis_and_populates_modules(tmp_path,
     )
 
     assert submitted.status_code == 303
-    state = client.get("/api/v1/workspaces/medical/requirements").json()["requirements"]
-    assert model.calls == 1
+    state = _wait_for_enrichment(client)
+    assert model.calls == 6
     assert {item["name"] for item in state["stakeholders"]} == {"牙刷使用者", "医疗器械制造商"}
     assert {item["title"] for item in state["scenarios"]} == {"正常刷牙", "压力传感器故障"}
     assert state["auto_analysis"]["status"] == "completed"
@@ -97,7 +117,7 @@ def test_submit_uses_one_current_domain_analysis_and_populates_modules(tmp_path,
 
     input_page = client.get("/w/medical/requirements/input")
     assert "自动分析已完成" in input_page.text
-    assert "本次项目输入已生成利益相关方、需求检查、场景、RFLP 和 MBSE 结果" in input_page.text
+    assert "提交不会等待一次性大 JSON" in input_page.text
 
 
 def test_submit_waits_without_llm_and_does_not_inject_domain_fallback(tmp_path, monkeypatch) -> None:
@@ -110,12 +130,12 @@ def test_submit_waits_without_llm_and_does_not_inject_domain_fallback(tmp_path, 
     )
 
     assert submitted.status_code == 303
-    state = client.get("/api/v1/workspaces/medical/requirements").json()["requirements"]
+    state = _wait_for_enrichment(client)
     assert state["claims"]
     assert state["rflp"] is None
     assert state["mbse"] is None
     assert state["scenarios"] == []
-    assert state["auto_analysis"]["status"] == "waiting_for_llm"
+    assert state["auto_analysis"]["status"] == "degraded"
     assert "飞行汽车" not in str(state)
 
 
@@ -153,13 +173,28 @@ def test_two_projects_keep_their_llm_entities_and_links_separate(tmp_path, monke
     facade.analyze_requirements("aircar", "requirements.txt", "设计医疗飞行汽车".encode(), merge=False)
     facade.analyze_requirements("toothbrush", "requirements.txt", "设计医用安全电动牙刷".encode(), merge=False)
 
+    for workspace in ("aircar", "toothbrush"):
+        job_id = None
+        for _ in range(120):
+            current = facade.requirements(workspace)
+            job_id = current.get("auto_analysis", {}).get("job_id") if current else None
+            if job_id:
+                break
+            time.sleep(0.02)
+        assert job_id
+        for _ in range(120):
+            job = facade.job(workspace, job_id)
+            if job and job["status"] in {"completed", "degraded", "failed"}:
+                break
+            time.sleep(0.02)
     aircar = facade.requirements("aircar")
     toothbrush = facade.requirements("toothbrush")
     assert {item["name"] for item in aircar["stakeholders"]} == {"飞行员"}
     assert {item["name"] for item in toothbrush["stakeholders"]} == {"牙刷使用者", "医疗器械制造商"}
     assert "飞行员" not in str(toothbrush)
     assert "牙刷使用者" not in str(aircar)
-    assert model.calls == ["aircar", "toothbrush"]
+    assert model.calls.count("aircar") == 6
+    assert model.calls.count("toothbrush") == 6
 
 
 def test_analysis_config_defaults_to_neutral_and_can_enable_common_pack(
@@ -178,9 +213,7 @@ def test_analysis_config_defaults_to_neutral_and_can_enable_common_pack(
     assert default.status_code == 200
     assert default.json()["config"]["enabled"] is False
     assert default.json()["config"]["domain_pack_id"] is None
-    assert [item["id"] for item in default.json()["available_domain_packs"]] == [
-        "common-v1"
-    ]
+    assert "common-v1" in {item["id"] for item in default.json()["available_domain_packs"]}
 
     configured = client.put(
         "/api/v1/workspaces/medical/requirements/analysis-config",
@@ -201,8 +234,8 @@ def test_analysis_config_defaults_to_neutral_and_can_enable_common_pack(
             "domain_pack_version": 1,
         },
     )
-    assert invalid.status_code == 422
-    assert "常见领域包" in invalid.json()["message"]
+    assert invalid.status_code == 200
+    assert invalid.json()["config"]["overlay_pack_ids"] == ["urban-medical-aam-v1"]
 
 
 def test_common_pack_guidance_is_loaded_only_after_explicit_configuration(
@@ -215,7 +248,8 @@ def test_common_pack_guidance_is_loaded_only_after_explicit_configuration(
         data={"text": "管理员必须恢复历史版本。"},
         follow_redirects=False,
     )
-    assert "domain_guidance" not in model.requests[0].user_payload
+    _wait_for_enrichment(client)
+    assert all("domain_guidance" not in request.user_payload for request in model.requests)
 
     configured = client.put(
         "/api/v1/workspaces/medical/requirements/analysis-config",
@@ -227,7 +261,8 @@ def test_common_pack_guidance_is_loaded_only_after_explicit_configuration(
         data={"text": "审计人员必须查看恢复记录。"},
         follow_redirects=False,
     )
+    _wait_for_enrichment(client)
 
-    assert model.calls == 2
-    assert model.requests[1].user_payload["domain_guidance"]["id"] == "common-v1"
-    assert model.requests[1].user_payload["domain_guidance"]["coverage_rules"]
+    assert model.calls == 12
+    assert any(request.user_payload.get("pack_ids") == ["common-v1"] for request in model.requests[6:])
+    assert any(request.user_payload.get("pack_guidance", {}).get("coverage_rules") for request in model.requests[6:])

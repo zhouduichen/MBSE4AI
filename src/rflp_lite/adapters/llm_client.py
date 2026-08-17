@@ -62,7 +62,26 @@ def _native_ollama_endpoint(base_url: object) -> str:
     return f"{parsed.scheme}://{parsed.netloc}/api/chat"
 
 
+def _bounded_max_tokens(
+    config: dict[str, object], max_tokens: int | None
+) -> int | None:
+    """Apply a local profile cap without increasing the caller's budget."""
+
+    if str(config.get("kind", "")).casefold() != "local":
+        return max_tokens
+    try:
+        local_cap = int(config.get("local_max_tokens", 0))
+    except (TypeError, ValueError):
+        return max_tokens
+    if local_cap <= 0:
+        return max_tokens
+    if max_tokens is None:
+        return local_cap
+    return min(max_tokens, local_cap)
+
+
 def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *, max_tokens: int | None = None) -> str:
+    max_tokens = _bounded_max_tokens(config, max_tokens)
     native_ollama = _is_native_ollama(config)
     if native_ollama:
         body: dict[str, object] = {

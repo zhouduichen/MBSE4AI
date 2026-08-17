@@ -1,0 +1,396 @@
+{
+  "id": "aviation-v1",
+  "version": 1,
+  "display_name": "航空与空域运行系统",
+  "description": "覆盖有人或无人航空器、空域服务、机场/起降设施和航空运营支持的通用指导。",
+  "stable_fields": [
+    "id",
+    "name",
+    "description",
+    "source",
+    "confidence",
+    "status",
+    "assumptions",
+    "relations"
+  ],
+  "extensions": {
+    "pack_layer": "industry",
+    "reusable": true,
+    "activation_terms": [
+      "航空",
+      "飞行",
+      "空域",
+      "适航",
+      "机场",
+      "无人机",
+      "航空器"
+    ],
+    "unknowns_are_first_class": true,
+    "review_required_before_diagram": true
+  },
+  "core_overrides": [],
+  "element_schemas": {
+    "stakeholder": {
+      "type": "object",
+      "required": [
+        "name",
+        "category",
+        "goals",
+        "interactions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "interactions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "concerns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "name",
+        "trigger",
+        "expected_outcome"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dimensions": {
+          "type": "object"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hazards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "requirement": {
+      "type": "object",
+      "required": [
+        "statement",
+        "verification",
+        "priority"
+      ],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "must",
+            "should",
+            "could"
+          ]
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "name",
+        "responsibilities",
+        "interfaces"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "responsibilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk": {
+      "type": "object",
+      "required": [
+        "name",
+        "cause",
+        "effect",
+        "mitigations"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cause": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mitigations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "stakeholder_lenses": [
+    {
+      "id": "mission-user",
+      "label": "任务使用者、乘员与货物/服务对象"
+    },
+    {
+      "id": "flight-crew",
+      "label": "机组、远程操作者与签派人员"
+    },
+    {
+      "id": "operator-maintainer",
+      "label": "运营、维修与持续适航人员"
+    },
+    {
+      "id": "airspace-infrastructure",
+      "label": "空管、机场与运行基础设施"
+    },
+    {
+      "id": "regulator-public",
+      "label": "适航监管、应急机构与公众"
+    },
+    {
+      "id": "supplier-network",
+      "label": "能源、通信、导航与设备供应方"
+    }
+  ],
+  "lifecycle_phases": [
+    {
+      "id": "mission-definition",
+      "label": "任务、航线与服务定义"
+    },
+    {
+      "id": "vehicle-concept",
+      "label": "航空器概念与系统架构"
+    },
+    {
+      "id": "development-integration",
+      "label": "研制、集成与试验"
+    },
+    {
+      "id": "verification-certification",
+      "label": "验证、确认与适航批准"
+    },
+    {
+      "id": "production-delivery",
+      "label": "生产、交付与运行准备"
+    },
+    {
+      "id": "operation-support",
+      "label": "运行、维修、事件调查与退役"
+    }
+  ],
+  "scenario_dimensions": [
+    {
+      "id": "mission_phase",
+      "label": "任务阶段",
+      "values": [
+        "准备",
+        "推出",
+        "起飞",
+        "爬升",
+        "巡航",
+        "进近",
+        "着陆",
+        "返航",
+        "应急"
+      ]
+    },
+    {
+      "id": "weather",
+      "label": "天气与环境",
+      "values": [
+        "正常",
+        "降水",
+        "强风",
+        "雷暴",
+        "结冰",
+        "高温",
+        "低温",
+        "沙尘"
+      ]
+    },
+    {
+      "id": "airspace_context",
+      "label": "空域与设施环境",
+      "values": [
+        "开放",
+        "拥挤",
+        "受限",
+        "临时管制",
+        "设施受损",
+        "偏远"
+      ]
+    },
+    {
+      "id": "vehicle_state",
+      "label": "航空器状态",
+      "values": [
+        "正常",
+        "负载升高",
+        "降级",
+        "故障",
+        "部分失效",
+        "失效安全"
+      ]
+    },
+    {
+      "id": "connectivity",
+      "label": "通信导航监视",
+      "values": [
+        "完整",
+        "延迟",
+        "弱覆盖",
+        "中断",
+        "不可信",
+        "受干扰"
+      ]
+    },
+    {
+      "id": "human_factors",
+      "label": "人员与组织状态",
+      "values": [
+        "正常",
+        "高工作负荷",
+        "疲劳",
+        "交接中",
+        "训练模式",
+        "应急处置"
+      ]
+    }
+  ],
+  "coverage_rules": [
+    {
+      "id": "aviation-stakeholder-coverage",
+      "source": "stakeholder_lenses",
+      "priority": "high"
+    },
+    {
+      "id": "aviation-lifecycle-coverage",
+      "source": "lifecycle_phases",
+      "priority": "high"
+    },
+    {
+      "id": "mission-weather-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "airspace-connectivity-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "failure-recovery",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "human-override-and-evidence",
+      "source": "stakeholder_lenses",
+      "priority": "medium"
+    }
+  ],
+  "prompt_fragments": {
+    "stakeholders": "识别任务方、乘员/载荷方、机组、运营、维修、空管、基础设施、监管、公众和供应链的责任边界。",
+    "lifecycle": "覆盖任务定义、架构、研制、适航、交付、运行、维修、事件调查和退役，不把运行批准当作设计事实。",
+    "scenarios": "组合任务阶段、天气、空域、链路和航空器状态，至少形成正常、异常、失效、备降、恢复和人工接管场景。",
+    "requirements": "将安全目标、性能目标、运行限制和接口约束表达为可验证需求，并标明证据和适用条件。",
+    "architecture": "分别检查航空器、地面站、空域服务、起降设施、通信导航和人工组织之间的边界与接口。",
+    "safety": "分析失联、导航不可信、动力/感知/控制故障、天气变化、冲突规避、应急着陆和事故复盘。"
+  },
+  "diagram_groups": {
+    "stakeholder_context": {
+      "label": "利益相关方与系统边界",
+      "order": 10
+    },
+    "scenario_flow": {
+      "label": "场景、状态与流程",
+      "order": 20
+    },
+    "functional_decomposition": {
+      "label": "能力与功能分解",
+      "order": 30
+    },
+    "logical_architecture": {
+      "label": "逻辑架构与接口",
+      "order": 40
+    },
+    "physical_architecture": {
+      "label": "物理实现与部署",
+      "order": 50
+    },
+    "traceability": {
+      "label": "需求、验证与追溯",
+      "order": 60
+    }
+  }
+}

@@ -69,7 +69,7 @@ def test_discovery_page_and_local_degraded_run(tmp_path: Path):
     assert "智能补全" in response.text
     assert "任务种子" in response.text
     assert "尚未评估覆盖情况" in response.text
-    assert "project_llm_unavailable" in response.text
+    assert "诊断" in response.text
     run = client.post("/api/v1/workspaces/medical/discovery/draft", json={"pack_id": "urban-medical-aam-v1"})
     assert run.status_code == 200
     payload = run.json()
@@ -94,7 +94,7 @@ def test_html_page_renders_candidate_review_controls(tmp_path: Path):
     assert "接受" in text and "驳回" in text and "编辑" in text and "保存修改" in text
     assert "AI 候选，需人工确认" in text
     assert "lens-stakeholders" in text
-    assert "project_llm_unavailable" in text
+    assert "诊断" in text
 
 
 def test_html_review_finalize_and_diagram_cards(tmp_path: Path):

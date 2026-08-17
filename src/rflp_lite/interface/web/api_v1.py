@@ -546,6 +546,22 @@ def job(request: Request, workspace_name: str, job_id: str) -> JSONResponse | di
         return _error(exc, 404)
 
 
+@api_v1.post(
+    "/workspaces/{workspace_name}/requirements/enrichment/{job_id}/retry",
+    response_model=None,
+)
+def retry_requirement_enrichment(
+    request: Request, workspace_name: str, job_id: str
+) -> JSONResponse | dict[str, object]:
+    try:
+        return {
+            "status": "ok",
+            "job": _facade(request).retry_requirement_enrichment(workspace_name, job_id),
+        }
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
 @api_v1.get("/workspaces/{workspace_name}/profile", response_model=None)
 def profile(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
     try:

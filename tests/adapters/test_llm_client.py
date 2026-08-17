@@ -142,6 +142,51 @@ def test_local_ollama_uses_native_chat_to_disable_reasoning(monkeypatch):
     assert captured["body"]["options"]["num_predict"] == 5200
 
 
+def test_native_ollama_think_flag_cannot_be_enabled_by_profile(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(call, timeout):
+        captured["body"] = json.loads(call.data.decode())
+        return _Response({"message": {"content": '{"items": []}'}})
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    llm_client.chat_completion(
+        {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3.5:4b",
+            "think": True,
+            "thinking": {"type": "enabled"},
+        },
+        [{"role": "user", "content": "json"}],
+    )
+
+    assert captured["body"]["think"] is False
+    assert "thinking" not in captured["body"]
+
+
+def test_chat_completion_uses_smaller_local_token_budget(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(call, timeout):
+        captured["body"] = json.loads(call.data.decode())
+        return _Response({"message": {"content": '{"items": []}'}})
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    llm_client.chat_completion(
+        {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3.5:4b",
+            "local_max_tokens": 600,
+        },
+        [{"role": "user", "content": "json"}],
+        max_tokens=1200,
+    )
+
+    assert captured["body"]["options"]["num_predict"] == 600
+
+
 def test_native_ollama_uses_supplied_json_schema(monkeypatch):
     captured = {}
 

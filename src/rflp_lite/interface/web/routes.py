@@ -96,6 +96,27 @@ def _requirements_context(
             or active_llm.get("api_key_configured", False)
         )
     )
+    pack_layers = {
+        "medical-v1": "industry",
+        "aviation-v1": "industry",
+        "automotive-v1": "industry",
+        "industrial-v1": "industry",
+        "energy-infrastructure-v1": "industry",
+        "software-data-v1": "industry",
+        "mechanical-v1": "discipline",
+        "electrical-v1": "discipline",
+        "software-v1": "discipline",
+        "control-v1": "discipline",
+        "thermal-v1": "discipline",
+        "safety-v1": "discipline",
+        "manufacturing-v1": "discipline",
+        "urban-medical-aam-v1": "overlay",
+        "common-v1": "base",
+    }
+    analysis_packs = tuple(
+        {**item, "layer": pack_layers.get(str(item.get("id")), "industry")}
+        for item in facade.available_analysis_domain_packs()
+    )
     return page_context(
         workspace,
         workspaces=facade.workspaces(),
@@ -107,6 +128,8 @@ def _requirements_context(
         requirement_overview=facade.requirement_overview(workspace_name),
         active_llm=active_llm,
         llm_ready=llm_ready,
+        analysis_config=facade.analysis_config(workspace_name),
+        analysis_packs=analysis_packs,
         stakeholder_categories=facade.stakeholder_categories(),
         **values,
     )
@@ -418,8 +441,24 @@ async def analyze_requirements(
     artifact: UploadFile | None = File(default=None),
     merge: Annotated[str, Form()] = "",
     replace: Annotated[str, Form()] = "",
+    base_pack_id: Annotated[str, Form()] = "common-v1",
+    industry_pack_ids: Annotated[list[str] | None, Form()] = None,
+    discipline_pack_ids: Annotated[list[str] | None, Form()] = None,
+    overlay_pack_ids: Annotated[list[str] | None, Form()] = None,
 ) -> Response:
     try:
+        if industry_pack_ids is not None or discipline_pack_ids is not None or overlay_pack_ids is not None:
+            _facade(request).save_analysis_config(
+                workspace_name,
+                {
+                    "enabled": bool(industry_pack_ids or discipline_pack_ids or overlay_pack_ids),
+                    "base_pack_id": base_pack_id or "common-v1",
+                    "industry_pack_ids": industry_pack_ids or [],
+                    "discipline_pack_ids": discipline_pack_ids or [],
+                    "overlay_pack_ids": overlay_pack_ids or [],
+                    "provenance": {"source": "requirements-input", "reason": "user-selected-pack-layers"},
+                },
+            )
         if artifact is not None and artifact.filename:
             filename, content = artifact.filename, await artifact.read()
         else:

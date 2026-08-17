@@ -1,0 +1,391 @@
+{
+  "id": "electrical-v1",
+  "version": 1,
+  "display_name": "电气与电子工程",
+  "description": "覆盖供配电、电子硬件、信号接口、接地、防护和电气维护的通用工程指导。",
+  "stable_fields": [
+    "id",
+    "name",
+    "description",
+    "source",
+    "confidence",
+    "status",
+    "assumptions",
+    "relations"
+  ],
+  "extensions": {
+    "pack_layer": "discipline",
+    "reusable": true,
+    "activation_terms": [
+      "电气",
+      "电子",
+      "供电",
+      "配电",
+      "信号",
+      "电池",
+      "EMC"
+    ],
+    "unknowns_are_first_class": true,
+    "review_required_before_diagram": true
+  },
+  "core_overrides": [],
+  "element_schemas": {
+    "stakeholder": {
+      "type": "object",
+      "required": [
+        "name",
+        "category",
+        "goals",
+        "interactions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "interactions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "concerns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "name",
+        "trigger",
+        "expected_outcome"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dimensions": {
+          "type": "object"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hazards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "requirement": {
+      "type": "object",
+      "required": [
+        "statement",
+        "verification",
+        "priority"
+      ],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "must",
+            "should",
+            "could"
+          ]
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "name",
+        "responsibilities",
+        "interfaces"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "responsibilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk": {
+      "type": "object",
+      "required": [
+        "name",
+        "cause",
+        "effect",
+        "mitigations"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cause": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mitigations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "stakeholder_lenses": [
+    {
+      "id": "system-user",
+      "label": "系统使用者与任务负责人"
+    },
+    {
+      "id": "power-engineer",
+      "label": "电源、配电与电能质量工程师"
+    },
+    {
+      "id": "electronics-engineer",
+      "label": "电子、信号与接口工程师"
+    },
+    {
+      "id": "operator-maintainer",
+      "label": "操作、测试与维修人员"
+    },
+    {
+      "id": "safety-compliance",
+      "label": "电气安全、EMC 与合规人员"
+    },
+    {
+      "id": "component-supplier",
+      "label": "器件、电池、线缆与测试供应方"
+    }
+  ],
+  "lifecycle_phases": [
+    {
+      "id": "electrical-needs",
+      "label": "功率、信号与接口需求定义"
+    },
+    {
+      "id": "power-architecture",
+      "label": "供配电与电子架构设计"
+    },
+    {
+      "id": "schematic-layout",
+      "label": "原理图、布局与器件选型"
+    },
+    {
+      "id": "integration-verification",
+      "label": "集成、测试与合规验证"
+    },
+    {
+      "id": "commissioning-operation",
+      "label": "调试、运行、监测与维护"
+    },
+    {
+      "id": "upgrade-decommission",
+      "label": "改造、隔离、拆除与回收"
+    }
+  ],
+  "scenario_dimensions": [
+    {
+      "id": "power_state",
+      "label": "供电状态",
+      "values": [
+        "正常",
+        "峰值",
+        "限功率",
+        "备用",
+        "掉电",
+        "恢复中"
+      ]
+    },
+    {
+      "id": "signal_state",
+      "label": "信号与接口状态",
+      "values": [
+        "有效",
+        "噪声",
+        "延迟",
+        "丢失",
+        "冲突",
+        "不可信"
+      ]
+    },
+    {
+      "id": "electrical_environment",
+      "label": "电气环境",
+      "values": [
+        "常规",
+        "潮湿",
+        "高温",
+        "振动",
+        "强电磁",
+        "静电风险"
+      ]
+    },
+    {
+      "id": "protection_state",
+      "label": "保护与隔离状态",
+      "values": [
+        "未触发",
+        "限流",
+        "跳闸",
+        "熔断",
+        "接地异常",
+        "安全隔离"
+      ]
+    },
+    {
+      "id": "energy_storage",
+      "label": "储能状态",
+      "values": [
+        "充足",
+        "充电",
+        "放电",
+        "低荷",
+        "温度受限",
+        "不可用"
+      ]
+    },
+    {
+      "id": "maintenance_state",
+      "label": "维护状态",
+      "values": [
+        "带电运行",
+        "停电检修",
+        "测试中",
+        "挂牌隔离",
+        "复电确认",
+        "记录待审"
+      ]
+    }
+  ],
+  "coverage_rules": [
+    {
+      "id": "electrical-stakeholder-coverage",
+      "source": "stakeholder_lenses",
+      "priority": "high"
+    },
+    {
+      "id": "electrical-lifecycle-coverage",
+      "source": "lifecycle_phases",
+      "priority": "high"
+    },
+    {
+      "id": "power-signal-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "protection-energy-cross",
+      "source": "scenario_dimensions",
+      "priority": "high"
+    },
+    {
+      "id": "isolation-and-maintenance",
+      "source": "lifecycle_phases",
+      "priority": "high"
+    },
+    {
+      "id": "emc-and-human-safety",
+      "source": "stakeholder_lenses",
+      "priority": "medium"
+    }
+  ],
+  "prompt_fragments": {
+    "stakeholders": "识别供电、电子、控制、操作、维护、合规和供应角色，明确接口所有者与授权。",
+    "scenarios": "覆盖上电、稳态、峰值、掉电、保护动作、信号异常、维修隔离、复电和恢复。",
+    "requirements": "把功率、能效、信号完整性、时序、保护、EMC、可测试和可维护要求写成验证条件。",
+    "architecture": "逐层描述能源源、变换、配电、负载、信号、接地、屏蔽和外部接口。",
+    "verification": "结合计算、仿真、台架、环境、EMC、绝缘、保护动作和现场测试定义证据。",
+    "safety": "考虑触电、短路、过流、热失控、误接线、残余能量、接地故障和带电维护。"
+  },
+  "diagram_groups": {
+    "stakeholder_context": {
+      "label": "利益相关方与系统边界",
+      "order": 10
+    },
+    "scenario_flow": {
+      "label": "场景、状态与流程",
+      "order": 20
+    },
+    "functional_decomposition": {
+      "label": "能力与功能分解",
+      "order": 30
+    },
+    "logical_architecture": {
+      "label": "逻辑架构与接口",
+      "order": 40
+    },
+    "physical_architecture": {
+      "label": "物理实现与部署",
+      "order": 50
+    },
+    "traceability": {
+      "label": "需求、验证与追溯",
+      "order": 60
+    }
+  }
+}
