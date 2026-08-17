@@ -1,39 +1,105 @@
-"""Deterministic SVG renderings for semantic MBSE model views."""
+"""Deterministic fallback rendering for professional semantic MBSE views."""
 
 from __future__ import annotations
 
 from html import escape
 
 from rflp_lite.application.mbse_exchange import validate_mbse_model
+from rflp_lite.application.mbse_matrix import render_matrix_view
+from rflp_lite.application.mbse_views import compile_mbse_view, semantic_model_for_view
 from rflp_lite.application.sequence_layout import layout_sequence
 from rflp_lite.application.sequence_modeling import _legacy_model_to_interaction
 from rflp_lite.application.sequence_render import render_sequence_svg
 
 
-def render_mbse_svg(model: object, view: str = "all") -> str:
-    normalized = validate_mbse_model(model)
-    if view not in {"all", "use_case", "activity", "sequence"}:
-        raise ValueError("unsupported MBSE view")
-    if view == "sequence":
-        return render_sequence_svg(layout_sequence(_legacy_model_to_interaction(normalized)))
-    sections = []
-    if view in {"all", "use_case"}:
-        sections.append(("Use Case", [f"{item.get('name', '')} · {', '.join(item.get('actor_ids', ())) }" for item in normalized["use_cases"]]))
-    if view in {"all", "activity"}:
-        sections.append(("Activity", [f"{item.get('kind', 'action')}: {item.get('name', '')}" for item in normalized["activities"]]))
-    if view in {"all", "sequence"}:
-        sections.append(("Sequence", [f"{item.get('sequence', '')}. {item.get('from_id', '')} → {item.get('to_id', '')}: {item.get('name', '')}" for item in normalized["messages"]]))
-    width = 1120
-    height = max(180, 90 + sum(max(1, len(items)) for _, items in sections) * 44)
-    parts = [f'<svg class="mbse-svg" viewBox="0 0 {width} {height}" role="img" aria-label="MBSE语义模型" xmlns="http://www.w3.org/2000/svg">', '<rect width="100%" height="100%" rx="16" fill="#0b1416"/>']
-    y = 28
-    for title, items in sections:
-        parts.append(f'<text x="26" y="{y}" fill="#70e1bc" font-size="16" font-weight="800">{escape(title)}</text>')
-        y += 28
-        for index, item in enumerate(items or ["（暂无候选）"]):
-            parts.append(f'<rect x="26" y="{y - 18}" width="1068" height="30" rx="7" fill="#182a2e" stroke="#31504b"/>')
-            parts.append(f'<text x="40" y="{y + 2}" fill="#e2eeea" font-size="12">{escape(str(item)[:160])}</text>')
-            y += 40
-        y += 12
+def _fallback_graph_svg(compiled: dict[str, object]) -> str:
+    nodes = [item for item in compiled.get("nodes", ()) if isinstance(item, dict)]
+    edges = [item for item in compiled.get("edges", ()) if isinstance(item, dict)]
+    layout = str(compiled.get("layout", "flow"))
+    width = 1180
+    columns = 3 if layout == "tree" else max(1, min(4, len(nodes)))
+    node_width = 260
+    node_height = 68
+    gap_x = 34
+    gap_y = 42
+    start_x = 36
+    start_y = 102
+    positions: dict[str, tuple[int, int]] = {}
+    for index, item in enumerate(nodes):
+        if layout == "flow":
+            x = start_x + (index % max(columns, 1)) * (node_width + gap_x)
+            y = start_y + (index // max(columns, 1)) * (node_height + gap_y)
+        elif layout == "radial":
+            x = start_x + (index % 4) * (node_width + gap_x)
+            y = start_y + (index // 4) * (node_height + gap_y)
+        else:
+            x = start_x + (index % columns) * (node_width + gap_x)
+            y = start_y + (index // columns) * (node_height + gap_y)
+        positions[str(item.get("id"))] = (x, y)
+    rows = max(1, (len(nodes) + columns - 1) // columns)
+    height = max(240, start_y + rows * (node_height + gap_y) + 80)
+    marker_id = f"arrow-{str(compiled.get('view_id', 'mbse')).replace('_', '-') }"
+    parts = [
+        f'<svg class="mbse-professional-svg" viewBox="0 0 {width} {height}" role="img" aria-label="{escape(str(compiled.get("title", "MBSE 视图")))}" xmlns="http://www.w3.org/2000/svg">',
+        f'<defs><marker id="{marker_id}" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>',
+        '<rect width="100%" height="100%" fill="#ffffff" stroke="#cbd5e1"/>',
+        f'<text x="36" y="38" font-family="Arial" font-size="22" font-weight="700" fill="#0f172a">{escape(str(compiled.get("title", "MBSE 视图")))}</text>',
+        f'<text x="36" y="64" font-family="Arial" font-size="12" fill="#64748b">布局：{escape(str(compiled.get("layout", "flow")))} · 节点：{len(nodes)} · 关系：{len(edges)}</text>',
+    ]
+    for edge in edges:
+        source = positions.get(str(edge.get("source_id")))
+        target = positions.get(str(edge.get("target_id")))
+        if source is None or target is None:
+            continue
+        sx = source[0] + node_width / 2
+        sy = source[1] + node_height
+        tx = target[0] + node_width / 2
+        ty = target[1]
+        parts.append(
+            f'<path d="M {sx:.1f} {sy:.1f} L {tx:.1f} {ty:.1f}" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#{marker_id})"/>'
+        )
+        if edge.get("kind"):
+            parts.append(
+                f'<text x="{(sx + tx) / 2:.1f}" y="{(sy + ty) / 2 - 4:.1f}" font-family="Arial" font-size="10" fill="#475569">{escape(str(edge.get("kind")))}</text>'
+            )
+    for item in nodes:
+        x, y = positions[str(item.get("id"))]
+        fill = "#fff7ed" if item.get("needs_analysis") else "#f8fafc"
+        stroke = "#f59e0b" if item.get("needs_analysis") else "#64748b"
+        parts.append(f'<rect x="{x}" y="{y}" width="{node_width}" height="{node_height}" rx="12" fill="{fill}" stroke="{stroke}" stroke-width="1.4"/>')
+        parts.append(f'<text x="{x + 14}" y="{y + 25}" font-family="Arial" font-size="13" font-weight="700" fill="#0f172a">{escape(str(item.get("name", item.get("id", "")))[:34])}</text>')
+        parts.append(f'<text x="{x + 14}" y="{y + 46}" font-family="Arial" font-size="10" fill="#64748b">{escape(str(item.get("kind", "")))} · {escape(str(item.get("status", "accepted")))}</text>')
     parts.append("</svg>")
     return "".join(parts)
+
+
+def render_mbse_svg(model: object, view: str = "all") -> str:
+    normalized = validate_mbse_model(model)
+    if view == "sequence":
+        return render_sequence_svg(layout_sequence(_legacy_model_to_interaction(normalized)))
+    if view == "use_case":
+        view = "use_case_tree"
+    elif view == "activity":
+        view = "function_tree"
+    if view == "all":
+        compiled = compile_mbse_view(normalized, "rflp")
+        svg = _fallback_graph_svg(compiled)
+        # Keep the legacy overview vocabulary visible to existing clients while
+        # the new RFLP overview carries the richer semantic graph.
+        return svg.replace(
+            "</svg>",
+            '<text x="36" y="88" font-family="Arial" font-size="11" fill="#475569">Use Case · Activity · Sequence · Requirement → Function → Logical → Physical</text></svg>',
+        )
+    if view in {"allocation_matrix", "traceability_matrix"}:
+        return render_matrix_view(normalized, view)
+    compiled = compile_mbse_view(normalized, view)
+    return _fallback_graph_svg(compiled)
+
+
+def compile_mbse_source(model: object, view: str = "all") -> dict[str, object]:
+    """Return DOT/PlantUML/matrix metadata for optional professional engines."""
+
+    normalized = validate_mbse_model(model)
+    if view == "all":
+        view = "rflp"
+    return compile_mbse_view(normalized, view)
