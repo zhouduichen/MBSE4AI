@@ -7,6 +7,10 @@ from typing import Any
 
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.application.mbse_semantics import (
+    generate_mbse_semantic_revision,
+    mbse_entity_index,
+)
 
 
 def _unique(values: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -24,38 +28,13 @@ def generate_mbse_revision(state: dict[str, object]) -> dict[str, object]:
     ]
     if not accepted:
         raise ContractViolation("请先接受至少一条结构化需求")
-    actors: list[dict[str, object]] = []
-    use_cases: list[dict[str, object]] = []
-    activities: list[dict[str, object]] = []
-    lifelines: list[dict[str, object]] = [{"id": "lifeline-system", "name": "系统", "status": "accepted"}]
-    messages: list[dict[str, object]] = []
-    links: list[dict[str, object]] = []
-    for requirement in accepted:
-        requirement_id = str(requirement["id"])
-        subject = str(requirement.get("subject") or "使用者")
-        actor_id = f"actor-{canonical_hash((subject,))[:12]}"
-        use_case_id = f"usecase-{canonical_hash((requirement_id,))[:12]}"
-        activity_id = f"activity-{canonical_hash((requirement_id, 'main'))[:12]}"
-        message_id = f"message-{canonical_hash((requirement_id, 'request'))[:12]}"
-        actors.append({"id": actor_id, "name": subject, "status": "accepted", "requirement_ids": [requirement_id]})
-        use_cases.append({"id": use_case_id, "name": str(requirement.get("statement", requirement.get("object", ""))), "actor_ids": [actor_id], "requirement_ids": [requirement_id], "status": "accepted"})
-        activities.append({"id": activity_id, "name": str(requirement.get("statement", requirement.get("object", ""))), "kind": "action", "predecessor_ids": [], "requirement_ids": [requirement_id], "status": "accepted"})
-        lifelines.append({"id": f"lifeline-{actor_id}", "name": subject, "status": "accepted"})
-        messages.append({"id": message_id, "name": str(requirement.get("statement", requirement.get("object", ""))), "from_id": f"lifeline-{actor_id}", "to_id": "lifeline-system", "sequence": 1, "requirement_ids": [requirement_id], "status": "accepted"})
-        links.append({"source_id": requirement_id, "predicate": "refines", "target_id": use_case_id, "status": "accepted"})
-    model: dict[str, object] = {
-        "format": "ai4mbse/mbse",
-        "version": 1,
-        "status": "accepted",
-        "review_history": [],
-        "actors": sorted(_unique(actors), key=lambda item: str(item["id"])),
-        "use_cases": sorted(_unique(use_cases), key=lambda item: str(item["id"])),
-        "activities": sorted(_unique(activities), key=lambda item: str(item["id"])),
-        "lifelines": sorted(_unique(lifelines), key=lambda item: str(item["id"])),
-        "messages": sorted(_unique(messages), key=lambda item: str(item["id"])),
-        "trace_links": sorted(links, key=lambda item: (str(item["source_id"]), str(item["target_id"]))),
-    }
-    model["revision"] = canonical_hash(model)
+    model = generate_mbse_semantic_revision(
+        state,
+        provenance={
+            "producer": "mbse-modeling",
+            "accepted_requirement_ids": [str(item["id"]) for item in accepted],
+        },
+    )
     result = _clone(state)
     result["mbse"] = model
     result["rflp"] = result.get("rflp")
@@ -83,12 +62,25 @@ def review_mbse_element(
     if len(matches) != 1:
         raise ContractViolation("MBSE 审核对象不存在或不唯一")
     matches[0]["status"] = decision
+    semantic = model.get("semantic_model")
+    if isinstance(semantic, dict):
+        entity = mbse_entity_index(semantic).get(element_id)
+        if entity is not None:
+            entity["status"] = decision
     statuses = [
         item.get("status")
         for collection in collections
         for item in model.get(collection, ())
     ]
     model["status"] = "accepted" if statuses and all(status == "accepted" for status in statuses) else "review"
+    if isinstance(semantic, dict):
+        semantic_statuses = [
+            item.get("status")
+            for item in mbse_entity_index(semantic).values()
+            if item.get("kind") not in {"source_region", "environment"}
+        ]
+        if semantic_statuses and all(status == "accepted" for status in semantic_statuses):
+            model["status"] = "accepted"
     return result
 
 
@@ -107,6 +99,11 @@ def confirm_mbse(state: dict[str, object]) -> dict[str, object]:
         raise ContractViolation("MBSE 用例或活动已驳回，请先重新生成模型")
     for collection in ("actors", "use_cases", "activities", "lifelines", "messages"):
         for item in model.get(collection, ()):
+            if item.get("status") != "rejected":
+                item["status"] = "accepted"
+    semantic = model.get("semantic_model")
+    if isinstance(semantic, dict):
+        for item in mbse_entity_index(semantic).values():
             if item.get("status") != "rejected":
                 item["status"] = "accepted"
     model["status"] = "accepted"
@@ -157,6 +154,13 @@ def apply_mbse_edit(
         for item in model_copy.get(collection, ())
     ]
     model_copy["status"] = "accepted" if statuses and all(status == "accepted" for status in statuses) else "review"
+    semantic = model_copy.get("semantic_model")
+    if isinstance(semantic, dict):
+        semantic_target = mbse_entity_index(semantic).get(target_id)
+        if semantic_target is not None:
+            if kind == "rename":
+                semantic_target["name"] = target["name"]
+            semantic_target["status"] = target["status"]
     revision_payload = {key: value for key, value in model_copy.items() if key != "revision"}
     model_copy["revision"] = canonical_hash(revision_payload)
     result["baseline"] = None

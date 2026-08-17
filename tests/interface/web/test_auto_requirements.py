@@ -90,6 +90,8 @@ def test_submit_uses_one_current_domain_analysis_and_populates_modules(tmp_path,
     assert state["rflp"]["metrics"]["interfaces"] == 1
     assert state["rflp"]["metrics"]["relations"] >= 4
     assert state["mbse"]
+    assert state["mbse"]["semantic_model_version"] == 2
+    assert state["mbse"]["semantic_model"]["sections"]["physical"]["components"]
     assert "飞行员" not in str(state)
     assert "urban-medical-aam-v1" not in str(state)
 

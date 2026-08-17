@@ -7,6 +7,7 @@ import re
 
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.application.mbse_semantics import validate_mbse_semantic_model
 
 
 FORMAT = "ai4mbse/mbse"
@@ -14,6 +15,7 @@ VERSION = 1
 PACKAGE = "AI4MBSE_MBSE"
 _META = re.compile(r"^\s*//\s*mbse-model\s+(\{.*\})\s*$")
 _STATE_META = re.compile(r"^\s*//\s*mbse-model-state\s+(\{.*\})\s*$")
+_SEMANTIC_META = re.compile(r"^\s*//\s*mbse-semantic-model\s+(\{.*\})\s*$")
 
 
 def validate_mbse_model(value: object) -> dict[str, object]:
@@ -46,6 +48,17 @@ def validate_mbse_model(value: object) -> dict[str, object]:
     result["status"] = str(value.get("status", "review"))
     result["revision"] = str(value.get("revision", canonical_hash(result)))
     result["review_history"] = json.loads(canonical_json(value.get("review_history", ())))
+    semantic_model = value.get("semantic_model")
+    if semantic_model is not None:
+        issues = validate_mbse_semantic_model(semantic_model)
+        if issues:
+            raise ContractViolation(
+                f"MBSE semantic model invalid: {'; '.join(issues[:6])}"
+            )
+        result["semantic_model"] = json.loads(canonical_json(semantic_model))
+        result["semantic_model_version"] = int(
+            result["semantic_model"].get("version", 0)
+        )
     if result["format"] != FORMAT or result["version"] != VERSION:
         raise ContractViolation("unsupported MBSE exchange format or version")
     return result
@@ -77,6 +90,8 @@ def export_mbse_sysml_v2_text(model: object) -> str:
     lines.append(
         f"  // mbse-model-state {canonical_json({'status': normalized['status'], 'revision': normalized['revision'], 'review_history': normalized['review_history']})}"
     )
+    if normalized.get("semantic_model"):
+        lines.append(f"  // mbse-semantic-model {canonical_json(normalized['semantic_model'])}")
     for key in ("actors", "use_cases", "activities", "lifelines", "messages", "trace_links"):
         for item in normalized[key]:
             lines.append(f"  // mbse-model {canonical_json({'collection': key, 'item': item})}")
@@ -90,6 +105,7 @@ def import_mbse_sysml_v2_text(text: str) -> dict[str, object]:
     collections = {key: [] for key in ("actors", "use_cases", "activities", "lifelines", "messages", "trace_links")}
     declared_hash = None
     state_meta: dict[str, object] = {}
+    semantic_model: dict[str, object] | None = None
     for line in text.splitlines():
         if "mbse-model-hash" in line:
             declared_hash = line.split("mbse-model-hash", 1)[1].strip()
@@ -99,6 +115,13 @@ def import_mbse_sysml_v2_text(text: str) -> dict[str, object]:
                 state_meta = json.loads(state_match.group(1))
             except json.JSONDecodeError as exc:
                 raise ContractViolation("invalid MBSE model state metadata") from exc
+            continue
+        semantic_match = _SEMANTIC_META.match(line)
+        if semantic_match:
+            try:
+                semantic_model = json.loads(semantic_match.group(1))
+            except json.JSONDecodeError as exc:
+                raise ContractViolation("invalid MBSE semantic model metadata") from exc
             continue
         match = _META.match(line)
         if not match:
@@ -111,7 +134,15 @@ def import_mbse_sysml_v2_text(text: str) -> dict[str, object]:
         if collection not in collections or not isinstance(value.get("item"), dict):
             raise ContractViolation("invalid MBSE model collection")
         collections[collection].append(value["item"])
-    model = validate_mbse_model({"format": FORMAT, "version": VERSION, **collections, **state_meta})
+    model = validate_mbse_model(
+        {
+            "format": FORMAT,
+            "version": VERSION,
+            **collections,
+            **state_meta,
+            **({"semantic_model": semantic_model} if semantic_model is not None else {}),
+        }
+    )
     if declared_hash and declared_hash != canonical_hash(model):
         raise ContractViolation("MBSE model hash does not match metadata")
     return model
