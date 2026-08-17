@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -358,6 +359,45 @@ def mbse(request: Request, workspace_name: str) -> JSONResponse | dict[str, obje
             return _error(ContractViolation("MBSE semantic model not generated"), 404)
         return {"status": "ok", "mbse": state["mbse"], "trace_links": state.get("trace_links", ())}
     except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
+@api_v1.get("/workspaces/{workspace_name}/requirements/mbse/views", response_model=None)
+def mbse_views(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        return {
+            "status": "ok",
+            "views": _facade(request).mbse_views(workspace_name),
+        }
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
+@api_v1.get("/workspaces/{workspace_name}/requirements/mbse/views/{view_id}", response_model=None)
+def mbse_view(
+    request: Request,
+    workspace_name: str,
+    view_id: str,
+    engine: str = "auto",
+    format: str = "svg",
+) -> JSONResponse | dict[str, object]:
+    try:
+        result = _facade(request).render_requirements_mbse_view(
+            workspace_name,
+            view_id,
+            engine=engine,
+            output_format=format,
+        )
+        content = result.pop("content")
+        if not isinstance(content, bytes):
+            raise ContractViolation("diagram renderer returned invalid content")
+        result["content"] = (
+            content.decode("utf-8", errors="replace")
+            if result.get("media_type") == "image/svg+xml"
+            else base64.b64encode(content).decode("ascii")
+        )
+        return {"status": "ok", "view": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc, 404)
 
 

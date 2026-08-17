@@ -52,7 +52,8 @@ from rflp_lite.application.mbse_modeling import (
     generate_mbse_revision,
     review_mbse_element,
 )
-from rflp_lite.application.mbse_render import render_mbse_svg
+from rflp_lite.application.mbse_render import render_mbse_svg, render_mbse_view
+from rflp_lite.application.mbse_views import MBSE_VIEW_DEFINITIONS, list_mbse_views
 from rflp_lite.application.sequence_layout import layout_sequence
 from rflp_lite.application.sequence_modeling import build_sequence_interaction
 from rflp_lite.application.sequence_render import render_sequence_svg
@@ -410,6 +411,53 @@ class WebFacade:
         if state["mbse"].get("status") != "accepted":
             raise ContractViolation("MBSE 模型尚未确认，确认后才能渲染")
         return render_mbse_svg(state["mbse"], view)
+
+    def mbse_views(
+        self, workspace_name: str, revision_id: str | None = None
+    ) -> tuple[dict[str, object], ...]:
+        del revision_id  # Revision selection is reserved for immutable history UI.
+        state = self.requirements(workspace_name)
+        if not state or not isinstance(state.get("mbse"), dict):
+            return tuple(
+                {
+                    "id": definition.id,
+                    "label": definition.label,
+                    "description": definition.description,
+                    "compiler": definition.compiler,
+                    "layout": definition.layout,
+                    "status": "needs-analysis",
+                    "node_count": 0,
+                    "relation_count": 0,
+                }
+                for definition in MBSE_VIEW_DEFINITIONS
+            )
+        return list_mbse_views(state["mbse"])
+
+    def render_requirements_mbse_view(
+        self,
+        workspace_name: str,
+        view_id: str,
+        *,
+        engine: str | None = None,
+        output_format: str = "svg",
+    ) -> dict[str, object]:
+        state = self.requirements(workspace_name)
+        if not state or not isinstance(state.get("mbse"), dict):
+            raise ContractViolation("MBSE semantic model not generated")
+        if state["mbse"].get("status") != "accepted":
+            raise ContractViolation("MBSE 模型尚未确认，确认后才能渲染")
+        result = render_mbse_view(
+            state["mbse"],
+            view_id,
+            engine=engine,
+            output_format=output_format,
+        )
+        return {
+            **result,
+            "workspace": workspace_name,
+            "revision": state.get("revision", 0),
+            "view": view_id,
+        }
 
     def sequence_diagram(self, workspace_name: str, scenario_id: str) -> dict[str, object]:
         state = self.requirements(workspace_name)

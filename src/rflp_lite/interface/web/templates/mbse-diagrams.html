@@ -24,8 +24,14 @@
       <div class="diagram-card-top"><span class="diagram-card-icon" aria-hidden="true">↔</span><span class="diagram-card-type">INTERACTION</span></div>
       <strong>顺序图</strong><span>生命线与消息方向</span><span class="diagram-card-arrow" aria-hidden="true">→</span>
     </a>
+    {% for item in mbse_view_catalog if state and state.mbse %}
+    <a class="diagram-module-card {% if diagram_view == item.id %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse?view={{ item.id }}" {% if diagram_view == item.id %}aria-current="page"{% endif %}>
+      <div class="diagram-card-top"><span class="diagram-card-icon" aria-hidden="true">{{ loop.index }}</span><span class="diagram-card-type">{{ item.compiler|upper }}</span></div>
+      <strong>{{ item.label }}</strong><span>{{ item.description }}</span><span class="diagram-card-status">{{ item.status }} · {{ item.node_count }} 节点</span><span class="diagram-card-arrow" aria-hidden="true">→</span>
+    </a>
+    {% endfor %}
   </div>
-  <p class="form-hint">顺序图以“已启用场景”为入口；横向是参与者/系统边界，纵向是时间推进，消息用箭头表达方向。</p>
+  <p class="form-hint">顺序图以“已启用场景”为入口；横向是参与者/系统边界，纵向是时间推进，消息用箭头表达方向。不同视图使用不同布局：层级图自上而下、交互图从左到右、分配与追溯使用矩阵。没有外部绘图引擎时自动使用内置 SVG。</p>
 </section>
 
 {% if diagram_view == 'sequence' %}
@@ -47,7 +53,7 @@
 
 {% if diagram_svg %}
 <section class="panel diagram-canvas-panel">
-  <div class="panel-head"><div><h2>{{ diagram_result.scenario.title if diagram_result else '语义设计图' }}</h2></div><div class="download-actions">{% if diagram_view == 'sequence' and selected_scenario_id %}<a href="/w/{{ workspace.name }}/requirements/mbse/sequence.svg?scenario_id={{ selected_scenario_id }}">下载顺序图 SVG</a>{% else %}<a href="/w/{{ workspace.name }}/requirements/mbse.svg?view={{ diagram_view }}">下载 SVG</a>{% endif %}</div></div>
+  <div class="panel-head"><div><h2>{{ diagram_result.scenario.title if diagram_result else '语义设计图' }}</h2>{% if diagram_render %}<small class="table-secondary">引擎：{{ diagram_render.engine_id }}{% if diagram_render.fallback %} · 已回退内置 SVG{% endif %}{% if diagram_render.diagnostic %} · {{ diagram_render.diagnostic }}{% endif %}</small>{% endif %}</div><div class="download-actions">{% if diagram_view == 'sequence' and selected_scenario_id %}<a href="/w/{{ workspace.name }}/requirements/mbse/sequence.svg?scenario_id={{ selected_scenario_id }}">下载顺序图 SVG</a>{% else %}<a href="/w/{{ workspace.name }}/requirements/mbse.svg?view={{ diagram_view }}">下载 SVG</a>{% endif %}</div></div>
   <div class="svg-canvas design-diagram-canvas">{{ diagram_svg|safe }}</div>
 </section>
 {% elif diagram_view != 'sequence' %}

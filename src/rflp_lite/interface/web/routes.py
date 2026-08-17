@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from rflp_lite.application.run_catalog import registered_output
 from rflp_lite.adapters.test_execution_config import build_limits
 from rflp_lite.application.web_facade import WebFacade
+from rflp_lite.application.mbse_views import MBSE_VIEW_DEFINITIONS
 from rflp_lite.domain.errors import ContractViolation, RflpError
 from rflp_lite.interface.web.presenters import (
     CAPABILITIES,
@@ -135,7 +136,7 @@ def _llm_context(
             "protocol": "openai-chat",
             "base_url": "",
             "model": "",
-            "timeout_seconds": 20,
+            "timeout_seconds": 300,
         }
     safe_profile = dict(selected)
     safe_profile.pop("api_key", None)
@@ -154,21 +155,16 @@ def _llm_context(
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request) -> HTMLResponse:
-    view = _facade(request).dashboard(None)
-    latest = view["latest_run"]
-    state = _facade(request).requirements(view["workspace"].name) if view["workspace"] else None
+    facade = _facade(request)
     context = page_context(
-        view["workspace"],
-        workspaces=view["workspaces"],
-        latest_run=latest,
-        nav_result_hash=latest.result_hash if latest else None,
-        counts=view["counts"],
-        audit=view["audit"],
-        requirements=state,
-        guide=view["requirements_guide"],
-        requirement_overview=view["requirements_overview"],
+        None,
+        workspaces=facade.workspaces(),
+        active="dashboard",
+        projects=facade.project_summaries(),
     )
-    return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
+    return templates.TemplateResponse(
+        request=request, name="project-management.html", context=context
+    )
 
 
 @router.post("/workspaces")
@@ -306,7 +302,10 @@ def _requirements_mbse_page(
     view: str = "all",
     scenario_id: str = "",
 ) -> HTMLResponse:
-    if view not in {"all", "use_case", "activity", "sequence"}:
+    supported_views = {"all", "use_case", "activity", "sequence"} | {
+        definition.id for definition in MBSE_VIEW_DEFINITIONS
+    }
+    if view not in supported_views:
         view = "all"
     facade = _facade(request)
     if view == "sequence":
@@ -321,6 +320,8 @@ def _requirements_mbse_page(
         diagram_error="",
         selected_scenario_id=scenario_id,
         sequence_scenarios=(),
+        mbse_view_catalog=facade.mbse_views(workspace_name),
+        diagram_render=None,
     )
     state = context.get("state")
     if isinstance(state, dict):
@@ -343,7 +344,13 @@ def _requirements_mbse_page(
             and isinstance(state.get("mbse"), dict)
             and state["mbse"].get("status") == "accepted"
         ):
-            context["diagram_svg"] = facade.render_requirements_mbse(workspace_name, view)
+            rendered = facade.render_requirements_mbse_view(
+                workspace_name, view, engine="auto", output_format="svg"
+            )
+            context["diagram_render"] = rendered
+            context["diagram_svg"] = rendered["content"].decode(
+                "utf-8", errors="replace"
+            )
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         context["diagram_error"] = str(exc)
     return templates.TemplateResponse(
@@ -422,7 +429,7 @@ async def analyze_requirements(
         )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
-    return RedirectResponse(_requirements_module_location(workspace_name, "input"), status_code=303)
+    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/run-flow")
@@ -451,6 +458,19 @@ def add_requirement_stakeholder(
         + quote(name.strip()),
         status_code=303,
     )
+
+
+@router.post("/w/{workspace_name}/requirements/delete")
+def delete_requirement(
+    request: Request,
+    workspace_name: str,
+    requirement_id: Annotated[str, Form()],
+) -> Response:
+    try:
+        _facade(request).delete_requirement(workspace_name, requirement_id)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse("/", status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/scenarios")
@@ -1160,7 +1180,7 @@ def save_llm_settings(
     base_url: Annotated[str, Form()] = "",
     model: Annotated[str, Form()] = "",
     api_key: Annotated[str, Form()] = "",
-    timeout_seconds: Annotated[int, Form()] = 20,
+    timeout_seconds: Annotated[int, Form()] = 300,
     active: Annotated[str, Form()] = "",
 ) -> Response:
     payload = {
@@ -1196,7 +1216,7 @@ def test_llm_settings(
     base_url: Annotated[str, Form()] = "",
     model: Annotated[str, Form()] = "",
     api_key: Annotated[str, Form()] = "",
-    timeout_seconds: Annotated[int, Form()] = 20,
+    timeout_seconds: Annotated[int, Form()] = 300,
 ) -> HTMLResponse:
     payload = {
         "id": profile_id,
