@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from html import escape
 
+from rflp_lite.adapters.graphviz_engine import GraphvizEngine
+from rflp_lite.adapters.matrix_engine import MatrixEngine
+from rflp_lite.adapters.plantuml_engine import PlantUMLEngine
 from rflp_lite.application.mbse_exchange import validate_mbse_model
 from rflp_lite.application.mbse_matrix import render_matrix_view
-from rflp_lite.application.mbse_views import compile_mbse_view, semantic_model_for_view
+from rflp_lite.application.mbse_views import (
+    compile_mbse_view,
+    semantic_model_for_view,
+    view_definition,
+)
+from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.application.sequence_layout import layout_sequence
 from rflp_lite.application.sequence_modeling import _legacy_model_to_interaction
 from rflp_lite.application.sequence_render import render_sequence_svg
@@ -103,3 +111,73 @@ def compile_mbse_source(model: object, view: str = "all") -> dict[str, object]:
     if view == "all":
         view = "rflp"
     return compile_mbse_view(normalized, view)
+
+
+def select_diagram_engine(view_id: str, requested_engine: str | None = None):
+    definition = view_definition("rflp" if view_id == "all" else view_id)
+    requested = str(requested_engine or "auto").strip().lower()
+    if requested in {"", "auto"}:
+        requested = definition.compiler
+    if requested == "fallback":
+        return None
+    if requested == "graphviz":
+        return GraphvizEngine()
+    if requested == "plantuml":
+        return PlantUMLEngine()
+    if requested == "matrix":
+        return MatrixEngine()
+    raise ContractViolation(f"unsupported diagram engine: {requested}")
+
+
+def render_mbse_view(
+    model: object,
+    view: str = "all",
+    *,
+    engine: str | None = None,
+    output_format: str = "svg",
+    timeout_seconds: int = 10,
+) -> dict[str, object]:
+    """Render through an optional engine and always retain a deterministic fallback."""
+
+    normalized = validate_mbse_model(model)
+    view_id = "rflp" if view == "all" else view
+    compiled = compile_mbse_source(normalized, view_id)
+    selected = select_diagram_engine(view_id, engine)
+    if selected is None:
+        fallback = render_mbse_svg(normalized, view)
+        return {
+            "content": fallback.encode("utf-8"),
+            "media_type": "image/svg+xml",
+            "engine_id": "fallback",
+            "requested_engine": engine or "fallback",
+            "fallback": True,
+            "diagnostic": "使用内置确定性 SVG",
+            "source": compiled["source"],
+            "view_id": view_id,
+        }
+    source = str(compiled.get("source", ""))
+    if compiled.get("compiler") == "matrix":
+        source = render_matrix_view(normalized, view_id)
+    result = selected.render(source, output_format, timeout_seconds)
+    if result.success:
+        return {
+            "content": result.content,
+            "media_type": result.media_type,
+            "engine_id": result.engine_id,
+            "requested_engine": engine or "auto",
+            "fallback": False,
+            "diagnostic": result.diagnostic,
+            "source": source,
+            "view_id": view_id,
+        }
+    fallback = render_mbse_svg(normalized, view)
+    return {
+        "content": fallback.encode("utf-8"),
+        "media_type": "image/svg+xml",
+        "engine_id": "fallback",
+        "requested_engine": engine or "auto",
+        "fallback": True,
+        "diagnostic": result.diagnostic,
+        "source": source,
+        "view_id": view_id,
+    }
