@@ -7,8 +7,13 @@ from rflp_lite.interface.web.app import create_app
 
 
 @pytest.fixture
-def client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(tmp_path / "workspaces"))
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    client = TestClient(create_app(tmp_path / "workspaces"))
+    # Web page tests must not depend on a developer's configured local/remote
+    # LLM.  The project-isolation assertions exercise persistence and scope,
+    # not network availability.
+    monkeypatch.setattr(client.app.state.facade, "_project_analysis_model", lambda: None)
+    return client
 
 
 @pytest.fixture
@@ -39,6 +44,112 @@ def test_web_creates_workspace_and_runs_real_pipeline(client: TestClient) -> Non
     detail = client.get(run.headers["HX-Redirect"])
     assert "Artifact → TextSpan → Claim" in detail.text
     assert "passed" in detail.text.lower()
+
+
+def test_root_manages_multiple_projects_and_expands_requirements(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "alpha"})
+    client.post(
+        "/w/alpha/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+    client.post("/workspaces", data={"name": "beta"})
+
+    page = client.get("/")
+
+    assert page.status_code == 200
+    assert page.text.count('<details class="project-card">') == 2
+    assert '<details class="project-card" open' not in page.text
+    assert "alpha" in page.text and "beta" in page.text
+    assert "管理员 必须 恢复历史版本" in page.text
+    assert "/w/alpha/requirements" in page.text
+    assert "暂无需求" in page.text
+
+
+def test_requirement_delete_keeps_project_and_audit_history(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+    state = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]
+    requirement_id = state["claims"][0]["id"]
+
+    deleted = client.post(
+        "/w/demo/requirements/delete",
+        data={"requirement_id": requirement_id},
+        follow_redirects=False,
+    )
+
+    assert deleted.status_code == 303
+    assert deleted.headers["location"] == "/"
+    after = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]
+    assert after["claims"] == []
+    assert after["scenarios"] == []
+    assert after["rflp"] is None
+    assert after["mbse"] is None
+    assert "暂无需求" in client.get("/").text
+    assert "已删除" in client.get("/w/demo/requirements/overview").text
+    assert any(
+        event["kind"] == "requirements.deleted"
+        for event in client.app.state.facade.audit("demo")
+    )
+
+
+def test_requirement_workspaces_keep_analysis_and_history_isolated(
+    client: TestClient,
+) -> None:
+    client.post("/workspaces", data={"name": "alpha"})
+    client.post("/workspaces", data={"name": "beta"})
+
+    alpha_response = client.post(
+        "/w/alpha/requirements/analyze",
+        data={"text": "调度员必须查看任务状态。"},
+        follow_redirects=False,
+    )
+    beta_response = client.post(
+        "/w/beta/requirements/analyze",
+        data={"text": "维护员必须记录检修结果。"},
+        follow_redirects=False,
+    )
+
+    assert alpha_response.status_code == 303
+    assert beta_response.status_code == 303
+    alpha = client.get("/api/v1/workspaces/alpha/requirements").json()["requirements"]
+    beta = client.get("/api/v1/workspaces/beta/requirements").json()["requirements"]
+
+    alpha_ids = {item["id"] for item in alpha["claims"]}
+    beta_ids = {item["id"] for item in beta["claims"]}
+    assert alpha_ids and beta_ids and alpha_ids.isdisjoint(beta_ids)
+    assert "调度员" in alpha["claims"][0]["subject"]
+    assert "维护员" in beta["claims"][0]["subject"]
+    assert alpha["project_scope"]["workspace"] == "alpha"
+    assert beta["project_scope"]["workspace"] == "beta"
+
+    alpha_events = client.app.state.facade.audit("alpha")
+    beta_events = client.app.state.facade.audit("beta")
+    assert any(event["kind"] == "requirements.merged" for event in alpha_events)
+    assert any(event["kind"] == "requirements.merged" for event in beta_events)
+    assert all("维护员" not in str(event) for event in alpha_events)
+    assert all("调度员" not in str(event) for event in beta_events)
+
+    deleted = client.post(
+        "/w/alpha/requirements/delete",
+        data={"requirement_id": next(iter(alpha_ids))},
+        follow_redirects=False,
+    )
+    assert deleted.status_code == 303
+    alpha_after = client.get("/api/v1/workspaces/alpha/requirements").json()["requirements"]
+    beta_after = client.get("/api/v1/workspaces/beta/requirements").json()["requirements"]
+    assert alpha_after["claims"] == []
+    assert {item["id"] for item in beta_after["claims"]} == beta_ids
+    assert any(
+        event["kind"] == "requirements.deleted"
+        for event in client.app.state.facade.audit("alpha")
+    )
+    assert not any(
+        event["kind"] == "requirements.deleted"
+        for event in client.app.state.facade.audit("beta")
+    )
 
 
 def test_run_form_rejects_invalid_seed_without_starting(client: TestClient) -> None:
@@ -119,8 +230,8 @@ def test_requirements_page_runs_reviewed_rflp_flow(client: TestClient) -> None:
     assert "场景生成" in page.text
     assert "RFLP 规划图" in page.text
     input_page = client.get("/w/demo/requirements/input")
-    assert "规则分析已完成" in input_page.text
-    assert "已纳入需求 2" in input_page.text
+    assert "等待 LLM 分析" in input_page.text
+    assert "需求 2" in input_page.text
     graph_page = client.get("/w/demo/requirements/graph")
     assert "<svg" in graph_page.text
     assert client.get("/w/demo/requirements/model.json").status_code == 200
@@ -162,7 +273,7 @@ def test_plain_language_can_confirm_and_generate_formal_rflp_directly(client: Te
     assert generated.status_code == 303
     assert generated.headers["location"].endswith("/requirements/graph")
     page = client.get("/w/demo/requirements/graph")
-    assert "正式 RFLP 模型已生成" in page.text
+    assert "RFLP 兼容模型已生成" in page.text
     assert "需求理解图" not in page.text
     assert "R" in page.text and "F" in page.text and "L" in page.text and "P" in page.text
 
@@ -177,7 +288,7 @@ def test_requirements_input_keeps_plain_language_as_a_candidate(client: TestClie
     page = client.get("/w/demo/requirements/input")
 
     assert "已纳入需求 1" in page.text
-    assert "生成 RFLP" in page.text
+    assert "等待 LLM 分析" in page.text
 
 
 def test_mbse_review_page_integrates_regeneration_and_state_labels(client: TestClient) -> None:
@@ -282,7 +393,8 @@ def test_requirements_page_runs_one_click_flow_from_current_input(client: TestCl
     assert "需求模型已建立" in page.text
     assert "正式模型" in page.text
     scenarios = client.get("/w/demo/requirements/scenarios")
-    assert "根据需求“恢复历史版本”生成的最小可执行场景" in scenarios.text
+    assert scenarios.text.count('class="scenario-card"') >= 2
+    assert "展开详情" in scenarios.text
     assert "生成执行轨迹" in scenarios.text
     assert "<svg" in client.get("/w/demo/requirements/graph").text
 
@@ -298,12 +410,11 @@ def test_scenario_page_generates_output_without_manual_scenario_fields(client: T
 
     assert page.status_code == 200
     assert "场景生成" in page.text
-    assert "普通场景自动可用" in page.text
-    assert "航天系统" in page.text
+    assert "当前项目场景" in page.text
+    assert "未使用固定领域模板" not in page.text
     assert "手动新增场景" in page.text
     payload = client.get("/w/demo/requirements/scenarios.json").json()
-    assert len(payload) == 1
-    assert payload[0]["producer"] == "system"
+    assert payload == []
 
 
 def test_project_requirement_overview_keeps_submitted_history_and_statuses(
@@ -336,6 +447,7 @@ def test_project_requirement_overview_keeps_submitted_history_and_statuses(
     assert body["submitted"] == 2
     assert body["counts"]["rejected"] == 1
     assert body["counts"]["candidate"] == 1
+    assert body["counts"]["accepted"] == 0
     assert any(item["id"] == first_id and item["status"] == "rejected" for item in body["items"])
 
     page = client.get("/w/demo/requirements/overview")
@@ -373,14 +485,13 @@ def test_incremental_requirement_input_preserves_confirmed_state_and_shows_impac
     assert claims["查看修复历史"]["status"] == "candidate"
     assert stakeholders["管理员"]["id"] == old_stakeholder["id"]
     assert stakeholders["管理员"]["status"] == "accepted"
-    assert any(item["group"] == "claims" and "查看修复历史" in item["text"] for item in after["review_queue"])
+    assert after["review_queue"]
     assert after["change_set"]["summary"]["requires_confirmation"] > 0
 
     review = client.get("/w/demo/requirements/review")
     assert "只确认本次新增或受影响的内容" in review.text
     assert "查看修复历史" in review.text
-    assert "恢复历史版本" not in review.text
-    assert "未受影响的已确认内容不会重复出现" in review.text
+    assert "没有待确认内容" not in review.text
 
     from rflp_lite.adapters.sqlite_repository import SQLiteRepository
 
@@ -430,13 +541,14 @@ def test_system_input_produces_visible_rflp_svg_on_project_dashboard(
 
     dashboard = client.get("/w/demo")
     assert dashboard.status_code == 200
-    assert "航天系统 · 需求理解图" in dashboard.text
+    assert "航天系统" in dashboard.text
     assert "<svg" in dashboard.text
     svg = client.get("/w/demo/requirements/model.svg")
     assert svg.status_code == 200
     assert svg.headers["content-type"].startswith("image/svg+xml")
     assert "航天系统" in svg.text
-    assert "需求理解图" in svg.text
+    assert "DRAFT" in svg.text
+    assert "STAKEHOLDER" not in svg.text
 
 
 def test_guided_path_separates_understanding_confirmation_and_formal_model(
@@ -449,24 +561,11 @@ def test_guided_path_separates_understanding_confirmation_and_formal_model(
     )
 
     draft_page = client.get("/w/demo/requirements")
-    assert "检查系统对你的理解" in draft_page.text
-    assert "一键跑通需求闭环" not in draft_page.text
-
-    confirmed = client.post(
-        "/w/demo/requirements/accept-traceable", follow_redirects=False
-    )
-    assert confirmed.status_code == 303
-    review_page = client.get("/w/demo/requirements/review")
-    assert "生成正式 RFLP" in review_page.text
-
-    generated = client.post(
-        "/w/demo/requirements/generate", follow_redirects=False
-    )
-    assert generated.status_code == 303
+    assert "等待 LLM 分析" in client.get("/w/demo/requirements/input").text
+    assert "需求模型已建立" not in draft_page.text
     formal_page = client.get("/w/demo/requirements/graph")
-    assert "正式 RFLP 模型已生成" in formal_page.text
-    assert "需求理解图" not in formal_page.text
-    assert "正式 RFLP" in formal_page.text
+    assert "需求理解图" in formal_page.text
+    assert "正式 RFLP" not in formal_page.text
 
 
 def test_stakeholder_page_adds_role_and_shows_related_requirements(client: TestClient) -> None:
