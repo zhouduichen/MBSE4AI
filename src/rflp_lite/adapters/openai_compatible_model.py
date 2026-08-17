@@ -24,8 +24,35 @@ class OpenAICompatibleModel:
         self._config = dict(config)
         self._complete = complete
 
+    @staticmethod
+    def _parse_json(raw: object) -> dict[str, object]:
+        text = str(raw or "").strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            text = "\n".join(lines[1:-1]).strip()
+            if text.casefold().startswith("json"):
+                text = text[4:].lstrip()
+        try:
+            value = json.loads(text)
+        except (TypeError, json.JSONDecodeError):
+            start, end = text.find("{"), text.rfind("}")
+            if start < 0 or end <= start:
+                raise
+            value = json.loads(text[start : end + 1])
+        if not isinstance(value, dict):
+            raise ValueError("LLM JSON response must be an object")
+        return value
+
     def complete_json(self, request: GenerationRequest) -> GenerationResponse:
         started = time.monotonic()
+        max_tokens = request.max_tokens
+        local_cap = self._config.get("local_max_tokens")
+        if str(self._config.get("kind", "")).casefold() == "local":
+            try:
+                if int(local_cap) > 0:
+                    max_tokens = min(max_tokens, int(local_cap))
+            except (TypeError, ValueError):
+                pass
         messages = [
             {"role": "system", "content": request.system_prompt},
             {
@@ -37,16 +64,19 @@ class OpenAICompatibleModel:
                 ),
             },
         ]
+        call_config = dict(self._config)
+        if str(call_config.get("kind", "")).casefold() == "local":
+            call_config["json_schema"] = request.response_schema
         try:
-            raw = self._complete(self._config, messages, max_tokens=request.max_tokens)
+            raw = self._complete(call_config, messages, max_tokens=max_tokens)
         except Exception as exc:
             if isinstance(exc, AdapterFailure):
                 raise
             raise AdapterFailure("LLM completion failed") from exc
         repaired = False
         try:
-            payload = json.loads(raw)
-        except (TypeError, json.JSONDecodeError):
+            payload = self._parse_json(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
             repaired = True
             repair_messages = messages + [
                 {"role": "assistant", "content": str(raw)},
@@ -54,17 +84,15 @@ class OpenAICompatibleModel:
             ]
             try:
                 repaired_raw = self._complete(
-                    self._config, repair_messages, max_tokens=request.max_tokens
+                    call_config, repair_messages, max_tokens=max_tokens
                 )
-                payload = json.loads(repaired_raw)
-            except (TypeError, json.JSONDecodeError) as exc:
+                payload = self._parse_json(repaired_raw)
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
                 raise AdapterFailure("LLM response is not valid JSON after one repair") from exc
             except Exception as exc:
                 if isinstance(exc, AdapterFailure):
                     raise
                 raise AdapterFailure("LLM repair completion failed") from exc
-        if not isinstance(payload, dict):
-            raise AdapterFailure("LLM JSON response must be an object")
         return GenerationResponse(
             lens_id=request.lens_id,
             payload=payload,

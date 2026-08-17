@@ -20,17 +20,19 @@ class IntelligenceService:
         self.pack = pack
         self.model = model
 
-    def draft(self, state: dict[str, object]) -> dict[str, object]:
+    def draft(self, state: dict[str, object], *, lens_ids: tuple[str, ...] | None = None) -> dict[str, object]:
         result = attach_seed_model(state, self.pack)
         if self.model is None:
             result = json.loads(canonical_json(result))
             result["discovery"].setdefault("diagnostics", []).append({"code": "generative_model_unavailable", "severity": "warning", "message": "大模型未配置，已保留领域包覆盖检查。"})
             return evaluate_coverage(result, self.pack)
         try:
-            result = expand_candidates(result, self.pack, self.model)
+            result = expand_candidates(result, self.pack, self.model, lens_ids)
             result = normalize_candidate_sets(result)
             result = evaluate_coverage(result, self.pack)
-            return fill_high_priority_gaps(result, self.pack, self.model)
+            if lens_ids is None:
+                return fill_high_priority_gaps(result, self.pack, self.model)
+            return result
         except AdapterFailure as exc:
             degraded = json.loads(canonical_json(result))
             degraded["discovery"].setdefault("diagnostics", []).append({"code": "generative_model_failed", "severity": "warning", "message": str(exc)})

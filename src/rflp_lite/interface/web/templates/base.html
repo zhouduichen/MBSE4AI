@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>{% block title %}RFLP-Lite{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=2">
   <script src="{{ url_for('static', path='/vendor/htmx.min.js') }}" defer></script>
 </head>
 <body>
@@ -19,10 +19,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <a class="skip-link" href="#main-content">跳到主要内容</a>
   <div class="app-shell">
     <aside class="sidebar">
-      <a class="brand" href="/"><span class="brand-mark">RL</span><span>RFLP-Lite<small>LOCAL CONSOLE</small></span></a>
-      <nav aria-label="主导航">
+      {% macro nav_links() %}
         <p class="nav-label">开始</p>
-        <a class="nav-item {% if active == 'dashboard' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}{% else %}/{% endif %}">开始项目</a>
+        <a class="nav-item {% if active == 'dashboard' %}active{% endif %}" href="/">开始项目</a>
         {% if workspace %}<a class="nav-item {% if active.startswith('requirements') %}active{% endif %}" href="/w/{{ workspace.name }}/requirements">需求规划</a>
         <div class="nav-subnav" aria-label="需求规划模块">
           <a class="nav-subitem {% if active == 'requirements-overview' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/overview">项目需求概览</a>
@@ -32,7 +31,6 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
           <a class="nav-subitem {% if active == 'requirements-scenarios' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/scenarios">场景生成</a>
           <a class="nav-subitem {% if active == 'requirements-graph' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/graph">RFLP 规划图</a>
           <a class="nav-subitem {% if active == 'requirements-mbse' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse">MBSE 设计图</a>
-          <a class="nav-subitem {% if active == 'requirements-discovery' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/discovery">智能补全与架构发现</a>
         </div>{% else %}<span class="nav-item muted">需求规划</span>{% endif %}
         {% if workspace %}<a class="nav-item {% if active == 'concept-design' %}active{% endif %}" href="/w/{{ workspace.name }}/concept-design">总体概念设计</a>{% else %}<span class="nav-item muted">总体概念设计</span>{% endif %}
         {% if workspace %}<a class="nav-item {% if active == 'project' %}active{% endif %}" href="/w/{{ workspace.name }}/project">项目验证</a>{% else %}<span class="nav-item muted">项目验证</span>{% endif %}
@@ -54,8 +52,16 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         <p class="nav-label">配置</p>
         <a class="nav-item {% if active == 'settings' %}active{% endif %}" href="/settings/llm">LLM 设置</a>
         <a class="nav-item {% if active == 'capabilities' %}active{% endif %}" href="/capabilities">能力中心 <span class="planned-dot">规划中</span></a>
-      </nav>
-      <div class="local-card"><strong>本地工作区</strong></div>
+      {% endmacro %}
+      <a class="brand" href="/"><span class="brand-mark">RL</span><span>RFLP-Lite<small>LOCAL CONSOLE</small></span></a>
+      <div class="desktop-nav-shell">
+        <nav class="desktop-nav" aria-label="主导航">{{ nav_links() }}</nav>
+        <div class="local-card"><strong>本地工作区</strong></div>
+      </div>
+      <details class="mobile-nav"><summary>全部模块</summary>
+        <nav aria-label="主导航">{{ nav_links() }}</nav>
+        <div class="local-card"><strong>本地工作区</strong></div>
+      </details>
     </aside>
     <div class="main-column">
       <header class="topbar">

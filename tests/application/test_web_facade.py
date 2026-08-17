@@ -12,6 +12,17 @@ def test_empty_dashboard_is_honest(tmp_path: Path) -> None:
     assert view["counts"] == {}
 
 
+def test_project_summaries_list_all_managed_projects(tmp_path: Path) -> None:
+    facade = WebFacade(tmp_path / "workspaces")
+    facade.create_workspace("alpha")
+    facade.create_workspace("beta")
+
+    summaries = facade.project_summaries()
+
+    assert [item["workspace"].name for item in summaries] == ["alpha", "beta"]
+    assert all(item["requirements"] == () for item in summaries)
+
+
 def test_facade_creates_workspace_and_executes_both_solvers(tmp_path: Path) -> None:
     facade = WebFacade(tmp_path / "workspaces")
     facade.create_workspace("demo")

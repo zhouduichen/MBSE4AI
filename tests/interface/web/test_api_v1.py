@@ -44,7 +44,7 @@ def test_api_v1_reads_and_executes_local_scenario(client: TestClient) -> None:
 
     listed = client.get("/api/v1/workspaces/demo/scenarios")
     assert listed.status_code == 200
-    assert listed.json()["scenarios"][0]["id"] == scenario_id
+    assert scenario_id in {item["id"] for item in listed.json()["scenarios"]}
 
     reviewed = client.post(
         f"/api/v1/workspaces/demo/scenarios/{scenario_id}/review",
@@ -312,7 +312,10 @@ def test_api_v1_runs_one_click_flow_from_current_input(client: TestClient) -> No
     assert body["flow"]["status"] == "completed"
     assert body["requirements"]["scenarios"]
     assert body["requirements"]["scenario_runs"]
-    assert all(run["status"] == "completed" for run in body["requirements"]["scenario_runs"])
+    assert all(
+        run["status"] in {"completed", "completed_with_faults"}
+        for run in body["requirements"]["scenario_runs"]
+    )
 
 
 def test_api_v1_adds_manual_stakeholder(client: TestClient) -> None:

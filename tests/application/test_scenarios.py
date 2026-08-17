@@ -8,6 +8,7 @@ from rflp_lite.application.scenarios import (
     build_scenario,
     delete_scenario,
     generate_scenario_drafts,
+    generate_scenario_matrix,
     revise_scenario,
     review_scenario,
 )
@@ -101,6 +102,55 @@ def test_system_generates_a_scenario_from_minimum_natural_language_input():
     assert scenario["steps"]
     assert scenario["expected_outcomes"]
     assert all(item["status"] == "candidate" for item in state["claims"])
+
+
+def _matrix_pack():
+    dimensions = {
+        "weather": ["晴天", "雨天", "雷暴", "强风"],
+        "visibility": ["正常", "夜间", "低能见度"],
+        "mission_phase": ["接警", "城市巡航", "降落", "患者交接", "应急备降", "返航"],
+        "system_state": ["正常", "降级", "部分失效", "完全失效", "失效安全"],
+        "medical_urgency": ["常规转运", "危重", "生命垂危"],
+        "urban_context": ["人口密集区", "狭窄起降点", "医院屋顶", "灾害封锁区"],
+        "connectivity": ["全连接", "通信中断", "导航不可信", "GNSS受干扰"],
+        "time": ["白天", "高峰", "灾害响应"],
+    }
+    return {
+        "id": "urban-medical-aam-v1",
+        "scenario_dimensions": [
+            {"id": key, "label": key, "values": values}
+            for key, values in dimensions.items()
+        ],
+        "lifecycle_phases": [{"id": "operation", "label": "运行"}],
+    }
+
+
+def test_system_generates_a_representative_scenario_matrix():
+    generated = generate_scenario_matrix(_state(), _matrix_pack())
+    scenarios = generated["scenarios"]
+
+    assert 12 <= len(scenarios) <= 16
+    assert all(item["status"] == "accepted" for item in scenarios)
+    assert all(item["generation_mode"] == "scenario-matrix" for item in scenarios)
+    assert {item["scenario_type"] for item in scenarios} >= {"normal", "exception", "failure", "emergency"}
+    assert all(item["dimensions"] and item["requirement_ids"] for item in scenarios)
+    assert len({item["id"] for item in scenarios}) == len(scenarios)
+
+
+def test_scenario_matrix_preserves_manual_scenarios():
+    state = add_scenario(
+        _state(),
+        title="人工定义的返航场景",
+        description="飞行员人工确认返航。",
+        steps="确认故障\n执行返航",
+        expected_outcomes="安全返航",
+        requirement_ids="req-restore",
+    )
+    state["scenarios"][0]["producer"] = "user"
+    generated = generate_scenario_matrix(state, _matrix_pack())
+
+    assert any(item["title"] == "人工定义的返航场景" for item in generated["scenarios"])
+    assert len({item["id"] for item in generated["scenarios"]}) == len(generated["scenarios"])
 
 
 def test_generated_scenario_is_accepted_and_executable():

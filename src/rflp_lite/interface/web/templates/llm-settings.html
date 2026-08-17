@@ -42,7 +42,7 @@
         <input type="password" name="api_key" autocomplete="new-password" placeholder="{% if selected_profile.api_key_configured %}已配置，留空表示保持不变{% else %}远程服务 API Key{% endif %}">
       </label>
       <label class="field">请求超时（秒）
-        <input type="number" name="timeout_seconds" value="{{ selected_profile.timeout_seconds or 20 }}" min="1" max="300" required>
+        <input type="number" name="timeout_seconds" value="{{ selected_profile.timeout_seconds or 300 }}" min="1" max="300" required>
       </label>
       <label class="checkbox-field"><input type="checkbox" name="active" value="1" {% if llm.active_id == selected_profile.id or not llm.profiles and selected_profile.id %}checked{% endif %}>保存后启用此档案</label>
       <div class="workbench-actions"><button class="button primary" type="submit">保存并启用</button><button class="button" type="submit" formaction="/settings/llm/test">测试连接</button></div>

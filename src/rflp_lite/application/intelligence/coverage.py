@@ -101,7 +101,7 @@ def fill_high_priority_gaps(state: dict[str, object], pack: dict[str, object], m
         system_prompt="只返回用于补齐高优先级覆盖缺口的 JSON items，不得批准候选。",
         user_payload={"seed": evaluated["discovery"].get("intake", {}), "gaps": cells},
         response_schema={"type": "object", "required": ["items"]},
-        max_tokens=2000,
+        max_tokens=1200,
     )
     result = evaluated
     try:
@@ -118,7 +118,7 @@ def fill_high_priority_gaps(state: dict[str, object], pack: dict[str, object], m
             new_items.append(CandidateEnvelope.create(element_type=element_type, pack_id=str(pack["id"]), payload=payload, provenance=(ProvenanceRef("inferred", "coverage-gap-fill", "high priority coverage gap"),), producer="llm", confidence=float(raw.get("confidence", 0.5))).as_dict())
         if new_items:
             result["discovery"].setdefault("candidate_sets", []).append({"lens_id": "coverage_gap_fill", "input_hash": response.input_hash, "output_hash": response.output_hash, "items": new_items})
-    except AdapterFailure as exc:
+    except (AdapterFailure, ContractViolation, TypeError, ValueError) as exc:
         result["discovery"].setdefault("diagnostics", []).append({"code": "coverage_gap_fill_failed", "message": str(exc)})
     result["discovery"]["coverage"]["gap_fill_attempted"] = True
     return evaluate_coverage(result, pack)

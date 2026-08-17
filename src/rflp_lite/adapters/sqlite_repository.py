@@ -437,6 +437,50 @@ class SQLiteRepository:
                 ),
             )
 
+    def mark_requirement_deleted(
+        self, requirement_ids: tuple[str, ...], sequence: int, event: str
+    ) -> None:
+        """Keep a requirement ledger tombstone without restoring it to current state."""
+
+        updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        for requirement_id in requirement_ids:
+            row = self._connection.execute(
+                "SELECT first_sequence, payload FROM requirement_records WHERE id = ?",
+                (str(requirement_id),),
+            ).fetchone()
+            if row is None:
+                continue
+            first_sequence, raw_payload = row
+            payload = json.loads(raw_payload)
+            history = list(payload.get("history", ()))
+            history.append(
+                {
+                    "sequence": sequence,
+                    "event": event,
+                    "status": "deleted",
+                    "object": payload.get("object", ""),
+                }
+            )
+            payload["status"] = "deleted"
+            payload["last_event"] = event
+            payload["last_seen_sequence"] = sequence
+            payload["updated_at"] = updated_at
+            payload["history"] = history[-20:]
+            self._connection.execute(
+                """
+                UPDATE requirement_records
+                SET status = ?, last_sequence = ?, updated_at = ?, payload = ?
+                WHERE id = ?
+                """,
+                (
+                    "deleted",
+                    sequence,
+                    updated_at,
+                    canonical_json(payload),
+                    str(requirement_id),
+                ),
+            )
+
     def requirement_records(self) -> tuple[dict[str, object], ...]:
         rows = self._connection.execute(
             """

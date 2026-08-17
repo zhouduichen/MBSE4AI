@@ -40,7 +40,34 @@ def test_adapter_repairs_invalid_json_once():
     assert result.repaired is True
 
 
+def test_adapter_parses_fenced_json_from_reasoning_fallback():
+    model = OpenAICompatibleModel(
+        {"model": "local"},
+        complete=lambda *_args, **_kwargs: "分析完成：```json\n{\"items\": []}\n```",
+    )
+
+    result = model.complete_json(request())
+
+    assert result.payload == {"items": []}
+
+
 def test_adapter_fails_after_one_invalid_json_repair():
     model = OpenAICompatibleModel({"model": "local"}, complete=lambda *_args, **_kwargs: "not-json")
     with pytest.raises(AdapterFailure, match="JSON"):
         model.complete_json(request())
+
+
+def test_local_adapter_caps_large_output_requests():
+    calls = []
+
+    def complete(config, messages, *, max_tokens=None):
+        calls.append(max_tokens)
+        return '{"items":[]}'
+
+    model = OpenAICompatibleModel(
+        {"kind": "local", "model": "qwen", "local_max_tokens": 600},
+        complete=complete,
+    )
+    model.complete_json(request())
+
+    assert calls == [600]

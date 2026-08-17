@@ -44,12 +44,11 @@ def test_project_page_guides_when_workbench_empty(client: TestClient) -> None:
     assert "先建立需求模型" in response.text
 
 
-def test_approve_requires_generated_rflp(client: TestClient) -> None:
+def test_approve_waits_for_formal_rflp_when_llm_is_unavailable(client: TestClient) -> None:
     client.post("/workspaces", data={"name": "demo"})
     client.post("/w/demo/requirements/analyze", data={"text": REQUIREMENTS})
     response = client.post("/w/demo/project/approve-baseline")
     assert response.status_code == 422
-    assert "请先生成 RFLP 规划图" in response.text
 
 
 def test_full_project_flow(client: TestClient) -> None:

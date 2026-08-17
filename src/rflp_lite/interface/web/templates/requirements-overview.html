@@ -13,7 +13,7 @@
 {% if requirement_overview["items"] %}
 <section class="panel"><div class="panel-head"><div><h2>需求台账</h2></div><span class="count-badge">当前工作台 {{ requirement_overview.current }} 条</span></div><div class="table-wrap"><table><thead><tr><th>状态</th><th>需求</th><th>来源</th><th>当前版本</th><th>最近更新</th></tr></thead><tbody>{% for item in requirement_overview["items"] %}<tr><td><span class="status-badge {{ item.status }}">{{ item.status_label }}</span></td><td><strong>{{ item.subject }} {{ item.predicate }} {{ item.object }}</strong><small class="table-secondary">{{ item.id }}</small></td><td><span>{{ item.source_label }}</span><small class="table-secondary">{{ item.source_text }}</small></td><td>{% if item.is_current %}<span class="status-badge accepted">当前</span>{% else %}<span class="muted-inline">历史记录</span>{% endif %}</td><td><span>#{{ item.last_seen_sequence }}</span><small class="table-secondary">{{ item.updated_at }}</small></td></tr>{% endfor %}</tbody></table></div></section>
 {% else %}
-<section class="empty-state"><span class="empty-icon">◇</span><h2>项目还没有需求记录</h2><a class="button primary" href="/w/{{ workspace.name }}/requirements/input">开始提交需求</a></section>
+<section class="empty-state"><svg class="empty-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 3l2.2 6.8L21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2z"/></svg><h2>项目还没有需求记录</h2><a class="button primary" href="/w/{{ workspace.name }}/requirements/input">开始提交需求</a></section>
 {% endif %}
 
 {% if state and state.rflp %}<section class="callout success"><strong>已有 RFLP 输出图。</strong><a href="/w/{{ workspace.name }}/requirements/graph">打开当前 RFLP 图 →</a></section>{% endif %}

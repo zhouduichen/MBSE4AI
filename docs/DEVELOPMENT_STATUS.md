@@ -1,6 +1,6 @@
 # RFLP-Lite 开发状态
 
-**最后更新：** 2026-08-13
+**最后更新：** 2026-08-17
 **当前版本：** 0.1.0  
 **状态：** 本地最小链路已跑通，需求工作台、Python 项目接入、任务契约执行与测试执行沙箱均已完成首版；CLI 已可无 Web 全自动跑通
 
@@ -10,6 +10,8 @@
 |---|---|---|
 | 本地 RFLP 垂直链路 | 已完成 | Artifact → Claim → R/F/L/P → Candidate → Simulation → Baseline → Delta → TaskContract → Evidence |
 | 本地 Web UI | 已完成 | 工作区、运行中心、模型、决策、仿真、治理和能力占位页面可用 |
+| 项目管理与需求删除 | 已完成首版 | `/` 管理多个 workspace 项目；项目卡片可展开查看需求；删除当前需求会清理派生模型并保留 `deleted` 台账状态和 `requirements.deleted` 审计事件 |
+| 项目隔离与需求串联 | 已完成首版 | 每个 workspace 绑定独立项目作用域；同项目内需求可通过 Stakeholder、Scenario、R/F/L/P、Interface 和 trace link 串联；跨项目引用会被拒绝 |
 | 真实需求输入 | 已完成 | 支持文本粘贴及 TXT、Markdown、DOCX、数字/扫描 PDF、Python、JSON、YAML、TOML 上传；PDF 页区域和 OCR 诊断保留在 v2 工作台 |
 | 客户需求结构化（验收 1.1） | 已完成首版 | 客户语言实体、能力谓词、数量范围、指标约束、验证方式和来源区域；结构化需求候选默认不批准 |
 | 需求追溯与验收指标 | 已完成首版 | `derivedFrom / representedBy / satisfiedBy / refines` 矩阵、覆盖率、precision/recall/F1 与 provenance 指标；SQLite 持久化 |
@@ -19,19 +21,23 @@
 | 利益相关方前置链路 | 已完成首版 | StakeholderCandidate → Stakeholder/Concern/Need → Requirement |
 | 人工审核 | 已完成首版 | 候选可编辑、接受、驳回；可批量接受来源完整的明确候选 |
 | 动态 RFLP | 已完成首版 | 不再要求固定三条需求；按审核结果生成 R/F/L/P 和正式关系 |
-| RFLP 图形 | 已完成首版 | 服务端确定性 SVG，支持 JSON/SVG 下载和需求来源链查看 |
-| 场景描述与执行 | 已完成 MVP | 工作台支持结构化记录、删除、导出，并生成安全的声明性步骤/故障/预期结果轨迹；保留 Job、Evidence 和 `declarative-only` 状态，不执行任意代码 |
+| RFLP 图形 | 已完成首版 | 领域中立 LLM 架构可生成多个 F/L/P 节点、接口和关系；节点携带需求来源，缺失架构时显示待分析占位节点；服务端 SVG 支持 JSON/SVG 下载 |
+| 项目场景与执行 | 已完成首版 | 一次项目分析生成当前输入相关的正常/边界/故障/恢复/误操作场景；场景页以折叠卡片展示完整详情，默认接受，保留手动场景，并生成安全的声明性轨迹、Job 和 Evidence |
 | Profile / Pack | 已完成 MVP | Profile schema 校验、CLI/Web JSON 保存读取和运行记录导出 |
 | SysML v2 交换 | 已完成 MVP | RFLP 模型 JSON 与 SysML v2 常用子集文本导入、导出和往返校验；完整语义仍未配置 |
 | MLflow Tracking | 已完成 MVP | 安装可选 SDK 后将 Profile、指标、Tag 和运行 Artifact 写入本地/远程 MLflow；缺失时返回 `not_configured` |
 | 本地 Job / API / Plugin | 已完成 MVP | 持久化同步 Job 状态、`/api/v1` JSON API、进程内插件注册与结构化调用 |
-| LLM API | 代码已完成，待真实模型实测 | 手动调用 OpenAI-compatible API，只生成待审核 inferred 候选 |
+| 项目级 LLM 分析 | 代码已完成，待真实模型实测 | 一次 OpenAI-compatible 请求读取当前项目输入，自动填充 Stakeholder、Concern、Need、Requirement、Scenario、R/F/L/P 和 MBSE；不注入固定领域包 |
+| 领域中立分析配置 | 已完成首版 | 默认关闭领域包；可通过项目级 API 显式启用常见 `common-v1` 配置，保留 provenance；窄领域包不进入普通分析路径 |
+| 版本化 MBSE 语义模型 | 已完成首版 | `operational / functional / logical / physical / technical_requirements` 五类语义区段、稳定实体/关系、来源与版本校验，并保留旧 MBSE projection |
+| 专业 MBSE 多视图 | 已完成首版 | 环境、利益相关方、需求、生命周期、用例、场景、功能、逻辑、分配、物理、技术需求、追踪矩阵和 RFLP 总览按视图选择布局 |
+| 可选专业绘图引擎 | 已完成首版 | Graphviz、PlantUML 通过受控适配器接入；无外部引擎或执行失败时自动回退内置 SVG/矩阵渲染 |
 | Python ActualModel / Delta / Evidence 接入 | 已完成首版 | 工作台 RFLP 生成后自动建立基线，扫描本地 Python 项目（AST/OpenAPI/JUnit）生成 ActualModel 与 Evidence，计算 MISSING/EXTRA Delta，派生 TaskContract；Web 页面与 CLI 均可操作 |
 | 任务契约执行 | 已完成首版 | 重扫描项目目录，逐条判定 TaskContract 是否已满足（RESOLVED/UNRESOLVED），确定性、只读、不执行用户代码 |
 | 测试执行沙箱 | 已完成首版 | 支持 pytest/unittest、超时、输出、POSIX 内存/文件句柄限制、确定性缓存和受控并行；统一回填 Evidence 并如实报告每个 runner |
 | 拖拽图编辑、复杂文档版面、多人权限 | 延后 | 首版提供语义编辑 API；CAD/多学科仿真和组织级权限仍在后续 M3-M8 |
 | 总体概念布局与 MDO（验收 2.1/2.2） | 已完成首版 | 版本化领域包、JSON/CSV/SQLite 方案导入、3–5 套可行 SVG 布局、气动/结构/重量重心批量评估、缓存/失败隔离/代理门禁/Pareto、CLI/API/Web 与可执行验收报告 |
-| 智能 MBSE 发现 | 已完成首版 | 一句话/零散输入 → 利益相关方、场景、能力、需求、功能、逻辑/物理候选；覆盖审计、逐项审核、accepted graph、DiagramSpec 与确定性 SVG；城市医疗飞行汽车领域包覆盖极端天气、低能见度、通信/导航和动力故障 |
+| 旧版智能 MBSE 发现 | 已完成兼容入口 | 保留显式 `--pack` 的发现页、CLI/API 和领域包能力；默认需求提交不再调用固定领域包 |
 
 ## 已实现链路
 
@@ -71,26 +77,27 @@ Sparse Input
 
 入口：`/w/{workspace}/requirements`
 
+项目入口：`/`。开始项目页面列出所有项目卡片；展开项目可查看当前需求，点击项目进入该项目的需求工作台。删除需求只删除当前内容和自动生成结果，保留项目、原始输入和审计历史。
+
 操作流程：
 
 1. 粘贴需求或上传工程资料（含 DOCX/PDF）；勾选“并入现有工作台”可把多份文档追加到同一工作台并保留已审核项。
-2. 点击“规则分析”。
-3. 审核 Stakeholder、Concern、Need 和 Requirement 候选。
-4. 点击“接受全部可追溯候选”，或逐条编辑、接受、驳回。
-5. 点击“生成 RFLP 规划图”。
-6. 检查 R→F、F→L、L→P 覆盖率和需求来源链。
-7. 下载规范化 JSON 或确定性 SVG。
-8. 在“MBSE 设计图”入口查看/下载 Use Case、活动图和顺序图；顺序图从已确认场景选择进入，LLM 隐含约束必须逐条审核。
+2. 点击“提交并分析”。系统对当前项目只发起一次领域中立的 LLM 分析，并自动写入 Stakeholder、Concern、Need、Requirement、多个场景、RFLP 和 MBSE 模块；没有可用 LLM 时会显示等待状态，不补造行业结果。
+3. 在场景生成模块点击折叠卡片查看完整详情；当前项目内的场景默认接受，编辑或手动新增的场景也会保留。
+4. 检查 R→F、F→L、L→P、接口关系、待分析节点和需求来源链。
+5. 下载规范化 JSON 或确定性 SVG。
+6. 在“MBSE 设计图”入口查看/下载 Use Case、活动图和顺序图。
 
 主要路由：
 
 | 方法 | 路由 | 用途 |
 |---|---|---|
 | GET | `/w/{workspace}/requirements` | 打开工作台 |
-| POST | `/w/{workspace}/requirements/analyze` | 规则分析文本或文件 |
+| POST | `/w/{workspace}/requirements/analyze` | 提交需求并自动完成规则分析、AI 补全及模块写入 |
+| POST | `/w/{workspace}/requirements/delete` | 删除当前 Requirement 及其自动生成结果，保留审计历史 |
 | POST | `/w/{workspace}/requirements/review` | 编辑并接受/驳回单项 |
 | POST | `/w/{workspace}/requirements/accept-traceable` | 批量接受明确且来源完整的候选 |
-| POST | `/w/{workspace}/requirements/ai` | 手动请求 LLM 候选 |
+| POST | `/w/{workspace}/requirements/ai` | 兼容旧版的手动请求 LLM 候选 |
 | POST | `/w/{workspace}/requirements/generate` | 生成动态 RFLP |
 | GET | `/w/{workspace}/requirements/model.json` | 下载 RFLP JSON |
 | GET | `/w/{workspace}/requirements/model.svg` | 下载 RFLP SVG |
@@ -102,6 +109,10 @@ Sparse Input
 | GET | `/w/{workspace}/requirements/mbse.json` | 下载 MBSE JSON |
 | GET | `/w/{workspace}/requirements/mbse.sysml` | 下载 MBSE SysML 子集 |
 | GET | `/w/{workspace}/requirements/mbse.svg?view=all` | 下载 Use Case/活动/时序 SVG |
+| GET | `/api/v1/workspaces/{workspace}/requirements/analysis-config` | 查看当前项目领域中立分析配置和可选常见领域包 |
+| PUT | `/api/v1/workspaces/{workspace}/requirements/analysis-config` | 显式保存项目级分析配置 |
+| GET | `/api/v1/workspaces/{workspace}/requirements/mbse/views` | 查看 MBSE 专业视图目录 |
+| GET | `/api/v1/workspaces/{workspace}/requirements/mbse/views/{view_id}` | 渲染指定视图并返回引擎/fallback 元数据 |
 
 ## 项目接入
 
@@ -154,7 +165,7 @@ rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 6
 
 `assess` 一步完成 需求工作台 → 批准基线 → 分析项目 → 运行测试 并输出汇总，适合脚本/CI 断言。测试命令还支持 `--memory-mib`、`--max-open-files`、`--output-mib` 和 `--no-cache`。
 
-场景描述入口：`/w/{workspace}/requirements`。场景保存在现有 workbench JSON 中，支持步骤/预期结果逐行录入、Requirement ID 关联、删除、执行轨迹和 `/w/{workspace}/requirements/scenarios.json`、`scenario-runs.json` 下载。执行是安全的声明性轨迹，不触发仿真、测试或任意用户代码。
+场景描述入口：`/w/{workspace}/requirements`。提交并分析会依据当前项目输入和 LLM 的通用语义结果自动生成相关的正常、边界、故障和恢复场景，不要求用户额外填写场景，也不固定套用某个行业的场景矩阵；场景页默认折叠，点击后可查看和编辑完整详情。场景支持步骤/预期结果逐行录入、Requirement ID 关联、删除、执行轨迹和 `/w/{workspace}/requirements/scenarios.json`、`scenario-runs.json` 下载。执行是安全的声明性轨迹，不触发仿真、测试或任意用户代码。
 
 本地 MVP JSON API 入口为 `/api/v1`：提供工作区、需求、场景创建/查询/执行、Job 状态、Profile、RFLP SysML-lite/SysML v2 子集交换、MLflow Tracking 和本地插件发现/调用。Profile 可通过 `rflp profile show|validate|save` 管理；运行记录可通过 `rflp run export` 导出，SysML 文本可通过 `rflp sysml export|import` 处理。
 
@@ -169,8 +180,17 @@ rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 6
 | 文件 | 职责 |
 |---|---|
 | `src/rflp_lite/adapters/readers.py` | 文本、DOCX、Python AST 和中英文义务句读取 |
-| `src/rflp_lite/application/requirements_workbench.py` | 候选发现、审核门禁、LLM 建议、RFLP 生成与 SVG |
-| `src/rflp_lite/application/scenarios.py` | 结构化场景创建、校验、删除和确定性 ID |
+| `src/rflp_lite/application/requirements_workbench.py` | 候选发现、审核门禁、LLM 建议、需求生命周期和 RFLP 生成 |
+| `src/rflp_lite/application/scenarios.py` | 结构化场景创建、矩阵生成、校验、删除和确定性 ID |
+| `src/rflp_lite/application/mbse_semantics.py` | 版本化 MBSE 语义模型、实体/关系校验和旧模型投影 |
+| `src/rflp_lite/application/mbse_views.py` | MBSE 视图目录、语义过滤和视图编译入口 |
+| `src/rflp_lite/application/mbse_graphviz.py` | 按视图生成 DOT、分组、方向、节点形状和关系样式 |
+| `src/rflp_lite/application/mbse_plantuml.py` | 场景时序图和功能活动图的 PlantUML 源码编译 |
+| `src/rflp_lite/application/mbse_matrix.py` | 分配矩阵、追踪矩阵和确定性 SVG 表格渲染 |
+| `src/rflp_lite/ports/diagram_engine.py` | 可选专业绘图引擎协议和渲染结果契约 |
+| `src/rflp_lite/adapters/graphviz_engine.py` | Graphviz DOT 外部引擎适配器和超时/失败诊断 |
+| `src/rflp_lite/adapters/plantuml_engine.py` | PlantUML 外部引擎适配器和超时/失败诊断 |
+| `src/rflp_lite/adapters/matrix_engine.py` | 内置矩阵渲染引擎 |
 | `src/rflp_lite/application/scenario_execution.py` | 安全声明性场景执行轨迹和 Evidence |
 | `src/rflp_lite/domain/sequence.py` | UML Interaction、Lifeline、Message、Occurrence、Execution 和 Combined Fragment 契约 |
 | `src/rflp_lite/application/sequence_modeling.py` | 已确认场景到顺序图交互模型的适配、结构化步骤解析和旧 MBSE 模型兼容适配 |
@@ -187,6 +207,7 @@ rflp assess --workspace <path> --requirements <file> --source <dir> [--timeout 6
 | `src/rflp_lite/adapters/sqlite_repository.py` | SQLite 工作台、模型和审计持久化 |
 | `src/rflp_lite/application/web_facade.py` | Web 用例编排与事务边界 |
 | `src/rflp_lite/interface/web/routes.py` | HTTP 路由、上传和下载 |
+| `src/rflp_lite/interface/web/templates/project-management.html` | 多项目卡片和项目下需求管理页面 |
 | `src/rflp_lite/interface/web/templates/requirements-workbench.html` | 单页需求建模界面 |
 | `src/rflp_lite/adapters/project_scanner.py` | 本地项目目录扫描（Python AST / OpenAPI / JUnit） |
 | `src/rflp_lite/adapters/test_execution_config.py` | runner、超时、输出和资源参数的纯校验 |
@@ -216,7 +237,7 @@ export RFLP_LLM_MODEL=your-model
 export RFLP_LLM_API_KEY=local-key
 ```
 
-未配置时，“AI 辅助分析”返回明确错误；规则分析、人工审核和 RFLP 生成仍可独立运行。
+未配置或供应商不可用时，自动流程会保留规则分析和原始输入，并在需求页显示“等待 LLM 分析”；不会使用固定领域模板生成利益相关方、场景或 RFLP。配置有效后，当前项目的 LLM 分析会在同一次“提交并分析”中自动写入各模块。
 
 ## 验证记录
 

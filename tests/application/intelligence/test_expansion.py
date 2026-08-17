@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from rflp_lite.application.intelligence.expansion import expand_candidates
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.ports.generative_model import GenerationResponse
@@ -64,3 +66,15 @@ def test_expansion_is_atomic_when_a_lens_returns_an_invalid_payload():
     except Exception:
         pass
     assert original["discovery"]["candidate_sets"] == []
+
+
+def test_expansion_accepts_grouped_element_schema_response():
+    class GroupedModel(FakeModel):
+        def complete_json(self, request):
+            response = super().complete_json(request)
+            item = response.payload["items"][0]
+            return replace(response, payload={"element_schemas": {item["element_type"]: [item]}})
+
+    result = expand_candidates(state(), pack(), GroupedModel())
+    items = [item for group in result["discovery"]["candidate_sets"] for item in group["items"]]
+    assert len(items) == 8

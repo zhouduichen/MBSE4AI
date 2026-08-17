@@ -139,7 +139,7 @@ def normalize_profile(payload: object) -> dict[str, object]:
     if not model:
         raise InvariantViolation("LLM 模型名不能为空")
     try:
-        timeout = int(payload.get("timeout_seconds", 20))
+        timeout = int(payload.get("timeout_seconds", 300))
     except (TypeError, ValueError) as exc:
         raise InvariantViolation("LLM 超时必须是整数") from exc
     if not 1 <= timeout <= 300:
@@ -304,6 +304,6 @@ def environment_config() -> dict[str, object] | None:
         "protocol": _PROTOCOL,
         "base_url": base_url,
         "model": model,
-        "timeout_seconds": 20,
+        "timeout_seconds": 300,
         "api_key": api_key,
     }

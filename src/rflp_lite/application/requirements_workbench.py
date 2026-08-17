@@ -95,6 +95,30 @@ _QUALITY_PATTERN = re.compile(
 )
 
 
+def _invalidate_derived_model(result: dict[str, object]) -> None:
+    """Clear derived artifacts after a source requirement edit.
+
+    The LLM architecture is also derived data. Keeping it after a source
+    change can reintroduce removed requirement ids into a newly generated
+    RFLP/MBSE model, so the next explicit generation starts from the current
+    workbench instead of stale architecture evidence.
+    """
+
+    result["rflp"], result["coverage"], result["svg"] = None, {}, ""
+    result["draft_graph"] = None
+    result["mbse"] = None
+    result["baseline"], result["project"] = None, None
+    result["auto_analysis"] = None
+    discovery = result.get("discovery")
+    if isinstance(discovery, dict):
+        discovery = dict(discovery)
+        discovery["architecture"] = {}
+        discovery["accepted_graph"] = {"elements": [], "relations": []}
+        discovery["diagram_specs"] = []
+        discovery["coverage"] = {}
+        result["discovery"] = discovery
+
+
 def _clone(value: dict[str, object]) -> dict[str, object]:
     return json.loads(canonical_json(value))
 
@@ -728,20 +752,13 @@ def remove_requirement(
         )
     ]
     result["change_set"] = change_set
-    result["rflp"] = None
-    result["coverage"] = {}
-    result["svg"] = ""
+    _invalidate_derived_model(result)
     result["draft"] = False
-    result["draft_graph"] = None
     result["draft_warnings"] = []
-    result["mbse"] = None
-    result["baseline"] = None
-    result["project"] = None
     result["flow"] = None
     result["trace_links"] = []
     result["trace_coverage"] = {}
     result["traceability"] = []
-    result["auto_analysis"] = None
 
     if not result["claims"]:
         result["spans"] = []
@@ -1286,9 +1303,10 @@ def review_item(
         item["category"] = normalized_category
         item["category_label"] = stakeholder_category_label(normalized_category)
     item["status"] = status
-    result["rflp"], result["coverage"], result["svg"] = None, {}, ""
-    result["draft_graph"] = None
-    result["baseline"], result["project"] = None, None
+    # A reviewed/edited requirement changes the semantic source of every
+    # downstream view.  Do not leave older RFLP/MBSE/LLM architecture results
+    # visible as if they were still synchronized with the current workbench.
+    _invalidate_derived_model(result)
     result["flow"] = None
     return sync_review_queue(result)
 

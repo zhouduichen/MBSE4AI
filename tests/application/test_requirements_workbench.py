@@ -9,9 +9,12 @@ from rflp_lite.application.requirements_workbench import (
     generate_model,
     empty_workbench,
     merge_artifact,
+    remove_requirement,
     stakeholder_bundle,
 )
+from rflp_lite.application.scenarios import build_scenario
 from rflp_lite.domain.errors import AdapterFailure
+from rflp_lite.domain.errors import ContractViolation
 
 
 def test_reviewed_stakeholders_generate_stable_dynamic_rflp(monkeypatch):
@@ -159,3 +162,87 @@ def test_stakeholder_categories_are_detected_and_can_be_overridden():
     supplier = next(item for item in state["stakeholders"] if item["name"] == "供应商")
     assert supplier["category"] == "engineering"
     assert supplier["category_label"] == "系统工程 / 研发"
+
+
+def _deletion_fixture():
+    state = analyze_artifact(
+        "requirements.txt",
+        "管理员必须恢复历史版本。\n审计人员必须查看恢复记录。".encode(),
+    )
+    for claim in state["claims"]:
+        claim["status"] = "accepted"
+    claim_ids = [item["id"] for item in state["claims"]]
+    structured_ids = [item["id"] for item in state["structured_requirements"]]
+    automatic = []
+    for claim_id in claim_ids:
+        scenario = build_scenario(
+            title=f"自动场景 {claim_id}",
+            description="自动生成场景",
+            steps=("执行",),
+            expected_outcomes=("完成",),
+            requirement_ids=(claim_id,),
+        )
+        scenario.update({"producer": "system", "generation_mode": "scenario-matrix"})
+        automatic.append(scenario)
+    manual = build_scenario(
+        title="手动联合场景",
+        description="人工维护场景",
+        steps=("执行",),
+        expected_outcomes=("完成",),
+        requirement_ids=tuple(claim_ids),
+    )
+    state["scenarios"] = automatic + [manual]
+    state["scenario_runs"] = [{"scenario_id": automatic[0]["id"], "run_id": "run-1"}]
+    state["review_queue"] = [{"group": "claims", "item_id": claim_ids[0]}]
+    state["change_set"] = {"items": [{"id": claim_ids[0]}]}
+    state["rflp"] = {"elements": [{"id": "rflp-1"}], "relations": []}
+    state["draft"] = False
+    state["draft_graph"] = {"items": []}
+    state["svg"] = "<svg></svg>"
+    state["mbse"] = {"actors": [], "use_cases": []}
+    state["baseline"] = {"id": "baseline-1"}
+    return state, claim_ids, structured_ids
+
+
+def test_remove_requirement_preserves_manual_data_and_clears_derived_results():
+    state, claim_ids, structured_ids = _deletion_fixture()
+
+    removed, metadata = remove_requirement(state, claim_ids[0])
+
+    assert [item["id"] for item in removed["claims"]] == [claim_ids[1]]
+    assert [item["id"] for item in removed["structured_requirements"]] == [structured_ids[1]]
+    assert len(removed["scenarios"]) == 2
+    manual = next(item for item in removed["scenarios"] if item["title"] == "手动联合场景")
+    assert manual["requirement_ids"] == [claim_ids[1]]
+    assert all(claim_ids[0] not in item.get("requirement_ids", ()) for item in removed["scenarios"])
+    assert removed["scenario_runs"] == []
+    assert removed["rflp"] is None
+    assert removed["mbse"] is None
+    assert removed["baseline"] is None
+    assert metadata["requirement_id"] == claim_ids[0]
+
+
+def test_remove_last_requirement_clears_current_input_but_keeps_artifact_metadata():
+    state, claim_ids, _ = _deletion_fixture()
+    state["claims"] = [state["claims"][0]]
+    state["structured_requirements"] = [state["structured_requirements"][0]]
+    manual = next(item for item in state["scenarios"] if item["title"] == "手动联合场景")
+    manual["requirement_ids"] = [claim_ids[0]]
+
+    removed, _ = remove_requirement(state, claim_ids[0])
+
+    assert removed["claims"] == []
+    assert removed["structured_requirements"] == []
+    assert removed["spans"] == []
+    assert removed["system_context"] is None
+    assert removed["artifact"]
+    assert len(removed["scenarios"]) == 1
+    assert removed["scenarios"][0]["title"] == "手动联合场景"
+    assert removed["scenarios"][0]["requirement_ids"] == []
+
+
+def test_remove_requirement_rejects_unknown_id_without_mutating_state():
+    state, _, _ = _deletion_fixture()
+
+    with pytest.raises(ContractViolation, match="需求不存在"):
+        remove_requirement(state, "requirement-missing")

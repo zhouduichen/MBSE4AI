@@ -59,16 +59,20 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 
 浏览器打开 `http://127.0.0.1:8000`。首次使用时在页面创建工作区，然后进入“需求建模”：
 
-1. 粘贴需求，或上传 TXT、Markdown、DOCX、PDF、Python、JSON、YAML、TOML；勾选“并入现有工作台”可把多份文档追加到同一工作台并保留已审核项；
-2. 点击“规则分析”；
-3. 审核 Stakeholder、Concern、Need 和 Requirement 候选，或点击“接受全部可追溯候选”；
-4. 点击“生成 RFLP 规划图”；
-5. 在“场景描述”中记录参与者、前置条件、步骤、预期结果和故障/异常；
-6. 点击“生成执行轨迹”运行结构化场景的本地声明性执行，查看事件、断言和 Evidence；也可下载场景 JSON、执行记录和 SysML-lite 交换 JSON。
+1. “开始项目”首页管理多个项目；展开项目卡片可查看该项目当前需求，点击项目进入对应需求工作台；
+2. 在项目下粘贴需求，或上传 TXT、Markdown、DOCX、PDF、Python、JSON、YAML、TOML；勾选“并入现有工作台”可把多份文档追加到同一工作台并保留已审核项；
+3. 点击“提交并分析”；系统对当前项目执行一次领域中立的 LLM 分析，并把利益相关方、Concern、Need、需求、多个场景和 R/F/L/P 架构自动写入对应模块。结果默认按已接受状态写入，但仍保留来源、置信度、假设和分析理由；不会注入固定行业包；
+4. 场景模块展示本次项目输入推导出的正常、边界、故障、恢复、误操作等场景。场景数量和类型由当前项目内容决定，不再固定生成某个行业的 16 个矩阵场景；
+5. 在“场景生成”中先看到折叠卡片，点击任意卡片即可展开参与者、前置条件、步骤、预期结果、故障/异常和关联 Requirement ID；
+6. 项目卡片中的需求可以删除。删除会清理当前需求及其自动生成结果，保留原始输入和审计历史，项目本身不会被删除；
+7. 需求检查页支持直接编辑、接受或驳回；编辑/删除会使旧 RFLP、MBSE 和架构派生结果失效，重新生成后才会显示当前版本，避免陈旧图形被误用；
+8. 点击“生成执行轨迹”运行结构化场景的本地声明性执行，查看事件、断言和 Evidence；也可下载场景 JSON、执行记录和 SysML-lite 交换 JSON。
+
+一次“提交并分析”会保存一份项目内的 MBSE 语义模型，后续可在“MBSE 设计图”中切换环境边界、利益相关方层级、需求树、生命周期、用例树、运行场景、功能分解/交互、逻辑分解/交互、分配矩阵、物理交互、技术需求、追踪矩阵和 RFLP 总览。各视图分别使用层级、流程、交互、时序或矩阵布局，不会重复调用 LLM。Graphviz/PlantUML 是可选的渲染增强；未安装时使用内置 SVG/矩阵 fallback，不增加普通用户的安装步骤。
 
 “运行中心”继续提供 Heuristic 或 CP-SAT 的完整 Candidate、Simulation、Baseline、Delta、TaskContract 和 Evidence 链路。
 
-### 智能 MBSE 发现（候选→审核→图形）
+### 智能 MBSE 发现（CLI/API 兼容入口）
 
 对一句话或零散需求运行城市医疗飞行汽车领域包：
 
@@ -82,9 +86,9 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 .venv/bin/rflp discover export --workspace workspaces/medical-aam --pack urban-medical-aam-v1 --diagram environment
 ```
 
-Web 页面位于 `/w/{workspace}/requirements/discovery`：逐项接受/驳回/编辑候选、finalize 纳入统一工作台，并在最终确定后提供 15 种确定性图形入口（同源 accepted graph，超出 40 节点自动拆分，SVG 转义且字节稳定）。
+Web 端已并入 `/w/{workspace}/requirements` 的“提交并分析”流程；旧的 `/requirements/discovery` 页面和 CLI/API 仍保留用于兼容已有调用。普通项目分析默认不启用领域包，只读取当前项目的输入和项目内已有手工内容；同一项目的多个需求可以互相追溯，项目之间不会共享利益相关方、场景、架构或关系。常见领域包仅可通过分析配置接口显式启用，窄领域包不进入普通项目分析路径。
 
-智能输出始终是 `candidate`，必须逐项人工审核后才进入 accepted semantic graph；`unknown` 表示已经评估但仍未解决。发现流程不会批准 Baseline。利益相关方、场景维度、覆盖规则和图形分组都属于版本化领域包，新增可选字段通常只需修改领域包，不需要改 Python 核心。
+利益相关方、场景维度、覆盖规则和图形分组都属于版本化领域包，新增可选字段通常只需修改领域包，不需要改 Python 核心。
 
 ### 连接本地 Python 项目
 
@@ -96,7 +100,7 @@ Web 页面位于 `/w/{workspace}/requirements/discovery`：逐项接受/驳回/�
 4. 点击“运行项目测试”，选择 pytest/unittest、资源上限、并行度和缓存策略，在超时与隔离沙箱中运行并查看每个 runner 的结果；
 5. 下载规范化 JSON：baseline、actual-model、matches、delta、task-contracts、evidence、project。
 
-场景描述和执行记录保存在现有工作台 JSON 中，不新增数据库表；步骤和预期结果按行记录，可选关联 Requirement ID。执行轨迹只处理结构化文本，不执行任意代码，结果明确标记为 `declarative-only`，可通过 `/w/{workspace}/requirements/scenarios.json`、`/w/{workspace}/requirements/scenario-runs.json` 下载。
+场景和执行记录保存在现有工作台 JSON 中，不新增数据库表；LLM 生成的当前项目场景默认接受，手动新增或编辑的场景继续保留。步骤和预期结果按行记录，可选关联 Requirement ID。执行轨迹只处理结构化文本，不执行任意代码，结果明确标记为 `declarative-only`，可通过 `/w/{workspace}/requirements/scenarios.json`、`/w/{workspace}/requirements/scenario-runs.json` 下载。
 
 本地 MVP 还提供 Profile JSON 的 schema 校验/保存、运行记录导出、`sysml-lite/rflp` JSON 和 SysML v2 常用子集文本交换、本地持久化 Job 状态、进程内 Plugin Registry，以及 `/api/v1` JSON API。安装 `.[tracking]` 后可把运行记录真实写入 MLflow；API 当前默认只绑定本机，不包含登录、权限、限流或公网部署能力。
 
@@ -155,7 +159,7 @@ CLI 等效操作：
 
 测试命令还支持 `--memory-mib`、`--max-open-files`、`--output-mib` 和 `--no-cache`。多个 `--runner` 配合 `--jobs 2` 可并行运行 pytest/unittest；测试结果仍作为独立客观 Evidence，不改变 R/F 匹配。
 
-可选 AI 分析使用 OpenAI-compatible API，只产生待审核候选：
+项目自动分析使用 OpenAI-compatible API：
 
 ```bash
 export RFLP_LLM_BASE_URL=http://127.0.0.1:11434/v1
@@ -163,7 +167,7 @@ export RFLP_LLM_MODEL=your-model
 export RFLP_LLM_API_KEY=local-key
 ```
 
-不设置这些环境变量时，规则分析和人工审核仍可完整运行。
+未配置或不可用时，规则分析和人工审核仍可运行，但页面会明确显示“等待 LLM 分析”，不会用固定领域模板冒充智能结果；手动确认后仍可使用兼容性的本地 RFLP 链路。
 
 Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机地址。按 `Ctrl+C` 停止服务；SQLite 和已完成产物会保留。
 
