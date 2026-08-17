@@ -12,6 +12,7 @@ from rflp_lite.domain.errors import ContractViolation, RflpError
 from rflp_lite.application.domain_packs import load_domain_pack, validate_domain_pack
 from rflp_lite.application.discipline_batch import validate_evaluator_profile
 from rflp_lite.application.resources import resource_path
+from rflp_lite.application.scenarios import build_scenario
 
 
 api_v1 = APIRouter(prefix="/api/v1", tags=["local-mvp"])
@@ -240,6 +241,39 @@ def requirements(request: Request, workspace_name: str) -> JSONResponse | dict[s
         return _error(exc, 404)
 
 
+@api_v1.get("/workspaces/{workspace_name}/requirements/analysis-config", response_model=None)
+def requirements_analysis_config(
+    request: Request, workspace_name: str
+) -> JSONResponse | dict[str, object]:
+    try:
+        facade = _facade(request)
+        return {
+            "status": "ok",
+            "config": facade.analysis_config(workspace_name),
+            "available_domain_packs": facade.available_analysis_domain_packs(),
+        }
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
+@api_v1.put("/workspaces/{workspace_name}/requirements/analysis-config", response_model=None)
+async def save_requirements_analysis_config(
+    request: Request, workspace_name: str
+) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("分析配置必须是对象")
+        state = _facade(request).save_analysis_config(workspace_name, dict(payload))
+        return {
+            "status": "ok",
+            "config": state.get("analysis_config"),
+            "requirements": state,
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @api_v1.get("/workspaces/{workspace_name}/requirements/overview", response_model=None)
 def requirements_overview(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
     try:
@@ -344,7 +378,17 @@ async def create_scenario(request: Request, workspace_name: str) -> JSONResponse
             faults=payload.get("faults", ""),
             requirement_ids=payload.get("requirement_ids", ""),
         )
-        scenario = state["scenarios"][-1]
+        created_id = build_scenario(
+            title=str(payload.get("title", "")),
+            description=str(payload.get("description", "")),
+            actors=payload.get("actors", ""),
+            preconditions=payload.get("preconditions", ""),
+            steps=payload.get("steps", ""),
+            expected_outcomes=payload.get("expected_outcomes", ""),
+            faults=payload.get("faults", ""),
+            requirement_ids=payload.get("requirement_ids", ""),
+        )["id"]
+        scenario = next(item for item in state["scenarios"] if item["id"] == created_id)
         return {"status": "ok", "scenario": scenario}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)

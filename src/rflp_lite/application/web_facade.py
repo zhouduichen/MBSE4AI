@@ -28,6 +28,7 @@ from rflp_lite.application.requirements_workbench import (
     initialize_review_state,
     merge_artifact,
     normalize_stakeholder_category,
+    remove_requirement,
     review_item,
     restore_legacy_requirements,
     sync_review_queue,
@@ -35,6 +36,11 @@ from rflp_lite.application.requirements_workbench import (
     stakeholder_bundle,
 )
 from rflp_lite.application.workbench_schema import migrate_workbench_state
+from rflp_lite.application.project_scope import (
+    bind_project_scope,
+    validate_project_references,
+    validate_project_scope,
+)
 from rflp_lite.application.requirements_flow import run_requirements_flow
 from rflp_lite.application.jobs import JobService
 from rflp_lite.application.llm_profiles import LLMProfileService
@@ -62,7 +68,7 @@ from rflp_lite.adapters.mlflow_tracking import track_run_with_mlflow
 from rflp_lite.application.scenarios import (
     add_scenario,
     delete_scenario,
-    generate_scenario_drafts,
+    generate_scenario_matrix,
     revise_scenario,
     review_scenario,
 )
@@ -75,6 +81,17 @@ from rflp_lite.application.concept_design_service import (
 from rflp_lite.application.domain_packs import load_domain_pack, validate_domain_pack
 from rflp_lite.application.mbse_domain_packs import load_mbse_domain_pack
 from rflp_lite.application.intelligence.service import IntelligenceService
+from rflp_lite.application.intelligence.bridge import auto_accept_and_bridge_discovery, seed_domain_pack_workbench
+from rflp_lite.application.intelligence.project_analysis import (
+    apply_project_analysis,
+    build_project_analysis_request,
+    mark_llm_waiting,
+)
+from rflp_lite.application.intelligence.analysis_config import (
+    analysis_config_changed,
+    available_analysis_domain_packs,
+    normalize_analysis_config,
+)
 from rflp_lite.application.diagrams.service import DiagramService
 from rflp_lite.adapters.deterministic_svg_renderer import DeterministicSvgRenderer
 from rflp_lite.ports.diagram_renderer import RenderedDiagram
@@ -94,6 +111,9 @@ from rflp_lite.domain.models import Baseline
 from rflp_lite.governance.profile import Profile
 
 
+DEFAULT_DISCOVERY_PACK = "urban-medical-aam-v1"
+
+
 class WebFacade:
     def __init__(self, workspace_root: Path, fixture_root: Path | None = None):
         self.workspace_root = workspace_root.resolve()
@@ -102,6 +122,36 @@ class WebFacade:
 
     def workspaces(self) -> tuple[WorkspaceRef, ...]:
         return list_managed_workspaces(self.workspace_root)
+
+    def project_summaries(self) -> tuple[dict[str, object], ...]:
+        """Return deterministic project cards backed by managed workspaces."""
+
+        summaries = []
+        for workspace in self.workspaces():
+            state = self.requirements(workspace.name)
+            overview = self.requirement_overview(workspace.name)
+            current_requirements = tuple(
+                item for item in overview["items"] if item.get("is_current")
+            )
+            runs = self.runs(workspace.name)
+            model_state = "未生成"
+            if state and state.get("rflp") and not state.get("draft"):
+                model_state = "正式模型"
+            elif state and state.get("draft"):
+                model_state = "草稿"
+            summaries.append(
+                {
+                    "workspace": workspace,
+                    "requirements": current_requirements,
+                    "requirement_count": len(current_requirements),
+                    "accepted_count": sum(
+                        item.get("status") == "accepted" for item in current_requirements
+                    ),
+                    "model_state": model_state,
+                    "latest_run": runs[0] if runs else None,
+                }
+            )
+        return tuple(summaries)
 
     def workspace(self, name: str) -> WorkspaceRef:
         path = managed_workspace(self.workspace_root, name)
@@ -463,6 +513,11 @@ class WebFacade:
                     state = restore_legacy_requirements(state, legacy_records)
                     with repository.transaction():
                         repository.save_workbench(state, "requirements.legacy_rehydrated")
+                scope = state.get("project_scope")
+                scope_bound = not isinstance(scope, dict) or not str(scope.get("workspace", ""))
+                if scope_bound:
+                    state = bind_project_scope(state, workspace_name)
+                validate_project_scope(state, workspace_name)
                 state = sync_review_queue(state)
                 state.setdefault("scenarios", [])
                 state.setdefault("scenario_runs", [])
@@ -486,9 +541,60 @@ class WebFacade:
                         state, _ = approve_workbench_baseline(state)
                     except (ContractViolation, InvariantViolation):
                         pass
+                validate_project_references(state)
+                if scope_bound:
+                    with repository.transaction():
+                        repository.save_workbench(state, "requirements.scope_bound")
             return state
         finally:
             repository.close()
+
+    def available_analysis_domain_packs(self) -> tuple[dict[str, object], ...]:
+        """Return only broad packs allowed for optional project analysis."""
+
+        return available_analysis_domain_packs()
+
+    def analysis_config(self, workspace_name: str) -> dict[str, object]:
+        """Return the project analysis config, defaulting to domain-neutral."""
+
+        state = self.requirements(workspace_name)
+        if state is None:
+            return normalize_analysis_config(None)
+        return normalize_analysis_config(state.get("analysis_config"))
+
+    def save_analysis_config(
+        self, workspace_name: str, config: object
+    ) -> dict[str, object]:
+        """Persist optional common-domain guidance without running analysis."""
+
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        normalized = normalize_analysis_config(config)
+        previous = normalize_analysis_config(current.get("analysis_config"))
+        result = json.loads(canonical_json(current))
+        result["analysis_config"] = normalized
+        if analysis_config_changed(previous, normalized) and isinstance(
+            result.get("auto_analysis"), dict
+        ):
+            diagnostics = list(result["auto_analysis"].get("diagnostics", ()))
+            diagnostics.append(
+                {
+                    "code": "analysis_config_changed",
+                    "severity": "info",
+                    "message": "分析配置已更新；如需应用新领域指导，请重新提交或显式重新分析。",
+                }
+            )
+            result["auto_analysis"]["diagnostics"] = diagnostics[-12:]
+        return self._save_requirements(
+            workspace_name,
+            result,
+            "requirements.analysis_config_updated",
+            {
+                "previous": previous,
+                "current": normalized,
+            },
+        )
 
     def _discovery_pack(self, pack_id: str) -> dict[str, object]:
         clean = pack_id.strip()
@@ -503,8 +609,64 @@ class WebFacade:
 
         if config is not None and str(config.get("kind", "remote")) == "remote" and not str(config.get("api_key", "")):
             config = None
+        if config is not None:
+            config = dict(config)
+            config["response_format"] = {"type": "json_object"}
+            provider_text = f'{config.get("base_url", "")} {config.get("model", "")}'.casefold()
+            is_ollama = "11434" in provider_text or "ollama" in provider_text
+            if "deepseek" in provider_text:
+                config["thinking"] = {"type": "disabled"}
+            if is_ollama:
+                config["reasoning_effort"] = "none"
         model = OpenAICompatibleModel(config) if config is not None else None
         return IntelligenceService(pack, model)
+
+    def _project_analysis_model(self):
+        """Build the default LLM adapter without loading any domain pack."""
+
+        config = self.llm.active_config()
+        if config is None:
+            return None
+        if str(config.get("kind", "remote")) == "remote" and not str(config.get("api_key", "")):
+            return None
+        from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
+
+        normalized = dict(config)
+        normalized["response_format"] = {"type": "json_object"}
+        provider_text = f'{normalized.get("base_url", "")} {normalized.get("model", "")}'.casefold()
+        if "deepseek" in provider_text:
+            normalized["thinking"] = {"type": "disabled"}
+        if "11434" in provider_text or "ollama" in provider_text:
+            normalized["reasoning_effort"] = "none"
+            # Native Ollama keeps the reasoning trace separate from message.content,
+            # so Qwen can think without corrupting the JSON result.  A larger local
+            # budget is intentional: the one-call analysis must name every section.
+            normalized["think"] = True
+            normalized["local_max_tokens"] = 3000
+        return OpenAICompatibleModel(normalized)
+
+    @staticmethod
+    def _project_analysis_config(state: dict[str, object]) -> dict[str, object]:
+        """Resolve optional common-pack guidance only when explicitly enabled."""
+
+        config = normalize_analysis_config(state.get("analysis_config"))
+        if not config["enabled"]:
+            return config
+        pack = load_mbse_domain_pack(
+            resource_path(f"domain-packs/{config['domain_pack_id']}.json")
+        )
+        guidance = {
+            "id": pack.get("id"),
+            "version": pack.get("version"),
+            "display_name": pack.get("display_name"),
+            "description": pack.get("description"),
+            "stakeholder_lenses": pack.get("stakeholder_lenses", ()),
+            "lifecycle_phases": pack.get("lifecycle_phases", ()),
+            "scenario_dimensions": pack.get("scenario_dimensions", ()),
+            "coverage_rules": pack.get("coverage_rules", ()),
+            "prompt_fragments": pack.get("prompt_fragments", {}),
+        }
+        return {**config, "guidance": guidance}
 
     def draft_discovery(self, workspace_name: str, pack_id: str) -> dict[str, object]:
         current = self.requirements(workspace_name)
@@ -673,6 +835,7 @@ class WebFacade:
             "candidate": "待确认",
             "accepted": "已接受",
             "rejected": "已驳回",
+            "deleted": "已删除",
         }
         source_labels = {
             "need": "利益相关方需求",
@@ -719,10 +882,16 @@ class WebFacade:
         else:
             state = analyze_artifact(filename, content)
             state = initialize_review_state(state)
+        state = bind_project_scope(state, workspace_name)
+        state["analysis_config"] = normalize_analysis_config(
+            state.get("analysis_config")
+        )
         if state.get("spans"):
-            # Always leave a visible, local RFLP draft after submission. The
-            # draft is intentionally separate from formal review/baselining.
             state = generate_draft_model(state)
+            state = self._auto_complete_requirements(state)
+        state = refresh_traceability(state)
+        validate_project_scope(state, workspace_name)
+        validate_project_references(state)
         safe_name = state["artifact"]["path"]
         inputs = workspace.path / "inputs"
         inputs.mkdir(parents=True, exist_ok=True)
@@ -742,6 +911,43 @@ class WebFacade:
         finally:
             repository.close()
         return state
+
+    def _auto_complete_requirements(self, state: dict[str, object]) -> dict[str, object]:
+        model = self._project_analysis_model()
+        if model is None:
+            return mark_llm_waiting(state, "当前未配置可用 LLM，未生成领域推断结果")
+        try:
+            response = model.complete_json(
+                build_project_analysis_request(
+                    state, self._project_analysis_config(state)
+                )
+            )
+            result = apply_project_analysis(state, response)
+            result = confirm_requirements(result)
+            result = generate_model(result)
+            placeholders = any(
+                item.get("status") == "needs-analysis"
+                for item in result.get("rflp", {}).get("elements", ())
+                if isinstance(item, dict)
+            )
+            if not placeholders:
+                result, baseline = approve_workbench_baseline(result)
+                result["baseline"]["approval_mode"] = "automatic-submission"
+                result["baseline"]["approval_note"] = "提交并分析自动生成；可继续在需求检查中调整。"
+            else:
+                result.setdefault("auto_analysis", {}).setdefault("diagnostics", []).append(
+                    {
+                        "code": "rflp_architecture_incomplete",
+                        "severity": "warning",
+                        "message": "RFLP 包含待 LLM 分析的架构占位节点，补充架构后才能批准基线。",
+                    }
+                )
+            result = generate_mbse_revision(result)
+            result["auto_analysis"]["modules"]["rflp"] = bool(result.get("rflp"))
+            result["auto_analysis"]["modules"]["mbse"] = bool(result.get("mbse"))
+            return result
+        except (AdapterFailure, ContractViolation, InvariantViolation) as exc:
+            return mark_llm_waiting(state, str(exc))
 
     def review_requirement_item(
         self,
@@ -889,22 +1095,36 @@ class WebFacade:
             workspace_name, state, "scenario.created"
         )
 
-    def prepare_requirement_scenarios(
-        self, workspace_name: str
-    ) -> dict[str, object] | None:
-        """Make system-generated starter scenarios available without extra input."""
+    def delete_requirement(
+        self, workspace_name: str, requirement_id: str
+    ) -> dict[str, object]:
         current = self.requirements(workspace_name)
-        if current is None or current.get("scenarios"):
-            return current
-        state = generate_scenario_drafts(current)
-        if not state.get("scenarios"):
-            return state
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        state, metadata = remove_requirement(current, requirement_id)
+        baseline = None
+        if state.get("claims"):
+            state = confirm_requirements(state)
+            state = generate_model(state)
+            state, baseline = approve_workbench_baseline(state)
+            state = generate_mbse_revision(state)
         return self._save_requirements(
             workspace_name,
             state,
-            "scenario.generated",
-            {"count": len(state["scenarios"]), "mode": "minimum-input"},
+            "requirements.deleted",
+            metadata,
+            baseline=baseline,
+            deleted_requirement_ids=(str(requirement_id),),
         )
+
+    def prepare_requirement_scenarios(
+        self, workspace_name: str
+    ) -> dict[str, object] | None:
+        """Return scenarios already generated for this project's analysis."""
+        current = self.requirements(workspace_name)
+        if current is None:
+            return current
+        return current
 
     def delete_requirement_scenario(
         self, workspace_name: str, scenario_id: str
@@ -1112,8 +1332,14 @@ class WebFacade:
         audit_payload: dict[str, object] | None = None,
         *,
         baseline: Baseline | None = None,
+        deleted_requirement_ids: tuple[str, ...] = (),
     ) -> dict[str, object]:
+        scope = state.get("project_scope")
+        if not isinstance(scope, dict) or not str(scope.get("workspace", "")):
+            state = bind_project_scope(state, workspace_name)
+        validate_project_scope(state, workspace_name)
         state = refresh_traceability(state)
+        validate_project_references(state)
         workspace = self.workspace(workspace_name)
         repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
         try:
@@ -1128,6 +1354,10 @@ class WebFacade:
                 repository.save_requirement_records(
                     self._requirement_records_for_state(state, event), sequence, event
                 )
+                if deleted_requirement_ids:
+                    repository.mark_requirement_deleted(
+                        deleted_requirement_ids, sequence, event
+                    )
                 repository.save_trace_records(tuple(state.get("trace_links", ())))
                 repository.record_audit(
                     "requirements.traceability_updated",

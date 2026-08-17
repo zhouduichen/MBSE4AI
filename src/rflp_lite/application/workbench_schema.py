@@ -31,6 +31,13 @@ _V2_DEFAULTS: dict[str, object] = {
     "mbse": None,
     "artifacts": [],
     "revision": 0,
+    "project_scope": {},
+    "analysis_config": {
+        "enabled": False,
+        "domain_pack_id": None,
+        "domain_pack_version": None,
+        "provenance": {"source": "default", "reason": "domain-neutral-analysis"},
+    },
     "review_queue": [],
     "change_set": {
         "kind": "legacy",

@@ -18,7 +18,7 @@ from rflp_lite.application.requirement_semantics import (
 from rflp_lite.application.requirement_inference import inferred_requirement_payloads
 from rflp_lite.application.traceability import refresh_traceability
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
-from rflp_lite.domain.errors import AdapterFailure, InvariantViolation
+from rflp_lite.domain.errors import AdapterFailure, ContractViolation, InvariantViolation
 from rflp_lite.domain.models import Claim, ModelElement, Relation, TextSpan
 from rflp_lite.domain.requirements import DocumentRegion
 
@@ -410,6 +410,12 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
         "structured_requirements": structured_requirements,
         "trace_links": [],
         "diagnostics": diagnostics,
+        "analysis_config": {
+            "enabled": False,
+            "domain_pack_id": None,
+            "domain_pack_version": None,
+            "provenance": {"source": "default", "reason": "domain-neutral-analysis"},
+        },
         "mbse": None,
         "stakeholders": sorted(stakeholders, key=lambda item: (item["name"], item["id"])),
         "concerns": sorted(concerns, key=lambda item: item["id"]),
@@ -449,6 +455,12 @@ def empty_workbench() -> dict[str, object]:
         "structured_requirements": [],
         "trace_links": [],
         "diagnostics": [],
+        "analysis_config": {
+            "enabled": False,
+            "domain_pack_id": None,
+            "domain_pack_version": None,
+            "provenance": {"source": "default", "reason": "domain-neutral-analysis"},
+        },
         "mbse": None,
         "stakeholders": [],
         "concerns": [],
@@ -592,6 +604,164 @@ def sync_review_queue(state: dict[str, object]) -> dict[str, object]:
     change_set["summary"] = _change_summary(impact_items, queue)
     result["change_set"] = change_set
     return result
+
+
+def remove_requirement(
+    state: dict[str, object], requirement_id: str
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Remove one current requirement while retaining source/audit metadata."""
+
+    result = _clone(state)
+    clean_id = str(requirement_id or "").strip()
+    claims = list(result.get("claims", ()))
+    removed_claim = next((item for item in claims if str(item.get("id")) == clean_id), None)
+    if removed_claim is None:
+        raise ContractViolation("需求不存在")
+
+    linked_structured_ids = {
+        clean_id,
+        str(removed_claim.get("structured_requirement_id", "")),
+    } - {""}
+    removed_claim_span = str(removed_claim.get("span_id", ""))
+    result["claims"] = [item for item in claims if str(item.get("id")) != clean_id]
+    result["structured_requirements"] = [
+        item
+        for item in result.get("structured_requirements", ())
+        if str(item.get("id")) not in linked_structured_ids
+    ]
+
+    remaining_span_ids = {
+        str(item.get("span_id", ""))
+        for item in result["claims"]
+        if str(item.get("span_id", ""))
+    }
+    remaining_region_ids = {
+        str(item.get("source_region_id", ""))
+        for item in result.get("structured_requirements", ())
+        if str(item.get("source_region_id", ""))
+    }
+    orphan_source_ids = set()
+    if removed_claim_span and removed_claim_span not in remaining_span_ids:
+        orphan_source_ids.add(removed_claim_span)
+        if removed_claim_span.startswith("span-"):
+            orphan_source_ids.add(removed_claim_span.replace("span-", "region-", 1))
+    removed_regions = {
+        str(item.get("source_region_id", ""))
+        for item in state.get("structured_requirements", ())
+        if str(item.get("id")) in linked_structured_ids and item.get("source_region_id")
+    }
+    orphan_source_ids.update(removed_regions - remaining_region_ids)
+
+    def generated_for_orphan(item: object) -> bool:
+        if not isinstance(item, dict) or str(item.get("producer", "")) == "user":
+            return False
+        references = {
+            str(item.get(key, ""))
+            for key in ("source_span_id", "source_region_id", "source_id")
+            if str(item.get(key, ""))
+        }
+        return bool(references.intersection(orphan_source_ids))
+
+    def automatic_item(item: object) -> bool:
+        if not isinstance(item, dict):
+            return False
+        return str(item.get("producer", "")) in {"system", "domain-pack", "llm"} or str(
+            item.get("generation_mode", "")
+        ) in {"minimum-input", "scenario-matrix"}
+
+    for group in ("stakeholders", "concerns", "needs"):
+        result[group] = [item for item in result.get(group, ()) if not generated_for_orphan(item)]
+
+    discovery = result.get("discovery")
+    if isinstance(discovery, dict):
+        discovery = dict(discovery)
+        candidate_sets = []
+        for candidate_set in discovery.get("candidate_sets", ()):
+            group = dict(candidate_set)
+            items = []
+            for item in candidate_set.get("items", ()):
+                if not generated_for_orphan(item):
+                    provenance = item.get("provenance", ()) if isinstance(item, dict) else ()
+                    provenance_refs = {
+                        str(entry.get("source_id", ""))
+                        for entry in provenance
+                        if isinstance(entry, dict) and str(entry.get("source_id", ""))
+                    }
+                    if not provenance_refs.intersection(orphan_source_ids):
+                        items.append(item)
+            group["items"] = items
+            candidate_sets.append(group)
+        discovery["candidate_sets"] = candidate_sets
+        discovery["accepted_graph"] = {}
+        discovery["diagram_specs"] = []
+        discovery["coverage"] = {}
+        result["discovery"] = discovery
+
+    removed_scenario_ids = set()
+    scenarios = []
+    for item in result.get("scenarios", ()):
+        requirement_ids = [str(value) for value in item.get("requirement_ids", ())]
+        is_automatic = automatic_item(item)
+        if is_automatic and (
+            clean_id in requirement_ids or str(item.get("generated_from", "")) == clean_id
+        ):
+            removed_scenario_ids.add(str(item.get("id", "")))
+            continue
+        if clean_id in requirement_ids:
+            item = dict(item)
+            item["requirement_ids"] = [value for value in requirement_ids if value != clean_id]
+        scenarios.append(item)
+    result["scenarios"] = scenarios
+    result["scenario_runs"] = [
+        item
+        for item in result.get("scenario_runs", ())
+        if str(item.get("scenario_id", "")) not in removed_scenario_ids
+    ]
+
+    change_set = dict(result.get("change_set") or {})
+    change_set["items"] = [
+        item
+        for item in change_set.get("items", ())
+        if not (
+            str(item.get("item_id", "")) in linked_structured_ids | {clean_id}
+            and str(item.get("group", "")) in {"claims", "structured_requirements"}
+        )
+    ]
+    result["change_set"] = change_set
+    result["rflp"] = None
+    result["coverage"] = {}
+    result["svg"] = ""
+    result["draft"] = False
+    result["draft_graph"] = None
+    result["draft_warnings"] = []
+    result["mbse"] = None
+    result["baseline"] = None
+    result["project"] = None
+    result["flow"] = None
+    result["trace_links"] = []
+    result["trace_coverage"] = {}
+    result["traceability"] = []
+    result["auto_analysis"] = None
+
+    if not result["claims"]:
+        result["spans"] = []
+        result["document_regions"] = []
+        result["entities"] = []
+        result["system_context"] = None
+        result["stakeholders"] = [item for item in result.get("stakeholders", ()) if not automatic_item(item)]
+        result["concerns"] = [item for item in result.get("concerns", ()) if not automatic_item(item)]
+        result["needs"] = [item for item in result.get("needs", ()) if not automatic_item(item)]
+        result["scenarios"] = [item for item in result.get("scenarios", ()) if not automatic_item(item)]
+        result["scenario_runs"] = []
+
+    result["review_queue"] = []
+    result = sync_review_queue(result)
+    return result, {
+        "requirement_id": clean_id,
+        "structured_requirement_ids": sorted(linked_structured_ids),
+        "orphan_source_ids": sorted(orphan_source_ids),
+        "removed_scenario_ids": sorted(removed_scenario_ids),
+    }
 
 
 def initialize_review_state(state: dict[str, object]) -> dict[str, object]:
@@ -1203,31 +1373,49 @@ def render_rflp_svg(
         for layer in "RFLP"
     }
     max_items = max((len(items) for items in layers.values()), default=1)
-    width, height = 1180, max(360, 180 + max_items * 86)
+    width, height = 1180, max(360, 180 + max_items * 98)
     positions: dict[str, tuple[int, int]] = {}
     parts = [
         f'<svg class="rflp-svg" viewBox="0 0 {width} {height}" role="img" aria-label="RFLP 规划图" xmlns="http://www.w3.org/2000/svg">',
-        '<defs><marker id="rflp-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#607a73"/></marker></defs>',
-        '<rect width="1180" height="100%" rx="16" fill="#0b1416"/>',
-        '<text x="24" y="34" fill="#70e1bc" font-size="12" font-weight="700">STAKEHOLDER → NEED → REQUIREMENT → RFLP</text>',
-        f'<text x="24" y="58" fill="#a9bbb6" font-size="13">系统：{escape(system_name or "待命名系统")} · 来源：{escape(" · ".join(stakeholders) or "法规 / 系统约束")}</text>',
+        '<defs><marker id="rflp-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#9aa1ab"/></marker></defs>',
+        f'<rect width="{width}" height="{height}" rx="6" fill="#ffffff" stroke="#d7dbe2" stroke-width="1"/>',
+        '<text x="24" y="34" fill="#1b4fd8" font-size="12" font-weight="800" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">STAKEHOLDER → NEED → REQUIREMENT → RFLP</text>',
+        f'<text x="24" y="58" fill="#6b7280" font-size="13">系统：{escape(system_name or "待命名系统")} · 来源：{escape(" · ".join(stakeholders) or "法规 / 系统约束")}</text>',
     ]
     for layer_index, layer in enumerate("RFLP"):
         x = 20 + layer_index * 290
         parts.extend(
             (
-                f'<rect x="{x}" y="82" width="270" height="{height - 102}" rx="13" fill="#121f22" stroke="#263a3a"/>',
-                f'<text x="{x + 16}" y="112" fill="#70e1bc" font-size="18" font-weight="800">{layer}</text>',
+                f'<rect x="{x}" y="82" width="270" height="{height - 102}" rx="6" fill="#fafbfc" stroke="#d7dbe2" stroke-width="1"/>',
+                f'<text x="{x + 16}" y="112" fill="#1b4fd8" font-size="18" font-weight="800">{layer}</text>',
             )
         )
         for item_index, item in enumerate(layers[layer]):
-            y = 130 + item_index * 86
+            y = 130 + item_index * 98
             positions[item.id] = (x + 14, y)
+            attributes = {str(key): value for key, value in item.attributes}
+            kind = str(item.kind or "element")
+            status = str(item.status or "approved")
+            source_requirements = attributes.get(
+                "source_requirement_ids", attributes.get("claim_id", "")
+            )
+            if isinstance(source_requirements, (list, tuple)):
+                source_requirements = ",".join(str(value) for value in source_requirements)
+            summary = (
+                attributes.get("description")
+                or attributes.get("responsibilities")
+                or attributes.get("interfaces")
+                or ""
+            )
+            if isinstance(summary, (list, tuple)):
+                summary = " / ".join(str(value) for value in summary)
             parts.extend(
                 (
-                    f'<rect x="{x + 14}" y="{y}" width="242" height="60" rx="9" fill="#182a2e" stroke="#31504b"/>',
-                    f'<text x="{x + 26}" y="{y + 25}" fill="#e2eeea" font-size="12">{escape(item.name[:32])}</text>',
-                    f'<text x="{x + 26}" y="{y + 44}" fill="#708b84" font-size="9">{escape(item.id)}</text>',
+                    f'<rect x="{x + 14}" y="{y}" width="242" height="76" rx="4" fill="#ffffff" stroke="#d7dbe2" stroke-width="1" data-kind="{escape(kind)}" data-status="{escape(status)}" data-source-requirements="{escape(str(source_requirements))}"/>',
+                    f'<text x="{x + 26}" y="{y + 21}" fill="#191c22" font-size="12">{escape(item.name[:32])}</text>',
+                    f'<text x="{x + 26}" y="{y + 38}" fill="#1b4fd8" font-size="9">{escape(kind)} · {escape(status)}</text>',
+                    f'<text x="{x + 26}" y="{y + 54}" fill="#6b7280" font-size="9">{escape(str(summary)[:34])}</text>',
+                    f'<text x="{x + 26}" y="{y + 68}" fill="#6b7280" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">{escape(item.id)}</text>',
                 )
             )
     for relation in sorted(relations, key=lambda item: item.id):
@@ -1235,11 +1423,14 @@ def render_rflp_svg(
             continue
         source_x, source_y = positions[relation.source_id]
         target_x, target_y = positions[relation.target_id]
-        x1, y1 = source_x + 242, source_y + 30
-        x2, y2 = target_x, target_y + 30
+        x1, y1 = source_x + 242, source_y + 38
+        x2, y2 = target_x, target_y + 38
         middle = (x1 + x2) // 2
         parts.append(
-            f'<path d="M{x1},{y1} C{middle},{y1} {middle},{y2} {x2},{y2}" fill="none" stroke="#607a73" stroke-width="1.5" marker-end="url(#rflp-arrow)"/>'
+            f'<path d="M{x1},{y1} C{middle},{y1} {middle},{y2} {x2},{y2}" fill="none" stroke="#9aa1ab" stroke-width="1.25" marker-end="url(#rflp-arrow)"/>'
+        )
+        parts.append(
+            f'<text x="{middle}" y="{(y1 + y2) // 2 - 3}" text-anchor="middle" fill="#6b7280" font-size="8">{escape(relation.predicate)}</text>'
         )
     parts.append("</svg>")
     return "".join(parts)
@@ -1298,41 +1489,41 @@ def render_draft_svg(state: dict[str, object]) -> str:
     height = max(520, 300 + max(len(items), len(questions)) * 58)
     parts = [
         f'<svg class="draft-understanding-svg" viewBox="0 0 {width} {height}" role="img" aria-label="需求理解图" xmlns="http://www.w3.org/2000/svg">',
-        '<rect width="1180" height="100%" rx="16" fill="#171411"/>',
-        '<text x="24" y="34" fill="#f0bd72" font-size="12" font-weight="800">需求理解图 · DRAFT</text>',
+        f'<rect width="{width}" height="{height}" rx="6" fill="#ffffff" stroke="#e6cf8f" stroke-width="1"/>',
+        '<text x="24" y="34" fill="#946200" font-size="12" font-weight="800" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">需求理解图 · DRAFT</text>',
     ]
     columns = ((20, 290, "系统主题"), (330, 430, "已理解内容"), (780, 380, "还需要确认"))
     for x, width_column, title in columns:
         parts.extend(
             (
-                f'<rect x="{x}" y="86" width="{width_column}" height="{height - 122}" rx="13" fill="#211d18" stroke="#5d4830"/>',
-                f'<text x="{x + 16}" y="116" fill="#f0bd72" font-size="16" font-weight="800">{escape(title)}</text>',
+                f'<rect x="{x}" y="86" width="{width_column}" height="{height - 122}" rx="6" fill="#fafbfc" stroke="#d7dbe2" stroke-width="1"/>',
+                f'<text x="{x + 16}" y="116" fill="#191c22" font-size="16" font-weight="800">{escape(title)}</text>',
             )
         )
     parts.extend(
         (
-            f'<text x="36" y="165" fill="#f5eee4" font-size="22" font-weight="800">{escape(graph["system"])}</text>',
-            f'<text x="36" y="193" fill="#b9a78e" font-size="12">领域：{escape(graph["domain"])}</text>',
-            f'<text x="36" y="235" fill="#d4c4ae" font-size="11">输入原文</text>',
-            f'<text x="36" y="262" fill="#a8957d" font-size="11">{escape(graph["source_text"][:42])}</text>',
-            '<text x="36" y="315" fill="#8d7b65" font-size="10">状态：草稿理解</text>',
+            f'<text x="36" y="165" fill="#101318" font-size="22" font-weight="800">{escape(graph["system"])}</text>',
+            f'<text x="36" y="193" fill="#6b7280" font-size="12">领域：{escape(graph["domain"])}</text>',
+            f'<text x="36" y="235" fill="#6b7280" font-size="11">输入原文</text>',
+            f'<text x="36" y="262" fill="#6b7280" font-size="11">{escape(graph["source_text"][:42])}</text>',
+            '<text x="36" y="315" fill="#946200" font-size="10">状态：草稿理解</text>',
         )
     )
     for index, item in enumerate(items):
         y = 145 + index * 58
         parts.extend(
             (
-                f'<rect x="346" y="{y}" width="398" height="42" rx="8" fill="#2a241d" stroke="#9a7139" stroke-dasharray="5 4"/>',
-                f'<text x="360" y="{y + 17}" fill="#f0bd72" font-size="9">{escape(str(item["kind"]))}</text>',
-                f'<text x="360" y="{y + 33}" fill="#f5eee4" font-size="11">{escape(str(item["text"])[:46])}</text>',
+                f'<rect x="346" y="{y}" width="398" height="42" rx="4" fill="#ffffff" stroke="#e0b45c" stroke-dasharray="5 4" stroke-width="1"/>',
+                f'<text x="360" y="{y + 17}" fill="#946200" font-size="9">{escape(str(item["kind"]))}</text>',
+                f'<text x="360" y="{y + 33}" fill="#191c22" font-size="11">{escape(str(item["text"])[:46])}</text>',
             )
         )
     for index, question in enumerate(questions):
         y = 145 + index * 58
         parts.extend(
             (
-                f'<rect x="796" y="{y}" width="348" height="42" rx="8" fill="#25201a" stroke="#6b5435"/>',
-                f'<text x="812" y="{y + 25}" fill="#d4c4ae" font-size="11">{escape(str(question)[:45])}</text>',
+                f'<rect x="796" y="{y}" width="348" height="42" rx="4" fill="#ffffff" stroke="#d7dbe2" stroke-width="1"/>',
+                f'<text x="812" y="{y + 25}" fill="#6b7280" font-size="11">{escape(str(question)[:45])}</text>',
             )
         )
     parts.append("</svg>")
@@ -1376,13 +1567,50 @@ def generate_model(state: dict[str, object]) -> dict[str, object]:
         )
     if not claims:
         raise InvariantViolation("请先接受至少一条可追溯需求")
-    elements, relations = synthesize_rflp(tuple(claims))
+    discovery = result.get("discovery")
+    architecture = (
+        discovery.get("architecture")
+        if isinstance(discovery, dict) and isinstance(discovery.get("architecture"), dict)
+        else None
+    )
+    auto_analysis = result.get("auto_analysis")
+    is_llm_analysis = (
+        isinstance(auto_analysis, dict)
+        and auto_analysis.get("mode") == "llm-project-analysis"
+        and auto_analysis.get("status") == "completed"
+    )
+    if architecture is not None and (architecture or is_llm_analysis):
+        elements, relations = synthesize_rflp(tuple(claims), architecture)
+        analysis_source = "llm"
+    else:
+        elements, relations = synthesize_rflp(tuple(claims))
+        analysis_source = "deterministic-compatibility"
     stakeholder_names = tuple(
         sorted(item["name"] for item in result["stakeholders"] if item["status"] == "accepted")
     )
+    placeholder_count = sum(item.status == "needs-analysis" for item in elements)
+    layer_counts = {
+        layer: sum(item.layer == layer for item in elements)
+        for layer in "RFLP"
+    }
     result["rflp"] = {
         "elements": [asdict(item) for item in elements],
         "relations": [asdict(item) for item in relations],
+        "analysis_source": analysis_source,
+        "metrics": {
+            "requirements": layer_counts["R"],
+            "functions": layer_counts["F"],
+            "logical": layer_counts["L"],
+            "physical": layer_counts["P"],
+            "interfaces": sum(item.kind == "interface" for item in elements),
+            "relations": len(relations),
+            "placeholders": placeholder_count,
+        },
+        "diagnostics": (
+            [{"code": "rflp_architecture_incomplete", "count": placeholder_count}]
+            if placeholder_count
+            else []
+        ),
     }
     spans = {item["id"]: item for item in result["spans"]}
     stakeholders = {item["id"]: item for item in result["stakeholders"]}
@@ -1459,7 +1687,7 @@ def add_llm_suggestions(
             "base_url": base_url,
             "model": model,
             "api_key": api_key,
-            "timeout_seconds": 20,
+            "timeout_seconds": 300,
         }
     if not config.get("base_url") or not config.get("model"):
         raise AdapterFailure("LLM 未配置")
