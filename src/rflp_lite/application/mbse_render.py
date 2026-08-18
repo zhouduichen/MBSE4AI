@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from html import escape
 
-from rflp_lite.adapters.graphviz_engine import GraphvizEngine
-from rflp_lite.adapters.matrix_engine import MatrixEngine
-from rflp_lite.adapters.plantuml_engine import PlantUMLEngine
+from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
 from rflp_lite.application.mbse_exchange import validate_mbse_model
 from rflp_lite.application.mbse_matrix import render_matrix_view
 from rflp_lite.application.mbse_views import (
@@ -113,19 +111,20 @@ def compile_mbse_source(model: object, view: str = "all") -> dict[str, object]:
     return compile_mbse_view(normalized, view)
 
 
-def select_diagram_engine(view_id: str, requested_engine: str | None = None):
+def select_diagram_engine(
+    view_id: str,
+    requested_engine: str | None = None,
+    *,
+    dependencies: ApplicationDependencies | None = None,
+):
     definition = view_definition("rflp" if view_id == "all" else view_id)
     requested = str(requested_engine or "auto").strip().lower()
     if requested in {"", "auto"}:
         requested = definition.compiler
     if requested == "fallback":
         return None
-    if requested == "graphviz":
-        return GraphvizEngine()
-    if requested == "plantuml":
-        return PlantUMLEngine()
-    if requested == "matrix":
-        return MatrixEngine()
+    if requested in {"graphviz", "plantuml", "matrix"}:
+        return require_dependencies(dependencies).diagram_engine_factory(requested)
     raise ContractViolation(f"unsupported diagram engine: {requested}")
 
 
@@ -136,13 +135,14 @@ def render_mbse_view(
     engine: str | None = None,
     output_format: str = "svg",
     timeout_seconds: int = 10,
+    dependencies: ApplicationDependencies | None = None,
 ) -> dict[str, object]:
     """Render through an optional engine and always retain a deterministic fallback."""
 
     normalized = validate_mbse_model(model)
     view_id = "rflp" if view == "all" else view
     compiled = compile_mbse_source(normalized, view_id)
-    selected = select_diagram_engine(view_id, engine)
+    selected = select_diagram_engine(view_id, engine, dependencies=dependencies)
     if selected is None:
         fallback = render_mbse_svg(normalized, view)
         return {

@@ -67,3 +67,58 @@ def test_facade_concept_design_import_run_and_review(tmp_path: Path) -> None:
     )
     assert review["decision"] == "accepted"
     assert facade.concept_run("concept", result["id"])["id"] == result["id"]
+
+
+def test_requirements_endpoints_delegate_to_analysis_service(tmp_path: Path) -> None:
+    facade = WebFacade(tmp_path / "workspaces")
+    facade.create_workspace("demo")
+
+    class SpyAnalysisService:
+        def __init__(self):
+            self.analyze_calls = []
+            self.retry_calls = []
+
+        def analyze(self, workspace, filename, content, *, merge, model):
+            self.analyze_calls.append((workspace, filename, content, merge, model))
+            return {"operation": "analyze"}
+
+        def retry(self, workspace, job_id, *, model):
+            self.retry_calls.append((workspace, job_id, model))
+            return {"operation": "retry"}
+
+    spy = SpyAnalysisService()
+    facade._requirements_analysis = spy
+    facade._project_analysis_model = lambda: "model"
+
+    assert facade.analyze_requirements("demo", "input.txt", b"input", False) == {
+        "operation": "analyze"
+    }
+    assert facade.retry_requirement_enrichment("demo", "job-1") == {
+        "operation": "retry"
+    }
+    assert spy.analyze_calls[0][0].name == "demo"
+    assert spy.analyze_calls[0][1:] == ("input.txt", b"input", False, "model")
+    assert spy.retry_calls[0][0].name == "demo"
+    assert spy.retry_calls[0][1:] == ("job-1", "model")
+
+
+def test_project_analysis_endpoint_delegates_to_service(tmp_path: Path) -> None:
+    facade = WebFacade(tmp_path / "workspaces")
+    facade.create_workspace("demo")
+
+    class SpyProjectAnalysisService:
+        def __init__(self):
+            self.calls = []
+
+        def analyze(self, workspace, source):
+            self.calls.append((workspace, source))
+            return {"operation": "project-analyze"}
+
+    spy = SpyProjectAnalysisService()
+    facade._project_analysis = spy
+
+    assert facade.analyze_workspace_project("demo", "project") == {
+        "operation": "project-analyze"
+    }
+    assert spy.calls[0][0].name == "demo"
+    assert spy.calls[0][1] == "project"

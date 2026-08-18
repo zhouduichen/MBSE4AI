@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from rflp_lite.adapters.llm_client import chat_completion
+from rflp_lite.application.dependencies import require_dependencies
 from rflp_lite.domain.errors import AdapterFailure
 from rflp_lite.domain.requirements import DocumentRegion, StructuredRequirement
 
@@ -35,7 +35,7 @@ def suggest_implicit_requirements(
         "regions": [{"id": region.id, "text": region.text} for region in regions],
     }
     if complete is None:
-        content = chat_completion(
+        content = require_dependencies().chat_completion(
             config,
             [
                 {"role": "system", "content": "你是需求工程审查助手，只能输出 JSON 数组。"},
@@ -103,4 +103,3 @@ def inferred_requirement_payloads(
         | {"bulk_approvable": False}
         for item in suggest_implicit_requirements(regions, config, complete)
     )
-

@@ -38,3 +38,20 @@ source_modules =
     rflp_lite.application.diagrams
 forbidden_modules =
     rflp_lite.adapters
+
+[importlinter:contract:application-no-adapters]
+name = Application does not import adapters
+type = forbidden
+source_modules =
+    rflp_lite.application
+forbidden_modules =
+    rflp_lite.adapters
+
+[importlinter:contract:interface-no-adapters]
+name = Interface does not import adapters
+type = forbidden
+source_modules =
+    rflp_lite.interface
+forbidden_modules =
+    rflp_lite.adapters
+allow_indirect_imports = true

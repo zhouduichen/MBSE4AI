@@ -4,13 +4,12 @@ import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from rflp_lite.adapters.project_scanner import scan_project
-from rflp_lite.adapters.test_execution_config import (
+from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
+from rflp_lite.ports.test_execution import (
     DEFAULT_TEST_TIMEOUT,
     ResourceLimits,
     build_limits,
 )
-from rflp_lite.adapters.test_executor import run_project_test_matrix
 from rflp_lite.application.diff import compare_baseline_with_actual
 from rflp_lite.application.tasks import build_task_contracts
 from rflp_lite.domain.baseline import approve_baseline
@@ -152,14 +151,18 @@ def evidence_from_actual(model: ActualModel) -> tuple[Evidence, ...]:
 
 
 def analyze_project_state(
-    state: dict[str, object], source: str | Path
+    state: dict[str, object],
+    source: str | Path,
+    *,
+    dependencies: ApplicationDependencies | None = None,
 ) -> tuple[dict[str, object], BridgeArtifacts]:
     """扫描本地项目并与已批准基线做确定性对比。"""
     if not state.get("baseline"):
         raise ContractViolation("请先批准基线")
     baseline = _baseline_from_state(state)
     resolved = Path(source).expanduser().resolve()
-    model, summary = scan_project(resolved)
+    deps = require_dependencies(dependencies)
+    model, summary = deps.project_scanner(resolved)
     evidence = evidence_from_actual(model)
     delta, matches = compare_baseline_with_actual(baseline, model)
     tasks = build_task_contracts(delta)
@@ -301,7 +304,10 @@ def _build_execution(
 
 
 def verify_contracts_state(
-    state: dict[str, object], source: str | Path
+    state: dict[str, object],
+    source: str | Path,
+    *,
+    dependencies: ApplicationDependencies | None = None,
 ) -> tuple[dict[str, object], VerifyResult]:
     """重扫描本地项目，判定每条既有任务契约是否已满足。只读、确定性。"""
     if not state.get("baseline"):
@@ -311,7 +317,8 @@ def verify_contracts_state(
         raise ContractViolation("请先在项目接入中分析项目并生成任务契约")
     baseline = _baseline_from_state(state)
     resolved_path = Path(source).expanduser().resolve()
-    model, summary = scan_project(resolved_path)
+    deps = require_dependencies(dependencies)
+    model, summary = deps.project_scanner(resolved_path)
     evidence = evidence_from_actual(model)
     return _build_execution(
         state, baseline, resolved_path, model, evidence, summary["files_used"]
@@ -327,6 +334,7 @@ def execute_tests_state(
     limits: ResourceLimits | None = None,
     cache_dir: str | Path | None = None,
     jobs: int = 1,
+    dependencies: ApplicationDependencies | None = None,
 ) -> tuple[dict[str, object], VerifyResult]:
     """运行内置测试 runner 集合，把客观 Evidence 回填后重算执行状态。"""
     if not state.get("baseline"):
@@ -336,8 +344,9 @@ def execute_tests_state(
         raise ContractViolation("请先在项目接入中分析项目并生成任务契约")
     baseline = _baseline_from_state(state)
     resolved_path = Path(project_dir).expanduser().resolve()
+    deps = require_dependencies(dependencies)
     effective_limits = limits or build_limits(timeout_seconds=timeout)
-    runs = run_project_test_matrix(
+    runs = deps.test_executor(
         resolved_path,
         runners=runners,
         limits=effective_limits,
@@ -345,7 +354,7 @@ def execute_tests_state(
         jobs=jobs,
     )
     try:
-        model, summary = scan_project(resolved_path)
+        model, summary = deps.project_scanner(resolved_path)
         implementation_evidence = evidence_from_actual(model)
         test_evidence = tuple(
             sorted(

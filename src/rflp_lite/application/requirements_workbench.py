@@ -6,9 +6,7 @@ import re
 from dataclasses import asdict
 from html import escape
 
-from rflp_lite.adapters.document_intelligence import LocalDocumentParser
-from rflp_lite.adapters.readers import RuleClaimExtractor, read_artifact
-from rflp_lite.adapters.llm_client import chat_completion
+from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
 from rflp_lite.application.synthesize import synthesize_rflp
 from rflp_lite.application.requirement_semantics import (
     entity_payloads,
@@ -267,11 +265,17 @@ def _free_form_claim(span: object, system_context: dict[str, object]) -> dict[st
     }
 
 
-def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
+def analyze_artifact(
+    filename: str,
+    content: bytes,
+    *,
+    dependencies: ApplicationDependencies | None = None,
+) -> dict[str, object]:
+    deps = require_dependencies(dependencies)
     # Keep the original reader for source-code and structured data while the
     # document parser provides page-aware regions for customer documents.
     if os.path.splitext(filename)[1].lower() in {".txt", ".md", ".markdown", ".docx", ".pdf"}:
-        parsed = LocalDocumentParser().parse(filename, content)
+        parsed = deps.document_parser_factory().parse(filename, content)
         artifact = parsed.artifact
         spans = tuple(
             TextSpan(region.id.replace("region-", "span-", 1), region.artifact_id, region.locator, region.text)
@@ -284,7 +288,7 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
         document_regions = [asdict(region) for region in parsed.regions]
         diagnostics = [asdict(item) for item in parsed.diagnostics]
     else:
-        artifact, spans = read_artifact(filename, content)
+        artifact, spans = deps.artifact_reader(filename, content)
         document_pages = [{"number": 1, "width": None, "height": None}]
         document_regions = [
             {
@@ -300,7 +304,7 @@ def analyze_artifact(filename: str, content: bytes) -> dict[str, object]:
             for span in spans
         ]
         diagnostics = []
-    extracted_claims = RuleClaimExtractor().extract(spans)
+    extracted_claims = deps.claim_extractor_factory().extract(spans)
     structured_candidates = extract_requirement_candidates(
         {"document_regions": document_regions}
     )
@@ -1017,10 +1021,14 @@ def _merge_semantic_candidates(
 
 
 def merge_artifact(
-    state: dict[str, object], filename: str, content: bytes
+    state: dict[str, object],
+    filename: str,
+    content: bytes,
+    *,
+    dependencies: ApplicationDependencies | None = None,
 ) -> dict[str, object]:
     """Append a new artifact to the current aggregate and calculate its impact."""
-    fresh = analyze_artifact(filename, content)
+    fresh = analyze_artifact(filename, content, dependencies=dependencies)
     result = _clone(state)
     previous_artifact = result.get("artifact")
     result["artifact"] = fresh["artifact"]
@@ -1761,7 +1769,7 @@ def add_llm_suggestions(
         "spans": spans,
     }
     try:
-        content = chat_completion(
+        content = require_dependencies().chat_completion(
             config,
             [{"role": "user", "content": canonical_json(prompt)}],
         )

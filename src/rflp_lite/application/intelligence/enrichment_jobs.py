@@ -7,14 +7,13 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from rflp_lite.adapters.sqlite_repository import SQLiteRepository
+from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
 from rflp_lite.application.intelligence.analysis_blocks import (
     build_analysis_blocks,
     build_block_request,
     merge_block_result,
 )
 from rflp_lite.application.intelligence.pack_composition import compose_pack_selection
-from rflp_lite.application.jobs import JobService
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import AdapterFailure, ContractViolation, InvariantViolation
 from rflp_lite.ports.generative_model import GenerativeModel
@@ -43,12 +42,19 @@ def _block_ids(blocks: object) -> list[str]:
 class EnrichmentJobRunner:
     """Run each analysis block independently while retaining completed work."""
 
-    def __init__(self, workspace_path: Path):
+    def __init__(
+        self,
+        workspace_path: Path,
+        *,
+        dependencies: ApplicationDependencies | None = None,
+        job_service: Any | None = None,
+    ):
         self.workspace_path = Path(workspace_path)
-        self.jobs = JobService(self.workspace_path)
+        self.dependencies = require_dependencies(dependencies)
+        self.jobs = job_service or self.dependencies.job_service_factory(self.workspace_path)
 
     def _load_state(self) -> dict[str, object]:
-        repository = SQLiteRepository(self.workspace_path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(self.workspace_path / ".rflp" / "model.db")
         try:
             state = repository.load_workbench()
         finally:
@@ -65,7 +71,7 @@ class EnrichmentJobRunner:
         return canonical_hash(state.get("document_regions", state.get("spans", [])))
 
     def _save_state(self, state: dict[str, object], block_id: str) -> dict[str, object]:
-        repository = SQLiteRepository(self.workspace_path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(self.workspace_path / ".rflp" / "model.db")
         try:
             with repository.transaction():
                 repository.save_workbench(state, f"requirements.enrichment.{block_id}")

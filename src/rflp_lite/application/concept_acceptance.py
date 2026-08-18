@@ -6,9 +6,8 @@ import json
 from pathlib import Path
 from collections.abc import Mapping
 
-from rflp_lite.adapters.disciplines import discipline_registry
-from rflp_lite.adapters.scheme_sources import read_scheme_rows
 from rflp_lite.application.concept_design_service import run_concept_design
+from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
 from rflp_lite.application.discipline_batch import evaluate_candidates, validate_evaluator_profile
 from rflp_lite.application.domain_packs import load_domain_pack
 from rflp_lite.application.scheme_library import import_scheme_rows
@@ -62,14 +61,20 @@ def _load_profile(path: Path) -> dict[str, object]:
 
 
 def run_concept_acceptance(
-    pack_path: Path, schemes_path: Path, envelope_path: Path, evaluator_profile_path: Path
+    pack_path: Path,
+    schemes_path: Path,
+    envelope_path: Path,
+    evaluator_profile_path: Path,
+    *,
+    dependencies: ApplicationDependencies | None = None,
 ) -> dict[str, object]:
+    deps = require_dependencies(dependencies)
     pack = load_domain_pack(pack_path)
-    rows = read_scheme_rows(schemes_path.name, schemes_path.read_bytes())
+    rows = deps.scheme_reader(schemes_path.name, schemes_path.read_bytes())
     imported = import_scheme_rows(pack, rows, str(schemes_path))
     profile = _load_profile(evaluator_profile_path)
     envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
-    registry = discipline_registry()
+    registry = deps.discipline_registry()
     first = run_concept_design(pack, profile, envelope, imported.records, registry, _MemoryStore())
     second = run_concept_design(pack, profile, envelope, imported.records, registry, _MemoryStore())
     candidate_hashes_first = tuple(item.result_hash for item in first.candidates)

@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from rflp_lite.adapters.sqlite_repository import SQLiteRepository
-from rflp_lite.adapters.test_execution_config import ResourceLimits
+from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
+from rflp_lite.ports.test_execution import DEFAULT_TEST_TIMEOUT, ResourceLimits
 from rflp_lite.application.demo import run_demo
 from rflp_lite.application.project_bridge import (
     analyze_project_state,
@@ -12,11 +12,9 @@ from rflp_lite.application.project_bridge import (
     execute_tests_state,
     verify_contracts_state,
 )
-from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
 from rflp_lite.application.run_catalog import RunRecord, list_runs, load_run
 from rflp_lite.application.requirements_workbench import (
     STAKEHOLDER_CATEGORIES,
-    accept_initial_workbench,
     accept_traceable,
     confirm_requirements,
     add_stakeholder,
@@ -26,7 +24,6 @@ from rflp_lite.application.requirements_workbench import (
     generate_draft_model,
     generate_model,
     empty_workbench,
-    initialize_review_state,
     merge_artifact,
     normalize_stakeholder_category,
     remove_requirement,
@@ -43,7 +40,6 @@ from rflp_lite.application.project_scope import (
     validate_project_scope,
 )
 from rflp_lite.application.requirements_flow import run_requirements_flow
-from rflp_lite.application.jobs import JobService
 from rflp_lite.application.intelligence.enrichment_jobs import EnrichmentJobRunner
 from rflp_lite.application.llm_profiles import LLMProfileService
 from rflp_lite.application.interchange import export_rflp, import_rflp
@@ -67,7 +63,6 @@ from rflp_lite.application.profile_packs import (
 )
 from rflp_lite.application.plugins import invoke_plugin, list_plugins
 from rflp_lite.application.sysml_v2 import export_sysml_v2_text, import_sysml_v2_text
-from rflp_lite.adapters.mlflow_tracking import track_run_with_mlflow
 from rflp_lite.application.scenarios import (
     add_scenario,
     delete_scenario,
@@ -97,12 +92,17 @@ from rflp_lite.application.intelligence.analysis_config import (
 )
 from rflp_lite.application.intelligence.pack_composition import compose_pack_selection
 from rflp_lite.application.diagrams.service import DiagramService
-from rflp_lite.adapters.deterministic_svg_renderer import DeterministicSvgRenderer
+from rflp_lite.application.use_cases.requirements_analysis import (
+    RequirementsAnalysisDependencies,
+    RequirementsAnalysisService,
+)
+from rflp_lite.application.use_cases.project_analysis import (
+    ProjectAnalysisDependencies,
+    ProjectAnalysisService,
+)
 from rflp_lite.ports.diagram_renderer import RenderedDiagram
 from rflp_lite.application.resources import resource_path
 from rflp_lite.application.scheme_library import import_scheme_rows
-from rflp_lite.adapters.disciplines import discipline_registry
-from rflp_lite.adapters.scheme_sources import read_scheme_rows
 from rflp_lite.application.workspaces import (
     WorkspaceRef,
     create_managed_workspace,
@@ -119,10 +119,42 @@ DEFAULT_DISCOVERY_PACK = "urban-medical-aam-v1"
 
 
 class WebFacade:
-    def __init__(self, workspace_root: Path, fixture_root: Path | None = None):
+    def __init__(
+        self,
+        workspace_root: Path,
+        fixture_root: Path | None = None,
+        *,
+        dependencies: ApplicationDependencies | None = None,
+    ):
         self.workspace_root = workspace_root.resolve()
         self.fixture_root = fixture_root
+        self.dependencies = require_dependencies(dependencies)
         self.llm = LLMProfileService()
+        self._requirements_analysis = RequirementsAnalysisService(
+            RequirementsAnalysisDependencies(
+                repository_factory=self.dependencies.repository_factory,
+                job_service_factory=self.dependencies.job_service_factory,
+                enrichment_runner_factory=lambda path: EnrichmentJobRunner(
+                    path, dependencies=self.dependencies
+                ),
+                load_state=lambda workspace: self.requirements(workspace.name),
+                analyze_artifact=lambda filename, content: analyze_artifact(
+                    filename, content, dependencies=self.dependencies
+                ),
+                merge_artifact=lambda state, filename, content: merge_artifact(
+                    state, filename, content, dependencies=self.dependencies
+                ),
+            )
+        )
+        self._project_analysis = ProjectAnalysisService(
+            ProjectAnalysisDependencies(
+                repository_factory=self.dependencies.repository_factory,
+                load_state=lambda workspace: self.requirements(workspace.name),
+                analyze_state=lambda state, source: analyze_project_state(
+                    state, source, dependencies=self.dependencies
+                ),
+            )
+        )
 
     def workspaces(self) -> tuple[WorkspaceRef, ...]:
         return list_managed_workspaces(self.workspace_root)
@@ -191,7 +223,7 @@ class WebFacade:
 
         normalized_pack = self._concept_pack(pack)
         if isinstance(rows, (bytes, bytearray, memoryview, str)):
-            raw_rows = read_scheme_rows(source, rows)
+            raw_rows = self.dependencies.scheme_reader(source, rows)
         else:
             try:
                 raw_rows = tuple(rows)  # type: ignore[arg-type]
@@ -199,7 +231,7 @@ class WebFacade:
                 raise ContractViolation("scheme rows must be an iterable") from exc
         imported = import_scheme_rows(normalized_pack, raw_rows, source)
         workspace = self.workspace(workspace_name)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
                 repository.save_domain_pack(normalized_pack)
@@ -231,10 +263,10 @@ class WebFacade:
 
         normalized_pack = self._concept_pack(pack)
         workspace = self.workspace(workspace_name)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             stored_schemes = repository.scheme_records() if schemes is None else tuple(schemes)
-            adapters = discipline_registry() if registry is None else registry
+            adapters = self.dependencies.discipline_registry() if registry is None else registry
             with repository.transaction():
                 result = run_concept_design(
                     normalized_pack,
@@ -253,7 +285,7 @@ class WebFacade:
         self, workspace_name: str, run_id: str | None = None
     ) -> dict[str, object]:
         workspace = self.workspace(workspace_name)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             payload = (
                 repository.load_concept_run(run_id)
@@ -279,7 +311,7 @@ class WebFacade:
         run_id: str = "",
     ) -> dict[str, object]:
         workspace = self.workspace(workspace_name)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
                 review = review_layout_candidate(
@@ -306,7 +338,7 @@ class WebFacade:
     ) -> dict[str, object]:
         workspace = self.workspace(workspace_name)
         normalized = save_profile(workspace.path, payload)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
                 repository.record_audit("profile.saved", normalized)
@@ -454,6 +486,7 @@ class WebFacade:
             view_id,
             engine=engine,
             output_format=output_format,
+            dependencies=self.dependencies,
         )
         return {
             **result,
@@ -494,7 +527,7 @@ class WebFacade:
         tracking_uri: str | None = None,
         experiment_name: str = "rflp-lite",
     ) -> dict[str, object]:
-        return track_run_with_mlflow(
+        return self.dependencies.tracking(
             self.run(workspace_name, result_hash),
             tracking_uri=tracking_uri,
             experiment_name=experiment_name,
@@ -531,7 +564,7 @@ class WebFacade:
         database = workspace.path / ".rflp" / "model.db"
         if not database.is_file():
             return ()
-        repository = SQLiteRepository(database)
+        repository = self.dependencies.repository_factory(database)
         try:
             return repository.audit_events()
         finally:
@@ -545,12 +578,17 @@ class WebFacade:
             candidate_limit=3,
             timeout_seconds=5,
         )
-        result = run_demo(workspace.path, profile, fixture_root=self.fixture_root)
+        result = run_demo(
+            workspace.path,
+            profile,
+            fixture_root=self.fixture_root,
+            dependencies=self.dependencies,
+        )
         return load_run(workspace.path, result.result_hash)
 
     def requirements(self, workspace_name: str) -> dict[str, object] | None:
         workspace = self.workspace(workspace_name)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             state = repository.load_workbench()
             if state is not None:
@@ -656,8 +694,6 @@ class WebFacade:
     def _intelligence_service(self, pack_id: str, *, allow_model: bool) -> IntelligenceService:
         pack = self._discovery_pack(pack_id)
         config = self.llm.active_config() if allow_model else None
-        from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
-
         if config is not None and str(config.get("kind", "remote")) == "remote" and not str(config.get("api_key", "")):
             config = None
         if config is not None:
@@ -669,7 +705,7 @@ class WebFacade:
                 config["thinking"] = {"type": "disabled"}
             if is_ollama:
                 config["reasoning_effort"] = "none"
-        model = OpenAICompatibleModel(config) if config is not None else None
+        model = self.dependencies.model_factory(config or {}) if config is not None else None
         return IntelligenceService(pack, model)
 
     def _project_analysis_model(self):
@@ -680,8 +716,6 @@ class WebFacade:
             return None
         if str(config.get("kind", "remote")) == "remote" and not str(config.get("api_key", "")):
             return None
-        from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
-
         normalized = dict(config)
         normalized["response_format"] = {"type": "json_object"}
         provider_text = f'{normalized.get("base_url", "")} {normalized.get("model", "")}'.casefold()
@@ -694,7 +728,7 @@ class WebFacade:
             # budget is intentional: the one-call analysis must name every section.
             normalized["think"] = True
             normalized["local_max_tokens"] = 3000
-        return OpenAICompatibleModel(normalized)
+        return self.dependencies.model_factory(normalized)
 
     @staticmethod
     def _project_analysis_config(state: dict[str, object]) -> dict[str, object]:
@@ -756,7 +790,9 @@ class WebFacade:
         graph = current.get("discovery", {}).get("accepted_graph", {}) if isinstance(current.get("discovery"), dict) else {}
         if not isinstance(graph, dict) or not graph.get("elements"):
             raise ContractViolation("accepted discovery graph is empty")
-        return DiagramService(DeterministicSvgRenderer()).render_one(graph, self._discovery_pack(pack_id), diagram_type)
+        return DiagramService(self.dependencies.svg_renderer_factory()).render_one(
+            graph, self._discovery_pack(pack_id), diagram_type
+        )
 
     def requirements_guide(self, workspace_name: str) -> dict[str, object]:
         """Return one actionable next step for the guided requirements path."""
@@ -861,7 +897,7 @@ class WebFacade:
         """Return the project-level requirement ledger and status counts."""
         workspace = self.workspace(workspace_name)
         state = self.requirements(workspace_name)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             records = repository.requirement_records()
         finally:
@@ -929,102 +965,13 @@ class WebFacade:
         content: bytes,
         merge: bool = True,
     ) -> dict[str, object]:
-        workspace = self.workspace(workspace_name)
-        filename = Path(filename).name
-        current = self.requirements(workspace_name)
-        if merge and current is not None:
-            state = merge_artifact(current, filename, content)
-        else:
-            state = analyze_artifact(filename, content)
-            state = initialize_review_state(state)
-        state = bind_project_scope(state, workspace_name)
-        state["analysis_config"] = normalize_analysis_config(
-            state.get("analysis_config")
+        return self._requirements_analysis.analyze(
+            self.workspace(workspace_name),
+            filename,
+            content,
+            merge=merge,
+            model=self._project_analysis_model(),
         )
-        if state.get("spans"):
-            state = generate_draft_model(state)
-            state = accept_initial_workbench(state)
-            state["auto_analysis"] = {
-                "status": "baseline_ready",
-                "job_id": None,
-                "input_hash": str(state.get("project_scope", {}).get("input_hash", ""))
-                if isinstance(state.get("project_scope"), dict)
-                else "",
-                "blocks": {},
-                "diagnostics": [
-                    {
-                        "code": "baseline_ready",
-                        "severity": "info",
-                        "message": "规则和明确输入已先保存为 accepted 基线，LLM 补全将在后台分块执行。",
-                    }
-                ],
-                "modules": {"baseline": True},
-            }
-        state = refresh_traceability(state)
-        validate_project_scope(state, workspace_name)
-        validate_project_references(state)
-        safe_name = state["artifact"]["path"]
-        inputs = workspace.path / "inputs"
-        inputs.mkdir(parents=True, exist_ok=True)
-        (inputs / f'{state["artifact"]["sha256"][:12]}-{safe_name}').write_bytes(content)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
-        try:
-            with repository.transaction():
-                event = "requirements.merged" if merge else "requirements.analyzed"
-                repository.save_workbench(state, event)
-                sequence = repository.record_audit(
-                    event,
-                    {"artifact": safe_name, "sha256": state["artifact"]["sha256"]},
-                )
-                repository.save_requirement_records(
-                    self._requirement_records_for_state(state, event), sequence, event
-                )
-        finally:
-            repository.close()
-        if state.get("spans"):
-            input_hash = str(state.get("project_scope", {}).get("input_hash", "")) if isinstance(state.get("project_scope"), dict) else ""
-            job = EnrichmentJobRunner(workspace.path).submit(
-                self._project_analysis_model(), input_hash=input_hash
-            )
-            latest = self.requirements(workspace_name) or state
-            job_status = str(job.get("status", ""))
-            if job_status in {"queued", "running"}:
-                latest["auto_analysis"] = {
-                    **dict(latest.get("auto_analysis") or {}),
-                    "status": "enriching",
-                    "job_id": job.get("id"),
-                    "blocks": dict(job.get("blocks") or {}),
-                }
-                state = self._save_requirements(
-                    workspace_name,
-                    latest,
-                    "requirements.enrichment_queued",
-                    {"job_id": job.get("id"), "input_hash": input_hash},
-                )
-            else:
-                job_result = job.get("result") if isinstance(job.get("result"), dict) else {}
-                final_status = str(job_result.get("status", "")) or (
-                    "degraded" if job_status == "failed" else job_status
-                )
-                current_analysis = dict(latest.get("auto_analysis") or {})
-                if not current_analysis.get("job_id") or current_analysis.get("status") in {"baseline_ready", "enriching"}:
-                    latest["auto_analysis"] = {
-                        **current_analysis,
-                        "status": final_status,
-                        "job_id": job.get("id"),
-                        "blocks": dict(job.get("blocks") or current_analysis.get("blocks") or {}),
-                        "diagnostics": list(current_analysis.get("diagnostics") or [])
-                        + ([job.get("error")] if isinstance(job.get("error"), dict) else []),
-                    }
-                    state = self._save_requirements(
-                        workspace_name,
-                        latest,
-                        "requirements.enrichment_finished",
-                        {"job_id": job.get("id"), "status": final_status},
-                    )
-                else:
-                    state = latest
-        return state
 
     def _auto_complete_requirements(self, state: dict[str, object]) -> dict[str, object]:
         model = self._project_analysis_model()
@@ -1288,7 +1235,7 @@ class WebFacade:
         if current is None:
             raise ContractViolation("requirements workbench is empty")
         workspace = self.workspace(workspace_name)
-        jobs = JobService(workspace.path)
+        jobs = self.dependencies.job_service_factory(workspace.path)
         job = jobs.submit(
             "scenario.execute",
             {"scenario_id": scenario_id},
@@ -1311,33 +1258,16 @@ class WebFacade:
         return tuple(state.get("scenario_runs", ()))
 
     def job(self, workspace_name: str, job_id: str) -> dict[str, object] | None:
-        return JobService(self.workspace(workspace_name).path).get(job_id)
+        return self.dependencies.job_service_factory(self.workspace(workspace_name).path).get(job_id)
 
     def retry_requirement_enrichment(
         self, workspace_name: str, job_id: str
     ) -> dict[str, object]:
-        workspace = self.workspace(workspace_name)
-        job = JobService(workspace.path).get(job_id)
-        if job is None:
-            raise ContractViolation("enrichment job not found")
-        new_job = EnrichmentJobRunner(workspace.path).retry(
-            job_id, self._project_analysis_model()
+        return self._requirements_analysis.retry(
+            self.workspace(workspace_name),
+            job_id,
+            model=self._project_analysis_model(),
         )
-        current = self.requirements(workspace_name)
-        if current is not None:
-            current["auto_analysis"] = {
-                **dict(current.get("auto_analysis") or {}),
-                "status": "enriching",
-                "job_id": new_job.get("id"),
-                "blocks": dict(new_job.get("blocks") or {}),
-            }
-            self._save_requirements(
-                workspace_name,
-                current,
-                "requirements.enrichment_retry_queued",
-                {"previous_job_id": job_id, "job_id": new_job.get("id")},
-            )
-        return new_job
 
     def approve_requirements_baseline(self, workspace_name: str) -> dict[str, object]:
         current = self.requirements(workspace_name)
@@ -1345,7 +1275,7 @@ class WebFacade:
             raise ContractViolation("requirements workbench is empty")
         state, baseline = approve_workbench_baseline(current)
         workspace = self.workspace(workspace_name)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
                 repository.save_workbench(state)
@@ -1360,34 +1290,7 @@ class WebFacade:
     def analyze_workspace_project(
         self, workspace_name: str, source: str
     ) -> dict[str, object]:
-        current = self.requirements(workspace_name)
-        if current is None:
-            raise ContractViolation("requirements workbench is empty")
-        state, artifacts = analyze_project_state(current, source)
-        workspace = self.workspace(workspace_name)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
-        try:
-            with repository.transaction():
-                repository.save_workbench(state)
-                repository.save_baseline(artifacts.baseline)
-                repository.save_evidence(artifacts.evidence)
-                repository.save_tasks(artifacts.tasks)
-                repository.record_audit(
-                    "project.analyzed",
-                    {
-                        "source": str(state["project"]["source"]),
-                        "missing": sum(
-                            1 for item in artifacts.delta.items if item.kind == "MISSING"
-                        ),
-                        "extra": sum(
-                            1 for item in artifacts.delta.items if item.kind == "EXTRA"
-                        ),
-                        "tasks": len(artifacts.tasks),
-                    },
-                )
-        finally:
-            repository.close()
-        return state
+        return self._project_analysis.analyze(self.workspace(workspace_name), source)
 
     def verify_workspace_project(
         self, workspace_name: str, source: str
@@ -1395,10 +1298,12 @@ class WebFacade:
         current = self.requirements(workspace_name)
         if current is None:
             raise ContractViolation("requirements workbench is empty")
-        state, verify = verify_contracts_state(current, source)
+        state, verify = verify_contracts_state(
+            current, source, dependencies=self.dependencies
+        )
         summary = state["project"]["execution"]["summary"]
         workspace = self.workspace(workspace_name)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
                 repository.save_workbench(state)
@@ -1441,9 +1346,10 @@ class WebFacade:
             limits=limits,
             cache_dir=cache_dir,
             jobs=jobs,
+            dependencies=self.dependencies,
         )
         test_run = state["project"]["execution"]["summary"]["test_run"]
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
                 repository.save_workbench(state)
@@ -1481,7 +1387,7 @@ class WebFacade:
         state = refresh_traceability(state)
         validate_project_references(state)
         workspace = self.workspace(workspace_name)
-        repository = SQLiteRepository(workspace.path / ".rflp" / "model.db")
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
                 repository.save_workbench(state, event)

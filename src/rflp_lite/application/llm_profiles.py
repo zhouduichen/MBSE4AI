@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
+from rflp_lite.application.dependencies import require_dependencies
 from rflp_lite.domain.errors import AdapterFailure, InvariantViolation
 
 
@@ -283,12 +284,10 @@ class LLMProfileService:
         return {**profile, "api_key": api_key}
 
     def test(self, payload: object) -> dict[str, object]:
-        from rflp_lite.adapters.llm_client import test_connection
-
         config = self.config_for(payload)
         if config["kind"] == "remote" and not config["api_key"]:
             raise AdapterFailure("远程 LLM 缺少 API Key")
-        return test_connection(config)
+        return require_dependencies().test_connection(config)
 
 
 def environment_config() -> dict[str, object] | None:

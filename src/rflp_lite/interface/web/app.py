@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from rflp_lite.application.resources import default_workspace_root
+from rflp_lite.bootstrap.container import ApplicationContainer, build_container
 from rflp_lite.application.web_facade import WebFacade
 from rflp_lite.domain.errors import ContractViolation, RflpError
 from rflp_lite.interface.web.routes import router, templates
@@ -18,16 +19,23 @@ from rflp_lite.interface.web.discovery_routes import discovery_router
 def create_app(
     workspace_root: Path | None = None,
     fixture_root: Path | None = None,
+    container: ApplicationContainer | None = None,
 ) -> FastAPI:
     package_dir = Path(__file__).resolve().parent
     root = (workspace_root or default_workspace_root()).resolve()
+    application_container = container or build_container(root, fixture_root)
     app = FastAPI(
         title="RFLP-Lite Local Console",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
     )
-    app.state.facade = WebFacade(root, fixture_root)
+    app.state.container = application_container
+    app.state.facade = WebFacade(
+        root,
+        fixture_root,
+        dependencies=application_container.dependencies,
+    )
     app.mount("/static", StaticFiles(directory=package_dir / "static"), name="static")
     app.include_router(router)
     app.include_router(api_v1)

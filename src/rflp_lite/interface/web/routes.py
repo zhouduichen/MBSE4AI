@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from fastapi.templating import Jinja2Templates
 
 from rflp_lite.application.run_catalog import registered_output
-from rflp_lite.adapters.test_execution_config import build_limits
+from rflp_lite.ports.test_execution import build_limits
 from rflp_lite.application.web_facade import WebFacade
 from rflp_lite.application.mbse_views import MBSE_VIEW_DEFINITIONS
 from rflp_lite.domain.errors import ContractViolation, RflpError

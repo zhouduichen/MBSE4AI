@@ -7,17 +7,13 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from rflp_lite import __version__
-from rflp_lite.adapters.sqlite_repository import SQLiteRepository
-from rflp_lite.adapters.scheme_sources import read_scheme_rows, read_sqlite_scheme_rows
-from rflp_lite.adapters.mlflow_tracking import track_run_with_mlflow
-from rflp_lite.adapters.test_execution_config import build_limits
-from rflp_lite.adapters.test_executor import DEFAULT_TEST_TIMEOUT
+from rflp_lite.application.dependencies import require_dependencies
+from rflp_lite.ports.test_execution import DEFAULT_TEST_TIMEOUT, build_limits
 from rflp_lite.application.demo import run_demo
 from rflp_lite.application.acceptance_harness import run_customer_acceptance
 from rflp_lite.application.mbse_exchange import export_mbse_json, export_mbse_sysml_v2_text
 from rflp_lite.application.mbse_modeling import apply_mbse_edit, generate_mbse_revision
 from rflp_lite.application.mbse_render import render_mbse_svg
-from rflp_lite.application.jobs import JobService
 from rflp_lite.application.profile_packs import (
     export_run_record,
     load_profile,
@@ -49,9 +45,11 @@ from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import ContractViolation, RflpError
 from rflp_lite.governance.profile import Profile
 from rflp_lite.governance.validation import validate_json
+from rflp_lite.bootstrap.container import build_container
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    build_container(Path.cwd())
     parser = argparse.ArgumentParser(prog="rflp")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("version", help="show the installed version")
@@ -325,13 +323,13 @@ def _run_concept(args: argparse.Namespace) -> int:
         if args.data.suffix.casefold() in {".db", ".sqlite", ".sqlite3"}:
             if not args.table:
                 raise ContractViolation("--table is required for SQLite scheme import")
-            rows = read_sqlite_scheme_rows(args.data, args.table)
+            rows = require_dependencies().sqlite_scheme_reader(args.data, args.table)
         else:
-            rows = read_scheme_rows(args.data.name, args.data.read_bytes())
+            rows = require_dependencies().scheme_reader(args.data.name, args.data.read_bytes())
         from rflp_lite.application.scheme_library import import_scheme_rows
 
         imported = import_scheme_rows(pack, rows, str(args.data))
-        repository = SQLiteRepository(args.workspace / ".rflp" / "model.db")
+        repository = require_dependencies().repository_factory(args.workspace / ".rflp" / "model.db")
         try:
             with repository.transaction():
                 repository.save_domain_pack(pack)
@@ -362,7 +360,7 @@ def _run_concept(args: argparse.Namespace) -> int:
         }))
         return 0
     if args.concept_command == "export":
-        repository = SQLiteRepository(args.workspace / ".rflp" / "model.db")
+        repository = require_dependencies().repository_factory(args.workspace / ".rflp" / "model.db")
         try:
             payload = repository.load_concept_run(args.run_id)
         finally:
@@ -394,12 +392,12 @@ def _run_concept(args: argparse.Namespace) -> int:
 
 def _run_scenario(args: argparse.Namespace) -> int:
     workspace = args.workspace.resolve()
-    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         state = repository.load_workbench()
         if state is None:
             raise ContractViolation("需求工作台为空")
-        service = JobService(workspace)
+        service = require_dependencies().job_service_factory(workspace)
         job = service.submit(
             "scenario.execute",
             {"scenario_id": args.scenario_id},
@@ -433,7 +431,7 @@ def _run_run(args: argparse.Namespace) -> int:
 
 def _run_sysml(args: argparse.Namespace) -> int:
     workspace = args.workspace.resolve()
-    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         state = repository.load_workbench()
         if state is None:
@@ -455,7 +453,7 @@ def _run_sysml(args: argparse.Namespace) -> int:
 
 def _run_mbse(args: argparse.Namespace) -> int:
     workspace = args.workspace.resolve()
-    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         state = repository.load_workbench()
         if state is None:
@@ -494,7 +492,7 @@ def _run_mbse(args: argparse.Namespace) -> int:
 
 def _run_mlflow(args: argparse.Namespace) -> int:
     record = load_run(args.workspace.resolve(), args.result_hash)
-    result = track_run_with_mlflow(
+    result = require_dependencies().tracking(
         record,
         tracking_uri=args.tracking_uri,
         experiment_name=args.experiment,
@@ -522,7 +520,7 @@ def _run_discover(args: argparse.Namespace) -> int:
                     else merge_artifact(state, path.name, content)
                 )
             state = migrate_workbench_state(state)
-            repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+            repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
             try:
                 with repository.transaction():
                     repository.save_workbench(state, "requirements.analyzed")
@@ -567,7 +565,7 @@ def _run_workbench(args: argparse.Namespace) -> int:
             state = merge_artifact(state, path.name, content)
     state = accept_traceable(state)
     state = generate_model(state)
-    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         with repository.transaction():
             repository.save_workbench(state)
@@ -602,7 +600,7 @@ def _run_assess(args: argparse.Namespace) -> int:
     )
     execution_summary = state["project"]["execution"]["summary"]
     test_run = execution_summary["test_run"]
-    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         with repository.transaction():
             repository.save_workbench(state)
@@ -658,7 +656,7 @@ def _run_assess(args: argparse.Namespace) -> int:
 
 def _run_project(args: argparse.Namespace) -> int:
     workspace = args.workspace.resolve()
-    repository = SQLiteRepository(workspace / ".rflp" / "model.db")
+    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         state = repository.load_workbench()
         if state is None:

@@ -4,9 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from rflp_lite.adapters.evidence_readers import read_junit, read_openapi, read_python_ast
-from rflp_lite.adapters.solvers import CpSatSolver, HeuristicSolver
-from rflp_lite.adapters.sqlite_repository import SQLiteRepository
+from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
 from rflp_lite.application.compile import compile_claims
 from rflp_lite.application.decide import select_candidate
 from rflp_lite.application.diff import calculate_delta
@@ -36,20 +34,25 @@ def run_demo(
     profile: Profile,
     fixture_root: Path | None = None,
     solver_override: Any | None = None,
+    *,
+    dependencies: ApplicationDependencies | None = None,
 ) -> DemoResult:
+    deps = require_dependencies(dependencies)
     fixture_root = fixture_root or DEFAULT_FIXTURES
     model_dir = workspace / ".rflp"
     model_dir.mkdir(parents=True, exist_ok=True)
-    repository = SQLiteRepository(model_dir / "model.db")
+    repository = deps.repository_factory(model_dir / "model.db")
     try:
         try:
             with repository.transaction():
                 repository.record_audit("run.started", profile.as_dict())
-                artifact, spans = ingest_requirements(fixture_root / "requirements.md")
-                claims = compile_claims(spans)
+                artifact, spans = ingest_requirements(
+                    fixture_root / "requirements.md", dependencies=deps
+                )
+                claims = compile_claims(spans, dependencies=deps)
                 elements, relations = synthesize_rflp(claims)
                 solver = solver_override or (
-                    CpSatSolver() if profile.solver == "cp-sat" else HeuristicSolver()
+                    deps.solver_factory(profile.solver)
                 )
                 candidates = solver.solve(elements, profile)
                 simulations = tuple(simulate(candidate, profile.seed) for candidate in candidates)
@@ -59,9 +62,7 @@ def run_demo(
                 )
                 baseline = approve_baseline(elements, relations)
                 parsed_evidence = (
-                    read_openapi(fixture_root / "openapi.json")
-                    + read_junit(fixture_root / "junit.xml")
-                    + read_python_ast(fixture_root / "implementation.py")
+                    deps.evidence_readers(fixture_root)
                 )
                 simulation_evidence = Evidence(
                     id=f"evidence-{selected_simulation.id}",
