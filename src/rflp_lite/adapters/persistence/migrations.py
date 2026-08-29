@@ -7,7 +7,6 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +38,7 @@ def _base_statements() -> tuple[str, ...]:
         "concept_runs",
         "candidate_reviews",
     )
+
     return tuple(
         f"CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
         for table in tables
@@ -88,6 +88,49 @@ def _base_statements() -> tuple[str, ...]:
     )
 
 
+def _job_statements() -> tuple[str, ...]:
+    return (
+        """
+        CREATE TABLE IF NOT EXISTS jobs (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            workspace TEXT NOT NULL,
+            status TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL DEFAULT '',
+            attempt INTEGER NOT NULL DEFAULT 0,
+            lease_id TEXT NOT NULL DEFAULT '',
+            lease_expires_at REAL NOT NULL DEFAULT 0,
+            heartbeat_at REAL NOT NULL DEFAULT 0,
+            snapshot_revision INTEGER NOT NULL DEFAULT 0,
+            snapshot_content_revision INTEGER NOT NULL DEFAULT 0,
+            input_hash TEXT NOT NULL DEFAULT '',
+            payload TEXT NOT NULL,
+            result TEXT,
+            last_error TEXT,
+            diagnostics TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS job_blocks (
+            job_id TEXT NOT NULL,
+            block_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            attempt INTEGER NOT NULL DEFAULT 0,
+            input_hash TEXT NOT NULL DEFAULT '',
+            result TEXT,
+            diagnostics TEXT NOT NULL DEFAULT '{}',
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (job_id, block_id),
+            FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_idempotency ON jobs(idempotency_key, status)",
+    )
+
+
 def _revision_columns(connection: sqlite3.Connection) -> set[str]:
     return {
         str(row[1])
@@ -107,6 +150,7 @@ class MigrationRunner:
         self.migrations = migrations or (
             Migration(1, "base_schema", _base_statements()),
             Migration(2, "workbench_revision_columns", ()),
+            Migration(3, "durable_jobs", _job_statements()),
         )
 
     def _apply_migration(

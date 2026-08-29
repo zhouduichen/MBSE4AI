@@ -1,9 +1,9 @@
 {
-  "adapter_to_application_edges": 1,
-  "dict_str_object_occurrences": 990,
+  "adapter_to_application_edges": 0,
+  "dict_str_object_occurrences": 1034,
   "functions_over_150_lines": 11,
-  "module_cycles": 1,
+  "module_cycles": 0,
   "raw_request_json_calls": 29,
-  "require_dependencies_calls": 25,
+  "require_dependencies_calls": 0,
   "web_facade_methods": 92
 }

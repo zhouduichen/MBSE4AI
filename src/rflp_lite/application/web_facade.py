@@ -1258,7 +1258,18 @@ class WebFacade:
         return tuple(state.get("scenario_runs", ()))
 
     def job(self, workspace_name: str, job_id: str) -> dict[str, object] | None:
-        return self.dependencies.job_service_factory(self.workspace(workspace_name).path).get(job_id)
+        value = self.dependencies.job_service_factory(self.workspace(workspace_name).path).get(job_id)
+        if (
+            value
+            and value.get("kind") == "requirements.enrichment"
+            and value.get("status") == "succeeded"
+            and isinstance(value.get("result"), dict)
+            and value["result"].get("status") == "completed"
+        ):
+            # Keep the historical Web/API status while the durable job ledger
+            # uses the normalized ``succeeded`` terminal state.
+            return {**value, "status": "completed"}
+        return value
 
     def retry_requirement_enrichment(
         self, workspace_name: str, job_id: str

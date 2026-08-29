@@ -10,7 +10,7 @@ from rflp_lite.adapters.disciplines import discipline_registry
 from rflp_lite.adapters.document_intelligence import LocalDocumentParser
 from rflp_lite.adapters.evidence_readers import read_junit, read_openapi, read_python_ast
 from rflp_lite.adapters.graphviz_engine import GraphvizEngine
-from rflp_lite.adapters.llm_client import chat_completion, test_connection
+from rflp_lite.adapters.llm_client import test_connection
 from rflp_lite.adapters.matrix_engine import MatrixEngine
 from rflp_lite.adapters.mlflow_tracking import track_run_with_mlflow
 from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
@@ -20,7 +20,9 @@ from rflp_lite.adapters.readers import RuleClaimExtractor, read_artifact, read_m
 from rflp_lite.adapters.scheme_sources import read_scheme_rows, read_sqlite_scheme_rows
 from rflp_lite.adapters.solvers import CpSatSolver, HeuristicSolver
 from rflp_lite.adapters.sqlite_repository import SQLiteRepository
+from rflp_lite.adapters.sqlite_job_repository import SQLiteJobRepository
 from rflp_lite.adapters.test_executor import run_project_test_matrix
+from rflp_lite.adapters.thread_background_executor import ThreadBackgroundExecutor
 from rflp_lite.application.dependencies import (
     ApplicationDependencies,
     configure_default_dependencies,
@@ -66,12 +68,17 @@ def build_container(
 ) -> ApplicationContainer:
     dependencies = ApplicationDependencies(
         repository_factory=lambda path: SQLiteRepository(path),
-        job_service_factory=lambda path: JobService(path),
+        job_repository_factory=lambda path: SQLiteJobRepository(path / ".rflp" / "model.db"),
+        job_executor_factory=lambda: ThreadBackgroundExecutor(),
+        job_service_factory=lambda path: JobService(
+            path,
+            repository=SQLiteJobRepository(path / ".rflp" / "model.db"),
+            executor=ThreadBackgroundExecutor(),
+        ),
         document_parser_factory=lambda: LocalDocumentParser(),
         artifact_reader=read_artifact,
         markdown_reader=read_markdown,
         claim_extractor_factory=lambda: RuleClaimExtractor(),
-        chat_completion=chat_completion,
         model_factory=_model_factory,
         evidence_readers=_evidence_readers,
         solver_factory=_solver_factory,

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rflp_lite.application.intelligence.analysis_config import normalize_analysis_config
+from rflp_lite.application.intelligence.identity import advance_content_revision
 from rflp_lite.application.intelligence.enrichment_jobs import EnrichmentJobRunner
 from rflp_lite.application.project_scope import (
     bind_project_scope,
@@ -17,13 +18,11 @@ from rflp_lite.application.requirements_workbench import (
     accept_initial_workbench,
     generate_draft_model,
 )
-from rflp_lite.application.traceability import (
-    build_trace_matrix,
-    refresh_traceability,
-    trace_coverage,
-)
+from rflp_lite.application.traceability import refresh_traceability
+from rflp_lite.application.workbench import MutationKind, MutationResult, WorkbenchCommitCoordinator
 from rflp_lite.application.workspaces import WorkspaceRef
-from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation
+from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.ports.generative_model import GenerativeModel
 from rflp_lite.ports.jobs import JobServiceFactory
 from rflp_lite.ports.repositories import RepositoryFactory
@@ -67,6 +66,43 @@ class RequirementsAnalysisService:
             state = self._initialize_review_state(state)
 
         state = bind_project_scope(state, workspace.name)
+        before_semantic_hash = canonical_hash(
+            {
+                "regions": (current or {}).get("document_regions", ()),
+                "claims": (current or {}).get("claims", ()),
+                "structured_requirements": (current or {}).get(
+                    "structured_requirements", ()
+                ),
+                "artifact": (current or {}).get("artifact", {}),
+            }
+        )
+        after_semantic_hash = canonical_hash(
+            {
+                "regions": state.get("document_regions", ()),
+                "claims": state.get("claims", ()),
+                "structured_requirements": state.get(
+                    "structured_requirements", ()
+                ),
+                "artifact": state.get("artifact", {}),
+            }
+        )
+        if merge and current is not None and before_semantic_hash == after_semantic_hash:
+            # Re-submitting an identical artifact is a no-op.  In particular,
+            # it must not advance the source revision or enqueue another LLM
+            # job while a reviewer is editing the current workbench.
+            return current
+        before_region_ids = {
+            str(item.get("id", ""))
+            for item in (current or {}).get("document_regions", ())
+            if isinstance(item, dict) and item.get("id")
+        }
+        after_region_ids = {
+            str(item.get("id", ""))
+            for item in state.get("document_regions", ())
+            if isinstance(item, dict) and item.get("id")
+        }
+        delta_region_ids = tuple(sorted(after_region_ids - before_region_ids))
+        state = advance_content_revision(state)
         state["analysis_config"] = normalize_analysis_config(
             state.get("analysis_config")
         )
@@ -103,9 +139,23 @@ class RequirementsAnalysisService:
             return state
 
         input_hash = self._input_hash(state)
-        job = self.dependencies.enrichment_runner_factory(workspace.path).submit(
-            model, input_hash=input_hash
-        )
+        runner = self.dependencies.enrichment_runner_factory(workspace.path)
+        try:
+            job = runner.submit(
+                model,
+                input_hash=input_hash,
+                mode="incremental",
+                delta_region_ids=delta_region_ids,
+                snapshot_revision=int(state.get("revision", 0) or 0),
+                snapshot_content_revision=int(state.get("content_revision", 0) or 0),
+            )
+        except TypeError as exc:
+            # Keep third-party/test runners implementing the pre-mode submit
+            # contract usable while the built-in runner receives the richer
+            # snapshot metadata above.
+            if "unexpected keyword argument" not in str(exc):
+                raise
+            job = runner.submit(model, input_hash=input_hash)
         latest = self.dependencies.load_state(workspace) or state
         job_status = str(job.get("status", ""))
         if job_status in {"queued", "running"}:
@@ -113,7 +163,7 @@ class RequirementsAnalysisService:
                 **dict(latest.get("auto_analysis") or {}),
                 "status": "enriching",
                 "job_id": job.get("id"),
-                "blocks": dict(job.get("blocks") or {}),
+                "blocks": dict(job.get("blocks") or job.get("block_states") or {}),
             }
             return self._save_requirements(
                 workspace,
@@ -136,7 +186,10 @@ class RequirementsAnalysisService:
                 "status": final_status,
                 "job_id": job.get("id"),
                 "blocks": dict(
-                    job.get("blocks") or current_analysis.get("blocks") or {}
+                    job.get("blocks")
+                    or job.get("block_states")
+                    or current_analysis.get("blocks")
+                    or {}
                 ),
                 "diagnostics": list(current_analysis.get("diagnostics") or [])
                 + ([job.get("error")] if isinstance(job.get("error"), dict) else []),
@@ -169,13 +222,60 @@ class RequirementsAnalysisService:
                 **dict(current.get("auto_analysis") or {}),
                 "status": "enriching",
                 "job_id": new_job.get("id"),
-                "blocks": dict(new_job.get("blocks") or {}),
+                "blocks": dict(
+                    new_job.get("blocks") or new_job.get("block_states") or {}
+                ),
             }
             self._save_requirements(
                 workspace,
                 current,
                 "requirements.enrichment_retry_queued",
                 {"previous_job_id": job_id, "job_id": new_job.get("id")},
+            )
+        return new_job
+
+    def retry_block(
+        self,
+        workspace: WorkspaceRef,
+        job_id: str,
+        block_id: str,
+        *,
+        model: GenerativeModel | None = None,
+    ) -> dict[str, object]:
+        job_service = self.dependencies.job_service_factory(workspace.path)
+        previous = job_service.get(job_id)
+        if previous is None:
+            raise ContractViolation("enrichment job not found")
+        new_job = self.dependencies.enrichment_runner_factory(workspace.path).retry_block(
+            job_id, block_id, model
+        )
+        current = self.dependencies.load_state(workspace)
+        if current is not None:
+            current["auto_analysis"] = {
+                **dict(current.get("auto_analysis") or {}),
+                "status": "enriching",
+                "job_id": new_job.get("id"),
+                "blocks": dict(
+                    new_job.get("blocks") or new_job.get("block_states") or {}
+                ),
+                "diagnostics": [
+                    {
+                        "code": "enrichment_retry_queued",
+                        "severity": "info",
+                        "block_id": block_id,
+                        "message": f"正在重试：{block_id}。长文本本地推理可能需要较长时间。",
+                    }
+                ],
+            }
+            self._save_requirements(
+                workspace,
+                current,
+                "requirements.enrichment_block_retry_queued",
+                {
+                    "previous_job_id": job_id,
+                    "job_id": new_job.get("id"),
+                    "block_id": block_id,
+                },
             )
         return new_job
 
@@ -233,24 +333,52 @@ class RequirementsAnalysisService:
             workspace.path / ".rflp" / "model.db"
         )
         try:
-            with repository.transaction():
-                repository.save_workbench(state, event)
-                sequence = repository.record_audit(
-                    event,
-                    audit_payload or {"artifact": (state.get("artifact") or {}).get("path", "")},
+            if not hasattr(repository, "load_workbench"):
+                # Compatibility seam for small third-party repository doubles
+                # that predate the WorkbenchRepositoryPort snapshot methods.
+                with repository.transaction():
+                    repository.save_workbench(state, event)
+                    sequence = repository.record_audit(
+                        event,
+                        audit_payload
+                        or {"artifact": (state.get("artifact") or {}).get("path", "")},
+                    )
+                    repository.save_requirement_records(
+                        self._requirement_records_for_state(state, event), sequence, event
+                    )
+                    repository.save_trace_records(tuple(state.get("trace_links", ())))
+                    repository.record_audit(
+                        "requirements.traceability_updated",
+                        {"coverage": state.get("trace_coverage", {})},
+                    )
+            else:
+                # Queueing metadata may race a fast worker that has already
+                # persisted the terminal result.  Compare against the revision
+                # carried by this state so a stale ``enriching`` update cannot
+                # overwrite the worker's final Workbench snapshot.
+                expected_revision = int(state.get("revision", 0) or 0)
+                expected_content_revision = int(
+                    state.get("content_revision", state.get("revision", 0)) or 0
                 )
-                repository.save_requirement_records(
-                    self._requirement_records_for_state(state, event), sequence, event
+                coordinator = WorkbenchCommitCoordinator(repository, workspace.name)
+                coordinator.commit(
+                    lambda _current: MutationResult(
+                        state=state,
+                        mutation_kind=MutationKind.METADATA,
+                    ),
+                    expected_revision=expected_revision,
+                    expected_content_revision=expected_content_revision,
+                    event=event,
+                    audit_payload=audit_payload
+                    or {"artifact": (state.get("artifact") or {}).get("path", "")},
                 )
-                repository.save_trace_records(tuple(state.get("trace_links", ())))
-                repository.record_audit(
-                    "requirements.traceability_updated",
-                    {
-                        "coverage": state.get(
-                            "trace_coverage", trace_coverage(build_trace_matrix(state))
-                        )
-                    },
-                )
+        except ConcurrentModificationError:
+            # A concurrent enrichment worker won the CAS.  Its state is the
+            # authoritative response for this asynchronous request.
+            latest = self.dependencies.load_state(workspace)
+            if latest is not None:
+                return latest
+            raise
         finally:
             repository.close()
         return state

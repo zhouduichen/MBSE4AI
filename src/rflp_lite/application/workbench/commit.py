@@ -31,6 +31,8 @@ class WorkbenchCommitCoordinator:
         expected_revision: int | None,
         expected_content_revision: int | None = None,
         event: str = "workbench.mutated",
+        audit_payload: dict[str, object] | None = None,
+        deleted_requirement_ids: tuple[str, ...] = (),
     ) -> MutationResult:
         with self.repository.transaction():
             current = self.repository.load_workbench() or {}
@@ -46,7 +48,7 @@ class WorkbenchCommitCoordinator:
                 expected_revision=expected_revision,
                 expected_content_revision=expected_content_revision,
             )
-            audit_payload: dict[str, object] = {
+            event_payload: dict[str, object] = {
                 "workspace": self.workspace,
                 "revision": saved.get("revision", 0),
                 "content_revision": saved.get("content_revision", 0),
@@ -54,14 +56,20 @@ class WorkbenchCommitCoordinator:
                 "invalidated_sections": result.invalidated_sections,
                 "mutation_kind": result.mutation_kind.value,
             }
+            if audit_payload:
+                event_payload.update(audit_payload)
             if result.diagnostics:
-                audit_payload["diagnostics"] = tuple(
+                event_payload["diagnostics"] = tuple(
                     asdict(item) for item in result.diagnostics
                 )
-            sequence = self.repository.record_audit(event, audit_payload)
+            sequence = self.repository.record_audit(event, event_payload)
             self.repository.save_requirement_records(
                 self._requirement_records(saved), sequence, event
             )
+            if deleted_requirement_ids:
+                self.repository.mark_requirement_deleted(
+                    deleted_requirement_ids, sequence, event
+                )
             self.repository.save_trace_records(
                 tuple(item for item in saved.get("trace_links", ()) if isinstance(item, dict))
             )
