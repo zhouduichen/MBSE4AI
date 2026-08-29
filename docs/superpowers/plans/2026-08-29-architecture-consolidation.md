@@ -48,7 +48,7 @@
 - [ ] Step 4: Set Ruff rules E4,E7,E9,F,I,UP,B,S; set Pyright basic mode for src and exclude .venv, build, dist; generate architecture_budget.json with an AST scanner and measured current values.
 - [ ] Step 5: Add characterization fixtures for Requirements review/delete/restore, all strict LLM blocks, MBSE semantic IDs/relations/gaps, and Job status/recovery.
 - [ ] Step 6: Run .venv/bin/python -m pytest tests/characterization tests/architecture/test_dependency_boundaries.py -q and .venv/bin/python scripts/verify_full.py. Record any unavailable dependency explicitly.
-- [ ] Step 7: Commit with git add pyproject.toml scripts/verify_full.py architecture_budget.json pyrightconfig.json ruff.toml tests/characterization tests/architecture/test_architecture_budget.py && git commit -m "build: establish architecture consolidation quality gates".
+- [ ] Step 7: Commit only the explicitly changed files with `git add pyproject.toml scripts/verify_full.py architecture_budget.json pyrightconfig.json ruff.toml tests/characterization/test_verification_contract.py tests/architecture/test_architecture_budget.py`, inspect `git diff --cached`, then run `git commit -m "build: establish architecture consolidation quality gates"`. Never stage a directory containing pre-existing user changes.
 
 ### Task 2: WAVE 1 — 测试环境隔离与 Adapter 循环清理
 
@@ -85,7 +85,7 @@
 - [ ] Step 3: Create per-run home, tmp, and output directories; construct the allowlist; retain fixed argv, shell=False, timeout, output cap, and resource limits.
 - [ ] Step 4: Move RunRecord semantics to the stable Port/Domain type with a compatibility re-export if needed. Extract public TXT, Markdown, DOCX, PDF, and OCR readers; make readers.py delegate to them; remove _read_docx cross-module access.
 - [ ] Step 5: Update README and DEVELOPMENT_STATUS to say 受资源约束的本地测试运行器. Run .venv/bin/python -m pytest tests/adapters/test_test_executor.py tests/adapters/test_runners.py tests/adapters/test_mlflow_tracking.py tests/adapters/test_readers.py tests/adapters/test_document_intelligence.py tests/architecture/test_dependency_boundaries.py -q and .venv/bin/lint-imports.
-- [ ] Step 6: Commit with git add src/rflp_lite/adapters src/rflp_lite/ports/tracking.py src/rflp_lite/application/run_catalog.py README.md docs/DEVELOPMENT_STATUS.md tests/adapters tests/architecture/test_dependency_boundaries.py && git commit -m "security: isolate test runner and close adapter cycles".
+- [ ] Step 6: Stage only the exact files changed by this task, inspect `git diff --cached`, then run `git commit -m "security: isolate test runner and close adapter cycles"`; do not stage whole `src/rflp_lite/adapters` or `tests/adapters` directories because they contain pre-existing user changes.
 
 ### Task 3: WAVE 2A — SQLite Migration、Workbench Snapshot 与 CAS
 
@@ -117,7 +117,7 @@
 - [ ] Step 3: Add schema_migrations; add explicit revision/content_revision columns to workbench; backfill from legacy payload; retain workbench_revisions; conditional-update workbench by expected revision and raise ConcurrentModificationError on zero rows.
 - [ ] Step 4: Implement immutable Snapshot and Coordinator. Copy state before mutation; run normalization, staleness checks, Trace refresh, Ledger update, Audit, and CAS save in one transaction. Do not auto-increment content_revision in this task.
 - [ ] Step 5: Run .venv/bin/python -m pytest tests/adapters/test_sqlite_repository.py tests/adapters/test_sqlite_repository_concept.py tests/adapters/test_sqlite_migrations.py tests/adapters/test_sqlite_repository_cas.py tests/application/workbench -q; old save_workbench(state) calls must remain valid.
-- [ ] Step 6: Commit with git add src/rflp_lite/adapters/persistence src/rflp_lite/adapters/sqlite_repository.py src/rflp_lite/ports/repositories.py src/rflp_lite/domain/errors.py src/rflp_lite/application/workbench tests/adapters/test_sqlite_migrations.py tests/adapters/test_sqlite_repository_cas.py tests/application/workbench && git commit -m "refactor: add workbench snapshot migrations and cas".
+- [ ] Step 6: Stage only the exact migration, repository, error, workbench, and test files changed by this task, inspect `git diff --cached`, then run `git commit -m "refactor: add workbench snapshot migrations and cas"`; never stage an entire source or test directory.
 
 ### Task 4: WAVE 2B — Human Mutation Pipeline 与 Explicit DI
 
@@ -155,7 +155,7 @@
 - [ ] Step 5: After all human mutations use the Coordinator, increment content_revision exactly once for HUMAN_CONTENT; remove migrated business-level increments and add C1/C2/CAS tests.
 - [ ] Step 6: Split repository Protocols, construct infrastructure/application in bootstrap, migrate remaining locator callers, and delete repository_method only after grep finds no callers. Remove the global registry after its public compatibility callers are gone.
 - [ ] Step 7: Run .venv/bin/python -m pytest tests/contracts/test_repository_contract.py tests/bootstrap/test_container_wiring.py tests/application/workbench tests/application/use_cases tests/application/test_entity_deletion.py tests/application/test_scenarios.py tests/interface/web/test_pages.py tests/interface/web/test_api_v1.py -q and the architecture tests. Expected: all mutation flows pass and the locator budget decreases.
-- [ ] Step 8: Commit with git add src/rflp_lite/application src/rflp_lite/bootstrap src/rflp_lite/ports/repositories.py tests/contracts tests/bootstrap tests/architecture/test_dependency_boundaries.py tests/application/workbench tests/application/use_cases tests/interface/web/test_pages.py tests/interface/web/test_api_v1.py && git commit -m "refactor: route human mutations through explicit application dependencies".
+- [ ] Step 8: Stage only the exact files changed by this task, inspect `git diff --cached`, then run `git commit -m "refactor: route human mutations through explicit application dependencies"`; never stage whole application, bootstrap, or test directories.
 
 ### Task 5: WAVE 3 — Requirements、Typed LLM 与 Enrichment Pipeline
 
@@ -196,7 +196,7 @@
 - [ ] Step 4: Extract Requirements behavior into ingestion, review, stakeholders, concerns_needs, scenarios, and generation; keep old module as compatibility delegate and do not duplicate implementations.
 - [ ] Step 5: Split Enrichment into planning, per-Block execution, progress, commit, and finalization; every validated Block uses the Coordinator and original snapshot content revision.
 - [ ] Step 6: Record transport, parse, schema, semantic, repair attempted, repair succeeded, failure stage, and provider request ID while retaining legacy response fields. Run .venv/bin/python -m pytest tests/application/intelligence tests/application/use_cases tests/application/test_requirements_workbench.py tests/application/test_scenarios.py tests/interface/web/test_requirements_enrichment.py -q.
-- [ ] Step 7: Commit with git add src/rflp_lite/application/requirements src/rflp_lite/application/intelligence src/rflp_lite/application/requirements_workbench.py tests/application/intelligence tests/application/use_cases tests/application/test_requirements_workbench.py tests/application/test_scenarios.py tests/interface/web/test_requirements_enrichment.py && git commit -m "refactor: type llm blocks and split requirements enrichment".
+- [ ] Step 7: Stage only the exact Requirements, Intelligence, compatibility, and test files changed by this task, inspect `git diff --cached`, then run `git commit -m "refactor: type llm blocks and split requirements enrichment"`; never stage whole source/test directories.
 
 ### Task 6: WAVE 4 — SQLite Job、Lease Recovery 与幂等提交
 
@@ -225,7 +225,7 @@
 - [ ] Step 4: Move threading.Thread to ThreadBackgroundExecutor; remove JSON, tempfile, os.replace, and file persistence from Application Job code; keep retry policy in Application.
 - [ ] Step 5: Run .venv/bin/python -m pytest tests/adapters/test_sqlite_job_repository.py tests/application/test_jobs.py tests/application/test_jobs_migration.py tests/application/test_jobs_recovery.py tests/application/intelligence/test_enrichment_jobs.py tests/application/intelligence/test_enrichment_coordinator.py tests/e2e/test_cross_workspace_and_partial_failure.py -q.
 - [ ] Step 6: Expected: SQLite is the only runtime Job source, completed is never emitted, recovery/retry/idempotency pass, and Application Job code has no persistence IO.
-- [ ] Step 7: Commit with git add src/rflp_lite/ports/jobs.py src/rflp_lite/application/job_state.py src/rflp_lite/adapters/sqlite_job_repository.py src/rflp_lite/adapters/thread_background_executor.py src/rflp_lite/application/jobs.py src/rflp_lite/application/intelligence/enrichment_jobs.py src/rflp_lite/adapters/persistence/migrations.py tests/adapters/test_sqlite_job_repository.py tests/application/test_jobs_migration.py tests/application/test_jobs_recovery.py tests/application/intelligence/test_enrichment_coordinator.py && git commit -m "refactor: move durable jobs into sqlite".
+- [ ] Step 7: Stage only the exact Job, migration, Enrichment, and test files changed by this task, inspect `git diff --cached`, then run `git commit -m "refactor: move durable jobs into sqlite"`; never stage whole source/test directories.
 
 ### Task 7: WAVE 5 — MBSE Builder、Diagram Projection 与 Repository Session
 
@@ -262,7 +262,7 @@
 - [ ] Step 4: Establish DiagramSpec projection; update renderers to consume it; enforce migrated MBSE/Diagram SCCs reaching zero.
 - [ ] Step 5: Narrow Repository Protocols and make transaction locking explicit while allowing the existing SQLite class to implement multiple Protocols temporarily.
 - [ ] Step 6: Run .venv/bin/python -m pytest tests/application/test_mbse_semantics.py tests/application/test_mbse_semantic_gaps.py tests/application/test_mbse_modeling.py tests/application/test_mbse_views.py tests/application/test_mbse_render.py tests/application/diagrams tests/application/mbse -q and .venv/bin/python -m pytest tests/architecture/test_dependency_boundaries.py -q. Expected: semantic hashes equal and diagram tests pass.
-- [ ] Step 7: Commit with git add src/rflp_lite/application/mbse src/rflp_lite/application/mbse_semantics.py src/rflp_lite/application/mbse_views.py src/rflp_lite/application/mbse_graphviz.py src/rflp_lite/application/mbse_plantuml.py src/rflp_lite/application/mbse_matrix.py src/rflp_lite/domain/diagram_spec.py src/rflp_lite/ports/repositories.py tests/characterization/test_mbse_semantics_behavior.py tests/application/mbse tests/application/test_mbse_semantics.py tests/application/test_mbse_semantic_gaps.py tests/application/test_mbse_modeling.py tests/application/test_mbse_views.py tests/application/test_mbse_render.py tests/architecture/test_dependency_boundaries.py && git commit -m "refactor: split mbse builders and diagram projection".
+- [ ] Step 7: Stage only the exact MBSE, Diagram, Port, and test files changed by this task, inspect `git diff --cached`, then run `git commit -m "refactor: split mbse builders and diagram projection"`; never stage whole source/test directories.
 
 ### Task 8: WAVE 6–7 — Query View、Interface 收敛、Typed Domain 与最终门禁
 
@@ -311,7 +311,7 @@
 - [ ] Step 6: Type Stakeholder, Concern, Need, Requirement, Scenario, and MBSE sections in small slices; keep old JSON keys and unknown extensions at Mapper boundary.
 - [ ] Step 7: Raise migrated packages to Pyright strict, remove obsolete ignores, and lower budget values. Do not hide errors with Any, cast, or type: ignore.
 - [ ] Step 8: Run .venv/bin/python scripts/verify_full.py and .venv/bin/python -m pytest tests/architecture tests/contracts tests/characterization tests/e2e -q. Expected: all gates and legacy compatibility tests pass.
-- [ ] Step 9: Update CURRENT_ARCHITECTURE and DEVELOPMENT_STATUS to describe final layering, SQLite Job source, runner boundary, Typed LLM path, and remaining public compatibility. Commit with git add src/rflp_lite/application/queries src/rflp_lite/application/web_facade.py src/rflp_lite/interface src/rflp_lite/domain src/rflp_lite/application/workbench src/rflp_lite/application/workbench_schema.py docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md architecture_budget.json tests/interface tests/characterization/test_workbench_round_trip.py tests/architecture/test_no_new_legacy_paths.py && git commit -m "refactor: close architecture consolidation and remove legacy paths".
+- [ ] Step 9: Update CURRENT_ARCHITECTURE and DEVELOPMENT_STATUS to describe final layering, SQLite Job source, runner boundary, Typed LLM path, and remaining public compatibility. Stage only the exact files changed by this task, inspect `git diff --cached`, then run `git commit -m "refactor: close architecture consolidation and remove legacy paths"`; never stage whole source/test directories.
 
 ## Checkpoints and rollback
 
