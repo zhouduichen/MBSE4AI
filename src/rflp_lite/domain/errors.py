@@ -13,3 +13,6 @@ class ContractViolation(RflpError):
 class AdapterFailure(RflpError):
     """Raised when an adapter fails at a controlled boundary."""
 
+
+class ConcurrentModificationError(RflpError):
+    """Raised when a Workbench write observes a stale revision."""

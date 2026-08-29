@@ -32,7 +32,12 @@ class WorkbenchRepositoryPort(Protocol):
     def load_workbench(self) -> dict[str, object] | None: ...
 
     def save_workbench(
-        self, value: dict[str, object], event: str = "workbench.saved"
+        self,
+        value: dict[str, object],
+        event: str = "workbench.saved",
+        *,
+        expected_revision: int | None = None,
+        expected_content_revision: int | None = None,
     ) -> dict[str, object]: ...
 
     def record_audit(self, kind: str, payload: dict[str, object]) -> int: ...

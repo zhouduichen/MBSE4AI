@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from collections.abc import Mapping
-from typing import Iterable
 
+from rflp_lite.adapters.persistence.migrations import MigrationRunner
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
-from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation
 from rflp_lite.domain.models import (
     Artifact,
     Baseline,
@@ -56,6 +56,7 @@ class SQLiteRepository:
         # connection must permit those workers to read/write the deterministic
         # evaluation cache.  A re-entrant lock serializes connection access.
         self._lock = threading.RLock()
+        self._transaction_depth = 0
         self._connection = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._create_schema()
@@ -64,71 +65,46 @@ class SQLiteRepository:
         self._connection.close()
 
     def _create_schema(self) -> None:
-        for table in self._TABLES:
-            self._connection.execute(
-                f"CREATE TABLE IF NOT EXISTS {table} (id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
-            )
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS baselines (
-                id TEXT PRIMARY KEY,
-                status TEXT NOT NULL,
-                hash TEXT NOT NULL UNIQUE,
-                payload TEXT NOT NULL,
-                sequence INTEGER NOT NULL UNIQUE
-            )
-            """
-        )
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS audit_events (
-                sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-                kind TEXT NOT NULL,
-                payload TEXT NOT NULL
-            )
-            """
-        )
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS workbench (
-                id TEXT PRIMARY KEY,
-                payload TEXT NOT NULL
-            )
-            """
-        )
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS workbench_revisions (
-                revision INTEGER PRIMARY KEY,
-                event TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                payload TEXT NOT NULL
-            )
-            """
-        )
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS requirement_records (
-                id TEXT PRIMARY KEY,
-                status TEXT NOT NULL,
-                first_sequence INTEGER NOT NULL,
-                last_sequence INTEGER NOT NULL,
-                updated_at TEXT NOT NULL,
-                payload TEXT NOT NULL
-            )
-            """
-        )
+        with self._lock:
+            MigrationRunner(self.path).upgrade(self._connection)
 
     @contextmanager
     def transaction(self):
-        self._connection.execute("BEGIN IMMEDIATE")
-        try:
-            yield
-        except BaseException:
-            self._connection.execute("ROLLBACK")
-            raise
-        else:
-            self._connection.execute("COMMIT")
+        with self._lock:
+            outermost = self._transaction_depth == 0
+            if outermost:
+                self._connection.execute("BEGIN IMMEDIATE")
+            self._transaction_depth += 1
+            try:
+                yield
+            except BaseException:
+                if outermost:
+                    self._connection.rollback()
+                raise
+            else:
+                if outermost:
+                    self._connection.commit()
+            finally:
+                self._transaction_depth -= 1
+
+    @contextmanager
+    def _atomic_write(self):
+        with self._lock:
+            outermost = self._transaction_depth == 0
+            if outermost:
+                self._connection.execute("BEGIN IMMEDIATE")
+            self._transaction_depth += 1
+            try:
+                yield
+            except BaseException:
+                if outermost:
+                    self._connection.rollback()
+                raise
+            else:
+                if outermost:
+                    self._connection.commit()
+            finally:
+                self._transaction_depth -= 1
 
     def _save_many(self, table: str, values: Iterable[object]) -> None:
         rows = [(getattr(value, "id"), canonical_json(value)) for value in values]
@@ -309,39 +285,108 @@ class SQLiteRepository:
         return self._load_payloads("candidate_reviews")
 
     def save_workbench(
-        self, value: dict[str, object], event: str = "workbench.saved"
+        self,
+        value: dict[str, object],
+        event: str = "workbench.saved",
+        *,
+        expected_revision: int | None = None,
+        expected_content_revision: int | None = None,
     ) -> dict[str, object]:
-        """Save the current aggregate and an immutable revision atomically."""
+        """Save the current aggregate and an immutable revision atomically.
 
-        payload = json.loads(canonical_json(value))
-        previous_revision = int(payload.get("revision", 0) or 0)
-        next_revision = int(
+        Omitting ``expected_revision`` preserves legacy last-writer-wins calls.
+        New callers use the strict compare-and-swap form, including
+        ``expected_revision=0`` for the first insert.
+        """
+
+        with self._atomic_write():
+            row = self._connection.execute(
+                "SELECT revision, content_revision, payload FROM workbench WHERE id = 'current'"
+            ).fetchone()
+            if row is None:
+                current_revision = 0
+                current_content_revision = 0
+            else:
+                current_revision = int(row[0] or 0)
+                current_content_revision = int(row[1] or 0)
+                stored_payload = json.loads(row[2])
+                if isinstance(stored_payload, dict):
+                    current_revision = int(
+                        stored_payload.get("revision", current_revision) or current_revision
+                    )
+                    current_content_revision = int(
+                        stored_payload.get(
+                            "content_revision", current_content_revision
+                        )
+                        or current_content_revision
+                    )
+            if (
+                expected_revision is not None
+                and int(expected_revision) != current_revision
+            ):
+                raise ConcurrentModificationError(
+                    f"stale Workbench revision: expected {expected_revision}, current {current_revision}"
+                )
+            if (
+                expected_content_revision is not None
+                and int(expected_content_revision) != current_content_revision
+            ):
+                raise ConcurrentModificationError(
+                    "stale Workbench content revision: "
+                    f"expected {expected_content_revision}, current {current_content_revision}"
+                )
+
+            payload = json.loads(canonical_json(value))
+            next_revision = current_revision + 1
+            content_revision = int(
+                payload.get("content_revision", current_content_revision)
+                or current_content_revision
+            )
+            payload["revision"] = next_revision
+            payload["content_revision"] = content_revision
+            payload["revision_parent"] = current_revision
+            payload["revision_event"] = event
+            serialized = canonical_json(payload)
+            created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            if row is None:
+                cursor = self._connection.execute(
+                    """
+                    INSERT INTO workbench(id, revision, content_revision, payload)
+                    SELECT 'current', ?, ?, ?
+                    WHERE NOT EXISTS (SELECT 1 FROM workbench WHERE id = 'current')
+                    """,
+                    (next_revision, content_revision, serialized),
+                )
+            else:
+                cursor = self._connection.execute(
+                    """
+                    UPDATE workbench
+                    SET revision = ?, content_revision = ?, payload = ?
+                    WHERE id = 'current' AND revision = ?
+                    """,
+                    (next_revision, content_revision, serialized, current_revision),
+                )
+            if cursor.rowcount != 1:
+                raise ConcurrentModificationError(
+                    "Workbench changed while the write was being committed"
+                )
             self._connection.execute(
-                "SELECT COALESCE(MAX(revision), 0) + 1 FROM workbench_revisions"
-            ).fetchone()[0]
-        )
-        created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        payload["revision"] = next_revision
-        payload["revision_parent"] = previous_revision
-        payload["revision_event"] = event
-        serialized = canonical_json(payload)
-        self._connection.execute(
-            "INSERT OR REPLACE INTO workbench(id, payload) VALUES ('current', ?)",
-            (serialized,),
-        )
-        self._connection.execute(
-            "INSERT INTO workbench_revisions(revision, event, created_at, payload) VALUES (?, ?, ?, ?)",
-            (next_revision, event, created_at, serialized),
-        )
-        value.clear()
-        value.update(payload)
-        return value
+                """
+                INSERT INTO workbench_revisions(revision, event, created_at, payload)
+                VALUES (?, ?, ?, ?)
+                """,
+                (next_revision, event, created_at, serialized),
+            )
+            value.clear()
+            value.update(payload)
+            return value
 
     def load_workbench(self) -> dict[str, object] | None:
-        row = self._connection.execute(
-            "SELECT payload FROM workbench WHERE id = 'current'"
-        ).fetchone()
-        return json.loads(row[0]) if row else None
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT payload FROM workbench WHERE id = 'current'"
+            ).fetchone()
+            return json.loads(row[0]) if row else None
 
     def workbench_revisions(self) -> tuple[dict[str, object], ...]:
         rows = self._connection.execute(
