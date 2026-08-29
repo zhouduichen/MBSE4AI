@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 from pathlib import Path
 
 from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.ports.tracking import TrackingRecord
 
 
 RUN_OUTPUTS = (
@@ -25,13 +25,8 @@ RUN_OUTPUTS = (
 _RESULT_HASH = re.compile(r"[0-9a-f]{64}\Z")
 
 
-@dataclass(frozen=True, slots=True)
-class RunRecord:
-    result_hash: str
-    run_dir: Path
-    manifest: dict[str, object]
-    outputs: dict[str, object]
-    modified_ns: int
+# Compatibility name retained for application and interface callers.
+RunRecord = TrackingRecord
 
 
 def load_run(workspace: Path, result_hash: str) -> RunRecord:

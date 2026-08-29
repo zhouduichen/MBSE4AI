@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Mapping
 from pathlib import Path
 from threading import Thread
 from typing import IO
@@ -24,7 +25,6 @@ from rflp_lite.adapters.execution_types import RunnerResult
 from rflp_lite.adapters.test_limits import make_preexec_fn, resource_report
 from rflp_lite.adapters.test_runners import parse_runner_evidence, runner_spec
 from rflp_lite.domain.errors import AdapterFailure, ContractViolation
-from rflp_lite.domain.models import Evidence
 
 
 # Kept as a compatibility hook for existing callers/tests that cap this value.
@@ -34,6 +34,38 @@ _JUNIT_ATTRS = ("time", "timestamp", "hostname", "id")
 
 # Historical name retained for callers that imported the old result type.
 TestRun = RunnerResult
+
+_ENVIRONMENT_KEYS = ("PATH", "PYTHONPATH", "LANG")
+
+
+def build_test_environment(
+    run_root: Path,
+    project_dir: Path,
+    allowed: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Build a minimal child environment without inheriting credentials."""
+    home = run_root / "home"
+    temp = run_root / "tmp"
+    output = run_root / "output"
+    for path in (home, temp, output):
+        path.mkdir(parents=True, exist_ok=True)
+    environment = {
+        key: os.environ[key]
+        for key in _ENVIRONMENT_KEYS
+        if os.environ.get(key)
+    }
+    environment.update(
+        {
+            "HOME": str(home),
+            "TMPDIR": str(temp),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "RFLP_TEST_OUTPUT_DIR": str(output),
+        }
+    )
+    if allowed:
+        environment.update({str(key): str(value) for key, value in allowed.items()})
+    environment.setdefault("PYTHONPATH", str(project_dir))
+    return environment
 
 
 def run_project_test_matrix(
@@ -162,8 +194,7 @@ def run_project_tests(
     stdout_file = temp_dir / "stdout.log"
     stderr_file = temp_dir / "stderr.log"
     spec = runner_spec(runner, junit)
-    env = dict(os.environ)
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env = build_test_environment(temp_dir, resolved)
     timed_out = False
     returncode: int | None = None
     try:

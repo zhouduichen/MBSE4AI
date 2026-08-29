@@ -97,7 +97,7 @@ Web 端已并入 `/w/{workspace}/requirements` 的“提交并分析”流程；
 1. 填写本地项目目录的绝对路径，点击“分析项目”；
 2. 查看 ActualModel、基线→实际匹配、MISSING/EXTRA 差异、任务契约与证据；
 3. 对项目作出修改后，点击“执行验证”重扫描判定每条任务契约是否已满足（RESOLVED/UNRESOLVED）；
-4. 点击“运行项目测试”，选择 pytest/unittest、资源上限、并行度和缓存策略，在超时与隔离沙箱中运行并查看每个 runner 的结果；
+4. 点击“运行项目测试”，选择 pytest/unittest、资源上限、并行度和缓存策略，在受资源约束的本地测试运行器中运行并查看每个 runner 的结果；
 5. 下载规范化 JSON：baseline、actual-model、matches、delta、task-contracts、evidence、project。
 
 场景和执行记录保存在现有工作台 JSON 中，不新增数据库表；LLM 生成的当前项目场景默认接受，手动新增或编辑的场景继续保留。步骤和预期结果按行记录，可选关联 Requirement ID。执行轨迹只处理结构化文本，不执行任意代码，结果明确标记为 `declarative-only`，可通过 `/w/{workspace}/requirements/scenarios.json`、`/w/{workspace}/requirements/scenario-runs.json` 下载。
@@ -130,7 +130,7 @@ M3–M4 使用固定核心字段和版本化声明式领域包。固定翼首版
 
 验收命令的 `status=passed` 表示软件检查通过；随包提供的评估档案明确是 `formal_status=development_only`。只有客户另行提供并批准每个评估器及版本的档案，正式状态才会变为 `passed`。
 
-扫描只读 `.py`（AST）、OpenAPI JSON 与 JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件；不复制、不写入、不上传项目。测试运行支持 allowlist 中的 `pytest` 与 `unittest`，默认 60s 超时并 kill，可配置 POSIX 内存/文件句柄上限、输出上限、结果缓存和多 runner 并行。
+扫描只读 `.py`（AST）、OpenAPI JSON 与 JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件；不复制、不写入、不上传项目。测试运行支持 allowlist 中的 `pytest` 与 `unittest`，是受资源约束的本地测试运行器：默认 60s 超时并 kill，子进程只获得最小环境 allowlist、独立 HOME/TMP/输出目录，可配置 POSIX 内存/文件句柄上限、输出上限、结果缓存和多 runner 并行。
 
 CLI 等效操作：
 

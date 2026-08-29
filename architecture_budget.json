@@ -2,7 +2,7 @@
   "adapter_to_application_edges": 1,
   "dict_str_object_occurrences": 990,
   "functions_over_150_lines": 11,
-  "module_cycles": 2,
+  "module_cycles": 1,
   "raw_request_json_calls": 29,
   "require_dependencies_calls": 25,
   "web_facade_methods": 92

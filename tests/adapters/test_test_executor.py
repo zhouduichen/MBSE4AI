@@ -100,3 +100,23 @@ def test_run_project_tests_caps_run_output(tmp_path: Path, monkeypatch):
         assert run.stderr_path.stat().st_size <= 8192
     finally:
         shutil.rmtree(run.temp_dir, ignore_errors=True)
+
+
+def test_run_project_tests_does_not_inherit_llm_secret(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("RFLP_LLM_API_KEY", "SECRET_SENTINEL")
+    project = _make_project(
+        tmp_path,
+        body=(
+            "import os\n"
+            "def test_environment_isolated():\n"
+            "    print(os.environ.get('RFLP_LLM_API_KEY', '<absent>'))\n"
+            "    assert os.environ.get('RFLP_LLM_API_KEY') is None\n"
+        ),
+    )
+    run = run_project_tests(project, timeout=120)
+    try:
+        assert run.returncode == 0
+        assert "SECRET_SENTINEL" not in run.stdout_path.read_text(encoding="utf-8")
+        assert "SECRET_SENTINEL" not in run.stderr_path.read_text(encoding="utf-8")
+    finally:
+        shutil.rmtree(run.temp_dir, ignore_errors=True)

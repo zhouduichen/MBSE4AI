@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from rflp_lite.application.run_catalog import RunRecord
+from rflp_lite.ports.tracking import TrackingRecord
 
 
-def _metrics(record: RunRecord) -> dict[str, float]:
+def _metrics(record: TrackingRecord) -> dict[str, float]:
     metrics: dict[str, float] = {}
     for filename, key in (
         ("claims.json", "claims"),
@@ -25,7 +25,7 @@ def _metrics(record: RunRecord) -> dict[str, float]:
 
 
 def track_run_with_mlflow(
-    record: RunRecord,
+    record: TrackingRecord,
     *,
     tracking_uri: str | Path | None = None,
     experiment_name: str = "rflp-lite",

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import io
 import re
-import zipfile
 from pathlib import Path
-from xml.etree import ElementTree
 
+from rflp_lite.adapters.documents.docx_reader import read_docx_text
+from rflp_lite.adapters.documents.markdown_reader import read_markdown
+from rflp_lite.adapters.documents.txt_reader import read_utf8_text
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.errors import AdapterFailure
 from rflp_lite.domain.models import Artifact, Claim, TextSpan
@@ -29,74 +29,6 @@ _SUPPORTED_SUFFIXES = {
     ".yml",
     ".toml",
 }
-_WORD_NAMESPACE = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-
-
-def _file_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def read_markdown(path: Path) -> tuple[Artifact, tuple[TextSpan, ...]]:
-    digest = _file_hash(path)
-    artifact = Artifact(
-        id=f"artifact-{digest[:12]}",
-        kind="markdown",
-        path=path.name,
-        sha256=digest,
-    )
-    spans: list[TextSpan] = []
-    heading = "document"
-    item_index = 0
-    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        line = raw_line.strip()
-        if line.startswith("#"):
-            heading = line.lstrip("#").strip()
-            continue
-        if not line.startswith(("- ", "* ")):
-            continue
-        item_index += 1
-        text = line[2:].strip()
-        locator = f"{heading}/item-{item_index}/line-{line_number}"
-        span_id = f"span-{canonical_hash((artifact.id, locator, text))[:12]}"
-        spans.append(TextSpan(span_id, artifact.id, locator, text))
-    return artifact, tuple(spans)
-
-
-def _read_docx(content: bytes) -> str:
-    try:
-        with zipfile.ZipFile(io.BytesIO(content)) as archive:
-            root = ElementTree.fromstring(archive.read("word/document.xml"))
-    except (KeyError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
-        raise AdapterFailure("invalid DOCX document") from exc
-    namespace = _WORD_NAMESPACE
-    table_paragraph_ids: set[int] = set()
-    rows: list[str] = []
-    for table in root.iter(f"{namespace}tbl"):
-        for table_row in table.iter(f"{namespace}tr"):
-            cells = [
-                " ".join(
-                    "".join(node.text or "" for node in paragraph.iter(f"{namespace}t"))
-                    for paragraph in cell.iter(f"{namespace}p")
-                ).strip()
-                for cell in table_row.iter(f"{namespace}tc")
-            ]
-            row_text = " | ".join(cell for cell in cells if cell)
-            if row_text:
-                rows.append(row_text)
-        for paragraph in table.iter(f"{namespace}p"):
-            table_paragraph_ids.add(id(paragraph))
-    paragraphs = []
-    for paragraph in root.iter(f"{namespace}p"):
-        if id(paragraph) in table_paragraph_ids:
-            continue
-        text = "".join(
-            node.text or "" for node in paragraph.iter(f"{namespace}t")
-        ).strip()
-        if text:
-            paragraphs.append(text)
-    return "\n".join(paragraphs + rows)
-
-
 def _python_symbols(text: str) -> tuple[str, ...]:
     try:
         tree = ast.parse(text)
@@ -134,10 +66,11 @@ def read_artifact(
             )
             for region in parsed.regions
         )
-    try:
-        text = _read_docx(content) if suffix == ".docx" else content.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise AdapterFailure("artifact must be UTF-8 text") from exc
+    text = (
+        read_docx_text(content)
+        if suffix == ".docx"
+        else read_utf8_text(content)
+    )
     lines = [line.strip(" -*\t") for line in text.splitlines() if line.strip(" -*\t")]
     if suffix == ".py":
         lines.extend(_python_symbols(text))
