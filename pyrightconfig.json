@@ -1,0 +1,11 @@
+{
+  "include": [
+    "src/rflp_lite/application/intelligence/validated_result.py",
+    "src/rflp_lite/domain/diagram_spec.py",
+    "src/rflp_lite/ports/diagram_renderer.py"
+  ],
+  "exclude": [".venv", "build", "dist"],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": "none"
+}

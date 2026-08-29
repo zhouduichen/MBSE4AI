@@ -37,15 +37,15 @@
 - Create: /Users/huangjiahao/Downloads/AI4MBSE/tests/characterization/test_jobs_behavior.py
 
 **Interfaces:**
-- test-full optional dependency group contains the existing dev/schema/evidence/opt/documents/web/tracking packages plus Ruff and Pyright.
+- test-full optional dependency group contains the existing dev/schema/evidence/opt/documents/web/tracking packages plus Ruff, Pyright, setuptools, and wheel.
 - scripts/verify_full.py runs compileall, pytest, Import Linter, schema validation, Ruff, Pyright, and build in that order.
 - architecture_budget.json records require_dependencies_calls, adapter_to_application_edges, module_cycles, dict_str_object_occurrences, raw_request_json_calls, web_facade_methods, and functions_over_150_lines.
 - Characterization tests assert stable semantics, not the complete order-sensitive JSON blob.
 
 - [ ] Step 1: Add a verification-contract test asserting that scripts/verify_full.py mentions compileall, pytest, lint-imports, check-jsonschema, ruff, pyright, and build.
 - [ ] Step 2: Run .venv/bin/python -m pytest tests/characterization/test_verification_contract.py -q; expect failure because the script does not exist.
-- [ ] Step 3: Add test-full to pyproject.toml with all currently separated test extras plus ruff and pyright. Implement verify_full.py with subprocess.run(..., check=True) and the seven gates in the Interfaces section.
-- [ ] Step 4: Set Ruff rules E4,E7,E9,F,I,UP,B,S; set Pyright basic mode for src and exclude .venv, build, dist; generate architecture_budget.json with an AST scanner and measured current values.
+- [ ] Step 3: Add test-full to pyproject.toml with all currently separated test extras plus ruff, pyright, setuptools, and wheel. Implement verify_full.py with subprocess.run(..., check=True) and the seven gates in the Interfaces section.
+- [ ] Step 4: Set a baseline Ruff gate for E4,E7,E9,F while recording known legacy F/E exceptions; set Pyright basic mode over the explicitly typed seed modules and exclude .venv, build, dist; expand both scopes as each wave migrates legacy boundaries; generate architecture_budget.json with an AST scanner and measured current values.
 - [ ] Step 5: Add characterization fixtures for Requirements review/delete/restore, all strict LLM blocks, MBSE semantic IDs/relations/gaps, and Job status/recovery.
 - [ ] Step 6: Run .venv/bin/python -m pytest tests/characterization tests/architecture/test_dependency_boundaries.py -q and .venv/bin/python scripts/verify_full.py. Record any unavailable dependency explicitly.
 - [ ] Step 7: Commit only the explicitly changed files with `git add pyproject.toml scripts/verify_full.py architecture_budget.json pyrightconfig.json ruff.toml tests/characterization/test_verification_contract.py tests/architecture/test_architecture_budget.py`, inspect `git diff --cached`, then run `git commit -m "build: establish architecture consolidation quality gates"`. Never stage a directory containing pre-existing user changes.
