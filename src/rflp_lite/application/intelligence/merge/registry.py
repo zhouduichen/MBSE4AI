@@ -26,7 +26,10 @@ def _legacy_merge(
     response: GenerationResponse | None,
 ) -> dict[str, object]:
     module = import_module("rflp_lite.application.intelligence.analysis_blocks")
-    return module._legacy_merge_block_result(state, result, response)
+    merger = getattr(module, "_legacy_merge_block_result", None)
+    if merger is None:
+        merger = module.merge_block_result
+    return merger(state, result, response)
 
 
 MERGERS: dict[str, MergeFunction] = {

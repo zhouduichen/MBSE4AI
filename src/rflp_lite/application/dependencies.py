@@ -62,3 +62,8 @@ def configured_dependencies(
             "application dependencies are not configured; use bootstrap.container.build_container()"
         )
     return dependencies
+
+
+# Compatibility alias for legacy public functions while callers migrate to
+# explicit dependency bundles.
+require_dependencies = configured_dependencies

@@ -14,7 +14,10 @@ def build_typed_mbse_semantic_model(
 
     context = MbseBuildContext.from_state(state, revision, provenance)
     legacy = import_module("rflp_lite.application.mbse_semantics")
-    payload = legacy._legacy_build_mbse_semantic_model(
+    builder = getattr(legacy, "_legacy_build_mbse_semantic_model", None)
+    if builder is None:
+        builder = legacy.build_mbse_semantic_model
+    payload = builder(
         dict(context.state), context.revision, context.provenance
     )
     return MbseSemanticModel.from_payload(payload)
