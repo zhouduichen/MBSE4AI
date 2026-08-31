@@ -4,18 +4,18 @@
 
 **Goal:** Configure AI4MBSE to use the Windows RTX 5080 Ollama model `qwen3.5:9b-q8_0` through a tailnet-only Tailscale Serve endpoint.
 
-**Architecture:** Keep Ollama bound to Windows `127.0.0.1:11434` and add a Tailscale Serve HTTPS proxy on port `11434`. Store one local AI4MBSE `local` profile pointing to the HTTPS hostname; the existing native Ollama adapter will call `/api/chat`, so no source implementation changes are needed.
+**Architecture:** Keep Ollama bound to Windows `127.0.0.1:11434` and add a Tailscale Serve TCP forwarder on port `11434`. Store one local AI4MBSE `local` profile pointing to the Windows Tailscale IP; the existing native Ollama adapter will call `/api/chat`, so no source implementation changes are needed.
 
 **Tech Stack:** Windows PowerShell over SSH, Tailscale Serve 1.102.2, Ollama HTTP API, Python 3.11+ service configuration, existing `urllib`/OpenAI-compatible adapter, pytest.
 
 ## Global Constraints
 
 - Keep the Windows Ollama listener on `127.0.0.1:11434`.
-- Expose the proxy only to the Tailscale tailnet; do not use Funnel or bind Ollama to `0.0.0.0`.
+- Expose the TCP forwarder only to the Tailscale tailnet; do not use Funnel or bind Ollama to `0.0.0.0`.
 - Preserve existing Tailscale Serve entries for ports 22, 443, 8443, and 8765.
 - Do not write an API key; the local Tailscale/Ollama profile uses an empty key.
 - Do not stage or alter unrelated existing worktree changes.
-- Use profile ID `windows-5080-ollama`, Base URL `https://autoresearch-5080.tail2530b8.ts.net:11434/v1`, and model `qwen3.5:9b-q8_0`.
+- Use profile ID `windows-5080-ollama`, Base URL `http://100.88.143.10:11434/v1`, and model `qwen3.5:9b-q8_0`.
 
 ---
 
@@ -26,7 +26,7 @@
 
 **Interfaces:**
 - Consumes: Windows Ollama at `http://127.0.0.1:11434` and the existing Tailscale Serve configuration.
-- Produces: `https://autoresearch-5080.tail2530b8.ts.net:11434` forwarding to the loopback Ollama service.
+- Produces: `http://100.88.143.10:11434` forwarding to the loopback Ollama service.
 
 - [ ] **Step 1: Capture the current Serve configuration**
 
@@ -38,15 +38,15 @@ ssh -o BatchMode=yes autoresearch-5080 'powershell.exe -NoProfile -NonInteractiv
 
 Expected: Existing entries for SSH/22, HTTPS/443, HTTPS/8443, and HTTPS/8765 are present, and a complete rollback snapshot is saved at the explicit Windows temp path; no global reset is performed.
 
-- [ ] **Step 2: Configure only the new HTTPS listener**
+- [ ] **Step 2: Configure only the new TCP listener**
 
 Run:
 
 ```bash
-ssh -o BatchMode=yes autoresearch-5080 'powershell.exe -NoProfile -NonInteractive -Command "& $env:ProgramFiles\\Tailscale\\tailscale.exe serve --bg --https=11434 http://127.0.0.1:11434"'
+ssh -o BatchMode=yes autoresearch-5080 'powershell.exe -NoProfile -NonInteractive -Command "& $env:ProgramFiles\\Tailscale\\tailscale.exe serve --bg --tcp=11434 127.0.0.1:11434"'
 ```
 
-Expected: Tailscale reports a tailnet-only HTTPS listener on port 11434. If the command requests confirmation, rerun the same command with `--yes`; do not run `serve reset`.
+Expected: Tailscale reports a tailnet-only TCP listener on port 11434 forwarding to `127.0.0.1:11434`; do not run `serve reset`.
 
 - [ ] **Step 3: Verify the proxy and model list from macOS**
 
@@ -54,7 +54,7 @@ Run:
 
 ```bash
 curl --fail --silent --show-error --connect-timeout 5 \
-  https://autoresearch-5080.tail2530b8.ts.net:11434/api/tags
+  http://100.88.143.10:11434/api/tags
 ```
 
 Expected: JSON includes a model named `qwen3.5:9b-q8_0`. If the request fails, inspect `serve status` and stop before changing AI4MBSE configuration.
@@ -74,7 +74,7 @@ Expected: The repository has no accidental changes from the infrastructure comma
 - No repository files; update the user-level LLM profile through `LLMProfileService`.
 
 **Interfaces:**
-- Consumes: Verified Tailscale HTTPS Ollama endpoint from Task 1.
+- Consumes: Verified Tailscale TCP Ollama endpoint from Task 1.
 - Produces: Active profile `windows-5080-ollama` with no API key.
 
 - [ ] **Step 1: Save the exact profile through the existing service**
@@ -82,7 +82,7 @@ Expected: The repository has no accidental changes from the infrastructure comma
 Run from the repository root:
 
 ```bash
-.venv/bin/python -c 'from rflp_lite.application.llm_profiles import LLMProfileService; print(LLMProfileService().save({"id":"windows-5080-ollama","label":"Windows 5080 Ollama","kind":"local","protocol":"openai-chat","base_url":"https://autoresearch-5080.tail2530b8.ts.net:11434/v1","model":"qwen3.5:9b-q8_0","timeout_seconds":300,"api_key":"","active":True}))'
+.venv/bin/python -c 'from rflp_lite.application.llm_profiles import LLMProfileService; print(LLMProfileService().save({"id":"windows-5080-ollama","label":"Windows 5080 Ollama","kind":"local","protocol":"openai-chat","base_url":"http://100.88.143.10:11434/v1","model":"qwen3.5:9b-q8_0","timeout_seconds":300,"api_key":"","active":True}))'
 ```
 
 Expected: Printed profile has `id` `windows-5080-ollama`, `kind` `local`, `model` `qwen3.5:9b-q8_0`, and `api_key_configured` false or no configured key. The service writes the profile to its normal user-level config path.
@@ -95,7 +95,7 @@ Run:
 .venv/bin/python -c 'from rflp_lite.application.llm_profiles import LLMProfileService; s=LLMProfileService().snapshot(); print({"active_id":s["active_id"],"profile":next((p for p in s["profiles"] if p["id"]==s["active_id"]),None)})'
 ```
 
-Expected: `active_id` is `windows-5080-ollama`, Base URL is the HTTPS Tailscale URL, and the output contains no API key value.
+Expected: `active_id` is `windows-5080-ollama`, Base URL is `http://100.88.143.10:11434/v1`, and the output contains no API key value.
 
 - [ ] **Step 3: Run the adapter and profile regression tests**
 
@@ -127,7 +127,7 @@ Run:
 curl --fail --silent --show-error --connect-timeout 5 \
   -H 'Content-Type: application/json' \
   -d '{"model":"qwen3.5:9b-q8_0","messages":[{"role":"user","content":"Reply with OK only."}],"stream":false,"think":false,"options":{"temperature":0,"num_predict":16}}' \
-  https://autoresearch-5080.tail2530b8.ts.net:11434/api/chat
+  http://100.88.143.10:11434/api/chat
 ```
 
 Expected: JSON contains a non-empty `message.content` and the model is `qwen3.5:9b-q8_0`.
@@ -137,7 +137,7 @@ Expected: JSON contains a non-empty `message.content` and the model is `qwen3.5:
 Run:
 
 ```bash
-.venv/bin/python -c 'from rflp_lite.application.llm_profiles import LLMProfileService; print(LLMProfileService().test({"id":"windows-5080-ollama","label":"Windows 5080 Ollama","kind":"local","protocol":"openai-chat","base_url":"https://autoresearch-5080.tail2530b8.ts.net:11434/v1","model":"qwen3.5:9b-q8_0","timeout_seconds":30}))'
+.venv/bin/python -c 'from rflp_lite.application.llm_profiles import LLMProfileService; print(LLMProfileService().test({"id":"windows-5080-ollama","label":"Windows 5080 Ollama","kind":"local","protocol":"openai-chat","base_url":"http://100.88.143.10:11434/v1","model":"qwen3.5:9b-q8_0","timeout_seconds":30}))'
 ```
 
 Expected: Result has `status` `connected`, the remote model name, and a short preview.
@@ -191,13 +191,14 @@ If documentation still says remote Ollama is unconfigured, update the smallest m
 
 - [ ] **Step 3: Verify rollback is scoped to one listener**
 
-Before any rollback, inspect the status and restore the captured all-services snapshot with the supported declarative operation:
+If rollback is needed, remove only the TCP listener and reactivate the prior local profile (`ollama`):
 
 ```bash
-ssh -o BatchMode=yes autoresearch-5080 'powershell.exe -NoProfile -NonInteractive -Command "& $env:ProgramFiles\\Tailscale\\tailscale.exe serve set-config $env:TEMP\\ai4mbse-serve-before.json --all"'
+ssh -o BatchMode=yes autoresearch-5080 'powershell.exe -NoProfile -NonInteractive -Command "& $env:ProgramFiles\\Tailscale\\tailscale.exe serve --tcp=11434 off"'
+.venv/bin/python -c 'from rflp_lite.application.llm_profiles import LLMProfileService; print(LLMProfileService().activate("ollama"))'
 ```
 
-Never use `tailscale serve reset`; then restore the prior AI4MBSE profile via the LLM settings page or `LLMProfileService.activate`.
+Never use `tailscale serve reset`; the captured status file remains available for audit and the other Serve listeners must remain unchanged.
 
 - [ ] **Step 4: Final repository hygiene check**
 
