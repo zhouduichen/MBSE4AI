@@ -12,6 +12,23 @@ from dataclasses import dataclass
 from rflp_lite.domain.canonical import canonical_hash
 
 
+def _stable_region_ids(values: object) -> tuple[str, ...]:
+    """Return non-empty source IDs in stable first-seen order."""
+
+    if isinstance(values, str):
+        values = (values,)
+    try:
+        iterator = iter(values)  # type: ignore[arg-type]
+    except TypeError:
+        iterator = iter(())
+    result: list[str] = []
+    for value in iterator:
+        text = str(value).strip()
+        if text and text not in result:
+            result.append(text)
+    return tuple(result)
+
+
 @dataclass(frozen=True, slots=True)
 class DocumentRegion:
     id: str
@@ -41,6 +58,7 @@ class StructuredRequirement:
     priority: str = "unassigned"
     verification_metric: str = ""
     rationale: str = ""
+    additional_source_region_ids: tuple[str, ...] = ()
 
     @classmethod
     def from_fields(
@@ -49,6 +67,7 @@ class StructuredRequirement:
         region: object | None = None,
         source_region_id: str = "",
         source_region_ids: tuple[str, ...] = (),
+        additional_source_region_ids: tuple[str, ...] = (),
         subject: str,
         predicate: str,
         statement: str = "",
@@ -64,14 +83,25 @@ class StructuredRequirement:
         verification_metric: str = "",
         rationale: str = "",
     ) -> "StructuredRequirement":
+        provided_source_ids = _stable_region_ids(source_region_ids)
+        provided_additional_ids = _stable_region_ids(additional_source_region_ids)
         if region is not None:
             source_region_id = str(getattr(region, "id", ""))
-        if not source_region_id and source_region_ids:
-            source_region_id = str(source_region_ids[0])
+        source_region_id = str(source_region_id).strip()
+        if not source_region_id and provided_source_ids:
+            source_region_id = provided_source_ids[0]
         if not source_region_id:
             raise ValueError("source_region_id is required")
+        all_source_ids = _stable_region_ids(
+            (source_region_id, *provided_source_ids, *provided_additional_ids)
+        )
+        additional_ids = tuple(
+            item for item in all_source_ids if item != source_region_id
+        )
         statement = statement or object
         identity = {
+            # Keep the legacy identity shape for single-region candidates so
+            # existing requirement IDs remain stable across the v4 migration.
             "source_region_id": source_region_id,
             "subject": subject.strip(),
             "predicate": predicate.strip(),
@@ -80,9 +110,11 @@ class StructuredRequirement:
             "entities": entities,
             "constraints": constraints,
         }
+        if additional_ids:
+            identity["additional_source_region_ids"] = additional_ids
         return cls(
             id=f"requirement-{canonical_hash(identity)[:12]}",
-            source_region_id=identity["source_region_id"],
+            source_region_id=source_region_id,
             subject=identity["subject"],
             predicate=identity["predicate"],
             statement=identity["statement"],
@@ -96,11 +128,14 @@ class StructuredRequirement:
             priority=priority.strip() or "unassigned",
             verification_metric=verification_metric.strip(),
             rationale=rationale.strip(),
+            additional_source_region_ids=additional_ids,
         )
 
     @property
     def source_region_ids(self) -> tuple[str, ...]:
-        return (self.source_region_id,)
+        return _stable_region_ids(
+            (self.source_region_id, *self.additional_source_region_ids)
+        )
 
     @property
     def object(self) -> str:

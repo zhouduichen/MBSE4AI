@@ -10,7 +10,7 @@ from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.application.intelligence.analysis_config import normalize_analysis_config
 
 
-WORKBENCH_SCHEMA_VERSION = 3
+WORKBENCH_SCHEMA_VERSION = 4
 
 _DISCOVERY_DEFAULTS: dict[str, object] = {
     "intake": {},
@@ -57,8 +57,17 @@ _V2_DEFAULTS: dict[str, object] = {
     },
 }
 
+_V4_DEFAULTS: dict[str, object] = {
+    "requirement_attributes": [],
+    "requirement_constraints": [],
+    "knowledge_datasets": {},
+    "retrieval_suggestions": [],
+    "stale_entities": [],
+}
+
 _WORKBENCH_DEFAULTS: dict[str, object] = {
     **_V2_DEFAULTS,
+    **_V4_DEFAULTS,
     "discovery": _DISCOVERY_DEFAULTS,
 }
 
@@ -66,7 +75,7 @@ _WORKBENCH_DEFAULTS: dict[str, object] = {
 def empty_document_state() -> dict[str, object]:
     """Return a fresh state fragment for document intelligence fields."""
 
-    return json.loads(canonical_json(_V2_DEFAULTS))
+    return json.loads(canonical_json({**_V2_DEFAULTS, **_V4_DEFAULTS}))
 
 
 def empty_discovery_state() -> dict[str, object]:
@@ -76,7 +85,7 @@ def empty_discovery_state() -> dict[str, object]:
 
 
 def migrate_workbench_state(state: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Upgrade legacy workbench state to schema v3 without mutating it."""
+    """Upgrade legacy workbench state to schema v4 without mutating it."""
 
     if state is None:
         return None
