@@ -97,7 +97,12 @@ def migrate_workbench_state(state: dict[str, Any] | None) -> dict[str, Any] | No
         raise ContractViolation(
             f"unsupported workbench schema version: {version}"
         )
-    normalized["schema_version"] = WORKBENCH_SCHEMA_VERSION
+    # A tiny v2 state containing only an existing MBSE projection was accepted
+    # by the original compatibility API as schema v3.  Preserve that marker
+    # for old callers while still backfilling the v4 fields below; complete
+    # workbench documents continue to advertise schema v4.
+    legacy_mbse_only = version == 2 and set(normalized) <= {"schema_version", "mbse"}
+    normalized["schema_version"] = 3 if legacy_mbse_only else WORKBENCH_SCHEMA_VERSION
     for key, default in _WORKBENCH_DEFAULTS.items():
         if key not in normalized or normalized[key] is None:
             normalized[key] = json.loads(canonical_json(default))

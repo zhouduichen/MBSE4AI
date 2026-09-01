@@ -294,7 +294,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "acceptance":
             report = run_customer_acceptance(args.requirements.name, args.requirements.read_bytes(), args.gold)
             print(canonical_json(report))
-            return 0 if report["status"] == "passed" else 1
+            return 0 if (report.get("formal_status") if args.gold else report.get("smoke_status", report.get("status"))) == "passed" else 1
         if args.command == "concept":
             return _run_concept(args)
         if args.command == "mlflow":

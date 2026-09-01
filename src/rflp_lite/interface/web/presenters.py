@@ -68,6 +68,8 @@ ANALYSIS_BLOCK_LABELS = {
     "stakeholders": "利益相关方分析",
     "concerns_needs": "关注点与需要分析",
     "requirements": "需求补全",
+    "requirement_details": "需求属性与显式约束",
+    "implicit_constraints": "隐含约束审查",
     "scenarios": "场景分析",
     "architecture": "架构分析",
 }

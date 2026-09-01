@@ -58,6 +58,7 @@
 {% endif %}
 
 {% if diagram_error %}<div class="callout warning"><strong>设计图暂时无法生成：</strong><span>{{ diagram_error }}</span></div>{% endif %}
+{% if state and state.mbse %}<section class="panel"><h2>结构化交互编辑</h2><p class="table-secondary">可在当前 revision 下编辑消息名称、发送方、接收方和条件；保存后仅关联模型标记为过期。</p><form method="post" action="/w/{{ workspace.name }}/requirements/mbse/edit" class="intake-form"><input type="hidden" name="revision" value="{{ state.mbse.revision }}"><input type="hidden" name="element_id" value="{{ (state.mbse.messages[0].id if state.mbse.messages else '') }}"><label class="field">消息<input name="name" value="{{ state.mbse.messages[0].name if state.mbse.messages else '' }}"></label><label class="field">发送方<input name="sender" value=""></label><label class="field">接收方<input name="receiver" value=""></label><label class="field">条件<input name="guard" value=""></label><button class="button" type="submit" {% if not state.mbse.messages %}disabled{% endif %}>保存交互字段</button></form></section>{% endif %}
 {% if diagram_result and diagram_result.warnings %}<div class="callout warning"><strong>语义提示：</strong>{% for warning in diagram_result.warnings %}<span>{{ warning }}</span>{% endfor %}</div>{% endif %}
 
 {% if diagram_svg %}

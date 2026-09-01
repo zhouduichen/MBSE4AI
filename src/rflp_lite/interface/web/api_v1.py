@@ -508,7 +508,15 @@ def mbse(request: Request, workspace_name: str) -> JSONResponse | dict[str, obje
         state = _facade(request).requirements(workspace_name)
         if not state or not state.get("mbse"):
             return _error(ContractViolation("MBSE semantic model not generated"), 404)
-        return {"status": "ok", "mbse": state["mbse"], "trace_links": state.get("trace_links", ())}
+        return {
+            "status": "ok",
+            "mbse": state["mbse"],
+            "trace_links": state.get("trace_links", ()),
+            "trace_diagnostics": state.get("trace_diagnostics", ()),
+            "requirement_attributes": state.get("requirement_attributes", ()),
+            "requirement_constraints": state.get("requirement_constraints", ()),
+            "retrieval_suggestions": state.get("retrieval_suggestions", ()),
+        }
     except (ContractViolation, RflpError, OSError) as exc:
         return _error(exc, 404)
 

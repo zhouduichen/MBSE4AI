@@ -160,7 +160,7 @@ def apply_mbse_edit(
             "actors": {"name"},
             "use_cases": {"name", "preconditions", "postconditions", "requirement_ids"},
             "activities": {"name", "steps", "requirement_ids"},
-            "messages": {"name", "sort", "guard", "sender_lifeline_id", "receiver_lifeline_id", "requirement_ids"},
+            "messages": {"name", "message", "sort", "guard", "sender", "receiver", "sender_lifeline_id", "receiver_lifeline_id", "requirement_ids"},
             "lifelines": {"name", "requirement_ids"},
         }
         collection = next((name for name in collections if target in model_copy.get(name, ())), "")
@@ -171,7 +171,7 @@ def apply_mbse_edit(
         if "requirement_ids" in fields and not set(str(value) for value in fields["requirement_ids"]) <= known_requirements:
             raise ContractViolation("MBSE edit references unknown requirement")
         for field, value in fields.items():
-            target[field] = value
+            target["name" if field == "message" else field] = value
         target["status"] = "stale"
         from rflp_lite.application.model_impact import impact_for_change, mark_impacted_stale
         result = mark_impacted_stale(result, impact_for_change(result, {target_id}))

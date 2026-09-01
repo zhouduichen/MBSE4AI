@@ -1,6 +1,6 @@
 # RFLP-Lite 开发状态
 
-**最后更新：** 2026-08-18
+**最后更新：** 2026-09-01
 **当前版本：** 0.1.0  
 **状态：** 复审文档要求的 Phase 2A → 2B → 3A → 3B → 5 → 4 → 6 → 7 已依次落实；保留兼容入口，新增路径由窄依赖、严格契约、可恢复 Job 和自动门禁保护
 
@@ -13,9 +13,9 @@
 | 项目管理与需求删除 | 已完成首版 | `/` 管理多个 workspace 项目；项目卡片可展开查看需求；删除当前需求会清理派生模型并保留 `deleted` 台账状态和 `requirements.deleted` 审计事件 |
 | 项目隔离与需求串联 | 已完成首版 | 每个 workspace 绑定独立项目作用域；同项目内需求可通过 Stakeholder、Scenario、R/F/L/P、Interface 和 trace link 串联；跨项目引用会被拒绝 |
 | 真实需求输入 | 已完成 | 支持文本粘贴及 TXT、Markdown、DOCX、数字/扫描 PDF、Python、JSON、YAML、TOML 上传；PDF 页区域和 OCR 诊断保留在 v2 工作台 |
-| 客户需求结构化（验收 1.1） | 已完成首版 | 客户语言实体、能力谓词、数量范围、指标约束、验证方式和来源区域；结构化需求候选默认不批准 |
-| 需求追溯与验收指标 | 已完成首版 | `derivedFrom / representedBy / satisfiedBy / refines` 矩阵、覆盖率、precision/recall/F1 与 provenance 指标；SQLite 持久化 |
-| MBSE 用例辅助（验收 1.2） | 已完成首版 | 生成 Use Case、活动图、时序图语义集合；人工逐条编辑、修订版本和 JSON/SysML/SVG 导出 |
+| 客户需求结构化（验收 1.1） | 已完成增强版 | Word/PDF 版面证据、实体/需求/属性/显式与隐含约束分层、版本化历史数据集检索；隐含约束逐条审核 |
+| 需求追溯与验收指标 | 已完成增强版 | `derivedFrom / representedBy / constrainedBy / similarTo / satisfiedBy / refines` 矩阵、覆盖率、smoke/formal precision/recall/F1 与 provenance 指标 |
+| MBSE 用例辅助（验收 1.2） | 已完成增强版 | 从同一 canonical flow 生成 Use Case、活动图、时序图；支持结构化字段编辑和关联分支定向失效 |
 | MBSE 顺序图设计模块 | 已完成首版 | UML Interaction 契约、场景确认门禁、横向生命线/纵向时间轴、同步/异步/返回箭头、SVG 与 Web/API 入口；旧 MBSE 消息模型保持兼容 |
 | 需求/MBSE/场景确认闭环 | 已完成首版 | 候选逐条审核、编辑后回退、MBSE 草稿确认、场景确认门禁、审核历史和导出/执行状态门禁 |
 | 利益相关方前置链路 | 已完成首版 | StakeholderCandidate → Stakeholder/Concern/Need → Requirement |

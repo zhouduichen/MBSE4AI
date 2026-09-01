@@ -50,7 +50,7 @@ _STAKEHOLDER_CATEGORY_ALIASES = {
     "external_system": ("外部系统", "第三方平台", "接口系统", "合作系统"),
     "environment": ("环境", "自然环境", "法规", "约束条件"),
 }
-_GROUPS = {"stakeholders", "concerns", "needs", "claims", "structured_requirements"}
+_GROUPS = {"stakeholders", "concerns", "needs", "claims", "structured_requirements", "requirement_attributes", "requirement_constraints"}
 _STATUSES = {"candidate", "accepted", "rejected"}
 _REVIEW_FIELDS = {
     "stakeholders": "name",
@@ -58,6 +58,8 @@ _REVIEW_FIELDS = {
     "needs": "statement",
     "claims": "object",
     "structured_requirements": "statement",
+    "requirement_attributes": "name",
+    "requirement_constraints": "expression",
 }
 _IMPACT_GROUPS = tuple(_REVIEW_FIELDS)
 STAKEHOLDER_CATEGORIES = (
@@ -681,7 +683,7 @@ def accept_initial_workbench(state: dict[str, object]) -> dict[str, object]:
     """
 
     result = _clone(state)
-    groups = ("stakeholders", "concerns", "needs", "claims", "structured_requirements")
+    groups = ("stakeholders", "concerns", "needs", "claims", "structured_requirements", "requirement_attributes", "requirement_constraints")
     for group in groups:
         for item in result.get(group, ()):
             if not isinstance(item, dict) or item.get("status") != "candidate":
@@ -1539,7 +1541,7 @@ def review_item(
     item = next((candidate for candidate in items if candidate["id"] == item_id), None)
     if item is None:
         raise InvariantViolation("review item not found")
-    field = {"stakeholders": "name", "concerns": "name", "needs": "statement", "claims": "object", "structured_requirements": "statement"}[group]
+    field = _REVIEW_FIELDS[group]
     user_fields: dict[str, object] = {"status": status}
     if value.strip():
         item[field] = value.strip()
@@ -1566,6 +1568,8 @@ def review_item(
         "needs": "need",
         "claims": "requirement",
         "structured_requirements": "requirement",
+        "requirement_attributes": "requirement_attribute",
+        "requirement_constraints": "requirement_constraint",
     }[group]
     item["match_keys"] = sorted(
         set(item.get("match_keys", ())) | set(entity_match_keys(entity_type, item))

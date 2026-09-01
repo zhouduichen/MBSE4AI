@@ -31,6 +31,7 @@ _BLOCK_SPECS = (
     ("scenarios", 10, 1400, "scenarios：生成正常、边界、故障、恢复和误操作场景，不生成架构。"),
     ("architecture", 18, 1600, "architecture：基于已接受需求给出功能、逻辑组件、物理组件和接口候选。"),
 )
+_LEGACY_BLOCK_SPECS = tuple(item for item in _BLOCK_SPECS if item[0] not in {"requirement_details", "implicit_constraints"})
 _BLOCK_TASKS = {item[0]: item[3] for item in _BLOCK_SPECS}
 
 def build_analysis_blocks(
@@ -38,6 +39,21 @@ def build_analysis_blocks(
 ) -> tuple[AnalysisBlock, ...]:
     del composed_pack
     source_region_ids = allowed_source_region_ids(state)
+    # Keep the six-block catalog for callers that still pass a pre-v4
+    # in-memory state.  Persisted workbench states are migrated to v4 and
+    # automatically receive the explicit-detail and implicit-constraint
+    # blocks.  This lets older integrations continue to construct requests
+    # while the enhanced pipeline is opt-in by state contract, not by caller
+    # implementation details.
+    try:
+        schema_version = int(state.get("schema_version", 0) or 0)
+    except (TypeError, ValueError):
+        schema_version = 0
+    extended = schema_version >= 4 or any(
+        key in state
+        for key in ("requirement_attributes", "requirement_constraints", "implicit_constraints")
+    )
+    specs = _BLOCK_SPECS if extended else _LEGACY_BLOCK_SPECS
     return tuple(
         AnalysisBlock(
             block_id,
@@ -45,7 +61,7 @@ def build_analysis_blocks(
             max_tokens,
             schema_for(block_id, source_region_ids),
         )
-        for block_id, max_items, max_tokens, _task in _BLOCK_SPECS
+        for block_id, max_items, max_tokens, _task in specs
     )
 
 

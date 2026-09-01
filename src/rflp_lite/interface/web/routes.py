@@ -92,7 +92,7 @@ def _requirements_context(
             )
             and item.get("status") != "rejected"
         )
-        for group in ("stakeholders", "concerns", "needs", "claims", "structured_requirements")
+        for group in ("stakeholders", "concerns", "needs", "claims", "structured_requirements", "requirement_attributes", "requirement_constraints")
     }
     active_llm = next(
         (item for item in llm["profiles"] if item["id"] == llm.get("active_id")),
@@ -844,7 +844,7 @@ def review_requirement(
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
     if request.headers.get("HX-Request") == "true":
-        field = {"stakeholders": "name", "concerns": "name", "needs": "statement", "claims": "object", "structured_requirements": "statement"}[group]
+        field = {"stakeholders": "name", "concerns": "name", "needs": "statement", "claims": "object", "structured_requirements": "statement", "requirement_attributes": "name", "requirement_constraints": "expression"}[group]
         item = next(item for item in state[group] if item["id"] == item_id)
         return templates.TemplateResponse(
             request=request,
@@ -855,7 +855,7 @@ def review_requirement(
                 "item": item,
                 "field": field,
                 "stakeholder_categories": _facade(request).stakeholder_categories(),
-                "title": {"stakeholders": "利益相关方", "concerns": "Concern", "needs": "Stakeholder Need", "claims": "Requirement 候选", "structured_requirements": "结构化需求候选"}[group],
+                "title": {"stakeholders": "利益相关方", "concerns": "Concern", "needs": "Stakeholder Need", "claims": "Requirement 候选", "structured_requirements": "结构化需求候选", "requirement_attributes": "需求属性", "requirement_constraints": "需求约束"}[group],
             },
         )
     return RedirectResponse(_requirements_module_location(workspace_name, "review"), status_code=303)
@@ -979,12 +979,18 @@ def edit_requirements_mbse(
     revision: Annotated[str, Form()],
     element_id: Annotated[str, Form()],
     name: Annotated[str, Form()],
+    sender: str = Form(""),
+    receiver: str = Form(""),
+    message: str = Form(""),
+    guard: str = Form(""),
 ) -> Response:
     try:
+        fields = {key: value for key, value in {"name": name, "sender": sender, "receiver": receiver, "message": message, "guard": guard}.items() if value}
+        operation = {"kind": "update-fields", "id": element_id, "fields": fields} if any(key in fields for key in ("sender", "receiver", "message", "guard")) else {"kind": "rename", "id": element_id, "name": name}
         _facade(request).edit_requirements_mbse(
             workspace_name,
             revision,
-            {"kind": "rename", "id": element_id, "name": name},
+            operation,
         )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)

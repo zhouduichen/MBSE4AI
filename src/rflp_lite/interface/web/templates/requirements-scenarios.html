@@ -9,6 +9,7 @@
 <section class="panel guide-panel"><div class="panel-head"><div><h2>当前项目场景</h2></div><span class="status-badge accepted">项目内隔离</span></div><p>场景由当前项目的需求输入和 LLM 分析生成；同一项目可串联多个需求，跨项目不会复用。新增和编辑后的场景可以直接查看顺序图或生成声明性执行轨迹。</p><div class="download-actions"><a href="/w/{{ workspace.name }}/requirements/scenarios.json">下载场景 JSON</a><a href="/w/{{ workspace.name }}/requirements/scenario-runs.json">执行记录</a></div></section>
 
 <section class="panel"><div class="panel-head"><div><h2>系统输出的场景</h2></div><span class="count-badge">{{ state.scenarios|length }}</span></div>
+{% if state.retrieval_suggestions %}<div class="callout"><strong>历史相似需求/场景建议</strong><span>模板来源：{% for suggestion in state.retrieval_suggestions %}{{ suggestion.dataset_id }}@{{ suggestion.dataset_version }}{% if not loop.last %}、{% endif %}{% endfor %}</span></div>{% endif %}
 {% for scenario in state.scenarios %}
 <details class="scenario-card" data-scenario-type="{{ scenario.scenario_type|default('normal') }}">
   <summary class="scenario-card-summary">

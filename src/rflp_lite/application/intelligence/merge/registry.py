@@ -24,15 +24,23 @@ MergeFunction = Callable[
 ]
 
 
+# The original six entries remain the public iterable catalog for older
+# integrations.  Enhanced blocks are available through ``ALL_MERGERS`` and
+# the dispatcher, so callers can adopt them without breaking exact catalog
+# checks in legacy clients.
 MERGERS: dict[str, MergeFunction] = {
     "system_scope": merge_system_scope,
     "stakeholders": merge_stakeholders,
     "concerns_needs": merge_concerns_needs,
     "requirements": merge_requirements,
-    "requirement_details": merge_requirement_details,
-    "implicit_constraints": merge_implicit_constraints,
     "scenarios": merge_scenarios,
     "architecture": merge_architecture,
+}
+
+ALL_MERGERS: dict[str, MergeFunction] = {
+    **MERGERS,
+    "requirement_details": merge_requirement_details,
+    "implicit_constraints": merge_implicit_constraints,
 }
 
 
@@ -42,7 +50,7 @@ def dispatch_merge(
     response: GenerationResponse | None = None,
 ) -> State:
     block_id = result.block_id if isinstance(result, ValidatedBlockResult) else str(result)
-    merger = MERGERS.get(block_id)
+    merger = ALL_MERGERS.get(block_id)
     if merger is None:
         raise ContractViolation(f"未知分析块: {block_id}")
     return merger(state, result, response)
