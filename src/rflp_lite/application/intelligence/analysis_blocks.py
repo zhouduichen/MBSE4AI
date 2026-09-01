@@ -26,6 +26,7 @@ _BLOCK_SPECS = (
     ("stakeholders", 12, 1200, "stakeholders：识别与系统目标、使用、运营、监管、供应和环境有关的利益相关方。"),
     ("concerns_needs", 18, 1400, "concerns_needs：为已识别利益相关方补充关注点和可追溯需要，不生成架构。"),
     ("requirements", 16, 1600, "requirements：把明确目标和需要转成短小、可验证、可追溯的需求。"),
+    ("requirement_details", 32, 1800, "requirement_details：补充已识别需求的属性和显式约束；不得生成隐含约束。"),
     ("scenarios", 10, 1400, "scenarios：生成正常、边界、故障、恢复和误操作场景，不生成架构。"),
     ("architecture", 18, 1600, "architecture：基于已接受需求给出功能、逻辑组件、物理组件和接口候选。"),
 )
@@ -93,6 +94,7 @@ def _current_entities_for(block_id: str, state: dict[str, object]) -> object:
         "stakeholders": ("stakeholders",),
         "concerns_needs": ("concerns", "needs"),
         "requirements": ("claims", "structured_requirements"),
+        "requirement_details": ("requirement_attributes", "requirement_constraints"),
         "scenarios": ("scenarios",),
         "architecture": ("discovery",),
         "system_scope": ("system_context",),

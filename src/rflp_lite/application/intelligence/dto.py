@@ -80,6 +80,38 @@ class RequirementItem:
 
 
 @dataclass(frozen=True, slots=True)
+class RequirementAttributeItem:
+    id: str
+    requirement_id: str
+    name: str
+    value: str
+    unit: str
+    source_region_ids: tuple[str, ...]
+    confidence: float
+    kind: str = "attribute"
+
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, object]) -> "RequirementAttributeItem":
+        return cls(_text(raw.get("id"), "id", required=True), _text(raw.get("requirement_id"), "requirement_id", required=True), _text(raw.get("name"), "name", required=True), _text(raw.get("value"), "value"), _text(raw.get("unit"), "unit"), _texts(raw.get("source_region_ids")), _confidence(raw.get("confidence")))
+
+
+@dataclass(frozen=True, slots=True)
+class RequirementConstraintItem:
+    id: str
+    requirement_ids: tuple[str, ...]
+    constraint_type: str
+    expression: str
+    explicitness: str
+    source_region_ids: tuple[str, ...]
+    confidence: float
+    kind: str = "constraint"
+
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, object]) -> "RequirementConstraintItem":
+        return cls(_text(raw.get("id"), "id", required=True), _texts(raw.get("requirement_ids")), _text(raw.get("constraint_type"), "constraint_type", required=True), _text(raw.get("expression"), "expression", required=True), _text(raw.get("explicitness"), "explicitness", required=True), _texts(raw.get("source_region_ids")), _confidence(raw.get("confidence")))
+
+
+@dataclass(frozen=True, slots=True)
 class ScenarioItem:
     id: str
     title: str
@@ -157,6 +189,10 @@ def typed_item(block_id: str, raw: Mapping[str, object]) -> object:
         return StakeholderItem.from_mapping(raw)
     if block_id == "requirements":
         return RequirementItem.from_mapping(raw)
+    if block_id == "requirement_details":
+        if str(raw.get("kind", "")) == "attribute":
+            return RequirementAttributeItem.from_mapping(raw)
+        return RequirementConstraintItem.from_mapping(raw)
     if block_id == "scenarios":
         return ScenarioItem.from_mapping(raw)
     if block_id == "architecture":
@@ -176,6 +212,8 @@ __all__ = [
     "ArchitectureEntityItem",
     "ArchitectureRelationItem",
     "RequirementItem",
+    "RequirementAttributeItem",
+    "RequirementConstraintItem",
     "ScenarioItem",
     "StakeholderItem",
     "dto_to_dict",

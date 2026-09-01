@@ -1,4 +1,4 @@
-"""Strict, versioned JSON Schemas for the six project-analysis blocks."""
+"""Strict, versioned JSON Schemas for the project-analysis blocks."""
 
 from __future__ import annotations
 
@@ -178,6 +178,43 @@ _REQUIREMENT = {
     "additionalProperties": False,
 }
 
+_ATTRIBUTE = {
+    "type": "object",
+    "required": ["kind", "id", "requirement_id", "name", "value", "unit", "source_region_ids", "confidence"],
+    "properties": {
+        "kind": {"const": "attribute"},
+        "id": {"type": "string", "minLength": 1, "maxLength": 120},
+        "requirement_id": {"type": "string", "minLength": 1, "maxLength": 120},
+        "name": _SHORT_TEXT,
+        "value": {"type": "string", "maxLength": 240},
+        "unit": {"type": "string", "maxLength": 40},
+        "minimum": {"type": "string", "maxLength": 80},
+        "maximum": {"type": "string", "maxLength": 80},
+        "enum_values": _TEXT_LIST,
+        "source_region_ids": _SOURCE_IDS,
+        "confidence": _CONFIDENCE,
+    },
+    "additionalProperties": False,
+}
+
+_CONSTRAINT = {
+    "type": "object",
+    "required": ["kind", "id", "requirement_ids", "constraint_type", "expression", "explicitness", "source_region_ids", "confidence"],
+    "properties": {
+        "kind": {"const": "constraint"},
+        "id": {"type": "string", "minLength": 1, "maxLength": 120},
+        "requirement_ids": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 120}, "minItems": 1, "maxItems": 64, "uniqueItems": True},
+        "constraint_type": _SHORT_TEXT,
+        "expression": _TEXT,
+        "explicitness": {"const": "explicit"},
+        "rationale": {"type": "string", "maxLength": 2000},
+        "verification_method": {"type": "string", "maxLength": 120},
+        "source_region_ids": _SOURCE_IDS,
+        "confidence": _CONFIDENCE,
+    },
+    "additionalProperties": False,
+}
+
 _SCENARIO = {
     "type": "object",
     "required": ["id", "title", "scenario_type", "actors", "steps", "expected_outcomes", "requirement_ids", "source_region_ids", "confidence"],
@@ -239,6 +276,7 @@ _SCHEMAS: dict[str, dict[str, object]] = {
     "stakeholders": _envelope(_STAKEHOLDER, 12),
     "concerns_needs": _envelope({"oneOf": [_CONCERN, _NEED]}, 18),
     "requirements": _envelope(_REQUIREMENT, 16),
+    "requirement_details": _envelope({"oneOf": [_ATTRIBUTE, _CONSTRAINT]}, 32),
     "scenarios": _envelope(_SCENARIO, 10),
     "architecture": _envelope({"oneOf": [_ARCHITECTURE_ENTITY, _RELATION]}, 18),
 }

@@ -8,6 +8,7 @@ from rflp_lite.application.intelligence.merge.architecture import merge_architec
 from rflp_lite.application.intelligence.merge.common import State
 from rflp_lite.application.intelligence.merge.concerns_needs import merge_concerns_needs
 from rflp_lite.application.intelligence.merge.requirements import merge_requirements
+from rflp_lite.application.intelligence.merge.requirement_details import merge_requirement_details
 from rflp_lite.application.intelligence.merge.scenarios import merge_scenarios
 from rflp_lite.application.intelligence.merge.stakeholders import merge_stakeholders
 from rflp_lite.application.intelligence.merge.system_scope import merge_system_scope
@@ -27,6 +28,7 @@ MERGERS: dict[str, MergeFunction] = {
     "stakeholders": merge_stakeholders,
     "concerns_needs": merge_concerns_needs,
     "requirements": merge_requirements,
+    "requirement_details": merge_requirement_details,
     "scenarios": merge_scenarios,
     "architecture": merge_architecture,
 }
