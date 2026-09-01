@@ -18,6 +18,7 @@ from rflp_lite.adapters.plantuml_engine import PlantUMLEngine
 from rflp_lite.adapters.project_scanner import scan_project
 from rflp_lite.adapters.readers import RuleClaimExtractor, read_artifact, read_markdown
 from rflp_lite.adapters.scheme_sources import read_scheme_rows, read_sqlite_scheme_rows
+from rflp_lite.adapters.knowledge_sources import read_knowledge_rows, read_sqlite_knowledge_rows
 from rflp_lite.adapters.solvers import CpSatSolver, HeuristicSolver
 from rflp_lite.adapters.sqlite_repository import SQLiteRepository
 from rflp_lite.adapters.sqlite_job_repository import SQLiteJobRepository
@@ -96,6 +97,8 @@ def build_container(
         discipline_registry=discipline_registry,
         scheme_reader=read_scheme_rows,
         sqlite_scheme_reader=read_sqlite_scheme_rows,
+        knowledge_reader=read_knowledge_rows,
+        sqlite_knowledge_reader=read_sqlite_knowledge_rows,
         tracking=track_run_with_mlflow,
         test_connection=test_connection,
     )

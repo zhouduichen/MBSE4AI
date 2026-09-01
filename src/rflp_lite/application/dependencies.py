@@ -37,6 +37,8 @@ class ApplicationDependencies:
     sqlite_scheme_reader: Callable[[Path, str], tuple[dict[str, object], ...]]
     tracking: Callable[..., dict[str, object]]
     test_connection: Callable[[dict[str, object]], dict[str, object]]
+    knowledge_reader: Callable[[str, bytes | str], tuple[dict[str, object], ...]] | None = None
+    sqlite_knowledge_reader: Callable[[Path, str], tuple[dict[str, object], ...]] | None = None
 
 
 _DEFAULT_DEPENDENCIES: ApplicationDependencies | None = None
