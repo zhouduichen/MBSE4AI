@@ -25,7 +25,16 @@ _LEADING_VERB = re.compile(
     r"^(?P<predicate>支持|具备|能够|自动|生成|调用|推荐)(?P<object>.+)$"
 )
 _COUNT_RANGE = re.compile(r"(?P<low>\d+)\s*(?:~|～|至|-|—)\s*(?P<high>\d+)\s*(?P<unit>套|个|组|种)?")
-_NUMBERED_METRIC = re.compile(r"(?P<operator>>=|<=|≥|≤|>|<|不少于|不超过)\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>mm|m|kg|N|Pa|°|%|套)?", re.IGNORECASE)
+_NUMBERED_METRIC = re.compile(
+    r"(?P<operator>>=|<=|≥|≤|>|<|不得大于|不得超过|不高于|不少于|不低于|不超过|至少|以上)\s*"
+    r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>km/h|km|mm|m|kg|s|秒|N|Pa|°|%|套)?",
+    re.IGNORECASE,
+)
+_OPERATOR_ALIASES = {
+    "不得大于": "<=", "不得超过": "<=", "不高于": "<=", "不超过": "<=", "≤": "<=", "<=": "<=",
+    "不低于": ">=", "不少于": ">=", "至少": ">=", "以上": ">=", "≥": ">=", ">=": ">=",
+}
+_UNIT_ALIASES = {"秒": "s"}
 
 
 def _load_glossary() -> dict[str, Any]:
@@ -100,7 +109,22 @@ def _constraints(text: str) -> tuple[tuple[str, str], ...]:
         if count.group("unit"):
             values.append(("candidate_count_unit", count.group("unit")))
     for index, match in enumerate(_NUMBERED_METRIC.finditer(text), 1):
-        values.append((f"candidate_metric_{index}", " ".join(part for part in (match.group("operator"), match.group("value"), match.group("unit")) if part)))
+        raw_operator = match.group("operator")
+        raw_unit = match.group("unit") or ""
+        values.append(
+            (
+                f"candidate_metric_{index}",
+                " ".join(
+                    part
+                    for part in (
+                        _OPERATOR_ALIASES.get(raw_operator, raw_operator),
+                        match.group("value"),
+                        _UNIT_ALIASES.get(raw_unit, raw_unit),
+                    )
+                    if part
+                ),
+            )
+        )
     return tuple(values)
 
 
