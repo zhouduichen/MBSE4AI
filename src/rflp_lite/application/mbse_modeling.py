@@ -140,7 +140,7 @@ def apply_mbse_edit(
     if str(model.get("revision", "")) != str(expected_revision):
         raise ContractViolation("MBSE revision is stale; reload the current model")
     kind = str(operation.get("kind", ""))
-    if kind not in {"rename", "set-status"}:
+    if kind not in {"rename", "set-status", "update-fields"}:
         raise ContractViolation("unsupported MBSE edit")
     target_id = str(operation.get("id", ""))
     result = _clone(state)
@@ -155,7 +155,29 @@ def apply_mbse_edit(
     if len(matches) != 1:
         raise ContractViolation("MBSE edit target not found or ambiguous")
     target = matches[0]
-    if kind == "rename":
+    if kind == "update-fields":
+        allowed = {
+            "actors": {"name"},
+            "use_cases": {"name", "preconditions", "postconditions", "requirement_ids"},
+            "activities": {"name", "steps", "requirement_ids"},
+            "messages": {"name", "sort", "guard", "sender_lifeline_id", "receiver_lifeline_id", "requirement_ids"},
+            "lifelines": {"name", "requirement_ids"},
+        }
+        collection = next((name for name in collections if target in model_copy.get(name, ())), "")
+        fields = operation.get("fields")
+        if not isinstance(fields, dict) or not set(fields) <= allowed.get(collection, set()):
+            raise ContractViolation("unsupported MBSE edit field")
+        known_requirements = {str(item.get("id")) for item in result.get("structured_requirements", ()) if isinstance(item, dict)}
+        if "requirement_ids" in fields and not set(str(value) for value in fields["requirement_ids"]) <= known_requirements:
+            raise ContractViolation("MBSE edit references unknown requirement")
+        for field, value in fields.items():
+            target[field] = value
+        target["status"] = "stale"
+        from rflp_lite.application.model_impact import impact_for_change, mark_impacted_stale
+        result = mark_impacted_stale(result, impact_for_change(result, {target_id}))
+        model_copy = result["mbse"]
+        target = next(item for collection in collections for item in model_copy.get(collection, ()) if str(item.get("id")) == target_id)
+    elif kind == "rename":
         name = str(operation.get("name", "")).strip()
         if not name:
             raise ContractViolation("MBSE name cannot be empty")
