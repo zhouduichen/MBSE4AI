@@ -181,8 +181,8 @@ def run_optimization(
         if unchanged >= 2:
             stop_reason = "front_unchanged"
             break
-    formal_status = "passed" if all(
-        getattr(evaluator_profile.get("approvals", {}).get(item.adapter_id, {}), "get", lambda *_: False)("approved_for_formal")
+    formal_status = "passed" if evaluations and all(
+        item.status in {"succeeded", "cached"} and item.evidence_status == "formal"
         for item in evaluations
     ) else "development"
     run_hash = canonical_hash({"front": front_ids, "iterations": iteration_records, "stop": stop_reason})

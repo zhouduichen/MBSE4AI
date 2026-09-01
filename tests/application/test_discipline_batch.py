@@ -94,3 +94,47 @@ def test_surrogate_validity_and_profile_validation():
     )
     with pytest.raises(ContractViolation):
         validate_evaluator_profile({"id": "bad", "version": 0})
+
+
+def _complete_profile(dataset_hash="dataset-hash"):
+    hashes = {
+        "builtin.aerodynamics.v1": "builtin-aerodynamics-v1-low-order-analytical",
+        "builtin.structures.v1": "builtin-structures-v1-low-order-analytical",
+        "builtin.weight-balance.v1": "builtin-weight-balance-v1-low-order-analytical",
+    }
+    return {
+        "id": "customer-v1",
+        "version": 1,
+        "approvals": {
+            adapter_id: {
+                "adapter_version": "1",
+                "implementation_hash": implementation_hash,
+                "source_kind": "analytical",
+                "validity_domain": {"mass_kg": {"minimum": 1, "maximum": 10000}},
+                "validation_dataset_id": "gold",
+                "validation_dataset_version": "1",
+                "validation_dataset_hash": dataset_hash,
+                "error_metrics": {},
+                "acceptance_limits": {},
+                "approved_for_formal": True,
+                "approved_by": "customer",
+                "approved_at": "2026-09-01T00:00:00Z",
+                "basis": "validation report",
+            }
+            for adapter_id, implementation_hash in hashes.items()
+        },
+    }
+
+
+def test_cache_identity_includes_approval_dataset_hash():
+    pack, candidates = inputs()
+    first = evaluate_candidates(tuple(candidates[:1]), pack, _complete_profile(), discipline_registry(), Store())
+    second = evaluate_candidates(tuple(candidates[:1]), pack, _complete_profile("changed"), discipline_registry(), Store())
+    assert first.evaluations[0].input_hash != second.evaluations[0].input_hash
+
+
+def test_complete_approved_profile_can_formal_pass():
+    pack, candidates = inputs()
+    result = evaluate_candidates(tuple(candidates[:1]), pack, _complete_profile(), discipline_registry(), Store())
+    assert result.candidate_formal_status[candidates[0].id] == "passed"
+    assert all(item.evidence_status == "formal" for item in result.evaluations)

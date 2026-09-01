@@ -143,6 +143,15 @@ def run_concept_acceptance(
             if profile.get("approvals")
             else first.formal_status == "development"
         ),
+        "2.2.formal_evidence_consistent": all(
+            item.evidence_status == "formal"
+            for item in first.evaluations
+        ) if first.formal_status == "passed" else True,
+        "2.2.cache_identity": first.result_hash == second.result_hash,
+        "2.2.approval_diagnostics_present": all(
+            isinstance(item.approval_diagnostics, tuple)
+            for item in first.evaluations
+        ),
     }
     report = {
         "status": "passed" if all(checks.values()) else "failed",
@@ -152,6 +161,14 @@ def run_concept_acceptance(
         "candidate_hashes": candidate_hashes_first,
         "evaluation_hashes": evaluation_hashes_first,
         "run_hash": canonical_hash({"candidates": candidate_hashes_first, "evaluations": evaluation_hashes_first}),
+        "approval_diagnostics": [
+            {
+                "candidate_id": item.candidate_id,
+                "discipline": item.discipline,
+                "diagnostics": list(item.approval_diagnostics),
+            }
+            for item in first.evaluations
+        ],
         "rejected_scheme_rows": imported.rejected,
     }
     return report

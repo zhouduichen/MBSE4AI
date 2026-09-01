@@ -332,7 +332,9 @@ def run_concept_design(
     )
     formal_status = (
         "passed"
-        if evaluations and all(item.evidence_status == "formal" for item in evaluations)
+        if evaluations
+        and all(item.status in {"succeeded", "cached"} and item.evidence_status == "formal" for item in evaluations)
+        and optimization.evidence_status == "passed"
         else "development"
     )
     trace_links = _trace_links(envelope, matches, candidates, evaluations, optimization)
