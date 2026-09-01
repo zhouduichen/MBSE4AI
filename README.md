@@ -72,7 +72,7 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 
 “运行中心”继续提供 Heuristic 或 CP-SAT 的完整 Candidate、Simulation、Baseline、Delta、TaskContract 和 Evidence 链路。
 
-需求分析验收同时提供 smoke 与 formal 两种口径：不带 gold 文件时 `status` 仅表示可执行烟测；正式验收使用完整的 Gold v3（稳定 key + 原文 source anchor），`formal_status` 还必须满足需求 precision/recall ≥ 0.90、详情 F1 ≥ 0.85 及来源完整率 100%，零指标结果不能正式通过。动态 `region-*` ID 只作追溯证据，不作为跨运行身份。DOCX 表格单元格保留表格/行列定位，稀疏 PDF 会补充 OCR 并记录 `pdf_page_hybrid_ocr` 诊断。历史需求和作战场景可从版本化 JSON/CSV 或只读 SQLite 导入，检索建议带数据集版本和匹配词证据。
+需求分析验收同时提供 smoke 与 formal 两种口径：不带 gold 文件时 `status` 仅表示可执行烟测；正式验收使用完整的 Gold v3（稳定 key + 原文 source anchor），当前样例拆为 1.1/1.2/2.1/2.2 四个父节点下的 29 条原子条款，报告中的 `acceptance_tree` 会逐节点给出 expected/matched/missing/extra。`formal_status` 还必须满足需求 precision/recall ≥ 0.90、详情 F1 ≥ 0.85 及来源完整率 100%，零指标结果不能正式通过。动态 `region-*` ID 只作追溯证据，不作为跨运行身份。DOCX 表格单元格保留表格/行列定位，稀疏 PDF 会补充 OCR 并记录 `pdf_page_hybrid_ocr` 诊断。历史需求和作战场景可从版本化 JSON/CSV 或只读 SQLite 导入，检索建议带数据集版本和匹配词证据。
 
 ### 智能 MBSE 发现（CLI/API 兼容入口）
 
@@ -187,7 +187,7 @@ Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机�
 
 ### 客户验收功能（1.1—1.2）
 
-当前实现已覆盖需求分析与论证阶段的客户验收切片：TXT/Markdown/DOCX/数字 PDF/扫描 PDF 统一解析，保留页码、区域坐标、来源哈希和诊断；按客户工程语言抽取实体、能力、对象、数量范围和指标约束，生成可审查的 MBSE 结构化需求候选；持久化 `derivedFrom / representedBy / satisfiedBy / refines` 追溯链和覆盖率；已接受的明确需求生成 Use Case、活动图、时序图语义模型，并支持版本校验、逐条编辑、JSON/SysML 子集/SVG 导出。LLM 只生成 `inferred` 候选，批量确认不会批准隐含约束。
+当前实现已覆盖需求分析与论证阶段的客户验收切片：TXT/Markdown/DOCX/数字 PDF/扫描 PDF 统一解析，保留页码、区域坐标、来源哈希和诊断；按客户工程语言抽取实体、能力、对象、数量范围和指标约束，生成可审查的 MBSE 结构化需求候选；持久化 `derivedFrom / representedBy / satisfiedBy / refines` 追溯链和覆盖率；已接受的明确需求生成 Use Case、活动图、时序图语义模型，并支持版本校验、逐条编辑、JSON/SysML 子集/SVG 导出。正式 Gold v3 已拆为只覆盖 1.1/1.2/2.1/2.2 的 29 条原子需求树，验收报告按父节点汇总缺失和额外项。LLM 只生成 `inferred` 候选，批量确认不会批准隐含约束。
 
 ```bash
 .venv/bin/rflp acceptance --requirements src/rflp_lite/resources/examples/customer-acceptance/customer-requirements.txt

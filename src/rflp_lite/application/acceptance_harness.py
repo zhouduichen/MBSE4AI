@@ -17,6 +17,78 @@ from rflp_lite.application.mbse_acceptance import evaluate_mbse_acceptance
 from rflp_lite.application.requirements_workbench import accept_traceable, analyze_artifact
 
 
+def build_acceptance_tree(contract, metrics: dict[str, object]) -> tuple[dict[str, object], ...]:
+    """Summarize atomic Gold matches under each declared parent node."""
+
+    if not getattr(contract, "tree", ()):
+        return ()
+    matched_keys = {
+        str(item.get("matched_key", ""))
+        for item in metrics.get("requirement_matches", ())
+        if isinstance(item, dict) and item.get("matched_key")
+    }
+    unmatched_expected = {
+        str(value) for value in metrics.get("unmatched_expected", ()) if str(value)
+    }
+    unmatched_actual = {
+        str(value) for value in metrics.get("unmatched_actual", ()) if str(value)
+    }
+    requirement_parent = {
+        item.key: item.parent_key
+        for item in getattr(contract, "requirements", ())
+        if item.parent_key
+    }
+    extra_by_parent: dict[str, list[str]] = {str(node["key"]): [] for node in contract.tree}
+    unassigned_extra: list[str] = []
+    for diagnostic in metrics.get("requirement_matches", ()):
+        if not isinstance(diagnostic, dict):
+            continue
+        actual_id = str(diagnostic.get("actual_id", ""))
+        if actual_id not in unmatched_actual:
+            continue
+        candidates = {
+            str(value) for value in diagnostic.get("anchor_candidates", ()) if str(value)
+        }
+        parents = {
+            requirement_parent[key]
+            for key in candidates
+            if key in requirement_parent and requirement_parent[key]
+        }
+        if len(parents) == 1:
+            extra_by_parent[next(iter(parents))].append(actual_id)
+        else:
+            unassigned_extra.append(actual_id)
+    diagnosed_actual_ids = {
+        str(item.get("actual_id", ""))
+        for item in metrics.get("requirement_matches", ())
+        if isinstance(item, dict) and item.get("actual_id")
+    }
+    unassigned_extra.extend(sorted(unmatched_actual - diagnosed_actual_ids))
+
+    result: list[dict[str, object]] = []
+    for node in contract.tree:
+        key = str(node["key"])
+        children = tuple(str(value) for value in node.get("children", ()))
+        matched = sorted(set(children) & matched_keys)
+        missing = sorted(set(children) & unmatched_expected | (set(children) - matched_keys - unmatched_expected))
+        extra = sorted(set(extra_by_parent.get(key, ())))
+        result.append({
+            "key": key,
+            "title": str(node["title"]),
+            "expected": len(children),
+            "matched": matched,
+            "missing": missing,
+            "extra": extra,
+            "status": "passed" if not missing and not extra else "failed",
+        })
+    if unassigned_extra:
+        # Keep the four-node public tree stable while exposing unmatched
+        # outputs that cannot be attributed to a declared parent.
+        result[-1]["unassigned_extra"] = sorted(set(unassigned_extra))
+        result[-1]["status"] = "failed"
+    return tuple(result)
+
+
 def run_customer_acceptance(
     filename: str, content: bytes, gold_path: Path | None = None
 ) -> dict[str, object]:
@@ -95,6 +167,7 @@ def run_customer_acceptance(
             metrics = evaluate_requirement_extraction(metric_items, expected_requirements)
         report["extraction_metrics"] = metrics
         report["provenance_diagnostics"] = metrics.get("provenance_diagnostics", [])
+        report["acceptance_tree"] = build_acceptance_tree(contract, metrics) if contract is not None else ()
         failures: list[str] = []
         if report.get("gold_contract_status") != "valid":
             failures.append("gold_contract_not_v3_complete")
@@ -112,6 +185,8 @@ def run_customer_acceptance(
                 failures.append("unexpected_actual_requirements")
             if metrics.get("unmatched_expected"):
                 failures.append("missing_expected_requirements")
+            if contract.tree and any(item.get("status") != "passed" for item in report["acceptance_tree"]):
+                failures.append("acceptance_tree_incomplete")
             expectations = contract.mbse_expectations if contract is not None else {}
             if isinstance(expectations, dict) and mbse_metrics is not None:
                 if float(mbse_metrics.get("requirement_coverage", 0.0)) < float(expectations.get("requirement_coverage", 1.0)):
