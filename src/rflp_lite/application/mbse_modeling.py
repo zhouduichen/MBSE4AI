@@ -99,12 +99,12 @@ def confirm_mbse(state: dict[str, object]) -> dict[str, object]:
         raise ContractViolation("MBSE 用例或活动已驳回，请先重新生成模型")
     for collection in ("actors", "use_cases", "activities", "lifelines", "messages"):
         for item in model.get(collection, ()):
-            if item.get("status") != "rejected":
+            if item.get("status") not in {"rejected", "needs-analysis"}:
                 item["status"] = "accepted"
     semantic = model.get("semantic_model")
     if isinstance(semantic, dict):
         for item in mbse_entity_index(semantic).values():
-            if item.get("status") != "rejected":
+            if item.get("status") not in {"rejected", "needs-analysis"}:
                 item["status"] = "accepted"
     model["status"] = "accepted"
     history = list(model.get("review_history", ()))

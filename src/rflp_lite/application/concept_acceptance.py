@@ -7,7 +7,7 @@ from pathlib import Path
 from collections.abc import Mapping
 
 from rflp_lite.application.concept_design_service import run_concept_design
-from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
+from rflp_lite.application.dependencies import ApplicationDependencies, configured_dependencies
 from rflp_lite.application.discipline_batch import evaluate_candidates, validate_evaluator_profile
 from rflp_lite.application.domain_packs import load_domain_pack
 from rflp_lite.application.scheme_library import import_scheme_rows
@@ -68,7 +68,7 @@ def run_concept_acceptance(
     *,
     dependencies: ApplicationDependencies | None = None,
 ) -> dict[str, object]:
-    deps = require_dependencies(dependencies)
+    deps = configured_dependencies(dependencies)
     pack = load_domain_pack(pack_path)
     rows = deps.scheme_reader(schemes_path.name, schemes_path.read_bytes())
     imported = import_scheme_rows(pack, rows, str(schemes_path))

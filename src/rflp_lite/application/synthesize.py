@@ -8,6 +8,21 @@ from rflp_lite.domain.errors import InvariantViolation
 from rflp_lite.domain.models import Claim, ModelElement, Relation
 
 
+_KNOWN_RELATION_PREDICATES = frozenset(
+    {
+        "satisfiedBy",
+        "allocatedTo",
+        "realizedBy",
+        "interfacesWith",
+        "flowsTo",
+        "verifiedBy",
+        "derivedFrom",
+        "refines",
+        "exchanges",
+    }
+)
+
+
 def _identifier(prefix: str, *parts: object) -> str:
     return f"{prefix}-{canonical_hash(parts)[:12]}"
 
@@ -96,6 +111,10 @@ def _placeholder(
             ("reason", "LLM 未提供足够架构细节"),
         ),
     )
+
+
+def _is_gap(element: ModelElement) -> bool:
+    return element.status == "needs-analysis" or element.kind.endswith("-needs-analysis")
 
 
 def _legacy_synthesize_rflp(
@@ -229,8 +248,9 @@ def synthesize_rflp(
             continue
         source = raw_to_element.get(str(raw.get("source_id", "")))
         target = raw_to_element.get(str(raw.get("target_id", "")))
-        if source is not None and target is not None:
-            add_relation(source, str(raw.get("predicate", "relatedTo")), target)
+        predicate = str(raw.get("predicate", ""))
+        if source is not None and target is not None and predicate in _KNOWN_RELATION_PREDICATES:
+            add_relation(source, predicate, target)
 
     for claim in sorted(claims, key=lambda item: item.id):
         requirement = ModelElement(
@@ -265,12 +285,15 @@ def synthesize_rflp(
             physical.extend(claim_physical)
 
         for function in claim_functions:
-            add_relation(requirement, "satisfiedBy", function)
+            if not _is_gap(function):
+                add_relation(requirement, "satisfiedBy", function)
             for component in claim_logical:
-                add_relation(function, "allocatedTo", component)
+                if not _is_gap(function) and not _is_gap(component):
+                    add_relation(function, "allocatedTo", component)
         for component in claim_logical:
             for implementation in claim_physical:
-                add_relation(component, "realizedBy", implementation)
+                if not _is_gap(component) and not _is_gap(implementation):
+                    add_relation(component, "realizedBy", implementation)
 
     elements = tuple(
         sorted(

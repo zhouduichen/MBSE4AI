@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from copy import deepcopy
 
 from rflp_lite.domain.errors import ContractViolation
@@ -275,11 +276,35 @@ for _schema in _SCHEMAS.values():
                 _candidate["additionalProperties"] = False
 
 
-def schema_for(block_id: str) -> dict[str, object]:
+def _inject_source_region_enum(
+    schema: dict[str, object], source_region_ids: tuple[str, ...]
+) -> None:
+    for key, value in schema.items():
+        if key == "source_region_ids" and isinstance(value, dict):
+            items = value.get("items")
+            if isinstance(items, dict):
+                items["enum"] = list(source_region_ids)
+        elif isinstance(value, dict):
+            _inject_source_region_enum(value, source_region_ids)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    _inject_source_region_enum(item, source_region_ids)
+
+
+def schema_for(
+    block_id: str, source_region_ids: Iterable[str] = ()
+) -> dict[str, object]:
     try:
-        return deepcopy(_SCHEMAS[block_id])
+        schema = deepcopy(_SCHEMAS[block_id])
     except KeyError as exc:
         raise ContractViolation(f"未知分析块: {block_id}") from exc
+    allowed = tuple(
+        sorted({str(value).strip() for value in source_region_ids if str(value).strip()})
+    )
+    if allowed:
+        _inject_source_region_enum(schema, allowed)
+    return schema
 
 
 def block_schema_version(block_id: str) -> str:

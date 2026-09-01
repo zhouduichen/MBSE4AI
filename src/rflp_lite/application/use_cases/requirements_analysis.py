@@ -28,6 +28,12 @@ from rflp_lite.ports.jobs import JobServiceFactory
 from rflp_lite.ports.repositories import RepositoryFactory
 
 
+_ENRICHMENT_JOB_KINDS = frozenset(
+    {"requirements.enrichment", "requirements.analysis", "enrichment"}
+)
+_RETRYABLE_JOB_STATUSES = frozenset({"failed", "degraded", "interrupted"})
+
+
 @dataclass(frozen=True, slots=True)
 class RequirementsAnalysisDependencies:
     """Only the capabilities needed by the requirements-analysis use case."""
@@ -133,7 +139,20 @@ class RequirementsAnalysisService:
         (inputs / f'{artifact["sha256"][:12]}-{artifact["path"]}').write_bytes(content)
 
         event = "requirements.merged" if merge else "requirements.analyzed"
-        self._save_initial(workspace, state, event)
+        expected_revision = int((current or {}).get("revision", 0) or 0)
+        expected_content_revision = int(
+            (current or {}).get(
+                "content_revision", (current or {}).get("revision", 0)
+            )
+            or 0
+        )
+        self._save_initial(
+            workspace,
+            state,
+            event,
+            expected_revision=expected_revision,
+            expected_content_revision=expected_content_revision,
+        )
 
         if not state.get("spans"):
             return state
@@ -213,6 +232,7 @@ class RequirementsAnalysisService:
         previous = job_service.get(job_id)
         if previous is None:
             raise ContractViolation("enrichment job not found")
+        self._assert_retryable_job(previous)
         new_job = self.dependencies.enrichment_runner_factory(workspace.path).retry(
             job_id, model
         )
@@ -246,6 +266,7 @@ class RequirementsAnalysisService:
         previous = job_service.get(job_id)
         if previous is None:
             raise ContractViolation("enrichment job not found")
+        self._assert_retryable_job(previous)
         new_job = self.dependencies.enrichment_runner_factory(workspace.path).retry_block(
             job_id, block_id, model
         )
@@ -280,6 +301,17 @@ class RequirementsAnalysisService:
         return new_job
 
     @staticmethod
+    def _assert_retryable_job(previous: dict[str, object]) -> None:
+        # Missing fields remain compatible with pre-metadata test doubles and
+        # legacy callers; durable SQLite records always contain both fields.
+        kind = str(previous.get("kind", "requirements.enrichment"))
+        status = str(previous.get("status", "failed"))
+        if kind not in _ENRICHMENT_JOB_KINDS:
+            raise ContractViolation("只能重试需求分析 Job")
+        if status not in _RETRYABLE_JOB_STATUSES:
+            raise ContractViolation("只有 failed、degraded 或 interrupted enrichment Job 可以重试")
+
+    @staticmethod
     def _initialize_review_state(state: dict[str, object]) -> dict[str, object]:
         # Import locally to keep the use-case module's top-level dependency list
         # focused on orchestration and avoid a duplicate public import surface.
@@ -295,14 +327,25 @@ class RequirementsAnalysisService:
         return ""
 
     def _save_initial(
-        self, workspace: WorkspaceRef, state: dict[str, object], event: str
+        self,
+        workspace: WorkspaceRef,
+        state: dict[str, object],
+        event: str,
+        *,
+        expected_revision: int,
+        expected_content_revision: int,
     ) -> None:
         repository = self.dependencies.repository_factory(
             workspace.path / ".rflp" / "model.db"
         )
         try:
             with repository.transaction():
-                repository.save_workbench(state, event)
+                repository.save_workbench(
+                    state,
+                    event,
+                    expected_revision=expected_revision,
+                    expected_content_revision=expected_content_revision,
+                )
                 sequence = repository.record_audit(
                     event,
                     {

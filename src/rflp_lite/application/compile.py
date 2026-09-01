@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
+from rflp_lite.application.dependencies import ApplicationDependencies, configured_dependencies
 from rflp_lite.domain.errors import InvariantViolation
 from rflp_lite.domain.models import Claim, TextSpan
 
@@ -10,7 +10,7 @@ def compile_claims(
     *,
     dependencies: ApplicationDependencies | None = None,
 ) -> tuple[Claim, ...]:
-    deps = require_dependencies(dependencies)
+    deps = configured_dependencies(dependencies)
     claims = deps.claim_extractor_factory().extract(spans)
     if not claims:
         raise InvariantViolation("no normative claims were extracted")

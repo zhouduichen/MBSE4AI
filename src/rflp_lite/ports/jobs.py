@@ -35,7 +35,17 @@ TERMINAL_JOB_STATUSES = frozenset(
 class JobRepositoryPort(Protocol):
     def submit(self, kind: str, payload: dict[str, object]) -> dict[str, object]: ...
 
-    def update(self, job_id: str, patch: dict[str, object]) -> dict[str, object] | None: ...
+    def claim(self, job_id: str) -> dict[str, object] | None: ...
+
+    def retry_claim(self, job_id: str) -> dict[str, object] | None: ...
+
+    def update(
+        self,
+        job_id: str,
+        patch: dict[str, object],
+        *,
+        expected_lease_id: str | None = None,
+    ) -> dict[str, object] | None: ...
 
     def get(self, job_id: str) -> dict[str, object] | None: ...
 
@@ -47,6 +57,8 @@ class JobRepositoryPort(Protocol):
         self, job_id: str, lease_id: str, now: float | None = None
     ) -> dict[str, object] | None: ...
 
+
+class LegacyJobMigrationPort(Protocol):
     def import_legacy_file(self, source: Path, archived: Path) -> int: ...
 
 
@@ -54,4 +66,8 @@ class BackgroundExecutorPort(Protocol):
     def submit(self, job_id: str, runner: Callable[[], None]) -> None: ...
 
 
-JobServiceFactory = Callable[[Path], JobRepositoryPort]
+class JobServicePort(Protocol):
+    def get(self, job_id: str) -> dict[str, object] | None: ...
+
+
+JobServiceFactory = Callable[[Path], JobServicePort]

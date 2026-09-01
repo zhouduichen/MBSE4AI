@@ -16,6 +16,38 @@ from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.ports.jobs import ACTIVE_JOB_STATUSES
 
 
+_JOB_STATUSES = frozenset(
+    {
+        "queued",
+        "running",
+        "succeeded",
+        "degraded",
+        "failed",
+        "interrupted",
+        "superseded",
+        "cancelled",
+    }
+)
+_JOB_CORE_PATCH_FIELDS = frozenset(
+    {
+        "status",
+        "attempt",
+        "lease_id",
+        "lease_expires_at",
+        "heartbeat_at",
+        "input_hash",
+        "last_error",
+        "result",
+        "diagnostics",
+        "error",
+        "blocks",
+        "block_states",
+        "metadata",
+        "expected_lease_id",
+    }
+)
+
+
 def _decode(value: str | None, default: object) -> object:
     if value is None:
         return default
@@ -88,8 +120,9 @@ class SQLiteJobRepository:
                 id, kind, workspace, status, idempotency_key, attempt,
                 lease_id, lease_expires_at, heartbeat_at,
                 snapshot_revision, snapshot_content_revision, input_hash,
-                payload, result, last_error, diagnostics, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                payload, result, last_error, diagnostics, metadata,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
@@ -108,6 +141,11 @@ class SQLiteJobRepository:
                 None if item.get("result") is None else canonical_json(item["result"]),
                 None if item.get("last_error") is None else canonical_json(item["last_error"]),
                 canonical_json(item.get("diagnostics", {})),
+                canonical_json(
+                    item.get("metadata", {})
+                    if isinstance(item.get("metadata", {}), dict)
+                    else {}
+                ),
                 now,
                 now,
             ),
@@ -171,11 +209,14 @@ class SQLiteJobRepository:
             result,
             last_error,
             diagnostics,
+            metadata,
             created_at,
             updated_at,
         ) = row
         decoded_payload = _decode(str(payload), {})
         payload_dict = decoded_payload if isinstance(decoded_payload, dict) else {}
+        decoded_metadata = _decode(str(metadata), {})
+        metadata_dict = decoded_metadata if isinstance(decoded_metadata, dict) else {}
         block_rows = self._connection.execute(
             "SELECT block_id, status FROM job_blocks WHERE job_id = ? ORDER BY block_id",
             (str(job_id),),
@@ -200,12 +241,20 @@ class SQLiteJobRepository:
             "input_hash": str(input_hash),
             "last_error": _decode(str(last_error) if last_error is not None else None, None),
             "diagnostics": _decode(str(diagnostics), {}),
+            "metadata": metadata_dict,
             "blocks": effective_blocks,
             "block_states": effective_blocks,
             "idempotency_key": str(idempotency_key),
             "created_at": float(created_at),
             "updated_at": float(updated_at),
         }
+        record.update(
+            {
+                str(key): value
+                for key, value in metadata_dict.items()
+                if str(key) not in record
+            }
+        )
         if result is not None:
             record["result"] = _decode(str(result), {})
         if record["last_error"] is not None:
@@ -218,7 +267,7 @@ class SQLiteJobRepository:
             SELECT id, kind, workspace, status, idempotency_key, attempt,
                    lease_id, lease_expires_at, heartbeat_at, snapshot_revision,
                    snapshot_content_revision, input_hash, payload, result,
-                   last_error, diagnostics, created_at, updated_at
+                   last_error, diagnostics, metadata, created_at, updated_at
             FROM jobs WHERE id = ?
             """,
             (str(job_id),),
@@ -249,8 +298,8 @@ class SQLiteJobRepository:
                 INSERT INTO jobs(
                     id, kind, workspace, status, idempotency_key, payload,
                     snapshot_revision, snapshot_content_revision, input_hash,
-                    diagnostics, created_at, updated_at
-                ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, '{}', ?, ?)
+                    diagnostics, metadata, created_at, updated_at
+                ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, '{}', '{}', ?, ?)
                 """,
                 (
                     job_id,
@@ -275,6 +324,46 @@ class SQLiteJobRepository:
                 )
             return self._find(job_id) or {}
 
+    def _claim(
+        self, job_id: str, allowed_statuses: tuple[str, ...]
+    ) -> dict[str, object] | None:
+        now = time.time()
+        lease_id = uuid4().hex
+        placeholders = ", ".join("?" for _ in allowed_statuses)
+        with self._transaction():
+            current = self._find(job_id)
+            if current is None or str(current.get("status")) not in allowed_statuses:
+                return None
+            metadata = dict(current.get("metadata") or {})
+            metadata["retryable"] = True
+            cursor = self._connection.execute(
+                f"""
+                UPDATE jobs
+                SET status = 'running', attempt = attempt + 1,
+                    lease_id = ?, lease_expires_at = ?, heartbeat_at = ?,
+                    last_error = NULL, metadata = ?, updated_at = ?
+                WHERE id = ? AND status IN ({placeholders})
+                """,
+                (
+                    lease_id,
+                    now + self.lease_seconds,
+                    now,
+                    canonical_json(metadata),
+                    now,
+                    str(job_id),
+                    *allowed_statuses,
+                ),
+            )
+            if cursor.rowcount != 1:
+                return None
+            return self._find(job_id)
+
+    def claim(self, job_id: str) -> dict[str, object] | None:
+        return self._claim(job_id, ("queued",))
+
+    def retry_claim(self, job_id: str) -> dict[str, object] | None:
+        return self._claim(job_id, ("failed", "degraded", "interrupted"))
+
     def get(self, job_id: str) -> dict[str, object] | None:
         with self._lock:
             return self._find(job_id)
@@ -291,32 +380,54 @@ class SQLiteJobRepository:
                     records.append(record)
             return tuple(records)
 
-    def update(self, job_id: str, patch: Mapping[str, object]) -> dict[str, object] | None:
+    def update(
+        self,
+        job_id: str,
+        patch: Mapping[str, object],
+        *,
+        expected_lease_id: str | None = None,
+    ) -> dict[str, object] | None:
         normalized = json.loads(canonical_json(dict(patch)))
-        allowed = {
-            "status",
-            "attempt",
-            "lease_id",
-            "lease_expires_at",
-            "heartbeat_at",
-            "input_hash",
-            "last_error",
-            "result",
-            "diagnostics",
-        }
+        status = normalized.get("status")
+        if status is not None and str(status) not in _JOB_STATUSES:
+            raise ValueError(f"unknown job status: {status}")
         with self._transaction():
             current = self._find(job_id)
             if current is None:
                 return None
-            values: dict[str, object] = {}
-            for key in allowed:
-                if key in normalized:
-                    values[key] = normalized[key]
+            values = {
+                key: normalized[key]
+                for key in (
+                    "status",
+                    "attempt",
+                    "lease_id",
+                    "lease_expires_at",
+                    "heartbeat_at",
+                    "input_hash",
+                    "last_error",
+                    "result",
+                    "diagnostics",
+                )
+                if key in normalized
+            }
             if "error" in normalized and "last_error" not in values:
                 values["last_error"] = normalized["error"]
+
+            metadata = dict(current.get("metadata") or {})
+            supplied_metadata = normalized.get("metadata")
+            if isinstance(supplied_metadata, dict):
+                metadata.update(supplied_metadata)
+            metadata.update(
+                {
+                    str(key): value
+                    for key, value in normalized.items()
+                    if key not in _JOB_CORE_PATCH_FIELDS
+                }
+            )
+
             now = time.time()
-            assignments = ["updated_at = ?"]
-            params: list[object] = [now]
+            assignments = ["updated_at = ?", "metadata = ?"]
+            params: list[object] = [now, canonical_json(metadata)]
             columns = {
                 "status": "status",
                 "attempt": "attempt",
@@ -329,15 +440,30 @@ class SQLiteJobRepository:
                 if key in values:
                     assignments.append(f"{column} = ?")
                     params.append(values[key])
-            for key, column in (("last_error", "last_error"), ("result", "result"), ("diagnostics", "diagnostics")):
+            for key, column in (
+                ("last_error", "last_error"),
+                ("result", "result"),
+                ("diagnostics", "diagnostics"),
+            ):
                 if key in values:
                     assignments.append(f"{column} = ?")
-                    params.append(None if values[key] is None else canonical_json(values[key]))
+                    params.append(
+                        None if values[key] is None else canonical_json(values[key])
+                    )
+            where = "WHERE id = ?"
             params.append(str(job_id))
-            self._connection.execute(
-                f"UPDATE jobs SET {', '.join(assignments)} WHERE id = ?", params
+            if expected_lease_id is not None:
+                where += " AND status = 'running' AND lease_id = ?"
+                params.append(str(expected_lease_id))
+            cursor = self._connection.execute(
+                f"UPDATE jobs SET {', '.join(assignments)} {where}", params
             )
-            block_updates = normalized.get("block_states", normalized.get("blocks", {}))
+            if cursor.rowcount != 1:
+                return None
+
+            block_updates = normalized.get(
+                "block_states", normalized.get("blocks", {})
+            )
             if isinstance(block_updates, dict):
                 for block_id, value in block_updates.items():
                     block_patch = value if isinstance(value, dict) else {"status": value}
@@ -351,7 +477,10 @@ class SQLiteJobRepository:
                         if key in block_patch:
                             assignments.append(f"{column} = ?")
                             block_params.append(block_patch[key])
-                    for key, column in (("result", "result"), ("diagnostics", "diagnostics")):
+                    for key, column in (
+                        ("result", "result"),
+                        ("diagnostics", "diagnostics"),
+                    ):
                         if key in block_patch:
                             assignments.append(f"{column} = ?")
                             block_params.append(
@@ -376,7 +505,13 @@ class SQLiteJobRepository:
             ).fetchall()
             for row in rows:
                 self._connection.execute(
-                    "UPDATE jobs SET status = 'interrupted', last_error = ?, updated_at = ? WHERE id = ?",
+                    """
+                    UPDATE jobs
+                    SET status = 'interrupted', lease_id = '',
+                        lease_expires_at = 0, heartbeat_at = 0,
+                        last_error = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
                     (
                         canonical_json({"type": "StartupRecovery", "message": "进程重启后未发现有效 lease"}),
                         current_time,

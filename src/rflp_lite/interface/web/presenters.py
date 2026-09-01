@@ -63,6 +63,81 @@ LAYER_NAMES = {
     "P": "Physical",
 }
 
+ANALYSIS_BLOCK_LABELS = {
+    "system_scope": "系统范围分析",
+    "stakeholders": "利益相关方分析",
+    "concerns_needs": "关注点与需要分析",
+    "requirements": "需求补全",
+    "scenarios": "场景分析",
+    "architecture": "架构分析",
+}
+
+STATUS_LABELS = {
+    "queued": "排队中",
+    "running": "运行中",
+    "succeeded": "已完成",
+    "completed": "已完成",
+    "degraded": "部分完成",
+    "failed": "失败",
+    "interrupted": "已中断",
+    "superseded": "已被新编辑替代",
+    "needs-analysis": "需要分析",
+    "stale": "已过期",
+}
+
+
+def analysis_blocks_context(state: dict[str, object] | None) -> tuple[dict[str, object], ...]:
+    """Translate internal block state into user-facing progress records."""
+
+    if not isinstance(state, dict):
+        return ()
+    analysis = state.get("auto_analysis")
+    if not isinstance(analysis, dict):
+        return ()
+    diagnostics = analysis.get("diagnostics", ())
+    diagnostics_by_block = {
+        str(item.get("block_id")): item
+        for item in diagnostics
+        if isinstance(item, dict) and item.get("block_id")
+    } if isinstance(diagnostics, (list, tuple)) else {}
+    blocks = analysis.get("blocks", {})
+    if not isinstance(blocks, dict):
+        return ()
+    return tuple(
+        {
+            "id": block_id,
+            "label": ANALYSIS_BLOCK_LABELS.get(block_id, block_id),
+            "status": status,
+            "status_label": STATUS_LABELS.get(status, status),
+            "diagnostic": diagnostics_by_block.get(block_id),
+            "retryable": (
+                status in {"failed", "degraded", "interrupted"}
+                and str(analysis.get("status", "")) != "enriching"
+            ),
+        }
+        for block_id, status in sorted(
+            ((str(key), str(value)) for key, value in blocks.items()),
+            key=lambda item: item[0],
+        )
+    )
+
+
+def provenance_context(state: dict[str, object] | None) -> tuple[dict[str, object], ...]:
+    if not isinstance(state, dict):
+        return ()
+    result = state.get("discovery", {}).get("block_results", {}) if isinstance(state.get("discovery"), dict) else {}
+    if not isinstance(result, dict):
+        return ()
+    return tuple(
+        {
+            "block_id": block_id,
+            "label": ANALYSIS_BLOCK_LABELS.get(str(block_id), str(block_id)),
+            "result": value,
+        }
+        for block_id, value in sorted(result.items())
+        if isinstance(value, dict)
+    )
+
 
 def artifacts_context(workspace: WorkspaceRef, record: RunRecord) -> dict[str, object]:
     artifacts = record.outputs["artifacts.json"]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from importlib import import_module
+
 from dataclasses import dataclass
 
 from rflp_lite.domain.errors import ContractViolation
@@ -162,16 +164,16 @@ def view_entities(model: object, view_id: str) -> list[dict[str, object]]:
         "lifecycle": _entities(operational, "lifecycle"),
         "use_case_tree": _entities(operational, "scenarios"),
         "operational_scenario": _entities(operational, "scenarios", "stakeholders"),
-        "function_tree": _entities(functional, "functions"),
-        "function_interaction": _entities(functional, "functions"),
-        "functional_scenario": _entities(functional, "functions", "scenarios"),
-        "logical_tree": _entities(logical, "components"),
-        "logical_interaction": _entities(logical, "components", "interfaces"),
-        "allocation_matrix": _entities(functional, "functions") + _entities(logical, "components") + _entities(physical, "components"),
-        "physical_interaction": _entities(physical, "components", "interfaces"),
+        "function_tree": _entities(functional, "functions", "gaps"),
+        "function_interaction": _entities(functional, "functions", "gaps"),
+        "functional_scenario": _entities(functional, "functions", "scenarios", "gaps"),
+        "logical_tree": _entities(logical, "components", "gaps"),
+        "logical_interaction": _entities(logical, "components", "interfaces", "gaps"),
+        "allocation_matrix": _entities(functional, "functions", "gaps") + _entities(logical, "components", "gaps") + _entities(physical, "components", "gaps"),
+        "physical_interaction": _entities(physical, "components", "interfaces", "gaps"),
         "technical_requirements": _entities({"items": technical}, "items"),
         "traceability_matrix": [],
-        "rflp": _entities(functional, "requirements", "functions") + _entities(logical, "components") + _entities(physical, "components"),
+        "rflp": _entities(functional, "requirements", "functions", "gaps") + _entities(logical, "components", "gaps") + _entities(physical, "components", "gaps"),
     }
     return sorted(mapping.get(definition.id, []), key=lambda item: (str(item.get("kind", "")), str(item.get("name", "")), str(item.get("id", ""))))
 
@@ -223,17 +225,12 @@ def compile_mbse_view(
 
     definition = _definition(view_id)
     if definition.compiler == "graphviz":
-        from rflp_lite.application.mbse_graphviz import (
-            compile_graphviz_view,
-            graphviz_view_metadata,
-        )
-
-        source = compile_graphviz_view(model, definition.id, options)
-        metadata = graphviz_view_metadata(model, definition.id)
+        compiler = import_module("rflp_lite.application.mbse_graphviz")
+        source = compiler.compile_graphviz_view(model, definition.id, options)
+        metadata = compiler.graphviz_view_metadata(model, definition.id)
     elif definition.compiler == "plantuml":
-        from rflp_lite.application.mbse_plantuml import compile_plantuml_view
-
-        source = compile_plantuml_view(model, definition.id, options)
+        compiler = import_module("rflp_lite.application.mbse_plantuml")
+        source = compiler.compile_plantuml_view(model, definition.id, options)
         metadata = {
             "view_id": definition.id,
             "layout": definition.layout,
@@ -241,10 +238,9 @@ def compile_mbse_view(
             "edges": tuple(view_relations(model, definition.id)),
         }
     else:
-        from rflp_lite.application.mbse_matrix import matrix_view_data
-
+        compiler = import_module("rflp_lite.application.mbse_matrix")
         source = ""
-        metadata = matrix_view_data(model, definition.id)
+        metadata = compiler.matrix_view_data(model, definition.id)
     return {
         "view_id": definition.id,
         "title": definition.label,

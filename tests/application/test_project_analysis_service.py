@@ -19,14 +19,16 @@ class FakeRepository:
         self.evidence = []
         self.tasks = []
         self.events = []
+        self.save_options = []
         self.closed = False
 
     @contextmanager
     def transaction(self):
         yield
 
-    def save_workbench(self, state):
+    def save_workbench(self, state, **kwargs):
         self.saved.append(state)
+        self.save_options.append(dict(kwargs))
 
     def save_baseline(self, baseline):
         self.baselines.append(baseline)

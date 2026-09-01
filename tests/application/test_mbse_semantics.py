@@ -18,7 +18,7 @@ def _state():
     )
 
 
-def test_semantic_model_contains_all_mbse_layers_and_traceability():
+def test_semantic_model_contains_all_mbse_layers_and_explicit_gaps():
     model = build_mbse_semantic_model(_state(), revision=3, provenance={"producer": "test"})
 
     assert model["format"] == SEMANTIC_FORMAT
@@ -26,11 +26,15 @@ def test_semantic_model_contains_all_mbse_layers_and_traceability():
     assert set(("operational", "functional", "logical", "physical")) <= set(model["sections"])
     assert model["sections"]["operational"]["stakeholders"]
     assert model["sections"]["operational"]["scenarios"]
-    assert model["sections"]["functional"]["functions"]
-    assert model["sections"]["logical"]["components"]
-    assert model["sections"]["physical"]["components"]
-    assert model["sections"]["technical_requirements"]
-    assert any(item["kind"] == "satisfiedBy" for item in model["relations"])
+    assert model["sections"]["functional"]["functions"] == []
+    assert model["sections"]["logical"]["components"] == []
+    assert model["sections"]["physical"]["components"] == []
+    assert model["sections"]["functional"]["gaps"]
+    assert model["sections"]["logical"]["gaps"]
+    assert model["sections"]["physical"]["gaps"]
+    assert not {
+        item["kind"] for item in model["relations"]
+    } & {"satisfiedBy", "allocatedTo", "realizedBy"}
     assert validate_mbse_semantic_model(model) == ()
     assert mbse_entity_index(model)
 

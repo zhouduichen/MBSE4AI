@@ -4,6 +4,8 @@ from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
 
+import pytest
+
 import rflp_lite.application.dependencies as dependency_registry
 from rflp_lite.application.requirements_workbench import empty_workbench
 from rflp_lite.application.use_cases.requirements_analysis import (
@@ -11,6 +13,7 @@ from rflp_lite.application.use_cases.requirements_analysis import (
     RequirementsAnalysisService,
 )
 from rflp_lite.application.workspaces import WorkspaceRef
+from rflp_lite.domain.errors import ContractViolation
 
 
 class FakeRepository:
@@ -18,6 +21,7 @@ class FakeRepository:
         self.state = deepcopy(state)
         self.events: list[tuple[str, dict[str, object]]] = []
         self.saved_events: list[str] = []
+        self.saved_options: list[dict[str, object]] = []
         self.requirement_records = []
         self.trace_records = []
 
@@ -25,9 +29,10 @@ class FakeRepository:
     def transaction(self):
         yield
 
-    def save_workbench(self, value, event="workbench.saved"):
+    def save_workbench(self, value, event="workbench.saved", **kwargs):
         self.state = deepcopy(value)
         self.saved_events.append(event)
+        self.saved_options.append(dict(kwargs))
         return value
 
     def record_audit(self, kind, payload):
@@ -206,3 +211,23 @@ def test_retry_uses_only_explicit_dependencies(tmp_path, monkeypatch):
     assert result["id"] == "retry-job"
     assert runner.retries[0][0] == "old-job"
     assert repository.saved_events == ["requirements.enrichment_retry_queued"]
+
+
+@pytest.mark.parametrize(
+    "previous",
+    [
+        {"id": "done", "kind": "requirements.enrichment", "status": "succeeded"},
+        {"id": "other", "kind": "scenario.execute", "status": "failed"},
+    ],
+)
+def test_retry_rejects_terminal_or_wrong_kind_job(tmp_path, previous):
+    service, workspace, _repository, runner = _service(
+        tmp_path,
+        job_result={"id": "new-job", "status": "queued", "blocks": {}},
+        previous=previous,
+    )
+
+    with pytest.raises(ContractViolation):
+        service.retry(workspace, previous["id"])
+
+    assert runner.retries == []

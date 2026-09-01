@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from rflp_lite.application.intelligence.semantic_validator import AnalysisSemanticValidator
+from rflp_lite.application.intelligence.source_references import repair_source_region_ids
 from rflp_lite.application.intelligence.validated_result import validate_and_build_result
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.ports.generative_model import GenerationResponse
@@ -35,6 +36,31 @@ def test_unknown_relation_is_rejected() -> None:
     assert issues[0]["code"] == "unknown_relation_kind"
 
 
+def test_unknown_architecture_relation_is_dropped_without_losing_nodes() -> None:
+    result = _result({
+        "items": [
+            {
+                "kind": "function", "id": "fn-1", "name": "执行",
+                "description": "执行功能", "requirement_ids": ["req-1"],
+                "source_region_ids": ["region-1"], "confidence": 0.8,
+            },
+            {
+                "kind": "relation", "id": "rel-1", "source_id": "req-1",
+                "predicate": "controls", "target_id": "fn-1",
+                "source_region_ids": ["region-1"], "confidence": 0.8,
+            },
+        ],
+        "diagnostics": [],
+    })
+    validator = AnalysisSemanticValidator()
+    issues = validator.validate(result, _state())
+    sanitized = validator.discard_unknown_relations(result, issues)
+
+    assert [item["id"] for item in sanitized.dto.items] == ["fn-1"]
+    assert sanitized.diagnostics[0]["severity"] == "warning"
+    validator.assert_valid(sanitized, _state())
+
+
 def test_relation_with_missing_endpoint_is_rejected() -> None:
     result = _result({
         "items": [{
@@ -59,3 +85,19 @@ def test_invalid_source_region_is_rejected() -> None:
     })
     issues = AnalysisSemanticValidator().validate(result, _state())
     assert issues[0]["code"] == "source_region_not_found"
+
+
+def test_single_source_reference_repair_can_pass_semantic_validation() -> None:
+    payload = {
+        "items": [{
+            "kind": "function", "id": "fn-1", "name": "执行",
+            "description": "执行功能", "requirement_ids": ["req-1"],
+            "source_region_ids": ["region-typo"], "confidence": 0.8,
+        }],
+        "diagnostics": [],
+    }
+    repaired, audit = repair_source_region_ids(payload, ("region-1",))
+
+    assert audit is not None
+    result = _result(repaired)
+    assert AnalysisSemanticValidator().validate(result, _state()) == ()

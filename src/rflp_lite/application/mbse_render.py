@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from html import escape
 
-from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
+from rflp_lite.application.dependencies import ApplicationDependencies, configured_dependencies
 from rflp_lite.application.mbse_exchange import validate_mbse_model
 from rflp_lite.application.mbse_matrix import render_matrix_view
 from rflp_lite.application.mbse_views import (
@@ -124,7 +124,7 @@ def select_diagram_engine(
     if requested == "fallback":
         return None
     if requested in {"graphviz", "plantuml", "matrix"}:
-        return require_dependencies(dependencies).diagram_engine_factory(requested)
+        return configured_dependencies(dependencies).diagram_engine_factory(requested)
     raise ContractViolation(f"unsupported diagram engine: {requested}")
 
 

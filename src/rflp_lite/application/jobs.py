@@ -5,12 +5,13 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from rflp_lite.application.job_state import ACTIVE_JOB_STATUSES, TERMINAL_JOB_STATUSES
 from rflp_lite.domain.canonical import canonical_json
-from rflp_lite.ports.jobs import JobRepositoryPort
+from rflp_lite.ports.jobs import BackgroundExecutorPort, JobRepositoryPort
 
 
 JobRunner = Callable[[], dict[str, object]]
@@ -28,44 +29,22 @@ class JobService:
         workspace_path: Path,
         *,
         lease_seconds: float = DEFAULT_LEASE_SECONDS,
-        repository: JobRepositoryPort | None = None,
-        executor: Any | None = None,
+        repository: JobRepositoryPort,
+        executor: BackgroundExecutorPort,
     ):
         self.directory = workspace_path / ".rflp"
-        self.path = self.directory / "jobs.json"
-        self.legacy_path = self.directory / "jobs.legacy.json"
         self.database_path = self.directory / "model.db"
         self.lease_seconds = max(1.0, float(lease_seconds))
-        key = str(self.path.resolve())
+        key = str(self.database_path.resolve())
         with _JOB_LOCKS_GUARD:
             self._lock = _JOB_LOCKS.setdefault(key, threading.RLock())
-        if repository is None:
-            # Transitional default for direct library callers.  The bootstrap
-            # composition root can inject a JobRepositoryPort and executor;
-            # the dynamic import keeps the application layer statically inward.
-            repository_module = __import__(
-                "rflp_lite.adapters.sqlite_job_repository",
-                fromlist=("SQLiteJobRepository",),
-            )
-            repository = repository_module.SQLiteJobRepository(
-                self.database_path, lease_seconds=self.lease_seconds
-            )
-        if executor is None:
-            executor_module = __import__(
-                "rflp_lite.adapters.thread_background_executor",
-                fromlist=("ThreadBackgroundExecutor",),
-            )
-            executor = executor_module.ThreadBackgroundExecutor()
+        self._execution_context = threading.local()
         self._repository = repository
         self._executor = executor
-        self._repository.import_legacy_file(self.path, self.legacy_path)
         self.recover_startup()
 
     def _load(self) -> list[dict[str, object]]:
         return list(self._repository.list())
-
-    def _save(self, jobs: list[dict[str, object]]) -> None:
-        raise RuntimeError("JobService no longer writes the legacy jobs.json ledger")
 
     @staticmethod
     def _active_match(
@@ -109,51 +88,18 @@ class JobService:
         }
 
     def submit(self, kind: str, payload: dict[str, object], runner: JobRunner) -> dict[str, object]:
-        idempotency_key = str(payload.get("idempotency_key", "")).strip()
         with self._lock:
             record = self._repository.submit(kind, payload)
             if record.get("status") in ACTIVE_JOB_STATUSES and record.get("status") != "queued":
                 return json.loads(canonical_json(record))
             job_id = str(record["id"])
-            self._repository.update(job_id, self._start_patch())
-        try:
-            result = runner()
-            if not isinstance(result, dict):
-                raise TypeError("job runner must return an object")
-        except BaseException as exc:
-            self._repository.update(
-                job_id,
-                {
-                    "status": "failed",
-                    "error": {"type": type(exc).__name__, "message": str(exc)},
-                    "last_error": {"type": type(exc).__name__, "message": str(exc)},
-                    "retryable": True,
-                },
-            )
-            raise
-        final_status = str(result.get("status", "succeeded"))
-        if final_status not in {"succeeded", "degraded", "failed", "interrupted", "superseded"}:
-            final_status = "succeeded"
-        return self._repository.update(
-            job_id, {"status": final_status, "result": result}
-        ) or record
-
-    def submit_async(
-        self, kind: str, payload: dict[str, object], runner: JobRunner
-    ) -> dict[str, object]:
-        """Persist a job and run it on a local daemon worker."""
-
-        with self._lock:
-            record = self._repository.submit(kind, payload)
-            job_id = str(record["id"])
-            if record.get("status") != "queued":
-                return json.loads(canonical_json(record))
-
-        def worker() -> None:
-            current = self.get(job_id)
-            if current is None:
-                return
-            current = self.update(job_id, self._start_patch()) or current
+            claimed = self._repository.claim(job_id)
+            if claimed is None:
+                return json.loads(
+                    canonical_json(self.get(job_id) or record)
+                )
+        lease_id = str(claimed.get("lease_id", ""))
+        with self._lease_context(job_id, lease_id):
             try:
                 result = runner()
                 if not isinstance(result, dict):
@@ -168,10 +114,51 @@ class JobService:
                         "retryable": True,
                     },
                 )
-                return
-            result_status = str(result.get("status", ""))
-            final_status = result_status if result_status in TERMINAL_JOB_STATUSES else "succeeded"
-            self.update(job_id, {"status": final_status, "result": result})
+                raise
+            final_status = str(result.get("status", "succeeded"))
+            if final_status not in {"succeeded", "degraded", "failed", "interrupted", "superseded"}:
+                final_status = "succeeded"
+            return self.update(
+                job_id, {"status": final_status, "result": result}
+            ) or self.get(job_id) or record
+
+    def submit_async(
+        self, kind: str, payload: dict[str, object], runner: JobRunner
+    ) -> dict[str, object]:
+        """Persist a job and run it on a local daemon worker."""
+
+        with self._lock:
+            record = self._repository.submit(kind, payload)
+            job_id = str(record["id"])
+            if record.get("status") != "queued":
+                return json.loads(canonical_json(record))
+            claimed = self._repository.claim(job_id)
+            if claimed is None:
+                return json.loads(
+                    canonical_json(self.get(job_id) or record)
+                )
+        lease_id = str(claimed.get("lease_id", ""))
+
+        def worker() -> None:
+            with self._lease_context(job_id, lease_id):
+                try:
+                    result = runner()
+                    if not isinstance(result, dict):
+                        raise TypeError("job runner must return an object")
+                except BaseException as exc:
+                    self.update(
+                        job_id,
+                        {
+                            "status": "failed",
+                            "error": {"type": type(exc).__name__, "message": str(exc)},
+                            "last_error": {"type": type(exc).__name__, "message": str(exc)},
+                            "retryable": True,
+                        },
+                    )
+                    return
+                result_status = str(result.get("status", ""))
+                final_status = result_status if result_status in TERMINAL_JOB_STATUSES else "succeeded"
+                self.update(job_id, {"status": final_status, "result": result})
 
         self._executor.submit(job_id, worker)
         return json.loads(canonical_json(self.get(job_id) or record))
@@ -179,7 +166,17 @@ class JobService:
     def update(self, job_id: str, patch: dict[str, object]) -> dict[str, object] | None:
         """Atomically merge a partial job update into the durable ledger."""
 
-        return self._repository.update(job_id, patch)
+        context_job_id = getattr(self._execution_context, "job_id", None)
+        expected_lease_id = (
+            str(getattr(self._execution_context, "lease_id", ""))
+            if context_job_id == job_id
+            else None
+        )
+        return self._repository.update(
+            job_id,
+            patch,
+            expected_lease_id=expected_lease_id or None,
+        )
 
     def get(self, job_id: str) -> dict[str, object] | None:
         return self._repository.get(job_id)
@@ -218,23 +215,50 @@ class JobService:
             raise KeyError(job_id)
         if record.get("status") not in {"failed", "degraded", "interrupted"}:
             raise ValueError("only failed, degraded, or interrupted jobs can be retried")
-        attempt = int(record.get("attempt", 0) or 0) + 1
-        self._repository.update(
-            job_id, {**self._start_patch(), "attempt": attempt}
+        claimed = self._repository.retry_claim(job_id)
+        if claimed is None:
+            raise ValueError("job is no longer retryable")
+        lease_id = str(claimed.get("lease_id", ""))
+        with self._lease_context(job_id, lease_id):
+            try:
+                result = runner()
+                if not isinstance(result, dict):
+                    raise TypeError("job runner must return an object")
+                final_status = str(result.get("status", "succeeded"))
+                if final_status not in TERMINAL_JOB_STATUSES:
+                    final_status = "succeeded"
+                return self.update(
+                    job_id,
+                    {"status": final_status, "result": result, "last_error": None},
+                ) or self.get(job_id) or record
+            except BaseException as exc:
+                return self.update(
+                    job_id,
+                    {
+                        "status": "failed",
+                        "last_error": {"type": type(exc).__name__, "message": str(exc)},
+                        "error": {"type": type(exc).__name__, "message": str(exc)},
+                        "retryable": True,
+                    },
+                ) or self.get(job_id) or record
+
+    @contextmanager
+    def _lease_context(self, job_id: str, lease_id: str):
+        previous = (
+            getattr(self._execution_context, "job_id", None),
+            getattr(self._execution_context, "lease_id", None),
         )
+        self._execution_context.job_id = job_id
+        self._execution_context.lease_id = lease_id
         try:
-            result = runner()
-            final_status = str(result.get("status", "succeeded")) if isinstance(result, dict) else "succeeded"
-            if final_status not in TERMINAL_JOB_STATUSES:
-                final_status = "succeeded"
-            return self.update(job_id, {"status": final_status, "result": result, "last_error": None}) or record
-        except BaseException as exc:
-            return self.update(
-                job_id,
-                {
-                    "status": "failed",
-                    "last_error": {"type": type(exc).__name__, "message": str(exc)},
-                    "error": {"type": type(exc).__name__, "message": str(exc)},
-                    "retryable": True,
-                },
-            ) or record
+            yield
+        finally:
+            if previous[0] is None:
+                for name in ("job_id", "lease_id"):
+                    try:
+                        delattr(self._execution_context, name)
+                    except AttributeError:
+                        pass
+            else:
+                self._execution_context.job_id = previous[0]
+                self._execution_context.lease_id = previous[1]

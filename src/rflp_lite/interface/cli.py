@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from rflp_lite import __version__
-from rflp_lite.application.dependencies import require_dependencies
+from rflp_lite.application.dependencies import configured_dependencies
 from rflp_lite.ports.test_execution import DEFAULT_TEST_TIMEOUT, build_limits
 from rflp_lite.application.demo import run_demo
 from rflp_lite.application.acceptance_harness import run_customer_acceptance
@@ -46,6 +46,19 @@ from rflp_lite.domain.errors import ContractViolation, RflpError
 from rflp_lite.governance.profile import Profile
 from rflp_lite.governance.validation import validate_json
 from rflp_lite.bootstrap.container import build_container
+
+
+def _save_workbench(repository, state: dict[str, object], event: str = "workbench.saved"):
+    expected_revision = int(state.get("revision", 0) or 0)
+    expected_content_revision = int(
+        state.get("content_revision", state.get("revision", 0)) or 0
+    )
+    return repository.save_workbench(
+        state,
+        event,
+        expected_revision=expected_revision,
+        expected_content_revision=expected_content_revision,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -323,13 +336,13 @@ def _run_concept(args: argparse.Namespace) -> int:
         if args.data.suffix.casefold() in {".db", ".sqlite", ".sqlite3"}:
             if not args.table:
                 raise ContractViolation("--table is required for SQLite scheme import")
-            rows = require_dependencies().sqlite_scheme_reader(args.data, args.table)
+            rows = configured_dependencies().sqlite_scheme_reader(args.data, args.table)
         else:
-            rows = require_dependencies().scheme_reader(args.data.name, args.data.read_bytes())
+            rows = configured_dependencies().scheme_reader(args.data.name, args.data.read_bytes())
         from rflp_lite.application.scheme_library import import_scheme_rows
 
         imported = import_scheme_rows(pack, rows, str(args.data))
-        repository = require_dependencies().repository_factory(args.workspace / ".rflp" / "model.db")
+        repository = configured_dependencies().repository_factory(args.workspace / ".rflp" / "model.db")
         try:
             with repository.transaction():
                 repository.save_domain_pack(pack)
@@ -360,7 +373,7 @@ def _run_concept(args: argparse.Namespace) -> int:
         }))
         return 0
     if args.concept_command == "export":
-        repository = require_dependencies().repository_factory(args.workspace / ".rflp" / "model.db")
+        repository = configured_dependencies().repository_factory(args.workspace / ".rflp" / "model.db")
         try:
             payload = repository.load_concept_run(args.run_id)
         finally:
@@ -392,12 +405,12 @@ def _run_concept(args: argparse.Namespace) -> int:
 
 def _run_scenario(args: argparse.Namespace) -> int:
     workspace = args.workspace.resolve()
-    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
+    repository = configured_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         state = repository.load_workbench()
         if state is None:
             raise ContractViolation("需求工作台为空")
-        service = require_dependencies().job_service_factory(workspace)
+        service = configured_dependencies().job_service_factory(workspace)
         job = service.submit(
             "scenario.execute",
             {"scenario_id": args.scenario_id},
@@ -406,7 +419,7 @@ def _run_scenario(args: argparse.Namespace) -> int:
         result = job["result"]
         state = append_scenario_run(state, result)
         with repository.transaction():
-            repository.save_workbench(state)
+            _save_workbench(repository, state)
             repository.record_audit(
                 "scenario.executed",
                 {
@@ -431,7 +444,7 @@ def _run_run(args: argparse.Namespace) -> int:
 
 def _run_sysml(args: argparse.Namespace) -> int:
     workspace = args.workspace.resolve()
-    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
+    repository = configured_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         state = repository.load_workbench()
         if state is None:
@@ -443,7 +456,7 @@ def _run_sysml(args: argparse.Namespace) -> int:
             return 0
         state["rflp"] = import_sysml_v2_text(args.file.read_text(encoding="utf-8"))
         with repository.transaction():
-            repository.save_workbench(state)
+            _save_workbench(repository, state)
             repository.record_audit("rflp.sysml_v2_imported", {"file": str(args.file)})
         print(canonical_json({"status": "ok", "elements": len(state["rflp"]["elements"]), "relations": len(state["rflp"]["relations"])}))
         return 0
@@ -453,7 +466,7 @@ def _run_sysml(args: argparse.Namespace) -> int:
 
 def _run_mbse(args: argparse.Namespace) -> int:
     workspace = args.workspace.resolve()
-    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
+    repository = configured_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         state = repository.load_workbench()
         if state is None:
@@ -461,7 +474,7 @@ def _run_mbse(args: argparse.Namespace) -> int:
         if args.mbse_command == "generate":
             state = generate_mbse_revision(state)
             with repository.transaction():
-                repository.save_workbench(state)
+                _save_workbench(repository, state, "requirements.mbse_generated")
                 repository.record_audit("requirements.mbse_generated", {})
             print(canonical_json({"status": "ok", "revision": state["mbse"]["revision"]}))
             return 0
@@ -470,7 +483,7 @@ def _run_mbse(args: argparse.Namespace) -> int:
 
             state = confirm_mbse(state)
             with repository.transaction():
-                repository.save_workbench(state)
+                _save_workbench(repository, state, "requirements.mbse_confirmed")
                 repository.record_audit("requirements.mbse_confirmed", {})
             print(canonical_json({"status": "ok", "revision": state["mbse"]["revision"], "model_status": state["mbse"]["status"]}))
             return 0
@@ -492,7 +505,7 @@ def _run_mbse(args: argparse.Namespace) -> int:
 
 def _run_mlflow(args: argparse.Namespace) -> int:
     record = load_run(args.workspace.resolve(), args.result_hash)
-    result = require_dependencies().tracking(
+    result = configured_dependencies().tracking(
         record,
         tracking_uri=args.tracking_uri,
         experiment_name=args.experiment,
@@ -520,10 +533,10 @@ def _run_discover(args: argparse.Namespace) -> int:
                     else merge_artifact(state, path.name, content)
                 )
             state = migrate_workbench_state(state)
-            repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
+            repository = configured_dependencies().repository_factory(workspace / ".rflp" / "model.db")
             try:
                 with repository.transaction():
-                    repository.save_workbench(state, "requirements.analyzed")
+                    _save_workbench(repository, state, "requirements.analyzed")
                     repository.record_audit(
                         "requirements.analyzed",
                         {"artifact": state["artifact"]["path"]},
@@ -565,10 +578,10 @@ def _run_workbench(args: argparse.Namespace) -> int:
             state = merge_artifact(state, path.name, content)
     state = accept_traceable(state)
     state = generate_model(state)
-    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
+    repository = configured_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         with repository.transaction():
-            repository.save_workbench(state)
+            _save_workbench(repository, state)
             for event in ("requirements.analyzed", "requirements.accepted", "requirements.generated"):
                 repository.record_audit(event, {"artifact": state["artifact"]["path"]})
     finally:
@@ -600,10 +613,10 @@ def _run_assess(args: argparse.Namespace) -> int:
     )
     execution_summary = state["project"]["execution"]["summary"]
     test_run = execution_summary["test_run"]
-    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
+    repository = configured_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         with repository.transaction():
-            repository.save_workbench(state)
+            _save_workbench(repository, state)
             repository.save_baseline(baseline)
             repository.save_tasks(artifacts.tasks)
             repository.save_evidence(verify.evidence)
@@ -656,7 +669,7 @@ def _run_assess(args: argparse.Namespace) -> int:
 
 def _run_project(args: argparse.Namespace) -> int:
     workspace = args.workspace.resolve()
-    repository = require_dependencies().repository_factory(workspace / ".rflp" / "model.db")
+    repository = configured_dependencies().repository_factory(workspace / ".rflp" / "model.db")
     try:
         state = repository.load_workbench()
         if state is None:
@@ -664,7 +677,7 @@ def _run_project(args: argparse.Namespace) -> int:
         if args.project_command == "approve":
             state, baseline = approve_workbench_baseline(state)
             with repository.transaction():
-                repository.save_workbench(state)
+                _save_workbench(repository, state, "baseline.approved")
                 repository.save_baseline(baseline)
                 repository.record_audit(
                     "baseline.approved", {"baseline_hash": baseline.hash}
@@ -683,7 +696,7 @@ def _run_project(args: argparse.Namespace) -> int:
             state, verify = verify_contracts_state(state, args.source)
             summary = state["project"]["execution"]["summary"]
             with repository.transaction():
-                repository.save_workbench(state)
+                _save_workbench(repository, state, "project.executed")
                 repository.save_evidence(verify.evidence)
                 repository.record_audit(
                     "project.executed",
@@ -715,7 +728,7 @@ def _run_project(args: argparse.Namespace) -> int:
             execution_summary = state["project"]["execution"]["summary"]
             test_run = execution_summary["test_run"]
             with repository.transaction():
-                repository.save_workbench(state)
+                _save_workbench(repository, state, "project.tested")
                 repository.save_evidence(verify.evidence)
                 repository.record_audit(
                     "project.tested",
@@ -753,7 +766,7 @@ def _run_project(args: argparse.Namespace) -> int:
         state, artifacts = analyze_project_state(state, args.source)
         summary = state["project"]["summary"]
         with repository.transaction():
-            repository.save_workbench(state)
+            _save_workbench(repository, state, "project.analyzed")
             repository.save_baseline(artifacts.baseline)
             repository.save_evidence(artifacts.evidence)
             repository.save_tasks(artifacts.tasks)

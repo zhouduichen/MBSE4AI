@@ -69,7 +69,9 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
         result = generate_draft_model(result)
         draft_scenario_ids: list[str] = []
         if result.get("claims") and not result.get("scenarios"):
-            result = add_scenario(result, **_draft_system_scenario(result))
+            result = add_scenario(
+                result, **_draft_system_scenario(result), human_change=False
+            )
             scenario = result["scenarios"][-1]
             scenario["status"] = "accepted"
             scenario["producer"] = "rule"
@@ -104,7 +106,9 @@ def run_requirements_flow(state: dict[str, object]) -> dict[str, object]:
     for claim in result["claims"]:
         if claim["status"] != "accepted" or claim["id"] in existing_requirement_ids:
             continue
-        result = add_scenario(result, **_generated_scenario(result, claim))
+        result = add_scenario(
+            result, **_generated_scenario(result, claim), human_change=False
+        )
         scenario = next(
             item
             for item in result["scenarios"]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rflp_lite.application.requirements_workbench import analyze_artifact
+from rflp_lite.application.requirements_workbench import add_stakeholder, analyze_artifact
 from rflp_lite.application.scenarios import (
     add_scenario,
     build_scenario,
@@ -186,3 +186,114 @@ def test_editing_scenario_keeps_it_accepted_and_records_review():
     state = review_scenario(state, scenario["id"], "rejected")
     assert state["scenarios"][0]["status"] == "rejected"
     assert len(state["scenarios"][0]["review_history"]) == 2
+
+
+def test_editing_generated_scenario_records_user_fields_and_resolves_suggestion():
+    state = generate_scenario_drafts(add_stakeholder(_state(), "管理员"))
+    stakeholder_id = state["stakeholders"][0]["id"]
+    scenario = state["scenarios"][0]
+    scenario["suggested_changes"] = [
+        {
+            "field": "title",
+            "current": scenario["title"],
+            "suggested": "人工确认恢复",
+            "block_id": "scenarios",
+            "input_hash": "input-1",
+        },
+        {
+            "field": "description",
+            "current": scenario["description"],
+            "suggested": "保留的其他建议",
+            "block_id": "scenarios",
+            "input_hash": "input-1",
+        },
+    ]
+    before_content_revision = state["content_revision"]
+
+    edited = revise_scenario(
+        state,
+        scenario["id"],
+        title="人工确认恢复",
+        scenario_type="recovery",
+        coverage_dimensions=["safety"],
+        lifecycle_phase="operation",
+        description=scenario["description"],
+        trigger="检测到故障",
+        actors=scenario["actors"],
+        stakeholder_ids=[stakeholder_id],
+        preconditions=scenario["preconditions"],
+        steps=scenario["steps"],
+        recovery_steps=["恢复服务"],
+        expected_outcomes=scenario["expected_outcomes"],
+        faults=scenario["faults"],
+        requirement_ids=scenario["requirement_ids"],
+    )
+
+    current = edited["scenarios"][0]
+    assert current["producer"] == scenario["producer"]
+    assert current["last_editor"] == "user"
+    assert current["field_sources"]["title"] == "user"
+    assert current["field_sources"]["scenario_type"] == "user"
+    assert current["scenario_type"] == "recovery"
+    assert current["coverage_dimensions"] == ["safety"]
+    assert current["lifecycle_phase"] == "operation"
+    assert current["trigger"] == "检测到故障"
+    assert current["stakeholder_ids"] == [stakeholder_id]
+    assert current["recovery_steps"] == ["恢复服务"]
+    assert [item["field"] for item in current["suggested_changes"]] == [
+        "description"
+    ]
+    assert current["suggestion_history"][0]["status"] == "accepted_by_user"
+    assert edited["content_revision"] == before_content_revision + 1
+
+
+def test_manual_scenario_initializes_user_provenance_and_validates_relations():
+    state = add_stakeholder(_state(), "管理员")
+    stakeholder_id = state["stakeholders"][0]["id"]
+
+    created = add_scenario(
+        state,
+        title="恢复流程",
+        scenario_type="recovery",
+        coverage_dimensions="safety\ncybersecurity",
+        lifecycle_phase="operation",
+        description="管理员恢复服务。",
+        trigger="服务故障",
+        actors="管理员\n系统",
+        stakeholder_ids=[stakeholder_id],
+        steps="选择版本\n确认恢复",
+        recovery_steps="恢复服务",
+        expected_outcomes="服务恢复",
+        requirement_ids="req-restore",
+    )
+
+    scenario = created["scenarios"][0]
+    assert scenario["producer"] == "user"
+    assert scenario["last_editor"] == "user"
+    assert scenario["field_sources"]["coverage_dimensions"] == "user"
+    assert scenario["coverage_dimensions"] == ["safety", "cybersecurity"]
+    assert created["content_revision"] == state["content_revision"] + 1
+
+    with pytest.raises(ContractViolation, match="利益相关方"):
+        add_scenario(
+            state,
+            title="错误关联",
+            description="关联不存在的利益相关方。",
+            stakeholder_ids=["stakeholder-missing"],
+            steps="执行",
+            expected_outcomes="完成",
+        )
+
+
+def test_reviewing_scenario_marks_status_as_user_authored_and_invalidates_coverage():
+    state = generate_scenario_drafts(_state())
+    state["analysis_coverage"] = {"missing_scenario_types": []}
+    scenario = state["scenarios"][0]
+
+    reviewed = review_scenario(state, scenario["id"], "rejected")
+
+    current = reviewed["scenarios"][0]
+    assert current["field_sources"]["status"] == "user"
+    assert current["last_editor"] == "user"
+    assert reviewed["analysis_coverage"] == {}
+    assert reviewed["content_revision"] == state["content_revision"] + 1

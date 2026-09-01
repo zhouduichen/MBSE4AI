@@ -34,6 +34,15 @@
   <p class="form-hint">顺序图以“已启用场景”为入口；横向是参与者/系统边界，纵向是时间推进，消息用箭头表达方向。不同视图使用不同布局：层级图自上而下、交互图从左到右、分配与追溯使用矩阵。没有外部绘图引擎时自动使用内置 SVG。</p>
 </section>
 
+{% if state and state.mbse and state.mbse.semantic_model %}
+<section class="panel callout {% if state.mbse.status == 'accepted' %}success{% else %}warning{% endif %}">
+  <strong>语义模型状态：{{ state.mbse.status }}</strong>
+  <span>视图切换只读取已保存模型，不会发起新的 LLM 请求。</span>
+  {% set gaps = state.mbse.semantic_model.sections.functional.gaps + state.mbse.semantic_model.sections.logical.gaps + state.mbse.semantic_model.sections.physical.gaps %}
+  {% if gaps %}<div class="compact-list">{% for gap in gaps %}<article><span>{{ gap.name }}<small>{{ gap.attributes.reason }}</small></span><span class="status-badge needs-analysis">需要分析</span></article>{% endfor %}</div>{% endif %}
+</section>
+{% endif %}
+
 {% if diagram_view == 'sequence' %}
 <section class="panel sequence-selector-panel">
   <div class="panel-head"><div><h2>选择场景</h2></div><span class="status-badge accepted">自动可用</span></div>
@@ -57,7 +66,7 @@
   <div class="svg-canvas design-diagram-canvas">{{ diagram_svg|safe }}</div>
 </section>
 {% elif diagram_view != 'sequence' %}
-<section class="empty-state"><h2>暂无可展示的 MBSE 图</h2><p>请先在 RFLP 规划图中生成 MBSE 语义模型。</p><a class="button primary" href="/w/{{ workspace.name }}/requirements/graph#mbse">去生成 MBSE 模型 →</a></section>
+<section class="empty-state"><h2>暂无可展示的 MBSE 图</h2>{% if state and state.structured_requirements|selectattr('status', 'equalto', 'accepted')|list %}<p>当前已有已接受需求，可以直接生成 MBSE 语义模型。</p><form method="post" action="/w/{{ workspace.name }}/requirements/mbse"><button class="button primary" type="submit">生成 MBSE 模型 →</button></form>{% else %}<p>请先完成需求检查，再生成 MBSE 语义模型。</p><a class="button primary" href="/w/{{ workspace.name }}/requirements/review">去需求检查 →</a>{% endif %}</section>
 {% endif %}
 
 {% if diagram_result %}

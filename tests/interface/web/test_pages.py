@@ -504,6 +504,31 @@ def test_incremental_requirement_input_preserves_confirmed_state_and_shows_impac
     assert revisions[-1]["state"]["claims"]
 
 
+def test_formal_rflp_generation_keeps_incomplete_architecture_visible(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+    facade = client.app.state.facade
+    state = facade.requirements("demo")
+    assert state is not None
+    state["discovery"] = {"architecture": {}}
+    state["auto_analysis"] = {"mode": "llm-project-analysis", "status": "completed"}
+    facade._save_requirements("demo", state, "test.incomplete_architecture")
+
+    generated = client.post("/w/demo/requirements/generate", follow_redirects=False)
+
+    assert generated.status_code == 303
+    refreshed = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]
+    assert refreshed["rflp"]
+    assert refreshed["baseline"] is None
+    assert any(
+        item["code"] == "rflp_architecture_incomplete"
+        for item in refreshed["auto_analysis"]["diagnostics"]
+    )
+
+
 def test_formal_pages_omit_developer_facing_explanations(client: TestClient) -> None:
     client.post("/workspaces", data={"name": "demo"})
     overview = client.get("/w/demo/requirements/overview")
@@ -765,6 +790,20 @@ def test_mbse_design_page_uses_clickable_module_cards(client: TestClient) -> Non
     assert "动作与控制流" in page.text
     assert "生命线与消息方向" in page.text
     assert 'class="diagram-module-card active"' in page.text
+
+
+def test_mbse_design_page_exposes_direct_generation_action(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    client.post(
+        "/w/demo/requirements/analyze",
+        data={"text": "管理员必须恢复历史版本。"},
+    )
+
+    page = client.get("/w/demo/requirements/mbse")
+
+    assert page.status_code == 200
+    assert 'action="/w/demo/requirements/mbse"' in page.text
+    assert "生成 MBSE 模型" in page.text
 
 
 def test_sequence_diagram_keeps_unstructured_steps_as_candidate(client: TestClient) -> None:

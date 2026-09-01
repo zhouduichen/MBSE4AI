@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from rflp_lite.application.jobs import JobService
+from tests.job_helpers import make_job_service
 
 
 def test_job_service_persists_success_and_can_reload(tmp_path):
-    service = JobService(tmp_path)
+    service = make_job_service(tmp_path)
 
     job = service.submit("demo", {"value": 1}, lambda: {"answer": 42})
 
@@ -16,7 +16,7 @@ def test_job_service_persists_success_and_can_reload(tmp_path):
 
 
 def test_job_service_retains_failure(tmp_path):
-    service = JobService(tmp_path)
+    service = make_job_service(tmp_path)
 
     with pytest.raises(ValueError, match="broken"):
         service.submit("demo", {}, lambda: (_ for _ in ()).throw(ValueError("broken")))
@@ -27,4 +27,4 @@ def test_job_service_retains_failure(tmp_path):
 
 
 def test_job_service_unknown_job_is_none(tmp_path):
-    assert JobService(tmp_path).get("job-missing") is None
+    assert make_job_service(tmp_path).get("job-missing") is None

@@ -1,8 +1,8 @@
 # RFLP-Lite 开发状态
 
-**最后更新：** 2026-08-17
+**最后更新：** 2026-08-18
 **当前版本：** 0.1.0  
-**状态：** 本地最小链路已跑通，需求工作台、Python 项目接入、任务契约执行与测试执行沙箱均已完成首版；CLI 已可无 Web 全自动跑通
+**状态：** 复审文档要求的 Phase 2A → 2B → 3A → 3B → 5 → 4 → 6 → 7 已依次落实；保留兼容入口，新增路径由窄依赖、严格契约、可恢复 Job 和自动门禁保护
 
 ## 当前完成度
 
@@ -27,9 +27,9 @@
 | SysML v2 交换 | 已完成 MVP | RFLP 模型 JSON 与 SysML v2 常用子集文本导入、导出和往返校验；完整语义仍未配置 |
 | MLflow Tracking | 已完成 MVP | 安装可选 SDK 后将 Profile、指标、Tag 和运行 Artifact 写入本地/远程 MLflow；缺失时返回 `not_configured` |
 | 本地 Job / API / Plugin | 已完成 MVP | 持久化同步 Job 状态、`/api/v1` JSON API、进程内插件注册与结构化调用 |
-| 项目级 LLM 分析 | 代码已完成，待真实模型实测 | 一次 OpenAI-compatible 请求读取当前项目输入，自动填充 Stakeholder、Concern、Need、Requirement、Scenario、R/F/L/P 和 MBSE；不注入固定领域包 |
+| 项目级 LLM 分析 | 已完成契约闭环 | 六个独立分析 Block 统一走 `GenerativeModel.complete_json()`，Strict Schema → Typed DTO → 来源/语义校验 → 单块事务合并；失败块可单独重试 |
 | 领域中立分析配置 | 已完成首版 | 默认关闭领域包；可通过项目级 API 显式启用常见 `common-v1` 配置，保留 provenance；窄领域包不进入普通分析路径 |
-| 版本化 MBSE 语义模型 | 已完成首版 | `operational / functional / logical / physical / technical_requirements` 五类语义区段、稳定实体/关系、来源与版本校验，并保留旧 MBSE projection |
+| 版本化 MBSE 语义模型 | 已完成证据约束版 | 无架构证据时只保留 `needs-analysis` gap，不制造 Function/Logical/Physical 正式实现或满足/分配/实现关系；技术需求要求技术证据 |
 | 专业 MBSE 多视图 | 已完成首版 | 环境、利益相关方、需求、生命周期、用例、场景、功能、逻辑、分配、物理、技术需求、追踪矩阵和 RFLP 总览按视图选择布局 |
 | 可选专业绘图引擎 | 已完成首版 | Graphviz、PlantUML 通过受控适配器接入；无外部引擎或执行失败时自动回退内置 SVG/矩阵渲染 |
 | Python ActualModel / Delta / Evidence 接入 | 已完成首版 | 工作台 RFLP 生成后自动建立基线，扫描本地 Python 项目（AST/OpenAPI/JUnit）生成 ActualModel 与 Evidence，计算 MISSING/EXTRA Delta，派生 TaskContract；Web 页面与 CLI 均可操作 |
@@ -38,6 +38,18 @@
 | 拖拽图编辑、复杂文档版面、多人权限 | 延后 | 首版提供语义编辑 API；CAD/多学科仿真和组织级权限仍在后续 M3-M8 |
 | 总体概念布局与 MDO（验收 2.1/2.2） | 已完成首版 | 版本化领域包、JSON/CSV/SQLite 方案导入、3–5 套可行 SVG 布局、气动/结构/重量重心批量评估、缓存/失败隔离/代理门禁/Pareto、CLI/API/Web 与可执行验收报告 |
 | 旧版智能 MBSE 发现 | 已完成兼容入口 | 保留显式 `--pack` 的发现页、CLI/API 和领域包能力；默认需求提交不再调用固定领域包 |
+| 下一阶段架构与质量门禁 | 已完成 | Use Case 窄依赖、raw `chat_completion` 扫描、六块契约矩阵、跨 workspace/部分失败 E2E、compileall、Import Linter 和 schema 检查 |
+
+## 复审执行结果（2026-08-18）
+
+已按规划顺序完成以下闭环：
+
+- Phase 2A/2B：新增需求审核、RFLP、MBSE、项目分析、测试和证据 Use Case；每个入口使用显式 frozen dependency bundle，Web/CLI 兼容入口保留原路径和返回形状。
+- Phase 3A/3B：Application 不再走 raw `chat_completion`；六个分析块使用版本化 Strict Schema、Typed DTO、输入/来源/关系语义校验和 `ValidatedBlockResult`，单块失败不覆盖已成功块，最多一次 repair。
+- Phase 5：MBSE 缺少架构证据时输出 `needs-analysis` gap；未知关系诊断并拒绝；技术需求不再从普通分析需求机械复制。
+- Phase 4：Job 增加 lease、heartbeat、attempt、幂等键、错误和 block 状态；启动恢复将失效 running Job 标为 interrupted，重试只执行未成功块。
+- Phase 6：需求页补齐中文 Block 状态、诊断、provenance、stale/gap 和单块重试；MBSE 视图切换只读已保存语义，不触发 LLM。
+- Phase 7：新增架构边界、分析块契约、跨 workspace 和部分失败门禁；保留旧兼容调用清单，不把未迁移的 legacy locator 误标为新 Use Case 依赖。
 
 ## 已实现链路
 

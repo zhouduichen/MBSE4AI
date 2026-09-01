@@ -4,6 +4,8 @@ import json
 from io import BytesIO
 from urllib.error import HTTPError
 
+import pytest
+
 from rflp_lite.adapters import llm_client
 from rflp_lite.domain.errors import AdapterFailure
 
@@ -187,6 +189,27 @@ def test_chat_completion_uses_smaller_local_token_budget(monkeypatch):
     assert captured["body"]["options"]["num_predict"] == 600
 
 
+def test_native_ollama_sends_explicit_context_budget(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(call, timeout):
+        captured["body"] = json.loads(call.data.decode())
+        return _Response({"message": {"content": '{"items": []}'}})
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    llm_client.chat_completion(
+        {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3.5:4b",
+            "local_context_tokens": 8192,
+        },
+        [{"role": "user", "content": "json"}],
+    )
+
+    assert captured["body"]["options"]["num_ctx"] == 8192
+
+
 def test_native_ollama_uses_supplied_json_schema(monkeypatch):
     captured = {}
 
@@ -226,6 +249,22 @@ def test_chat_completion_falls_back_to_reasoning_content(monkeypatch):
     assert content == '{"items": []}'
 
 
+def test_chat_completion_preserves_completion_stop_reason(monkeypatch):
+    def fake_urlopen(_call, timeout):
+        return _Response(
+            {"message": {"content": '{"items": ['}, "done_reason": "length"}
+        )
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    content = llm_client.chat_completion(
+        {"base_url": "http://127.0.0.1:11434/v1", "model": "qwen"},
+        [{"role": "user", "content": "json"}],
+    )
+
+    assert content == '{"items": ['
+    assert content.done_reason == "length"
+
+
 def test_chat_completion_surfaces_provider_error_detail(monkeypatch):
     def fake_urlopen(_call, timeout):
         assert timeout == 300
@@ -247,3 +286,25 @@ def test_chat_completion_surfaces_provider_error_detail(monkeypatch):
         assert str(exc) == "LLM 请求失败: HTTP 402: Insufficient Balance"
     else:
         raise AssertionError("expected provider error")
+
+
+def test_chat_completion_surfaces_nested_ollama_error_detail(monkeypatch):
+    def fake_urlopen(_call, timeout):
+        raise HTTPError(
+            "http://127.0.0.1:11434/api/chat",
+            400,
+            "bad request",
+            {},
+            BytesIO(
+                json.dumps(
+                    {"error": json.dumps({"error": {"message": "failed to parse grammar"}})}
+                ).encode()
+            ),
+        )
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    with pytest.raises(AdapterFailure, match="failed to parse grammar"):
+        llm_client.chat_completion(
+            {"base_url": "http://127.0.0.1:11434/v1", "model": "qwen"},
+            [{"role": "user", "content": "json"}],
+        )

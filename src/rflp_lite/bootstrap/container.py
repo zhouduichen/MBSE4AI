@@ -28,6 +28,7 @@ from rflp_lite.application.dependencies import (
     configure_default_dependencies,
 )
 from rflp_lite.application.jobs import JobService
+from rflp_lite.bootstrap.legacy_job_migration import migrate_legacy_jobs
 
 
 def _evidence_readers(root: Path) -> tuple[object, ...]:
@@ -56,6 +57,16 @@ def _diagram_engine_factory(name: str) -> object:
     raise ValueError(f"unsupported diagram engine: {name}")
 
 
+def _job_service(path: Path) -> JobService:
+    repository = SQLiteJobRepository(path / ".rflp" / "model.db")
+    migrate_legacy_jobs(path, repository)
+    return JobService(
+        path,
+        repository=repository,
+        executor=ThreadBackgroundExecutor(),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ApplicationContainer:
     workspace_root: Path
@@ -70,11 +81,7 @@ def build_container(
         repository_factory=lambda path: SQLiteRepository(path),
         job_repository_factory=lambda path: SQLiteJobRepository(path / ".rflp" / "model.db"),
         job_executor_factory=lambda: ThreadBackgroundExecutor(),
-        job_service_factory=lambda path: JobService(
-            path,
-            repository=SQLiteJobRepository(path / ".rflp" / "model.db"),
-            executor=ThreadBackgroundExecutor(),
-        ),
+        job_service_factory=_job_service,
         document_parser_factory=lambda: LocalDocumentParser(),
         artifact_reader=read_artifact,
         markdown_reader=read_markdown,

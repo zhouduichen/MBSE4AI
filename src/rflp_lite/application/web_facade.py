@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
+from rflp_lite.application.dependencies import ApplicationDependencies, configured_dependencies
 from rflp_lite.ports.test_execution import DEFAULT_TEST_TIMEOUT, ResourceLimits
 from rflp_lite.application.demo import run_demo
 from rflp_lite.application.project_bridge import (
@@ -34,6 +34,7 @@ from rflp_lite.application.requirements_workbench import (
     stakeholder_bundle,
 )
 from rflp_lite.application.workbench_schema import migrate_workbench_state
+from rflp_lite.application.workbench import MutationKind, MutationResult, WorkbenchCommitCoordinator
 from rflp_lite.application.project_scope import (
     bind_project_scope,
     validate_project_references,
@@ -96,10 +97,31 @@ from rflp_lite.application.use_cases.requirements_analysis import (
     RequirementsAnalysisDependencies,
     RequirementsAnalysisService,
 )
+from rflp_lite.application.use_cases.reanalyze_requirements import (
+    ReanalyzeRequirementsCommand,
+    ReanalyzeRequirementsDependencies,
+    ReanalyzeRequirementsUseCase,
+)
+from rflp_lite.application.use_cases.manage_analysis_entity import (
+    DeleteEntityCommand,
+    DeleteEntityUseCase,
+    PreviewEntityDeletionCommand,
+    PreviewEntityDeletionUseCase,
+    RestoreEntityCommand,
+    RestoreEntityUseCase,
+)
 from rflp_lite.application.use_cases.project_analysis import (
     ProjectAnalysisDependencies,
     ProjectAnalysisService,
 )
+from rflp_lite.application.use_cases.dependencies import ReviewRequirementDeps
+from rflp_lite.application.use_cases.review_requirement import (
+    ReviewRequirementCommand,
+    ReviewRequirementUseCase,
+)
+from rflp_lite.application.use_cases.dependencies import GenerateMbseDeps, GenerateRflpDeps
+from rflp_lite.application.use_cases.generate_mbse import GenerateMbseCommand, GenerateMbseUseCase
+from rflp_lite.application.use_cases.generate_rflp import GenerateRflpCommand, GenerateRflpUseCase
 from rflp_lite.ports.diagram_renderer import RenderedDiagram
 from rflp_lite.application.resources import resource_path
 from rflp_lite.application.scheme_library import import_scheme_rows
@@ -110,7 +132,12 @@ from rflp_lite.application.workspaces import (
     managed_workspace,
 )
 from rflp_lite.application.traceability import build_trace_matrix, refresh_traceability, trace_coverage
-from rflp_lite.domain.errors import AdapterFailure, ContractViolation, InvariantViolation
+from rflp_lite.domain.errors import (
+    AdapterFailure,
+    ConcurrentModificationError,
+    ContractViolation,
+    InvariantViolation,
+)
 from rflp_lite.domain.models import Baseline
 from rflp_lite.governance.profile import Profile
 
@@ -128,7 +155,7 @@ class WebFacade:
     ):
         self.workspace_root = workspace_root.resolve()
         self.fixture_root = fixture_root
-        self.dependencies = require_dependencies(dependencies)
+        self.dependencies = configured_dependencies(dependencies)
         self.llm = LLMProfileService()
         self._requirements_analysis = RequirementsAnalysisService(
             RequirementsAnalysisDependencies(
@@ -152,6 +179,14 @@ class WebFacade:
                 load_state=lambda workspace: self.requirements(workspace.name),
                 analyze_state=lambda state, source: analyze_project_state(
                     state, source, dependencies=self.dependencies
+                ),
+            )
+        )
+        self._reanalyze_requirements = ReanalyzeRequirementsUseCase(
+            ReanalyzeRequirementsDependencies(
+                load_state=lambda workspace: self.requirements(workspace.name),
+                runner_factory=lambda path: EnrichmentJobRunner(
+                    path, dependencies=self.dependencies
                 ),
             )
         )
@@ -267,16 +302,19 @@ class WebFacade:
         try:
             stored_schemes = repository.scheme_records() if schemes is None else tuple(schemes)
             adapters = self.dependencies.discipline_registry() if registry is None else registry
-            with repository.transaction():
-                result = run_concept_design(
-                    normalized_pack,
-                    evaluator_profile,
-                    envelope_payload,
-                    stored_schemes,
-                    adapters,
-                    repository,
-                    optimize=optimize,
-                )
+            # Discipline evaluation is intentionally parallel.  Holding the
+            # repository's transaction lock across worker execution would
+            # deadlock cache writes; the service persists each deterministic
+            # artifact through the repository boundary instead.
+            result = run_concept_design(
+                normalized_pack,
+                evaluator_profile,
+                envelope_payload,
+                stored_schemes,
+                adapters,
+                repository,
+                optimize=optimize,
+            )
         finally:
             repository.close()
         return json.loads(canonical_json(result))
@@ -382,9 +420,18 @@ class WebFacade:
         current = self.requirements(workspace_name)
         if current is None:
             raise ContractViolation("requirements workbench is empty")
+        repository = self.dependencies.repository_factory(
+            self.workspace(workspace_name).path / ".rflp" / "model.db"
+        )
+        try:
+            generated = GenerateMbseUseCase(
+                GenerateMbseDeps(repository=repository, generator=generate_mbse_revision)
+            ).execute(GenerateMbseCommand(current))
+        finally:
+            repository.close()
         return self._save_requirements(
             workspace_name,
-            generate_mbse_revision(current),
+            generated,
             "requirements.mbse_generated",
         )
 
@@ -600,8 +647,6 @@ class WebFacade:
                     and int(state.get("revision", 0) or 0) == 0
                 ):
                     state = restore_legacy_requirements(state, legacy_records)
-                    with repository.transaction():
-                        repository.save_workbench(state, "requirements.legacy_rehydrated")
                 scope = state.get("project_scope")
                 scope_bound = not isinstance(scope, dict) or not str(scope.get("workspace", ""))
                 if scope_bound:
@@ -631,9 +676,6 @@ class WebFacade:
                     except (ContractViolation, InvariantViolation):
                         pass
                 validate_project_references(state)
-                if scope_bound:
-                    with repository.transaction():
-                        repository.save_workbench(state, "requirements.scope_bound")
             return state
         finally:
             repository.close()
@@ -723,10 +765,9 @@ class WebFacade:
             normalized["thinking"] = {"type": "disabled"}
         if "11434" in provider_text or "ollama" in provider_text:
             normalized["reasoning_effort"] = "none"
-            # Native Ollama keeps the reasoning trace separate from message.content,
-            # so Qwen can think without corrupting the JSON result.  A larger local
-            # budget is intentional: the one-call analysis must name every section.
-            normalized["think"] = True
+            # Keep reasoning disabled and leave enough room for the input,
+            # strict output envelope, and detailed block content.
+            normalized["local_context_tokens"] = 8192
             normalized["local_max_tokens"] = 3000
         return self.dependencies.model_factory(normalized)
 
@@ -973,6 +1014,94 @@ class WebFacade:
             model=self._project_analysis_model(),
         )
 
+    def reanalyze_all_requirements(
+        self,
+        workspace_name: str,
+        *,
+        mode: str = "full_reanalysis",
+    ) -> dict[str, object]:
+        """Queue an explicit full/coverage reanalysis of the current ledger."""
+
+        workspace = self.workspace(workspace_name)
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        job = self._reanalyze_requirements.execute(
+            ReanalyzeRequirementsCommand(workspace=workspace, mode=mode),
+            model=self._project_analysis_model(),
+        )
+        latest = self.requirements(workspace_name) or current
+        latest["auto_analysis"] = {
+            **dict(latest.get("auto_analysis") or {}),
+            "status": "enriching",
+            "mode": mode,
+            "job_id": job.get("id"),
+            "snapshot_revision": job.get("payload", {}).get("snapshot_revision")
+            if isinstance(job.get("payload"), dict)
+            else latest.get("revision", 0),
+            "snapshot_content_revision": job.get("payload", {}).get(
+                "snapshot_content_revision"
+            )
+            if isinstance(job.get("payload"), dict)
+            else latest.get("content_revision", latest.get("revision", 0)),
+            "blocks": dict(job.get("blocks") or job.get("block_states") or {}),
+        }
+        self._save_requirements(
+            workspace_name,
+            latest,
+            "requirements.reanalysis_queued",
+            {"job_id": job.get("id"), "mode": mode},
+        )
+        # The command is asynchronous; callers need the durable Job record
+        # (including payload/mode/idempotency metadata) to poll it directly.
+        return job
+
+    def preview_entity_deletion(
+        self, workspace_name: str, entity_type: str, entity_id: str
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        repository = self.dependencies.repository_factory(
+            self.workspace(workspace_name).path / ".rflp" / "model.db"
+        )
+        try:
+            return PreviewEntityDeletionUseCase(repository).execute(
+                PreviewEntityDeletionCommand(entity_type, entity_id)
+            )
+        finally:
+            repository.close()
+
+    def delete_entity(
+        self,
+        workspace_name: str,
+        entity_type: str,
+        entity_id: str,
+        plan_hash: str,
+    ) -> dict[str, object]:
+        repository = self.dependencies.repository_factory(
+            self.workspace(workspace_name).path / ".rflp" / "model.db"
+        )
+        try:
+            return DeleteEntityUseCase(repository).execute(
+                DeleteEntityCommand(entity_type, entity_id, plan_hash)
+            )
+        finally:
+            repository.close()
+
+    def restore_entity(
+        self, workspace_name: str, entity_type: str, entity_id: str
+    ) -> dict[str, object]:
+        repository = self.dependencies.repository_factory(
+            self.workspace(workspace_name).path / ".rflp" / "model.db"
+        )
+        try:
+            return RestoreEntityUseCase(repository).execute(
+                RestoreEntityCommand(entity_type, entity_id)
+            )
+        finally:
+            repository.close()
+
     def _auto_complete_requirements(self, state: dict[str, object]) -> dict[str, object]:
         model = self._project_analysis_model()
         if model is None:
@@ -1019,14 +1148,40 @@ class WebFacade:
         value: str,
         category: str = "",
     ) -> dict[str, object]:
-        current = self.requirements(workspace_name)
-        if current is None:
-            raise ContractViolation("requirements workbench is empty")
-        return self._save_requirements(
-            workspace_name,
-            review_item(current, group, item_id, status, value, category),
-            "requirements.reviewed",
+        workspace = self.workspace(workspace_name)
+        repository = self.dependencies.repository_factory(
+            workspace.path / ".rflp" / "model.db"
         )
+        try:
+            use_case = ReviewRequirementUseCase(
+                ReviewRequirementDeps(
+                    repository=repository,
+                    review_policy=review_item,
+                    staleness_policy=lambda state, _ids: tuple(
+                        key
+                        for key in ("rflp", "mbse", "baseline", "project")
+                        if state.get(key) is not None
+                    ),
+                )
+            )
+            result = use_case.commit(
+                workspace_name,
+                ReviewRequirementCommand(
+                    group=group,
+                    item_id=item_id,
+                    decision=status,
+                    value=value,
+                    category=category,
+                    # Let the use case take its snapshot from the same
+                    # repository connection that performs the atomic commit.
+                    # A separate facade read can become stale while the
+                    # background analysis coordinator is finalizing.
+                    expected_revision=None,
+                ),
+            )
+        finally:
+            repository.close()
+        return result.state
 
     def add_requirement_stakeholder(
         self, workspace_name: str, name: str, category: str = ""
@@ -1051,6 +1206,47 @@ class WebFacade:
             return stakeholder_bundle({"stakeholders": []}, name)
         return stakeholder_bundle(current, name)
 
+    def edit_requirement_stakeholder(
+        self,
+        workspace_name: str,
+        stakeholder_id: str,
+        **fields: object,
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        from rflp_lite.application.requirements_workbench import edit_stakeholder
+
+        updated = edit_stakeholder(current, stakeholder_id, **fields)
+        return self._save_requirements(
+            workspace_name,
+            updated,
+            "stakeholder.edited",
+            {"stakeholder_id": stakeholder_id},
+        )
+
+    def edit_requirement_entity(
+        self,
+        workspace_name: str,
+        entity_type: str,
+        entity_id: str,
+        **fields: object,
+    ) -> dict[str, object]:
+        current = self.requirements(workspace_name)
+        if current is None:
+            raise ContractViolation("requirements workbench is empty")
+        from rflp_lite.application.requirements_workbench import edit_related_entity
+
+        updated = edit_related_entity(
+            current, entity_type, entity_id, **fields
+        )
+        return self._save_requirements(
+            workspace_name,
+            updated,
+            f"{entity_type}.edited",
+            {"entity_type": entity_type, "entity_id": entity_id},
+        )
+
     def accept_traceable_requirements(self, workspace_name: str) -> dict[str, object]:
         current = self.requirements(workspace_name)
         if current is None:
@@ -1064,7 +1260,42 @@ class WebFacade:
         if current is None:
             raise ContractViolation("requirements workbench is empty")
         current = confirm_requirements(current)
-        current, baseline = approve_workbench_baseline(generate_model(current))
+        repository = self.dependencies.repository_factory(
+            self.workspace(workspace_name).path / ".rflp" / "model.db"
+        )
+        try:
+            generated = GenerateRflpUseCase(
+                GenerateRflpDeps(repository=repository, generator=generate_model)
+            ).execute(GenerateRflpCommand(current))
+        finally:
+            repository.close()
+        if any(
+            item.get("status") == "needs-analysis"
+            for item in generated.get("rflp", {}).get("elements", ())
+            if isinstance(item, dict)
+        ):
+            auto_analysis = dict(generated.get("auto_analysis") or {})
+            diagnostics = [
+                item
+                for item in list(auto_analysis.get("diagnostics") or [])
+                if not (
+                    isinstance(item, dict)
+                    and item.get("code") == "rflp_architecture_incomplete"
+                )
+            ]
+            diagnostics.append(
+                {
+                    "code": "rflp_architecture_incomplete",
+                    "severity": "warning",
+                    "message": "RFLP 包含待分析架构节点，图已保存；补充架构后才能批准基线。",
+                }
+            )
+            auto_analysis["diagnostics"] = diagnostics
+            generated["auto_analysis"] = auto_analysis
+            return self._save_requirements(
+                workspace_name, generated, "requirements.generated"
+            )
+        current, baseline = approve_workbench_baseline(generated)
         return self._save_requirements(
             workspace_name, current, "requirements.generated", baseline=baseline
         )
@@ -1074,7 +1305,34 @@ class WebFacade:
         if current is None:
             raise ContractViolation("requirements workbench is empty")
         confirmed = confirm_requirements(current)
-        confirmed, baseline = approve_workbench_baseline(generate_model(confirmed))
+        generated = generate_model(confirmed)
+        if any(
+            item.get("status") == "needs-analysis"
+            for item in generated.get("rflp", {}).get("elements", ())
+            if isinstance(item, dict)
+        ):
+            auto_analysis = dict(generated.get("auto_analysis") or {})
+            diagnostics = [
+                item
+                for item in list(auto_analysis.get("diagnostics") or [])
+                if not (
+                    isinstance(item, dict)
+                    and item.get("code") == "rflp_architecture_incomplete"
+                )
+            ]
+            diagnostics.append(
+                {
+                    "code": "rflp_architecture_incomplete",
+                    "severity": "warning",
+                    "message": "RFLP 包含待分析架构节点，图已保存；补充架构后才能批准基线。",
+                }
+            )
+            auto_analysis["diagnostics"] = diagnostics
+            generated["auto_analysis"] = auto_analysis
+            return self._save_requirements(
+                workspace_name, generated, "requirements.confirmed_and_generated"
+            )
+        confirmed, baseline = approve_workbench_baseline(generated)
         return self._save_requirements(
             workspace_name,
             confirmed,
@@ -1108,7 +1366,11 @@ class WebFacade:
             raise ContractViolation("requirements workbench is empty")
         return self._save_requirements(
             workspace_name,
-            add_llm_suggestions(current, self.llm.active_config()),
+            add_llm_suggestions(
+                current,
+                self.llm.active_config(),
+                model=self._project_analysis_model(),
+            ),
             "requirements.ai_suggested",
         )
 
@@ -1121,7 +1383,11 @@ class WebFacade:
             raise AdapterFailure("LLM 未配置")
         return self._save_requirements(
             workspace_name,
-            suggest_implicit_constraints(current, config),
+            suggest_implicit_constraints(
+                current,
+                config,
+                model=self._project_analysis_model(),
+            ),
             "requirements.implicit_constraints_suggested",
         )
 
@@ -1137,6 +1403,12 @@ class WebFacade:
         expected_outcomes: str,
         faults: str = "",
         requirement_ids: str = "",
+        scenario_type: str = "normal",
+        coverage_dimensions: str = "",
+        lifecycle_phase: str = "",
+        trigger: str = "",
+        stakeholder_ids: str = "",
+        recovery_steps: str = "",
     ) -> dict[str, object]:
         current = self.requirements(workspace_name)
         if current is None:
@@ -1151,6 +1423,12 @@ class WebFacade:
             expected_outcomes=expected_outcomes,
             faults=faults,
             requirement_ids=requirement_ids,
+            scenario_type=scenario_type,
+            coverage_dimensions=coverage_dimensions,
+            lifecycle_phase=lifecycle_phase,
+            trigger=trigger,
+            stakeholder_ids=stakeholder_ids,
+            recovery_steps=recovery_steps,
         )
         return self._save_requirements(
             workspace_name, state, "scenario.created"
@@ -1162,20 +1440,14 @@ class WebFacade:
         current = self.requirements(workspace_name)
         if current is None:
             raise ContractViolation("requirements workbench is empty")
-        state, metadata = remove_requirement(current, requirement_id)
-        baseline = None
-        if state.get("claims"):
-            state = confirm_requirements(state)
-            state = generate_model(state)
-            state, baseline = approve_workbench_baseline(state)
-            state = generate_mbse_revision(state)
-        return self._save_requirements(
+        preview = self.preview_entity_deletion(
+            workspace_name, "requirement", requirement_id
+        )
+        return self.delete_entity(
             workspace_name,
-            state,
-            "requirements.deleted",
-            metadata,
-            baseline=baseline,
-            deleted_requirement_ids=(str(requirement_id),),
+            "requirement",
+            requirement_id,
+            str(preview["plan_hash"]),
         )
 
     def prepare_requirement_scenarios(
@@ -1193,10 +1465,14 @@ class WebFacade:
         current = self.requirements(workspace_name)
         if current is None:
             raise ContractViolation("requirements workbench is empty")
-        return self._save_requirements(
+        preview = self.preview_entity_deletion(
+            workspace_name, "scenario", scenario_id
+        )
+        return self.delete_entity(
             workspace_name,
-            delete_scenario(current, scenario_id),
-            "scenario.deleted",
+            "scenario",
+            scenario_id,
+            str(preview["plan_hash"]),
         )
 
     def revise_requirement_scenario(
@@ -1261,15 +1537,32 @@ class WebFacade:
         value = self.dependencies.job_service_factory(self.workspace(workspace_name).path).get(job_id)
         if (
             value
-            and value.get("kind") == "requirements.enrichment"
+            and value.get("kind") in {"requirements.enrichment", "requirements.analysis"}
             and value.get("status") == "succeeded"
             and isinstance(value.get("result"), dict)
-            and value["result"].get("status") == "completed"
+            and value["result"].get("status") in {"completed", "succeeded"}
         ):
             # Keep the historical Web/API status while the durable job ledger
             # uses the normalized ``succeeded`` terminal state.
             return {**value, "status": "completed"}
         return value
+
+    def analysis_run(
+        self, workspace_name: str, run_id: str
+    ) -> dict[str, object] | None:
+        """Return the aggregate requirements-analysis run for polling clients."""
+
+        value = self.job(workspace_name, run_id)
+        if value is None or value.get("kind") != "requirements.analysis":
+            return None
+        return value
+
+    def retry_failed_analysis(
+        self, workspace_name: str, run_id: str
+    ) -> dict[str, object]:
+        """Retry only failed blocks of one aggregate analysis run."""
+
+        return self.retry_requirement_enrichment(workspace_name, run_id)
 
     def retry_requirement_enrichment(
         self, workspace_name: str, job_id: str
@@ -1280,16 +1573,34 @@ class WebFacade:
             model=self._project_analysis_model(),
         )
 
+    def retry_requirement_enrichment_block(
+        self, workspace_name: str, job_id: str, block_id: str
+    ) -> dict[str, object]:
+        return self._requirements_analysis.retry_block(
+            self.workspace(workspace_name),
+            job_id,
+            block_id,
+            model=self._project_analysis_model(),
+        )
+
     def approve_requirements_baseline(self, workspace_name: str) -> dict[str, object]:
         current = self.requirements(workspace_name)
         if current is None:
             raise ContractViolation("requirements workbench is empty")
+        expected_revision = int(current.get("revision", 0) or 0)
+        expected_content_revision = int(
+            current.get("content_revision", current.get("revision", 0)) or 0
+        )
         state, baseline = approve_workbench_baseline(current)
         workspace = self.workspace(workspace_name)
         repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
-                repository.save_workbench(state)
+                repository.save_workbench(
+                    state,
+                    expected_revision=expected_revision,
+                    expected_content_revision=expected_content_revision,
+                )
                 repository.save_baseline(baseline)
                 repository.record_audit(
                     "baseline.approved", {"baseline_hash": baseline.hash}
@@ -1309,6 +1620,10 @@ class WebFacade:
         current = self.requirements(workspace_name)
         if current is None:
             raise ContractViolation("requirements workbench is empty")
+        expected_revision = int(current.get("revision", 0) or 0)
+        expected_content_revision = int(
+            current.get("content_revision", current.get("revision", 0)) or 0
+        )
         state, verify = verify_contracts_state(
             current, source, dependencies=self.dependencies
         )
@@ -1317,7 +1632,11 @@ class WebFacade:
         repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
-                repository.save_workbench(state)
+                repository.save_workbench(
+                    state,
+                    expected_revision=expected_revision,
+                    expected_content_revision=expected_content_revision,
+                )
                 repository.save_evidence(verify.evidence)
                 repository.record_audit(
                     "project.executed",
@@ -1345,6 +1664,10 @@ class WebFacade:
         current = self.requirements(workspace_name)
         if current is None:
             raise ContractViolation("requirements workbench is empty")
+        expected_revision = int(current.get("revision", 0) or 0)
+        expected_content_revision = int(
+            current.get("content_revision", current.get("revision", 0)) or 0
+        )
         project = current.get("project")
         if not project or not project.get("source"):
             raise ContractViolation("请先在项目接入中分析项目")
@@ -1363,7 +1686,11 @@ class WebFacade:
         repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
-                repository.save_workbench(state)
+                repository.save_workbench(
+                    state,
+                    expected_revision=expected_revision,
+                    expected_content_revision=expected_content_revision,
+                )
                 repository.save_evidence(verify.evidence)
                 repository.record_audit(
                     "project.tested",
@@ -1400,29 +1727,153 @@ class WebFacade:
         workspace = self.workspace(workspace_name)
         repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
-            with repository.transaction():
-                repository.save_workbench(state, event)
-                if baseline is not None:
+            base_state = repository.load_workbench() if hasattr(repository, "load_workbench") else None
+            expected_revision = int(
+                (base_state or {}).get("revision", 0) or 0
+            )
+            expected_content_revision = int(
+                (base_state or {}).get(
+                    "content_revision",
+                    (base_state or {}).get("revision", 0),
+                )
+                or 0
+            )
+            if baseline is not None:
+                # Baseline approval also writes a second aggregate, so retain
+                # the compatibility transaction until that operation gets its
+                # own command in the next migration slice.
+                for _attempt in range(2):
+                    try:
+                        with repository.transaction():
+                            repository.save_workbench(
+                                state,
+                                event,
+                                expected_revision=expected_revision,
+                                expected_content_revision=expected_content_revision,
+                            )
+                        break
+                    except ConcurrentModificationError:
+                        latest = repository.load_workbench()
+                        if latest is None or int(
+                            latest.get(
+                                "content_revision", latest.get("revision", 0)
+                            )
+                            or 0
+                        ) != expected_content_revision:
+                            raise
+                        state = self._merge_non_conflicting_workbench(
+                            base_state or {}, state, latest
+                        )
+                        expected_revision = int(latest.get("revision", 0) or 0)
+                        expected_content_revision = int(
+                            latest.get(
+                                "content_revision", latest.get("revision", 0)
+                            )
+                            or 0
+                        )
+                with repository.transaction():
                     repository.save_baseline(baseline)
-                sequence = repository.record_audit(
-                    event,
-                    audit_payload or {"artifact": state["artifact"]["path"]},
-                )
-                repository.save_requirement_records(
-                    self._requirement_records_for_state(state, event), sequence, event
-                )
-                if deleted_requirement_ids:
-                    repository.mark_requirement_deleted(
-                        deleted_requirement_ids, sequence, event
+                    sequence = repository.record_audit(
+                        event,
+                        audit_payload or {"artifact": state["artifact"]["path"]},
                     )
-                repository.save_trace_records(tuple(state.get("trace_links", ())))
+                    repository.save_requirement_records(
+                        self._requirement_records_for_state(state, event), sequence, event
+                    )
+                    repository.save_trace_records(tuple(state.get("trace_links", ())))
+            else:
+                coordinator = WorkbenchCommitCoordinator(repository, workspace_name)
+                for _attempt in range(2):
+                    try:
+                        committed = coordinator.commit(
+                            lambda _current: MutationResult(
+                                state=state,
+                                mutation_kind=MutationKind.HUMAN_CONTENT,
+                            ),
+                            expected_revision=expected_revision,
+                            expected_content_revision=expected_content_revision,
+                            event=event,
+                            audit_payload=audit_payload or {"artifact": state["artifact"]["path"]},
+                            deleted_requirement_ids=deleted_requirement_ids,
+                        )
+                        state = committed.state
+                        break
+                    except ConcurrentModificationError:
+                        latest = repository.load_workbench()
+                        latest_content_revision = int(
+                            (latest or {}).get(
+                                "content_revision", (latest or {}).get("revision", 0)
+                            )
+                            or 0
+                        )
+                        if latest is None or latest_content_revision != expected_content_revision:
+                            raise
+                        state = self._merge_non_conflicting_workbench(
+                            base_state or {}, state, latest
+                        )
+                        expected_revision = int(latest.get("revision", 0) or 0)
+                        expected_content_revision = latest_content_revision
+            with repository.transaction():
                 repository.record_audit(
                     "requirements.traceability_updated",
-                    {"coverage": state.get("trace_coverage", trace_coverage(build_trace_matrix(state)))} ,
+                    {"coverage": state.get("trace_coverage", trace_coverage(build_trace_matrix(state)))},
                 )
         finally:
             repository.close()
         return state
+
+    @staticmethod
+    def _merge_non_conflicting_workbench(
+        base: dict[str, object],
+        desired: dict[str, object],
+        latest: dict[str, object],
+    ) -> dict[str, object]:
+        """Rebase a user mutation over a metadata-only concurrent update.
+
+        A changed content revision is rejected by the caller.  When only the
+        durable revision moved, preserve fields changed by the background
+        writer while applying fields changed by the user relative to the
+        original snapshot.
+        """
+
+        missing = object()
+
+        def clone(value: object) -> object:
+            return json.loads(canonical_json(value))
+
+        def merge_value(base_value: object, desired_value: object, latest_value: object) -> object:
+            if desired_value is missing:
+                return missing
+            if desired_value == base_value:
+                return missing if latest_value is missing else clone(latest_value)
+            if latest_value == base_value:
+                return clone(desired_value)
+            if (
+                isinstance(base_value, dict)
+                and isinstance(desired_value, dict)
+                and isinstance(latest_value, dict)
+            ):
+                merged: dict[str, object] = {}
+                for key in set(base_value) | set(desired_value) | set(latest_value):
+                    value = merge_value(
+                        base_value.get(key, missing),
+                        desired_value.get(key, missing),
+                        latest_value.get(key, missing),
+                    )
+                    if value is not missing:
+                        merged[str(key)] = value
+                return merged
+            return clone(desired_value)
+
+        merged = merge_value(base, desired, latest)
+        if not isinstance(merged, dict):
+            return dict(latest)
+        for key in ("revision", "content_revision", "revision_parent", "revision_event"):
+            if key in latest:
+                merged[key] = latest[key]
+        if desired.get("content_revision") != base.get("content_revision"):
+            merged["content_revision"] = desired.get("content_revision")
+        return merged
 
     def dashboard(self, workspace_name: str | None) -> dict[str, object]:
         workspaces = self.workspaces()

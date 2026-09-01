@@ -6,9 +6,9 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from rflp_lite.application.dependencies import require_dependencies
 from rflp_lite.domain.errors import AdapterFailure
 from rflp_lite.domain.requirements import DocumentRegion, StructuredRequirement
+from rflp_lite.ports.generative_model import GenerationRequest, GenerativeModel
 
 
 _REQUIRED = {
@@ -20,11 +20,37 @@ _REQUIRED = {
     "confidence",
 }
 
+_RESPONSE_SCHEMA = {
+    "type": "object",
+    "required": ["items"],
+    "properties": {
+        "items": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+                "type": "object",
+                "required": sorted(_REQUIRED),
+                "properties": {
+                    "source_region_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                    "statement": {"type": "string", "minLength": 1, "maxLength": 2000},
+                    "entities": {"type": "array", "items": {"type": "string", "maxLength": 240}, "maxItems": 32},
+                    "constraints": {"type": "array", "maxItems": 32, "items": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "string", "maxLength": 240}}},
+                    "verification_method": {"type": "string", "minLength": 1, "maxLength": 120},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "additionalProperties": False,
+            },
+        }
+    },
+    "additionalProperties": False,
+}
+
 
 def suggest_implicit_requirements(
     regions: tuple[DocumentRegion, ...],
     config: dict[str, object],
     complete: Callable[[dict[str, object], object], str] | None = None,
+    model: GenerativeModel | None = None,
 ) -> tuple[StructuredRequirement, ...]:
     """Ask an approved model for *suggestions*, validating every source link."""
 
@@ -35,20 +61,25 @@ def suggest_implicit_requirements(
         "regions": [{"id": region.id, "text": region.text} for region in regions],
     }
     if complete is None:
-        content = require_dependencies().chat_completion(
-            config,
-            [
-                {"role": "system", "content": "你是需求工程审查助手，只能输出 JSON 数组。"},
-                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
-            ],
-            max_tokens=1800,
+        if model is None:
+            raise AdapterFailure("LLM 未配置")
+        response = model.complete_json(
+            GenerationRequest(
+                lens_id="requirements.implicit_constraints",
+                system_prompt="你是需求工程审查助手，只能输出符合 response_schema 的 JSON 对象。",
+                user_payload=prompt,
+                response_schema=_RESPONSE_SCHEMA,
+                max_tokens=1800,
+            )
         )
+        payload = response.payload
+        value = payload.get("items") if isinstance(payload, dict) else None
     else:
         content = complete(config, prompt)
-    try:
-        value = json.loads(content)
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise AdapterFailure("LLM implicit requirement output is not valid JSON") from exc
+        try:
+            value = json.loads(content)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise AdapterFailure("LLM implicit requirement output is not valid JSON") from exc
     if not isinstance(value, list):
         raise AdapterFailure("LLM implicit requirement output must be an array")
     result: list[StructuredRequirement] = []
@@ -93,6 +124,7 @@ def inferred_requirement_payloads(
     regions: tuple[DocumentRegion, ...],
     config: dict[str, object],
     complete: Callable[[dict[str, object], object], str] | None = None,
+    model: GenerativeModel | None = None,
 ) -> tuple[dict[str, object], ...]:
     """JSON-safe helper used by Web/API layers."""
 
@@ -101,5 +133,5 @@ def inferred_requirement_payloads(
     return tuple(
         requirement_payload(item, producer="llm")
         | {"bulk_approvable": False}
-        for item in suggest_implicit_requirements(regions, config, complete)
+        for item in suggest_implicit_requirements(regions, config, complete, model)
     )

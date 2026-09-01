@@ -34,10 +34,10 @@ def test_llm_architecture_expands_rflp_and_keeps_requirement_traceability():
     assert all(item.source_id in ids and item.target_id in ids for item in relations)
 
 
-def test_missing_architecture_uses_explicit_needs_analysis_placeholders():
+def test_missing_architecture_uses_explicit_needs_analysis_gaps():
     elements, relations = synthesize_rflp((_claim("r1", "限制压力"),), {})
 
     assert {item.layer for item in elements} == {"R", "F", "L", "P"}
     assert any(item.status == "needs-analysis" for item in elements)
     assert all(item.name != "Python Service" for item in elements)
-    assert {item.predicate for item in relations} == {"satisfiedBy", "allocatedTo", "realizedBy"}
+    assert relations == ()

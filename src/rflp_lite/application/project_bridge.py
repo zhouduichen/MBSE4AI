@@ -4,7 +4,7 @@ import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
+from rflp_lite.application.dependencies import ApplicationDependencies, configured_dependencies
 from rflp_lite.ports.test_execution import (
     DEFAULT_TEST_TIMEOUT,
     ResourceLimits,
@@ -161,7 +161,7 @@ def analyze_project_state(
         raise ContractViolation("请先批准基线")
     baseline = _baseline_from_state(state)
     resolved = Path(source).expanduser().resolve()
-    deps = require_dependencies(dependencies)
+    deps = configured_dependencies(dependencies)
     model, summary = deps.project_scanner(resolved)
     evidence = evidence_from_actual(model)
     delta, matches = compare_baseline_with_actual(baseline, model)
@@ -317,7 +317,7 @@ def verify_contracts_state(
         raise ContractViolation("请先在项目接入中分析项目并生成任务契约")
     baseline = _baseline_from_state(state)
     resolved_path = Path(source).expanduser().resolve()
-    deps = require_dependencies(dependencies)
+    deps = configured_dependencies(dependencies)
     model, summary = deps.project_scanner(resolved_path)
     evidence = evidence_from_actual(model)
     return _build_execution(
@@ -344,7 +344,7 @@ def execute_tests_state(
         raise ContractViolation("请先在项目接入中分析项目并生成任务契约")
     baseline = _baseline_from_state(state)
     resolved_path = Path(project_dir).expanduser().resolve()
-    deps = require_dependencies(dependencies)
+    deps = configured_dependencies(dependencies)
     effective_limits = limits or build_limits(timeout_seconds=timeout)
     runs = deps.test_executor(
         resolved_path,

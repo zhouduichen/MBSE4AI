@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from rflp_lite.application.intelligence.validated_result import ValidatedBlockResult
 from rflp_lite.domain.errors import ContractViolation
@@ -122,6 +122,54 @@ def _dto_entities(result: ValidatedBlockResult) -> dict[str, str]:
 
 
 class AnalysisSemanticValidator:
+    def discard_unknown_relations(
+        self,
+        result: ValidatedBlockResult,
+        issues: tuple[dict[str, object], ...],
+    ) -> ValidatedBlockResult:
+        """Drop only unsupported architecture edges and retain valid nodes.
+
+        LLMs commonly use useful but non-canonical verbs such as ``controls``.
+        An unknown edge must not make the whole architecture block unusable;
+        the edge is rejected and recorded while the validated entities remain
+        available for deterministic RFLP synthesis.
+        """
+
+        if result.block_id != "architecture":
+            return result
+        indexes = {
+            int(str(issue["path"])[len("items[") : -len("].predicate")])
+            for issue in issues
+            if issue.get("code") == "unknown_relation_kind"
+            and str(issue.get("path", "")).startswith("items[")
+            and str(issue.get("path", "")).endswith("].predicate")
+        }
+        if not indexes:
+            return result
+        kept = tuple(
+            item for index, item in enumerate(result.dto.items) if index not in indexes
+        )
+        diagnostics = tuple(
+            {
+                **issue,
+                "severity": "warning",
+                "message": f"未知关系类型已拒绝，保留其余架构结果: {issue.get('message', '')}",
+            }
+            for issue in issues
+            if issue.get("code") == "unknown_relation_kind"
+        )
+        dto = type(result.dto)(
+            block_id=result.dto.block_id,
+            items=kept,
+            diagnostics=tuple(result.dto.diagnostics) + diagnostics,
+            coverage_decisions=result.dto.coverage_decisions,
+        )
+        return replace(
+            result,
+            dto=dto,
+            diagnostics=tuple(result.diagnostics) + diagnostics,
+        )
+
     def validate(
         self, result: ValidatedBlockResult, state: dict[str, object]
     ) -> tuple[dict[str, object], ...]:

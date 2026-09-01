@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from rflp_lite.application.jobs import JobService
+from tests.job_helpers import make_job_service
 
 
 def test_job_characterization_keeps_success_and_result(tmp_path: Path) -> None:
-    service = JobService(tmp_path)
+    service = make_job_service(tmp_path)
 
     result = service.submit("demo", {"value": 1}, lambda: {"answer": 42})
 

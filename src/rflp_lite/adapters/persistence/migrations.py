@@ -151,6 +151,13 @@ class MigrationRunner:
             Migration(1, "base_schema", _base_statements()),
             Migration(2, "workbench_revision_columns", ()),
             Migration(3, "durable_jobs", _job_statements()),
+            Migration(
+                4,
+                "job_runtime_metadata",
+                (
+                    "ALTER TABLE jobs ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'",
+                ),
+            ),
         )
 
     def _apply_migration(

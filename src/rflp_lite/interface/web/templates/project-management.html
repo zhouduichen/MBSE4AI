@@ -20,7 +20,7 @@
       <article class="project-requirement-row">
         <a href="/w/{{ project.workspace.name }}/requirements/input"><span><strong>{{ item.subject }} {{ item.predicate }} {{ item.object }}</strong><small>{{ item.id }}</small></span></a>
         <span class="status-badge {{ item.status }}">{{ item.status_label }}</span>
-        <form method="post" action="/w/{{ project.workspace.name }}/requirements/delete" onsubmit="return window.confirm('删除需求及其自动生成结果？审计历史会保留。')"><input type="hidden" name="requirement_id" value="{{ item.id }}"><button class="button compact danger" type="submit">删除需求</button></form>
+        <form method="post" action="/w/{{ project.workspace.name }}/requirements/entities/delete-preview"><input type="hidden" name="entity_type" value="requirement"><input type="hidden" name="entity_id" value="{{ item.id }}"><button class="button compact danger" type="submit">预览删除影响</button></form>
       </article>
       {% endfor %}
       </div>

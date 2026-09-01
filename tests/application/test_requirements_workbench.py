@@ -9,8 +9,11 @@ from rflp_lite.application.requirements_workbench import (
     generate_draft_model,
     generate_model,
     empty_workbench,
+    edit_coverage_decision,
+    edit_stakeholder,
     merge_artifact,
     remove_requirement,
+    restore_legacy_requirements,
     stakeholder_bundle,
 )
 from rflp_lite.application.scenarios import build_scenario
@@ -47,6 +50,17 @@ def test_reviewed_stakeholders_generate_stable_dynamic_rflp(monkeypatch):
     monkeypatch.delenv("RFLP_LLM_API_KEY", raising=False)
     with pytest.raises(AdapterFailure, match="LLM 未配置"):
         add_llm_suggestions(state)
+
+
+def test_generate_model_keeps_legacy_claim_without_source_type():
+    state = accept_traceable(
+        analyze_artifact("requirements.txt", "管理员必须恢复历史版本。".encode())
+    )
+    state["claims"][0].pop("source_type", None)
+
+    generated = generate_model(state)
+
+    assert generated["rflp"]["elements"]
 
 
 def test_draft_model_is_available_before_review_without_mutating_candidates():
@@ -156,6 +170,37 @@ def test_merge_artifact_accumulates_candidates_and_dedups():
     assert len(again["spans"]) == len(merged["spans"])
 
 
+def test_workbench_entry_points_add_identity_metadata_without_changing_ids():
+    analyzed = analyze_artifact(
+        "requirements.txt", "管理员必须恢复历史版本。\n".encode()
+    )
+    original_id = analyzed["stakeholders"][0]["id"]
+
+    assert analyzed["stakeholders"][0]["id"] == original_id
+    assert analyzed["stakeholders"][0]["match_keys"]
+    assert analyzed["stakeholders"][0]["field_sources"]["name"] == "rule"
+    assert analyzed["content_revision"] == 0
+    assert analyzed["deletion_registry"] == []
+
+    merged = merge_artifact(
+        analyzed, "more.txt", "审计人员必须查看恢复记录。\n".encode()
+    )
+    assert next(
+        item for item in merged["stakeholders"] if item["id"] == original_id
+    )["match_keys"]
+
+    manual = empty_workbench()
+    assert manual["content_revision"] == 0
+    assert manual["deletion_registry"] == []
+
+    legacy = dict(manual)
+    legacy.pop("content_revision")
+    legacy.pop("deletion_registry")
+    restored = restore_legacy_requirements(legacy, ())
+    assert restored["content_revision"] == restored["revision"]
+    assert restored["deletion_registry"] == []
+
+
 def test_manual_stakeholder_bundle_collects_related_objects():
     state = analyze_artifact(
         "requirements.txt",
@@ -194,6 +239,120 @@ def test_stakeholder_categories_are_detected_and_can_be_overridden():
     supplier = next(item for item in state["stakeholders"] if item["name"] == "供应商")
     assert supplier["category"] == "engineering"
     assert supplier["category_label"] == "系统工程 / 研发"
+
+
+def test_editing_stakeholder_records_user_fields_relations_and_suggestions():
+    state = analyze_artifact(
+        "requirements.txt", "管理员必须恢复历史版本。\n".encode()
+    )
+    stakeholder = state["stakeholders"][0]
+    claim_id = state["claims"][0]["id"]
+    scenario = build_scenario(
+        title="恢复历史版本",
+        description="验证恢复流程。",
+        steps="执行恢复",
+        expected_outcomes="恢复成功",
+        requirement_ids=[claim_id],
+    )
+    state["scenarios"] = [scenario]
+    stakeholder["suggested_changes"] = [
+        {
+            "field": "name",
+            "current": stakeholder["name"],
+            "suggested": "现场管理员",
+            "block_id": "stakeholders",
+            "input_hash": "input-1",
+        },
+        {
+            "field": "description",
+            "current": "",
+            "suggested": "仍待考虑的描述",
+            "block_id": "stakeholders",
+            "input_hash": "input-1",
+        },
+    ]
+    before_content_revision = state["content_revision"]
+
+    edited = edit_stakeholder(
+        state,
+        stakeholder["id"],
+        name="现场管理员",
+        category="operator",
+        description="负责现场运行",
+        goals="安全恢复",
+        interactions="提交恢复请求",
+        requirement_ids=[claim_id],
+        scenario_ids=[scenario["id"]],
+    )
+
+    current = edited["stakeholders"][0]
+    assert current["last_editor"] == "user"
+    assert current["revision"] == stakeholder["revision"] + 1
+    assert current["field_sources"]["name"] == "user"
+    assert current["field_sources"]["goals"] == "user"
+    assert stakeholder["name"] in current["aliases"]
+    assert [item["field"] for item in current["suggested_changes"]] == [
+        "description"
+    ]
+    assert current["suggestion_history"][0]["status"] == "accepted_by_user"
+    assert edited["claims"][0]["stakeholder_id"] == stakeholder["id"]
+    assert edited["scenarios"][0]["stakeholder_ids"] == [stakeholder["id"]]
+    assert edited["analysis_coverage"] == {}
+    assert edited["content_revision"] == before_content_revision + 1
+
+
+def test_editing_stakeholder_rejects_unknown_associations():
+    state = analyze_artifact("requirements.txt", "管理员必须恢复系统。".encode())
+    stakeholder_id = state["stakeholders"][0]["id"]
+
+    with pytest.raises(ContractViolation, match="不存在"):
+        edit_stakeholder(
+            state,
+            stakeholder_id,
+            name="管理员",
+            category="operator",
+            requirement_ids=["requirement-missing"],
+        )
+
+
+def test_editing_coverage_decision_records_human_content_change():
+    state = analyze_artifact("requirements.txt", "管理员必须恢复系统。".encode())
+    claim_id = state["claims"][0]["id"]
+    state["coverage_decisions"] = [
+        {
+            "id": "coverage-decision-1",
+            "decision_type": "scenario_type",
+            "key": "misuse",
+            "status": "not_applicable",
+            "rationale": "模型认为暂不适用",
+            "source_requirement_ids": [claim_id],
+        }
+    ]
+
+    edited = edit_coverage_decision(
+        state,
+        "coverage-decision-1",
+        status="rejected",
+        rationale="人工判断该场景仍需要分析",
+        source_requirement_ids=[claim_id],
+    )
+
+    decision = edited["coverage_decisions"][0]
+    assert decision["status"] == "rejected"
+    assert decision["rationale"] == "人工判断该场景仍需要分析"
+    assert decision["field_sources"]["status"] == "user"
+    assert decision["last_editor"] == "user"
+    assert decision["revision"] == 2
+    assert edited["content_revision"] == state["content_revision"] + 1
+
+    with pytest.raises(ContractViolation, match="有效需求依据"):
+        edit_coverage_decision(
+            state,
+            "coverage-decision-1",
+            status="rejected",
+            rationale="仍需分析",
+            source_requirement_ids=["requirement-missing"],
+        )
 
 
 def _deletion_fixture():

@@ -14,6 +14,7 @@ from rflp_lite.ports.test_execution import build_limits
 from rflp_lite.application.web_facade import WebFacade
 from rflp_lite.application.mbse_views import MBSE_VIEW_DEFINITIONS
 from rflp_lite.domain.errors import ContractViolation, RflpError
+from rflp_lite.interface.web.error_mapper import map_error
 from rflp_lite.interface.web.presenters import (
     CAPABILITIES,
     artifacts_context,
@@ -25,6 +26,8 @@ from rflp_lite.interface.web.presenters import (
     run_detail_context,
     simulation_context,
     tasks_context,
+    analysis_blocks_context,
+    provenance_context,
 )
 
 
@@ -37,18 +40,24 @@ def _facade(request: Request) -> WebFacade:
 
 
 def _run_error(request: Request, message: object, status_code: int = 422) -> HTMLResponse:
+    mapped_status, _mapped = map_error(message if isinstance(message, BaseException) else Exception(str(message)))
+    effective_status = (
+        status_code
+        if status_code != 422 or mapped_status == 500
+        else mapped_status
+    )
     if request.headers.get("HX-Request") != "true":
         return templates.TemplateResponse(
             request=request,
             name="error.html",
-            context={"message": str(message), "status_code": status_code, "workspace": None},
-            status_code=status_code,
+            context={"message": str(message), "status_code": effective_status, "workspace": None},
+            status_code=effective_status,
         )
     return templates.TemplateResponse(
         request=request,
         name="_run-error.html",
         context={"message": str(message)},
-        status_code=status_code,
+        status_code=effective_status,
     )
 
 
@@ -130,6 +139,11 @@ def _requirements_context(
         llm_ready=llm_ready,
         analysis_config=facade.analysis_config(workspace_name),
         analysis_packs=analysis_packs,
+        analysis_blocks=analysis_blocks_context(state),
+        provenance=provenance_context(state),
+        analysis_summary=(state or {}).get("analysis_summary", {}) if isinstance(state, dict) else {},
+        analysis_progress=(state or {}).get("analysis_progress", {}) if isinstance(state, dict) else {},
+        analysis_mode=str((state or {}).get("auto_analysis", {}).get("mode", "")) if isinstance((state or {}).get("auto_analysis"), dict) else "",
         stakeholder_categories=facade.stakeholder_categories(),
         **values,
     )
@@ -471,6 +485,21 @@ async def analyze_requirements(
     return RedirectResponse(_requirements_location(workspace_name), status_code=303)
 
 
+@router.post("/w/{workspace_name}/requirements/reanalyze")
+def reanalyze_requirements(
+    request: Request,
+    workspace_name: str,
+    mode: Annotated[str, Form()] = "full_reanalysis",
+) -> Response:
+    """Queue a complete, human-reviewable reanalysis of the current ledger."""
+
+    try:
+        _facade(request).reanalyze_all_requirements(workspace_name, mode=mode)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_location(workspace_name), status_code=303)
+
+
 @router.post("/w/{workspace_name}/requirements/run-flow")
 def run_requirements_flow(request: Request, workspace_name: str) -> Response:
     try:
@@ -495,6 +524,147 @@ def add_requirement_stakeholder(
         _requirements_module_location(workspace_name, "stakeholders")
         + "?name="
         + quote(name.strip()),
+        status_code=303,
+    )
+
+
+@router.post("/w/{workspace_name}/requirements/stakeholders/edit")
+def edit_requirement_stakeholder(
+    request: Request,
+    workspace_name: str,
+    stakeholder_id: Annotated[str, Form()],
+    name: Annotated[str, Form()],
+    category: Annotated[str, Form()] = "",
+    description: Annotated[str, Form()] = "",
+    goals: Annotated[str, Form()] = "",
+    interactions: Annotated[str, Form()] = "",
+    requirement_ids: Annotated[str, Form()] = "",
+    scenario_ids: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        _facade(request).edit_requirement_stakeholder(
+            workspace_name,
+            stakeholder_id,
+            name=name,
+            category=category,
+            description=description,
+            goals=goals,
+            interactions=interactions,
+            requirement_ids=requirement_ids,
+            scenario_ids=scenario_ids,
+        )
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(
+        _requirements_module_location(workspace_name, "stakeholders")
+        + "?name="
+        + quote(name.strip()),
+        status_code=303,
+    )
+
+
+@router.post("/w/{workspace_name}/requirements/entities/delete-preview")
+def preview_requirement_entity_delete(
+    request: Request,
+    workspace_name: str,
+    entity_type: Annotated[str, Form()],
+    entity_id: Annotated[str, Form()],
+) -> Response:
+    """Show a human-readable impact plan before any destructive action."""
+
+    try:
+        preview = _facade(request).preview_entity_deletion(
+            workspace_name, entity_type, entity_id
+        )
+        return templates.TemplateResponse(
+            request=request,
+            name="requirements-delete-preview.html",
+            context={
+                "workspace": _facade(request).workspace(workspace_name),
+                "preview": preview,
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+            },
+        )
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _run_error(request, exc)
+
+
+@router.post("/w/{workspace_name}/requirements/entities/delete")
+def delete_requirement_entity(
+    request: Request,
+    workspace_name: str,
+    entity_type: Annotated[str, Form()],
+    entity_id: Annotated[str, Form()],
+    plan_hash: Annotated[str, Form()],
+) -> Response:
+    try:
+        _facade(request).delete_entity(
+            workspace_name, entity_type, entity_id, plan_hash
+        )
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _run_error(request, exc)
+    module = {
+        "stakeholder": "stakeholders",
+        "requirement": "review",
+        "scenario": "scenarios",
+    }.get(entity_type, "review")
+    return RedirectResponse(
+        _requirements_module_location(workspace_name, module), status_code=303
+    )
+
+
+@router.post("/w/{workspace_name}/requirements/entities/restore")
+def restore_requirement_entity(
+    request: Request,
+    workspace_name: str,
+    entity_type: Annotated[str, Form()],
+    entity_id: Annotated[str, Form()],
+) -> Response:
+    try:
+        _facade(request).restore_entity(workspace_name, entity_type, entity_id)
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _run_error(request, exc)
+    module = {
+        "stakeholder": "stakeholders",
+        "requirement": "review",
+        "scenario": "scenarios",
+    }.get(entity_type, "review")
+    return RedirectResponse(
+        _requirements_module_location(workspace_name, module), status_code=303
+    )
+
+
+@router.post("/w/{workspace_name}/requirements/entities/edit")
+def edit_requirement_entity(
+    request: Request,
+    workspace_name: str,
+    entity_type: Annotated[str, Form()],
+    entity_id: Annotated[str, Form()],
+    name: Annotated[str, Form()] = "",
+    statement: Annotated[str, Form()] = "",
+    stakeholder_id: Annotated[str, Form()] = "",
+    concern_id: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        fields: dict[str, object] = {}
+        if entity_type == "concern":
+            fields = {"name": name, "stakeholder_id": stakeholder_id}
+        elif entity_type == "need":
+            fields = {
+                "statement": statement,
+                "stakeholder_id": stakeholder_id,
+                "concern_id": concern_id,
+            }
+        else:
+            raise ContractViolation("只支持编辑 Concern 或 Need")
+        _facade(request).edit_requirement_entity(
+            workspace_name, entity_type, entity_id, **fields
+        )
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(
+        _requirements_module_location(workspace_name, "stakeholders"),
         status_code=303,
     )
 
@@ -524,6 +694,12 @@ def create_requirement_scenario(
     preconditions: Annotated[str, Form()] = "",
     faults: Annotated[str, Form()] = "",
     requirement_ids: Annotated[str, Form()] = "",
+    scenario_type: Annotated[str, Form()] = "normal",
+    coverage_dimensions: Annotated[str, Form()] = "",
+    lifecycle_phase: Annotated[str, Form()] = "",
+    trigger: Annotated[str, Form()] = "",
+    stakeholder_ids: Annotated[str, Form()] = "",
+    recovery_steps: Annotated[str, Form()] = "",
 ) -> Response:
     try:
         _facade(request).add_requirement_scenario(
@@ -536,6 +712,12 @@ def create_requirement_scenario(
             expected_outcomes=expected_outcomes,
             faults=faults,
             requirement_ids=requirement_ids,
+            scenario_type=scenario_type,
+            coverage_dimensions=coverage_dimensions,
+            lifecycle_phase=lifecycle_phase,
+            trigger=trigger,
+            stakeholder_ids=stakeholder_ids,
+            recovery_steps=recovery_steps,
         )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
@@ -560,16 +742,41 @@ def edit_requirement_scenario(
     request: Request,
     workspace_name: str,
     scenario_id: Annotated[str, Form()],
-    title: Annotated[str, Form()],
-    description: Annotated[str, Form()],
-    steps: Annotated[str, Form()],
-    expected_outcomes: Annotated[str, Form()],
+    title: Annotated[str, Form()] = "",
+    description: Annotated[str, Form()] = "",
+    steps: Annotated[str, Form()] = "",
+    expected_outcomes: Annotated[str, Form()] = "",
     actors: Annotated[str, Form()] = "",
     preconditions: Annotated[str, Form()] = "",
     faults: Annotated[str, Form()] = "",
     requirement_ids: Annotated[str, Form()] = "",
+    scenario_type: Annotated[str, Form()] = "",
+    coverage_dimensions: Annotated[str, Form()] = "",
+    lifecycle_phase: Annotated[str, Form()] = "",
+    trigger: Annotated[str, Form()] = "",
+    stakeholder_ids: Annotated[str, Form()] = "",
+    recovery_steps: Annotated[str, Form()] = "",
 ) -> Response:
     try:
+        # The dedicated "full fields" form submits only the fields it edits;
+        # retain required scenario text from the current record in that case.
+        if not title or not description or not steps or not expected_outcomes:
+            current = _facade(request).requirements(workspace_name) or {}
+            existing = next(
+                (
+                    item
+                    for item in current.get("scenarios", ())
+                    if isinstance(item, dict) and str(item.get("id")) == scenario_id
+                ),
+                None,
+            )
+            if existing is not None:
+                title = title or str(existing.get("title", ""))
+                description = description or str(existing.get("description", ""))
+                steps = steps or "\n".join(str(value) for value in existing.get("steps", ()))
+                expected_outcomes = expected_outcomes or "\n".join(
+                    str(value) for value in existing.get("expected_outcomes", ())
+                )
         _facade(request).revise_requirement_scenario(
             workspace_name,
             scenario_id,
@@ -581,6 +788,12 @@ def edit_requirement_scenario(
             expected_outcomes=expected_outcomes,
             faults=faults,
             requirement_ids=requirement_ids,
+            scenario_type=scenario_type or None,
+            coverage_dimensions=coverage_dimensions or None,
+            lifecycle_phase=lifecycle_phase or None,
+            trigger=trigger or None,
+            stakeholder_ids=stakeholder_ids or None,
+            recovery_steps=recovery_steps or None,
         )
     except (ContractViolation, RflpError, OSError) as exc:
         return _run_error(request, exc)
@@ -646,6 +859,40 @@ def review_requirement(
             },
         )
     return RedirectResponse(_requirements_module_location(workspace_name, "review"), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/enrichment/retry-block")
+def retry_requirement_enrichment_block(
+    request: Request,
+    workspace_name: str,
+    block_id: Annotated[str, Form()],
+) -> Response:
+    try:
+        state = _facade(request).requirements(workspace_name)
+        job_id = str((state or {}).get("auto_analysis", {}).get("job_id", ""))
+        if not job_id:
+            raise ContractViolation("当前工作区没有可重试的分析 Job")
+        _facade(request).retry_requirement_enrichment_block(
+            workspace_name,
+            job_id,
+            block_id,
+        )
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_module_location(workspace_name, "input"), status_code=303)
+
+
+@router.post("/w/{workspace_name}/requirements/enrichment/retry")
+def retry_failed_requirement_analysis(request: Request, workspace_name: str) -> Response:
+    try:
+        state = _facade(request).requirements(workspace_name)
+        job_id = str(((state or {}).get("auto_analysis") or {}).get("job_id", ""))
+        if not job_id:
+            raise ContractViolation("当前工作区没有可重试的分析 Job")
+        _facade(request).retry_failed_analysis(workspace_name, job_id)
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(_requirements_module_location(workspace_name, "input"), status_code=303)
 
 
 @router.post("/w/{workspace_name}/requirements/accept-traceable")

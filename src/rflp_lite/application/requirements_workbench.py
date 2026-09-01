@@ -6,7 +6,13 @@ import re
 from dataclasses import asdict
 from html import escape
 
-from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
+from rflp_lite.application.dependencies import ApplicationDependencies, configured_dependencies
+from rflp_lite.application.intelligence.identity import (
+    advance_content_revision,
+    ensure_entity_metadata,
+    ensure_workbench_metadata,
+    entity_match_keys,
+)
 from rflp_lite.application.synthesize import synthesize_rflp
 from rflp_lite.application.requirement_semantics import (
     entity_payloads,
@@ -19,6 +25,7 @@ from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import AdapterFailure, ContractViolation, InvariantViolation
 from rflp_lite.domain.models import Claim, ModelElement, Relation, TextSpan
 from rflp_lite.domain.requirements import DocumentRegion
+from rflp_lite.ports.generative_model import GenerationRequest, GenerativeModel
 
 
 _ROLE_ALIASES = {
@@ -107,6 +114,7 @@ def _invalidate_derived_model(result: dict[str, object]) -> None:
     result["mbse"] = None
     result["baseline"], result["project"] = None, None
     result["auto_analysis"] = None
+    result["analysis_coverage"] = {}
     discovery = result.get("discovery")
     if isinstance(discovery, dict):
         discovery = dict(discovery)
@@ -119,6 +127,28 @@ def _invalidate_derived_model(result: dict[str, object]) -> None:
 
 def _clone(value: dict[str, object]) -> dict[str, object]:
     return json.loads(canonical_json(value))
+
+
+def _lines(value: str | list[str] | tuple[str, ...]) -> list[str]:
+    values = value.splitlines() if isinstance(value, str) else list(value)
+    return [str(item).strip() for item in values if str(item).strip()]
+
+
+def _resolve_user_suggestions(
+    item: dict[str, object], values: dict[str, object]
+) -> None:
+    history = list(item.get("suggestion_history", ()))
+    remaining = []
+    for suggestion in item.get("suggested_changes", ()):
+        if not isinstance(suggestion, dict):
+            continue
+        field = str(suggestion.get("field", ""))
+        if field in values and values[field] == suggestion.get("suggested"):
+            history.append({**suggestion, "status": "accepted_by_user"})
+        else:
+            remaining.append(suggestion)
+    item["suggested_changes"] = remaining
+    item["suggestion_history"] = history
 
 
 def _id(prefix: str, *parts: object) -> str:
@@ -271,7 +301,7 @@ def analyze_artifact(
     *,
     dependencies: ApplicationDependencies | None = None,
 ) -> dict[str, object]:
-    deps = require_dependencies(dependencies)
+    deps = configured_dependencies(dependencies)
     # Keep the original reader for source-code and structured data while the
     # document parser provides page-aware regions for customer documents.
     if os.path.splitext(filename)[1].lower() in {".txt", ".md", ".markdown", ".docx", ".pdf"}:
@@ -465,13 +495,13 @@ def analyze_artifact(
         "draft_warnings": [],
         "flow": None,
     }
-    return refresh_traceability(result)
+    return ensure_workbench_metadata(refresh_traceability(result))
 
 
 def empty_workbench() -> dict[str, object]:
     """Create a minimal local workbench for starting with a stakeholder."""
     digest = canonical_hash(("manual-workbench", "rflp-lite"))
-    return {
+    return ensure_workbench_metadata({
         "schema_version": 2,
         "artifact": {
             "id": f"artifact-{digest[:12]}",
@@ -529,7 +559,7 @@ def empty_workbench() -> dict[str, object]:
                 "requires_confirmation": 0,
             },
         },
-    }
+    })
 
 
 def _impact_entry(
@@ -907,7 +937,7 @@ def restore_legacy_requirements(
         result["review_queue"] = list(result.get("review_queue", ())) + [
             item for item in restored_items if item.get("requires_confirmation")
         ]
-    return sync_review_queue(refresh_traceability(result))
+    return ensure_workbench_metadata(sync_review_queue(refresh_traceability(result)))
 
 
 def _append_source(item: dict[str, object], source_span_id: object) -> None:
@@ -1143,13 +1173,14 @@ def merge_artifact(
             [item for item in result["review_queue"] if item.get("requires_confirmation")],
         ),
     }
-    return sync_review_queue(refresh_traceability(result))
+    return ensure_workbench_metadata(sync_review_queue(refresh_traceability(result)))
 
 
 def suggest_implicit_constraints(
     state: dict[str, object],
     config: dict[str, object],
     complete: object = None,
+    model: GenerativeModel | None = None,
 ) -> dict[str, object]:
     """Append LLM-generated implicit constraints as individually reviewable candidates."""
 
@@ -1167,7 +1198,7 @@ def suggest_implicit_constraints(
         )
         for item in result.get("document_regions", ())
     )
-    values = inferred_requirement_payloads(regions, config, complete)  # type: ignore[arg-type]
+    values = inferred_requirement_payloads(regions, config, complete, model)  # type: ignore[arg-type]
     existing = {item.get("id") for item in result.get("structured_requirements", ())}
     result.setdefault("structured_requirements", [])
     result["structured_requirements"].extend(
@@ -1201,7 +1232,7 @@ def add_stakeholder(
     if not clean_name:
         raise InvariantViolation("利益相关方名称不能为空")
     normalized_category = normalize_stakeholder_category(category, clean_name)
-    result = _clone(state)
+    result = ensure_workbench_metadata(state)
     existing = next(
         (item for item in result["stakeholders"] if item["name"].casefold() == clean_name.casefold()),
         None,
@@ -1210,7 +1241,9 @@ def add_stakeholder(
         return sync_review_queue(result)
     source_span_id = result["spans"][0]["id"] if result["spans"] else "manual"
     result["stakeholders"].append(
-        {
+        ensure_entity_metadata(
+            "stakeholder",
+            {
             "id": _id("stkc", "manual", clean_name),
             "name": clean_name,
             "category": normalized_category,
@@ -1221,7 +1254,9 @@ def add_stakeholder(
             "reason": "用户手动输入",
             "producer": "user",
             "status": "accepted",
-        }
+            },
+            editor="user",
+        )
     )
     result["stakeholders"] = sorted(
         result["stakeholders"], key=lambda item: (item["name"], item["id"])
@@ -1231,7 +1266,173 @@ def add_stakeholder(
     result["baseline"], result["project"] = None, None
     result["flow"] = None
     result["draft"], result["draft_warnings"] = False, []
-    return sync_review_queue(result)
+    result["analysis_coverage"] = {}
+    return advance_content_revision(sync_review_queue(result))
+
+
+def edit_stakeholder(
+    state: dict[str, object],
+    stakeholder_id: str,
+    *,
+    name: str,
+    category: str,
+    description: str = "",
+    goals: str | list[str] | tuple[str, ...] = (),
+    interactions: str | list[str] | tuple[str, ...] = (),
+    requirement_ids: str | list[str] | tuple[str, ...] = (),
+    scenario_ids: str | list[str] | tuple[str, ...] = (),
+) -> dict[str, object]:
+    """Apply an explicit human stakeholder edit and its selected relations."""
+
+    result = ensure_workbench_metadata(state)
+    item = next(
+        (
+            value
+            for value in result.get("stakeholders", ())
+            if isinstance(value, dict) and value.get("id") == stakeholder_id
+        ),
+        None,
+    )
+    if item is None:
+        raise ContractViolation("利益相关方不存在")
+    clean_name = " ".join(str(name).split())
+    if not clean_name:
+        raise ContractViolation("利益相关方名称不能为空")
+    values = {
+        "name": clean_name,
+        "category": normalize_stakeholder_category(category, clean_name),
+        "description": str(description).strip(),
+        "goals": _lines(goals),
+        "interactions": _lines(interactions),
+    }
+    old_name = str(item.get("name", "")).strip()
+    aliases = {
+        str(value).strip()
+        for value in item.get("aliases", ())
+        if str(value).strip()
+    }
+    if old_name and old_name != clean_name:
+        aliases.add(old_name)
+    item.update(values)
+    item["category_label"] = stakeholder_category_label(str(values["category"]))
+    item["aliases"] = sorted(aliases)
+    item["revision"] = int(item.get("revision", 1)) + 1
+    item["last_editor"] = "user"
+    item["field_sources"] = {
+        **dict(item.get("field_sources") or {}),
+        **{field: "user" for field in values},
+        "category_label": "user",
+    }
+    _resolve_user_suggestions(item, values)
+    item["match_keys"] = sorted(
+        set(item.get("match_keys", ()))
+        | set(entity_match_keys("stakeholder", item))
+    )
+
+    selected_requirements = set(_lines(requirement_ids))
+    selected_scenarios = set(_lines(scenario_ids))
+    known_requirements = {
+        str(value.get("id", ""))
+        for value in result.get("claims", ())
+        if isinstance(value, dict)
+    }
+    known_scenarios = {
+        str(value.get("id", ""))
+        for value in result.get("scenarios", ())
+        if isinstance(value, dict)
+    }
+    if selected_requirements - known_requirements:
+        raise ContractViolation("利益相关方关联了不存在的需求")
+    if selected_scenarios - known_scenarios:
+        raise ContractViolation("利益相关方关联了不存在的场景")
+    for claim in result.get("claims", ()):
+        if not isinstance(claim, dict):
+            continue
+        claim_id = str(claim.get("id", ""))
+        if claim.get("stakeholder_id") == stakeholder_id or claim_id in selected_requirements:
+            claim["stakeholder_id"] = (
+                stakeholder_id if claim_id in selected_requirements else ""
+            )
+            claim["last_editor"] = "user"
+            claim["revision"] = int(claim.get("revision", 1)) + 1
+            claim["field_sources"] = {
+                **dict(claim.get("field_sources") or {}),
+                "stakeholder_id": "user",
+            }
+    for scenario in result.get("scenarios", ()):
+        if not isinstance(scenario, dict):
+            continue
+        linked = {
+            str(value) for value in scenario.get("stakeholder_ids", ()) if str(value)
+        }
+        scenario_id = str(scenario.get("id", ""))
+        before = set(linked)
+        if scenario_id in selected_scenarios:
+            linked.add(stakeholder_id)
+        else:
+            linked.discard(stakeholder_id)
+        scenario["stakeholder_ids"] = sorted(linked)
+        if linked != before:
+            scenario["last_editor"] = "user"
+            scenario["revision"] = int(scenario.get("revision", 1)) + 1
+            scenario["field_sources"] = {
+                **dict(scenario.get("field_sources") or {}),
+                "stakeholder_ids": "user",
+            }
+    _invalidate_derived_model(result)
+    return advance_content_revision(result)
+
+
+def edit_coverage_decision(
+    state: dict[str, object],
+    decision_id: str,
+    *,
+    status: str,
+    rationale: str,
+    source_requirement_ids: str | list[str] | tuple[str, ...],
+) -> dict[str, object]:
+    """Record a human judgment about an automatically produced coverage decision."""
+
+    if status not in {"not_applicable", "rejected"}:
+        raise ContractViolation("覆盖判定状态无效")
+    result = ensure_workbench_metadata(state)
+    decision = next(
+        (
+            item
+            for item in result.get("coverage_decisions", ())
+            if isinstance(item, dict) and item.get("id") == decision_id
+        ),
+        None,
+    )
+    if decision is None:
+        raise ContractViolation("覆盖判定不存在")
+    clean_rationale = str(rationale).strip()
+    requirement_ids = list(dict.fromkeys(_lines(source_requirement_ids)))
+    known_requirements = {
+        str(item.get("id", ""))
+        for item in result.get("claims", ())
+        if isinstance(item, dict)
+    }
+    if (
+        not clean_rationale
+        or not requirement_ids
+        or set(requirement_ids) - known_requirements
+    ):
+        raise ContractViolation("覆盖判定必须有理由和有效需求依据")
+    values = {
+        "status": status,
+        "rationale": clean_rationale,
+        "source_requirement_ids": requirement_ids,
+    }
+    decision.update(values)
+    decision["last_editor"] = "user"
+    decision["revision"] = int(decision.get("revision", 1)) + 1
+    decision["field_sources"] = {
+        **dict(decision.get("field_sources") or {}),
+        **{field: "user" for field in values},
+    }
+    result["analysis_coverage"] = {}
+    return advance_content_revision(result)
 
 
 def stakeholder_bundle(state: dict[str, object], name: str = "") -> dict[str, object]:
@@ -1333,27 +1534,126 @@ def review_item(
 ) -> dict[str, object]:
     if group not in _GROUPS or status not in _STATUSES:
         raise InvariantViolation("invalid review action")
-    result = _clone(state)
+    result = ensure_workbench_metadata(state)
     items = result[group]
     item = next((candidate for candidate in items if candidate["id"] == item_id), None)
     if item is None:
         raise InvariantViolation("review item not found")
     field = {"stakeholders": "name", "concerns": "name", "needs": "statement", "claims": "object", "structured_requirements": "statement"}[group]
+    user_fields: dict[str, object] = {"status": status}
     if value.strip():
         item[field] = value.strip()
+        user_fields[field] = item[field]
     if group == "stakeholders":
         normalized_category = normalize_stakeholder_category(
             category, str(item.get("name", ""))
         )
         item["category"] = normalized_category
         item["category_label"] = stakeholder_category_label(normalized_category)
+        user_fields["category"] = normalized_category
+        user_fields["category_label"] = item["category_label"]
     item["status"] = status
+    item["revision"] = int(item.get("revision", 1)) + 1
+    item["last_editor"] = "user"
+    item["field_sources"] = {
+        **dict(item.get("field_sources") or {}),
+        **{field_name: "user" for field_name in user_fields},
+    }
+    _resolve_user_suggestions(item, user_fields)
+    entity_type = {
+        "stakeholders": "stakeholder",
+        "concerns": "concern",
+        "needs": "need",
+        "claims": "requirement",
+        "structured_requirements": "requirement",
+    }[group]
+    item["match_keys"] = sorted(
+        set(item.get("match_keys", ())) | set(entity_match_keys(entity_type, item))
+    )
     # A reviewed/edited requirement changes the semantic source of every
     # downstream view.  Do not leave older RFLP/MBSE/LLM architecture results
     # visible as if they were still synchronized with the current workbench.
     _invalidate_derived_model(result)
     result["flow"] = None
-    return sync_review_queue(result)
+    return advance_content_revision(sync_review_queue(result))
+
+
+def edit_related_entity(
+    state: dict[str, object],
+    entity_type: str,
+    entity_id: str,
+    *,
+    name: str | None = None,
+    statement: str | None = None,
+    stakeholder_id: str | None = None,
+    concern_id: str | None = None,
+) -> dict[str, object]:
+    """Edit a Concern/Need while retaining explicit human provenance."""
+
+    group = {"concern": "concerns", "need": "needs"}.get(entity_type)
+    if group is None:
+        raise ContractViolation("只支持编辑 Concern 或 Need")
+    result = ensure_workbench_metadata(state)
+    item = next(
+        (
+            candidate
+            for candidate in result.get(group, ())
+            if isinstance(candidate, dict) and str(candidate.get("id")) == entity_id
+        ),
+        None,
+    )
+    if item is None:
+        raise ContractViolation("待编辑对象不存在")
+    stakeholders = {
+        str(candidate.get("id"))
+        for candidate in result.get("stakeholders", ())
+        if isinstance(candidate, dict) and candidate.get("id")
+    }
+    if stakeholder_id is not None:
+        stakeholder_id = str(stakeholder_id).strip()
+        if stakeholder_id and stakeholder_id not in stakeholders:
+            raise ContractViolation("关联了不存在的利益相关方")
+    concerns = {
+        str(candidate.get("id"))
+        for candidate in result.get("concerns", ())
+        if isinstance(candidate, dict) and candidate.get("id")
+    }
+    if concern_id is not None:
+        concern_id = str(concern_id).strip()
+        if entity_type == "need" and concern_id and concern_id not in concerns:
+            raise ContractViolation("关联了不存在的 Concern")
+    values: dict[str, object] = {}
+    if entity_type == "concern":
+        if name is not None:
+            clean_name = " ".join(str(name).split())
+            if not clean_name:
+                raise ContractViolation("Concern 名称不能为空")
+            values["name"] = clean_name
+    else:
+        if statement is not None:
+            clean_statement = " ".join(str(statement).split())
+            if not clean_statement:
+                raise ContractViolation("Need 内容不能为空")
+            values["statement"] = clean_statement
+    if stakeholder_id is not None:
+        values["stakeholder_id"] = stakeholder_id
+    if entity_type == "need" and concern_id is not None:
+        values["concern_id"] = concern_id
+    if not values:
+        raise ContractViolation("没有可保存的人工字段")
+    item.update(values)
+    item["last_editor"] = "user"
+    item["revision"] = int(item.get("revision", 1)) + 1
+    item["field_sources"] = {
+        **dict(item.get("field_sources") or {}),
+        **{field: "user" for field in values},
+    }
+    item["match_keys"] = sorted(
+        set(item.get("match_keys", ()))
+        | set(entity_match_keys(entity_type, item))
+    )
+    _invalidate_derived_model(result)
+    return advance_content_revision(sync_review_queue(result))
 
 
 def accept_traceable(state: dict[str, object]) -> dict[str, object]:
@@ -1367,16 +1667,16 @@ def accept_traceable(state: dict[str, object]) -> dict[str, object]:
         item["id"] for item in result["stakeholders"] if item["status"] == "accepted"
     }
     for concern in result["concerns"]:
-        if concern["stakeholder_id"] in accepted_stakeholders and concern["status"] == "candidate":
+        if concern.get("stakeholder_id") in accepted_stakeholders and concern.get("status") == "candidate":
             concern["status"] = "accepted"
     accepted_concerns = {
         item["id"] for item in result["concerns"] if item["status"] == "accepted"
     }
     for need in result["needs"]:
         if (
-            need["stakeholder_id"] in accepted_stakeholders
-            and need["concern_id"] in accepted_concerns
-            and need["status"] == "candidate"
+            need.get("stakeholder_id") in accepted_stakeholders
+            and need.get("concern_id") in accepted_concerns
+            and need.get("status") == "candidate"
         ):
             need["status"] = "accepted"
     accepted_needs = {item["id"] for item in result["needs"] if item["status"] == "accepted"}
@@ -1609,7 +1909,7 @@ def generate_model(state: dict[str, object]) -> dict[str, object]:
     for item in result["claims"]:
         if item["status"] != "accepted":
             continue
-        if item["source_type"] == "need":
+        if str(item.get("source_type", item.get("candidate_type", "provisional"))) == "need":
             need = accepted_needs.get(item.get("need_id"))
             if (
                 need is None
@@ -1738,7 +2038,8 @@ def _json_content(text: str) -> object:
 
 
 def add_llm_suggestions(
-    state: dict[str, object], config: dict[str, object] | None = None
+    state: dict[str, object], config: dict[str, object] | None = None,
+    model: GenerativeModel | None = None,
 ) -> dict[str, object]:
     if config is None:
         base_url = os.getenv("RFLP_LLM_BASE_URL", "").rstrip("/")
@@ -1769,11 +2070,39 @@ def add_llm_suggestions(
         "spans": spans,
     }
     try:
-        content = require_dependencies().chat_completion(
-            config,
-            [{"role": "user", "content": canonical_json(prompt)}],
+        if model is None:
+            raise AdapterFailure("LLM 未配置")
+        response = model.complete_json(
+            GenerationRequest(
+                lens_id="requirements.implicit_stakeholder_suggestions",
+                system_prompt="你是需求工程审查助手，只返回符合 response_schema 的 JSON 对象。",
+                user_payload=prompt,
+                response_schema={
+                    "type": "object",
+                    "required": ["items"],
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "maxItems": 32,
+                            "items": {
+                                "type": "object",
+                                "required": ["stakeholder", "concern", "need", "source_span_id"],
+                                "properties": {
+                                    "stakeholder": {"type": "string", "minLength": 1, "maxLength": 240},
+                                    "concern": {"type": "string", "minLength": 1, "maxLength": 1000},
+                                    "need": {"type": "string", "minLength": 1, "maxLength": 1000},
+                                    "source_span_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                                },
+                                "additionalProperties": False,
+                            },
+                        }
+                    },
+                    "additionalProperties": False,
+                },
+                max_tokens=1200,
+            )
         )
-        suggestions = _json_content(content)
+        suggestions = response.payload.get("items") if isinstance(response.payload, dict) else None
     except AdapterFailure as exc:
         raise AdapterFailure(f"LLM 分析失败: {exc}") from exc
     except (TypeError, ValueError, KeyError, IndexError) as exc:

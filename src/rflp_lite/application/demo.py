@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from rflp_lite.application.dependencies import ApplicationDependencies, require_dependencies
+from rflp_lite.application.dependencies import ApplicationDependencies, configured_dependencies
 from rflp_lite.application.compile import compile_claims
 from rflp_lite.application.decide import select_candidate
 from rflp_lite.application.diff import calculate_delta
@@ -37,7 +37,7 @@ def run_demo(
     *,
     dependencies: ApplicationDependencies | None = None,
 ) -> DemoResult:
-    deps = require_dependencies(dependencies)
+    deps = configured_dependencies(dependencies)
     fixture_root = fixture_root or DEFAULT_FIXTURES
     model_dir = workspace / ".rflp"
     model_dir.mkdir(parents=True, exist_ok=True)

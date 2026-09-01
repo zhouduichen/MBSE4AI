@@ -7,6 +7,15 @@ from urllib.parse import urlparse
 from rflp_lite.domain.errors import AdapterFailure
 
 
+class _CompletionText(str):
+    """Text response carrying the provider's completion stop reason."""
+
+    def __new__(cls, value: str, done_reason: str = ""):
+        result = str.__new__(cls, value)
+        result.done_reason = done_reason
+        return result
+
+
 def _endpoint(base_url: object) -> str:
     value = str(base_url or "").rstrip("/")
     return value if value.endswith("/chat/completions") else f"{value}/chat/completions"
@@ -46,6 +55,37 @@ def _message_content(envelope: object) -> str:
         or _text_content(message.get("reasoning_content"))
         or _text_content(message.get("reasoning"))
     )
+
+
+def _done_reason(envelope: object) -> str:
+    if not isinstance(envelope, dict):
+        return ""
+    reason = envelope.get("done_reason")
+    if isinstance(reason, str) and reason:
+        return reason
+    choices = envelope.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        reason = choices[0].get("finish_reason")
+        if isinstance(reason, str):
+            return reason
+    return ""
+
+
+def _provider_error_message(value: object) -> str:
+    if isinstance(value, str):
+        try:
+            return _provider_error_message(json.loads(value))
+        except json.JSONDecodeError:
+            return value.strip()
+    if isinstance(value, dict):
+        message = value.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+        for key in ("error", "details", "cause"):
+            detail = _provider_error_message(value.get(key))
+            if detail:
+                return detail
+    return ""
 
 
 def _is_native_ollama(config: dict[str, object]) -> bool:
@@ -93,6 +133,12 @@ def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *
         }
         if max_tokens is not None:
             body["options"]["num_predict"] = max_tokens  # type: ignore[index]
+        try:
+            local_context_tokens = int(config.get("local_context_tokens", 0))
+        except (TypeError, ValueError):
+            local_context_tokens = 0
+        if local_context_tokens > 0:
+            body["options"]["num_ctx"] = local_context_tokens  # type: ignore[index]
         response_format = config.get("response_format")
         schema = config.get("json_schema")
         if isinstance(schema, dict):
@@ -138,9 +184,8 @@ def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *
         try:
             raw_detail = exc.read().decode("utf-8", "replace")
             payload = json.loads(raw_detail)
-            error_payload = payload.get("error") if isinstance(payload, dict) else None
-            if isinstance(error_payload, dict):
-                detail = str(error_payload.get("message", "")).strip()
+            error_payload = payload.get("error") if isinstance(payload, dict) else payload
+            detail = _provider_error_message(error_payload)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             detail = ""
         suffix = f": {detail}" if detail else ""
@@ -149,7 +194,7 @@ def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *
         raise AdapterFailure(f"LLM 请求失败: {type(exc).__name__}") from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise AdapterFailure("LLM 返回不是有效 JSON") from exc
-    return _message_content(envelope)
+    return _CompletionText(_message_content(envelope), _done_reason(envelope))
 
 
 def test_connection(config: dict[str, object]) -> dict[str, object]:

@@ -33,6 +33,10 @@ class ProjectAnalysisService:
         current = self.dependencies.load_state(workspace)
         if current is None:
             raise ContractViolation("requirements workbench is empty")
+        expected_revision = int(current.get("revision", 0) or 0)
+        expected_content_revision = int(
+            current.get("content_revision", current.get("revision", 0)) or 0
+        )
 
         state, artifacts = self.dependencies.analyze_state(current, source)
         repository = self.dependencies.repository_factory(
@@ -40,7 +44,11 @@ class ProjectAnalysisService:
         )
         try:
             with repository.transaction():
-                repository.save_workbench(state)
+                repository.save_workbench(
+                    state,
+                    expected_revision=expected_revision,
+                    expected_content_revision=expected_content_revision,
+                )
                 repository.save_baseline(artifacts.baseline)
                 repository.save_evidence(artifacts.evidence)
                 repository.save_tasks(artifacts.tasks)

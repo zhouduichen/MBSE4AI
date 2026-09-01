@@ -29,6 +29,13 @@ def _workbench(client: TestClient) -> None:
 
 def test_api_v1_reads_and_executes_local_scenario(client: TestClient) -> None:
     _workbench(client)
+    requirements = client.get("/api/v1/workspaces/demo/requirements").json()["requirements"]
+    run_id = requirements["auto_analysis"]["job_id"]
+    run = client.get(
+        f"/api/v1/workspaces/demo/requirements/analysis-runs/{run_id}"
+    )
+    assert run.status_code == 200
+    assert run.json()["run"]["kind"] == "requirements.analysis"
 
     created = client.post(
         "/api/v1/workspaces/demo/scenarios",

@@ -45,7 +45,9 @@ def test_view_registry_has_professional_multi_layout_set():
 
 def test_graphviz_compiler_uses_view_specific_layout_and_escaped_labels():
     model = _model()
-    model["semantic_model"]["sections"]["functional"]["functions"][0]["name"] = '输入 "文件"'
+    functional = model["semantic_model"]["sections"]["functional"]
+    item = (functional["functions"] or functional["gaps"])[0]
+    item["name"] = '输入 "文件"'
 
     radial = compile_graphviz_view(model, "environment")
     tree = compile_graphviz_view(model, "function_tree")

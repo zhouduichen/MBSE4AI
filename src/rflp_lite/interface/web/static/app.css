@@ -118,6 +118,7 @@ code { font-family: var(--mono); font-size: .9em; }
 .checkbox-field { display: flex; align-items: center; gap: 8px; margin: 2px 0 12px; color: var(--text); font-size: 12px; }
 .checkbox-field input, .checkbox-line input { accent-color: var(--acc); }
 .checkbox-line { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; }
+.checkbox-line input[type="checkbox"] { flex: 0 0 auto; width: auto; margin: 0; }
 .inline-form { width: min(450px, 100%); display: flex; align-items: flex-end; gap: 8px; margin: 20px auto 0; text-align: left; }
 .inline-form label { flex: 1; color: var(--muted); font-size: 11px; }
 .inline-form input { width: 100%; height: 34px; margin-top: 5px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); }

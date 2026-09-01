@@ -19,6 +19,26 @@ def request() -> GenerationRequest:
     )
 
 
+def long_request() -> GenerationRequest:
+    result = request()
+    return GenerationRequest(
+        lens_id=result.lens_id,
+        system_prompt=result.system_prompt,
+        user_payload=result.user_payload,
+        response_schema={
+            "type": "object",
+            "required": ["items"],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 2000},
+                }
+            },
+        },
+        max_tokens=result.max_tokens,
+    )
+
+
 def test_adapter_parses_json_and_records_hashes():
     calls = []
 
@@ -47,6 +67,26 @@ def test_adapter_repairs_invalid_json_once():
     assert result.repaired is True
 
 
+def test_adapter_repairs_provider_length_stop_with_full_budget():
+    class TruncatedText(str):
+        done_reason = "length"
+
+    answers = iter((TruncatedText('{"items": ['), '{"items":[]}'))
+    calls = []
+
+    def complete(_config, _messages, *, max_tokens=None):
+        calls.append(max_tokens)
+        return next(answers)
+
+    result = OpenAICompatibleModel(
+        {"kind": "local", "model": "qwen", "local_max_tokens": 3000},
+        complete=complete,
+    ).complete_json(request())
+
+    assert result.repaired is True
+    assert calls == [1200, 2400]
+
+
 def test_adapter_passes_request_schema_to_local_completion():
     captured = {}
 
@@ -60,6 +100,31 @@ def test_adapter_passes_request_schema_to_local_completion():
     model.complete_json(request())
 
     assert captured["config"]["json_schema"] == request().response_schema
+
+
+def test_ollama_transport_schema_removes_only_grammar_incompatible_length_limit():
+    captured = {}
+
+    def complete(config, messages, *, max_tokens=None):
+        captured["config"] = config
+        captured["messages"] = messages
+        return '{"items":[]}'
+
+    model = OpenAICompatibleModel(
+        {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3.5:4b",
+        },
+        complete=complete,
+    )
+    model.complete_json(long_request())
+
+    sent_schema = captured["config"]["json_schema"]
+    assert sent_schema["properties"]["items"]["items"] == {"type": "string"}
+    assert "response_schema" not in __import__("json").loads(
+        captured["messages"][1]["content"]
+    )
 
 
 def test_adapter_parses_fenced_json_from_reasoning_fallback():
@@ -103,7 +168,7 @@ def test_adapter_rejects_empty_truncated_and_schema_invalid_repair(first_respons
     ):
         model.complete_json(request())
 
-    assert calls == [900, 512]
+    assert calls == [900, 900]
 
 
 def test_adapter_validates_repaired_json_against_schema():
@@ -156,7 +221,7 @@ def test_adapter_uses_smaller_request_budget_when_local_cap_is_larger():
     assert calls == [1200]
 
 
-def test_adapter_repair_is_short_and_contains_only_block_envelope():
+def test_adapter_repair_keeps_full_block_budget_and_contains_only_block_envelope():
     calls = []
     answers = iter(("truncated", '{"items":[]}'))
 
@@ -171,8 +236,8 @@ def test_adapter_repair_is_short_and_contains_only_block_envelope():
     model.complete_json(request())
 
     repair_messages, repair_budget = calls[1]
-    assert repair_budget == 512
-    assert "只修复 JSON 结构" in repair_messages[0]["content"]
+    assert repair_budget == 1200
+    assert "重新生成完整的 JSON 分析结果" in repair_messages[0]["content"]
     assert "invalid_response" in repair_messages[1]["content"]
     assert "response_schema" in repair_messages[1]["content"]
 

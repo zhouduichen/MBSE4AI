@@ -71,10 +71,13 @@ class ReviewRequirementUseCase:
         snapshot = coordinator.snapshot()
         if snapshot is None:
             raise ContractViolation("requirements workbench is empty")
-        expected_revision = (
-            snapshot.revision
-            if command.expected_revision is None
-            else command.expected_revision
+        # A browser form does not carry a revision.  In that mode the
+        # coordinator must mutate its transaction-local snapshot directly;
+        # reusing this pre-transaction revision creates a race with the
+        # background analysis finalizer.  Explicit revisions remain strict.
+        expected_revision = command.expected_revision
+        expected_content_revision = (
+            snapshot.content_revision if expected_revision is not None else None
         )
         stale_groups: tuple[str, ...] = ()
 
@@ -109,7 +112,7 @@ class ReviewRequirementUseCase:
         committed = coordinator.commit(
             mutation,
             expected_revision=expected_revision,
-            expected_content_revision=snapshot.content_revision,
+            expected_content_revision=expected_content_revision,
             event="requirements.reviewed",
         )
         return ReviewRequirementResult(

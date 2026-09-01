@@ -2,11 +2,50 @@ from __future__ import annotations
 
 import json
 
+from rflp_lite.application.intelligence.identity import (
+    advance_content_revision,
+    ensure_entity_metadata,
+    ensure_workbench_metadata,
+    entity_match_keys,
+)
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import ContractViolation
 
 
 SCENARIO_MATRIX_LIMIT = 16
+
+CORE_SCENARIO_TYPES = frozenset(
+    {"normal", "boundary", "failure", "recovery", "misuse"}
+)
+CORE_SCENARIO_DIMENSIONS = frozenset(
+    {
+        "external_system_failure",
+        "human_interaction_error",
+        "performance_capacity_boundary",
+        "safety",
+        "cybersecurity",
+        "regulatory",
+    }
+)
+# These values predate the five-lens coverage audit and remain valid for
+# existing generated scenario matrices and persisted workbenches.
+_LEGACY_SCENARIO_TYPES = frozenset({"exception", "emergency"})
+_EDITABLE_SCENARIO_FIELDS = (
+    "title",
+    "scenario_type",
+    "coverage_dimensions",
+    "lifecycle_phase",
+    "description",
+    "trigger",
+    "actors",
+    "stakeholder_ids",
+    "preconditions",
+    "steps",
+    "recovery_steps",
+    "expected_outcomes",
+    "faults",
+    "requirement_ids",
+)
 
 _SCENARIO_MATRIX_ROWS = (
     ("normal", "正常医疗转运", {"mission_phase": "城市巡航", "system_state": "正常", "medical_urgency": "常规转运"}),
@@ -33,6 +72,109 @@ def _lines(value: str | list[str] | tuple[str, ...]) -> list[str]:
     return [item.strip() for item in values if str(item).strip()]
 
 
+def _unique_lines(value: str | list[str] | tuple[str, ...]) -> list[str]:
+    return list(dict.fromkeys(_lines(value)))
+
+
+def _configured_ids(state: dict[str, object], key: str) -> set[str]:
+    config = state.get("analysis_config")
+    guidance = config.get("guidance") if isinstance(config, dict) else None
+    raw = guidance.get(key, ()) if isinstance(guidance, dict) else ()
+    values: set[str] = set()
+    for item in raw if isinstance(raw, (list, tuple)) else ():
+        if isinstance(item, dict):
+            for field in ("id", "label"):
+                value = str(item.get(field, "")).strip()
+                if value:
+                    values.add(value)
+        else:
+            value = str(item).strip()
+            if value:
+                values.add(value)
+    return values
+
+
+def _validate_scenario_fields(
+    state: dict[str, object],
+    *,
+    scenario_type: str,
+    coverage_dimensions: list[str],
+    lifecycle_phase: str,
+) -> None:
+    allowed_types = CORE_SCENARIO_TYPES | _LEGACY_SCENARIO_TYPES | _configured_ids(
+        state, "scenario_types"
+    )
+    if scenario_type not in allowed_types:
+        raise ContractViolation("场景类型无效")
+    allowed_dimensions = CORE_SCENARIO_DIMENSIONS | _configured_ids(
+        state, "scenario_dimensions"
+    )
+    unknown_dimensions = sorted(set(coverage_dimensions) - allowed_dimensions)
+    if unknown_dimensions:
+        raise ContractViolation(
+            f"场景覆盖维度无效: {', '.join(unknown_dimensions)}"
+        )
+    configured_phases = _configured_ids(state, "lifecycle_phases")
+    if lifecycle_phase and configured_phases and lifecycle_phase not in configured_phases:
+        raise ContractViolation("场景生命周期阶段无效")
+
+
+def _validate_scenario_relations(
+    state: dict[str, object], scenario: dict[str, object]
+) -> None:
+    known_requirements = {
+        str(item.get("id", ""))
+        for item in state.get("claims", ())
+        if isinstance(item, dict)
+    }
+    unknown_requirements = sorted(
+        set(str(value) for value in scenario.get("requirement_ids", ()))
+        - known_requirements
+    )
+    if unknown_requirements:
+        raise ContractViolation(
+            f"场景关联了不存在的 Requirement: {', '.join(unknown_requirements)}"
+        )
+    known_stakeholders = {
+        str(item.get("id", ""))
+        for item in state.get("stakeholders", ())
+        if isinstance(item, dict)
+    }
+    unknown_stakeholders = sorted(
+        set(str(value) for value in scenario.get("stakeholder_ids", ()))
+        - known_stakeholders
+    )
+    if unknown_stakeholders:
+        raise ContractViolation(
+            f"场景关联了不存在的利益相关方: {', '.join(unknown_stakeholders)}"
+        )
+
+
+def _resolve_suggestions(
+    item: dict[str, object], values: dict[str, object]
+) -> None:
+    history = list(item.get("suggestion_history", ()))
+    remaining = []
+    for suggestion in item.get("suggested_changes", ()):
+        if not isinstance(suggestion, dict):
+            continue
+        field = str(suggestion.get("field", ""))
+        if field in values and values[field] == suggestion.get("suggested"):
+            history.append({**suggestion, "status": "accepted_by_user"})
+        else:
+            remaining.append(suggestion)
+    item["suggested_changes"] = remaining
+    item["suggestion_history"] = history
+
+
+def _invalidate_analysis_outputs(result: dict[str, object]) -> None:
+    result["rflp"], result["coverage"], result["svg"] = None, {}, ""
+    result["draft_graph"] = None
+    result["mbse"] = None
+    result["baseline"], result["project"] = None, None
+    result["analysis_coverage"] = {}
+
+
 def _required_lines(value: str | list[str] | tuple[str, ...], label: str) -> list[str]:
     values = _lines(value)
     if not values:
@@ -43,26 +185,41 @@ def _required_lines(value: str | list[str] | tuple[str, ...], label: str) -> lis
 def build_scenario(
     *,
     title: str,
+    scenario_type: str = "normal",
+    coverage_dimensions: str | list[str] | tuple[str, ...] = (),
+    lifecycle_phase: str = "",
     description: str,
+    trigger: str = "",
     actors: str | list[str] | tuple[str, ...] = (),
+    stakeholder_ids: str | list[str] | tuple[str, ...] = (),
     preconditions: str | list[str] | tuple[str, ...] = (),
     steps: str | list[str] | tuple[str, ...],
+    recovery_steps: str | list[str] | tuple[str, ...] = (),
     expected_outcomes: str | list[str] | tuple[str, ...],
     faults: str | list[str] | tuple[str, ...] = (),
     requirement_ids: str | list[str] | tuple[str, ...] = (),
 ) -> dict[str, object]:
     clean_title = title.strip()
     clean_description = description.strip()
+    clean_scenario_type = str(scenario_type).strip().casefold() or "normal"
     if not clean_title:
         raise ContractViolation("场景标题不能为空")
     if not clean_description:
         raise ContractViolation("场景描述不能为空")
+    if clean_scenario_type not in CORE_SCENARIO_TYPES | _LEGACY_SCENARIO_TYPES:
+        raise ContractViolation("场景类型无效")
     payload = {
         "title": clean_title,
+        "scenario_type": clean_scenario_type,
+        "coverage_dimensions": _unique_lines(coverage_dimensions),
+        "lifecycle_phase": str(lifecycle_phase).strip(),
         "description": clean_description,
+        "trigger": str(trigger).strip(),
         "actors": _lines(actors),
+        "stakeholder_ids": sorted(set(_lines(stakeholder_ids))),
         "preconditions": _lines(preconditions),
         "steps": _required_lines(steps, "步骤"),
+        "recovery_steps": _lines(recovery_steps),
         "expected_outcomes": _required_lines(expected_outcomes, "预期结果"),
         "faults": _lines(faults),
         "requirement_ids": sorted(set(_lines(requirement_ids))),
@@ -82,32 +239,54 @@ def add_scenario(
     state: dict[str, object],
     *,
     title: str,
+    scenario_type: str = "normal",
+    coverage_dimensions: str | list[str] | tuple[str, ...] = (),
+    lifecycle_phase: str = "",
     description: str,
+    trigger: str = "",
     actors: str | list[str] | tuple[str, ...] = (),
+    stakeholder_ids: str | list[str] | tuple[str, ...] = (),
     preconditions: str | list[str] | tuple[str, ...] = (),
     steps: str | list[str] | tuple[str, ...],
+    recovery_steps: str | list[str] | tuple[str, ...] = (),
     expected_outcomes: str | list[str] | tuple[str, ...],
     faults: str | list[str] | tuple[str, ...] = (),
     requirement_ids: str | list[str] | tuple[str, ...] = (),
+    human_change: bool = True,
 ) -> dict[str, object]:
     scenario = build_scenario(
         title=title,
+        scenario_type=scenario_type,
+        coverage_dimensions=coverage_dimensions,
+        lifecycle_phase=lifecycle_phase,
         description=description,
+        trigger=trigger,
         actors=actors,
+        stakeholder_ids=stakeholder_ids,
         preconditions=preconditions,
         steps=steps,
+        recovery_steps=recovery_steps,
         expected_outcomes=expected_outcomes,
         faults=faults,
         requirement_ids=requirement_ids,
     )
-    claims = {str(item["id"]) for item in state.get("claims", ())}
-    unknown = sorted(set(scenario["requirement_ids"]) - claims)
-    if unknown:
-        raise ContractViolation(f"场景关联了不存在的 Requirement: {', '.join(unknown)}")
-    result = json.loads(canonical_json(state))
+    result = ensure_workbench_metadata(state)
+    _validate_scenario_fields(
+        result,
+        scenario_type=str(scenario["scenario_type"]),
+        coverage_dimensions=list(scenario["coverage_dimensions"]),
+        lifecycle_phase=str(scenario["lifecycle_phase"]),
+    )
+    _validate_scenario_relations(result, scenario)
+    editor = "user" if human_change else "rule"
+    scenario["producer"] = editor
+    scenario = ensure_entity_metadata("scenario", scenario, editor=editor)
     scenarios = [item for item in result.get("scenarios", ()) if item["id"] != scenario["id"]]
     scenarios.append(scenario)
     result["scenarios"] = sorted(scenarios, key=lambda item: item["id"])
+    if human_change:
+        _invalidate_analysis_outputs(result)
+        return advance_content_revision(result)
     return result
 
 
@@ -326,37 +505,82 @@ def revise_scenario(
     scenario_id: str,
     *,
     title: str,
+    scenario_type: str | None = None,
+    coverage_dimensions: str | list[str] | tuple[str, ...] | None = None,
+    lifecycle_phase: str | None = None,
     description: str,
+    trigger: str | None = None,
     actors: str | list[str] | tuple[str, ...] = (),
+    stakeholder_ids: str | list[str] | tuple[str, ...] | None = None,
     preconditions: str | list[str] | tuple[str, ...] = (),
     steps: str | list[str] | tuple[str, ...],
+    recovery_steps: str | list[str] | tuple[str, ...] | None = None,
     expected_outcomes: str | list[str] | tuple[str, ...],
     faults: str | list[str] | tuple[str, ...] = (),
     requirement_ids: str | list[str] | tuple[str, ...] = (),
 ) -> dict[str, object]:
     """Edit a scenario and keep the revised version active immediately."""
 
-    result = json.loads(canonical_json(state))
+    result = ensure_workbench_metadata(state)
     existing = next(
         (item for item in result.get("scenarios", ()) if item.get("id") == scenario_id),
         None,
     )
     if existing is None:
         raise ContractViolation("场景不存在")
+    resolved_type = (
+        str(scenario_type).strip().casefold()
+        if scenario_type is not None
+        else str(existing.get("scenario_type", "normal")).strip().casefold()
+    ) or "normal"
+    resolved_dimensions = (
+        coverage_dimensions
+        if coverage_dimensions is not None
+        else existing.get("coverage_dimensions", ())
+    )
+    resolved_lifecycle = (
+        str(lifecycle_phase).strip()
+        if lifecycle_phase is not None
+        else str(existing.get("lifecycle_phase", ""))
+    )
+    resolved_trigger = (
+        str(trigger).strip()
+        if trigger is not None
+        else str(existing.get("trigger", ""))
+    )
+    resolved_stakeholders = (
+        stakeholder_ids
+        if stakeholder_ids is not None
+        else existing.get("stakeholder_ids", ())
+    )
+    resolved_recovery_steps = (
+        recovery_steps
+        if recovery_steps is not None
+        else existing.get("recovery_steps", ())
+    )
     updated = build_scenario(
         title=title,
+        scenario_type=resolved_type,
+        coverage_dimensions=resolved_dimensions,  # type: ignore[arg-type]
+        lifecycle_phase=resolved_lifecycle,
         description=description,
+        trigger=resolved_trigger,
         actors=actors,
+        stakeholder_ids=resolved_stakeholders,  # type: ignore[arg-type]
         preconditions=preconditions,
         steps=steps,
+        recovery_steps=resolved_recovery_steps,  # type: ignore[arg-type]
         expected_outcomes=expected_outcomes,
         faults=faults,
         requirement_ids=requirement_ids,
     )
-    claims = {str(item["id"]) for item in result.get("claims", ())}
-    unknown = sorted(set(updated["requirement_ids"]) - claims)
-    if unknown:
-        raise ContractViolation(f"场景关联了不存在的 Requirement: {', '.join(unknown)}")
+    _validate_scenario_fields(
+        result,
+        scenario_type=str(updated["scenario_type"]),
+        coverage_dimensions=list(updated["coverage_dimensions"]),
+        lifecycle_phase=str(updated["lifecycle_phase"]),
+    )
+    _validate_scenario_relations(result, updated)
     revision = int(existing.get("revision", 1)) + 1
     updated["id"] = scenario_id
     updated["revision"] = revision
@@ -364,10 +588,46 @@ def revise_scenario(
     updated["producer"] = existing.get("producer", "user")
     updated["generated_from"] = existing.get("generated_from", "")
     updated["generation_mode"] = existing.get("generation_mode", "manual")
-    for key in ("scenario_type", "dimensions", "lifecycle_phase"):
-        if key in existing:
-            updated[key] = existing[key]
+    if "dimensions" in existing:
+        updated["dimensions"] = existing["dimensions"]
     updated["review_history"] = tuple(existing.get("review_history", ()))
+    updated["last_editor"] = "user"
+    submitted_fields = {
+        "title": updated["title"],
+        "description": updated["description"],
+        "actors": updated["actors"],
+        "preconditions": updated["preconditions"],
+        "steps": updated["steps"],
+        "expected_outcomes": updated["expected_outcomes"],
+        "faults": updated["faults"],
+        "requirement_ids": updated["requirement_ids"],
+    }
+    optional_submissions = {
+        "scenario_type": scenario_type,
+        "coverage_dimensions": coverage_dimensions,
+        "lifecycle_phase": lifecycle_phase,
+        "trigger": trigger,
+        "stakeholder_ids": stakeholder_ids,
+        "recovery_steps": recovery_steps,
+    }
+    for field, raw_value in optional_submissions.items():
+        if raw_value is not None:
+            submitted_fields[field] = updated[field]
+    updated["field_sources"] = {
+        **dict(existing.get("field_sources") or {}),
+        **{field: "user" for field in submitted_fields},
+    }
+    updated["suggested_changes"] = list(existing.get("suggested_changes", ()))
+    updated["suggestion_history"] = list(existing.get("suggestion_history", ()))
+    updated["aliases"] = list(existing.get("aliases", ()))
+    _resolve_suggestions(updated, submitted_fields)
+    updated["match_keys"] = sorted(
+        set(existing.get("match_keys", ()))
+        | set(entity_match_keys("scenario", updated))
+    )
+    updated.setdefault("source_requirement_ids", list(updated["requirement_ids"]))
+    updated.setdefault("review_hint", str(existing.get("review_hint", "")))
+    updated.setdefault("identity_hash", existing.get("identity_hash", ""))
     updated["hash"] = canonical_hash(
         {key: value for key, value in updated.items() if key not in {"review_history", "hash", "status"}}
     )
@@ -375,10 +635,8 @@ def revise_scenario(
         [item for item in result.get("scenarios", ()) if item.get("id") != scenario_id] + [updated],
         key=lambda item: str(item["id"]),
     )
-    result["rflp"], result["coverage"], result["svg"] = None, {}, ""
-    result["mbse"] = None
-    result["baseline"], result["project"] = None, None
-    return result
+    _invalidate_analysis_outputs(result)
+    return advance_content_revision(result)
 
 
 def review_scenario(
@@ -388,7 +646,7 @@ def review_scenario(
 
     if decision not in {"accepted", "rejected"}:
         raise ContractViolation("场景确认结果必须是 accepted 或 rejected")
-    result = json.loads(canonical_json(state))
+    result = ensure_workbench_metadata(state)
     scenario = next(
         (item for item in result.get("scenarios", ()) if item.get("id") == scenario_id),
         None,
@@ -408,8 +666,14 @@ def review_scenario(
     )
     scenario["review_history"] = history
     scenario["status"] = decision
+    scenario["last_editor"] = "user"
+    scenario["field_sources"] = {
+        **dict(scenario.get("field_sources") or {}),
+        "status": "user",
+    }
     result["scenarios"] = sorted(result.get("scenarios", ()), key=lambda item: str(item["id"]))
-    return result
+    _invalidate_analysis_outputs(result)
+    return advance_content_revision(result)
 
 
 def delete_scenario(state: dict[str, object], scenario_id: str) -> dict[str, object]:
