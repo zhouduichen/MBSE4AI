@@ -1,0 +1,65 @@
+{
+  "version": 3,
+  "corpus_mode": "complete",
+  "details_mode": "complete",
+  "thresholds": {
+    "requirement_precision": 0.9,
+    "requirement_recall": 0.9,
+    "detail_micro_f1": 0.85,
+    "provenance_complete": 100
+  },
+  "mbse_expectations": {
+    "requirement_coverage": 1.0,
+    "trace_complete": 1.0,
+    "canonical_flow_consistent": true,
+    "edit_cas_verified": true
+  },
+  "requirements": [
+    {
+      "key": "REQ-1.1-DOCUMENT-IMPORT",
+      "statement": "支持导入作战纲要、技战术指标文档（Word/PDF），利用NLP自动提取实体、属性及隐含约束。",
+      "accepted_statements": ["导入作战纲要、技战术指标文档（Word/PDF），利用NLP自动提取实体、属性及隐含约束"],
+      "source_anchor": "支持导入作战纲要、技战术指标文档（Word/PDF）",
+      "details": []
+    },
+    {
+      "key": "REQ-1.2-USE-CASE",
+      "statement": "智能体基于需求文本，推荐典型作战场景的时序图/活动图框架；支持人机交互修改。",
+      "accepted_statements": ["典型作战场景的时序图/活动图框架；支持人机交互修改"],
+      "source_anchor": "推荐典型作战场景的时序图/活动图框架",
+      "details": []
+    },
+    {
+      "key": "REQ-2.1-LAYOUT",
+      "statement": "输入指标包络，智能体检索相似方案库，生成3~5套满足约束的初始总体布局草图。",
+      "accepted_statements": ["3~5套满足约束的初始总体布局草图"],
+      "source_anchor": "生成3~5套满足约束的初始总体布局草图",
+      "details": [
+        {"name": "candidate_count_min", "value": "3"},
+        {"name": "candidate_count_max", "value": "5"},
+        {"name": "candidate_count_unit", "value": "套"}
+      ]
+    },
+    {
+      "key": "REQ-2.2-MDO",
+      "statement": "针对生成的布局参数，自动调用轻量化仿真工具（或AI降阶模型）进行多学科的批量快速仿真计算，并反馈给优化器。",
+      "accepted_statements": ["的布局参数，自动调用轻量化仿真工具（或AI降阶模型）进行多学科的批量快速仿真计算，并反馈给优化器"],
+      "source_anchor": "自动调用轻量化仿真工具",
+      "details": []
+    },
+    {
+      "key": "REQ-3.1-CAD",
+      "statement": "设计师通过自然语言描述设计意图，智能体自动驱动三维建模软件执行参数化建模操作。",
+      "accepted_statements": ["驱动三维建模软件执行参数化建模操作"],
+      "source_anchor": "通过自然语言描述设计意图",
+      "details": []
+    },
+    {
+      "key": "REQ-3.2-ANNOTATION",
+      "statement": "智能体自动标注关键尺寸公差与形位公差基准，并检查可制造性与可装配性风险。",
+      "accepted_statements": ["标注关键尺寸公差与形位公差基准，并检查可制造性与可装配性风险"],
+      "source_anchor": "自动标注关键尺寸公差与形位公差基准",
+      "details": []
+    }
+  ]
+}

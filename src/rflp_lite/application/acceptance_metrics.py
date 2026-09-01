@@ -80,7 +80,11 @@ def _detail_records(item: object) -> tuple[object, ...]:
     for name in ("attributes", "constraints"):
         value = item.get(name)
         if isinstance(value, (list, tuple)):
-            records.extend(value)
+            for record in value:
+                if name == "constraints" and isinstance(record, (list, tuple)) and len(record) == 2:
+                    records.append({"name": record[0], "value": record[1]})
+                else:
+                    records.append(record)
     return tuple(records)
 
 
