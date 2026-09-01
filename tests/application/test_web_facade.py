@@ -50,7 +50,21 @@ def test_facade_concept_design_import_run_and_review(tmp_path: Path) -> None:
         "approvals": {
             adapter_id: {
                 "adapter_version": "1",
+                "implementation_hash": {
+                    "builtin.aerodynamics.v1": "builtin-aerodynamics-v1-low-order-analytical",
+                    "builtin.structures.v1": "builtin-structures-v1-low-order-analytical",
+                    "builtin.weight-balance.v1": "builtin-weight-balance-v1-low-order-analytical",
+                }[adapter_id],
+                "source_kind": "analytical",
+                "validity_domain": {"mass_kg": {"minimum": 1, "maximum": 10000}},
+                "validation_dataset_id": "test-dataset",
+                "validation_dataset_version": "1",
+                "validation_dataset_hash": "test-dataset-hash",
+                "error_metrics": {},
+                "acceptance_limits": {},
                 "approved_for_formal": True,
+                "approved_by": "test",
+                "approved_at": "2026-09-01T00:00:00Z",
                 "basis": "test approval",
             }
             for adapter_id in (

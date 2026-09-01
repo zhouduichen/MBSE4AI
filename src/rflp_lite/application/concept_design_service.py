@@ -179,6 +179,9 @@ def _as_evaluation(value: object) -> DisciplineEvaluation:
         validity=pairs("validity"),
         diagnostics=tuple(str(item) for item in value.get("diagnostics", ())),
         log_ref=str(value.get("log_ref", "")),
+        implementation_hash=str(value.get("implementation_hash", "")),
+        approval_profile_hash=str(value.get("approval_profile_hash", "")),
+        approval_diagnostics=tuple(str(item) for item in value.get("approval_diagnostics", ())),
     )
 
 

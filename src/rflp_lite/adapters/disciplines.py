@@ -224,6 +224,7 @@ class AerodynamicsAdapter:
     id = "builtin.aerodynamics.v1"
     version = "1"
     source_kind = _SOURCE_KIND
+    implementation_hash = "builtin-aerodynamics-v1-low-order-analytical"
 
     def evaluate(
         self, candidate: LayoutCandidate, profile: dict[str, object]
@@ -272,6 +273,7 @@ class StructuresAdapter:
     id = "builtin.structures.v1"
     version = "1"
     source_kind = _SOURCE_KIND
+    implementation_hash = "builtin-structures-v1-low-order-analytical"
 
     def evaluate(
         self, candidate: LayoutCandidate, profile: dict[str, object]
@@ -319,6 +321,7 @@ class WeightBalanceAdapter:
     id = "builtin.weight-balance.v1"
     version = "1"
     source_kind = _SOURCE_KIND
+    implementation_hash = "builtin-weight-balance-v1-low-order-analytical"
 
     def evaluate(
         self, candidate: LayoutCandidate, profile: dict[str, object]

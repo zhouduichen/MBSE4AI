@@ -104,6 +104,9 @@ class DisciplineEvaluation:
     validity: tuple[KeyValue, ...]
     diagnostics: tuple[str, ...]
     log_ref: str
+    implementation_hash: str = ""
+    approval_profile_hash: str = ""
+    approval_diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

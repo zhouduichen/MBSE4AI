@@ -10,6 +10,10 @@ from typing import Any
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.concept_design import DisciplineEvaluation, LayoutCandidate
 from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.application.evaluator_approval import (
+    adapter_implementation_hash,
+    formal_approval_for,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +52,7 @@ def validate_evaluator_profile(payload: object) -> dict[str, object]:
         if not isinstance(adapter_version, str) or not adapter_version.strip() or not isinstance(approved, bool):
             raise _contract(f"approval for {adapter_id} is invalid")
         normalized["approvals"][adapter_id] = {
+            **dict(raw),
             "adapter_version": adapter_version,
             "approved_for_formal": approved,
             "basis": str(raw.get("basis", "")),
@@ -94,6 +99,9 @@ def _payload_evaluation(payload: Mapping[str, object]) -> DisciplineEvaluation:
         validity=pairs("validity"),
         diagnostics=tuple(str(item) for item in payload.get("diagnostics", ())),
         log_ref=str(payload.get("log_ref", "")),
+        implementation_hash=str(payload.get("implementation_hash", "")),
+        approval_profile_hash=str(payload.get("approval_profile_hash", "")),
+        approval_diagnostics=tuple(str(item) for item in payload.get("approval_diagnostics", ())),
     )
 
 
@@ -130,6 +138,9 @@ def _save_cache(store: object, key: str, value: DisciplineEvaluation) -> None:
             "validity": value.validity,
             "diagnostics": value.diagnostics,
             "log_ref": value.log_ref,
+            "implementation_hash": value.implementation_hash,
+            "approval_profile_hash": value.approval_profile_hash,
+            "approval_diagnostics": value.approval_diagnostics,
         }
         plural((payload,))
 
@@ -152,17 +163,12 @@ def _failed(candidate: LayoutCandidate, discipline: Mapping[str, object], adapte
         adapter_id=adapter_id, adapter_version=adapter_version, source_kind=str(getattr(adapter, "source_kind", "unknown")),
         input_hash=input_hash, output_hash=output_hash, metrics=(), status=status,
         evidence_status="development", validity=(), diagnostics=(error,), log_ref="",
+        implementation_hash=adapter_implementation_hash(adapter),
     )
 
 
 def _approved(profile: Mapping[str, object], evaluation: DisciplineEvaluation) -> bool:
-    approvals = profile.get("approvals", {})
-    entry = approvals.get(evaluation.adapter_id) if isinstance(approvals, Mapping) else None
-    return bool(
-        isinstance(entry, Mapping)
-        and entry.get("approved_for_formal") is True
-        and entry.get("adapter_version") == evaluation.adapter_version
-    )
+    return evaluation.evidence_status == "formal"
 
 
 def evaluate_candidates(
@@ -199,10 +205,23 @@ def evaluate_candidates(
                 selected = registry[fallback_id]
             else:
                 return (candidate.id, str(discipline["id"])), _failed(candidate, discipline, adapter, "out_of_domain", "surrogate outside validity domain"), False
-        key = canonical_hash({"candidate": candidate.result_hash, "discipline": discipline, "adapter": getattr(selected, "id", adapter_id), "adapter_version": getattr(selected, "version", ""), "evaluator_profile": (profile["id"], profile["version"])})
+        implementation_hash = adapter_implementation_hash(selected)
+        approval_profile_hash = canonical_hash(profile)
+        validity_hash = canonical_hash(
+            (profile.get("approvals", {}).get(getattr(selected, "id", adapter_id), {}) if isinstance(profile.get("approvals", {}), Mapping) else {})
+        )
+        key = canonical_hash({"candidate": candidate.result_hash, "discipline": discipline, "adapter": getattr(selected, "id", adapter_id), "adapter_version": getattr(selected, "version", ""), "implementation_hash": implementation_hash, "approval_profile_hash": approval_profile_hash, "validity_hash": validity_hash})
         cached = _load_cache(store, key)
         if cached is not None and cached.status == "succeeded":
-            return (candidate.id, str(discipline["id"])), replace(cached, status="cached"), True
+            decision = formal_approval_for(selected, discipline, profile, parameters)
+            return (candidate.id, str(discipline["id"])), replace(
+                cached,
+                status="cached",
+                evidence_status="formal" if decision.approved else "development",
+                implementation_hash=implementation_hash,
+                approval_profile_hash=approval_profile_hash,
+                approval_diagnostics=decision.diagnostics,
+            ), True
         adapter_profile = dict(discipline)
         adapter_profile["defaults"] = _defaults(pack)
         try:
@@ -211,7 +230,28 @@ def evaluate_candidates(
             result = _failed(candidate, discipline, selected, "timeout", str(exc) or "adapter timed out")
         except Exception as exc:  # adapter boundary: isolate one task
             result = _failed(candidate, discipline, selected, "failed", f"{type(exc).__name__}: {exc}")
-        result = replace(result, discipline=str(discipline["id"]), evidence_status="formal" if _approved(profile, result) else "development")
+        decision = formal_approval_for(selected, discipline, profile, parameters)
+        effective_input_hash = canonical_hash({
+            "adapter_input_hash": result.input_hash,
+            "implementation_hash": implementation_hash,
+            "approval_profile_hash": approval_profile_hash,
+            "validity_hash": validity_hash,
+        })
+        effective_output_hash = canonical_hash({
+            "adapter_output_hash": result.output_hash,
+            "input_hash": effective_input_hash,
+            "approval_profile_hash": approval_profile_hash,
+        })
+        result = replace(
+            result,
+            discipline=str(discipline["id"]),
+            input_hash=effective_input_hash,
+            output_hash=effective_output_hash,
+            evidence_status="formal" if decision.approved else "development",
+            implementation_hash=implementation_hash,
+            approval_profile_hash=approval_profile_hash,
+            approval_diagnostics=decision.diagnostics,
+        )
         if result.status == "succeeded":
             _save_cache(store, key, result)
         return (candidate.id, str(discipline["id"])), result, False
