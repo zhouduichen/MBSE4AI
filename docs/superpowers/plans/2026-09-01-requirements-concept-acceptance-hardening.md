@@ -374,6 +374,7 @@ git commit -m "fix: close formal requirements acceptance contract"
 
 - Create: `src/rflp_lite/application/mbse_acceptance.py`
 - Modify: `src/rflp_lite/application/use_case_modeling.py`
+- Modify: `src/rflp_lite/application/mbse/legacy_builder.py`
 - Modify: `src/rflp_lite/application/mbse_semantics.py`
 - Modify: `src/rflp_lite/application/mbse_modeling.py`
 - Modify: `src/rflp_lite/application/acceptance_harness.py`

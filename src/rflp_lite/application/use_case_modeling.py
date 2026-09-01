@@ -20,6 +20,27 @@ def flow_step(*, order: int, sender: str, receiver: str, message: str, guard: st
     }
 
 
+def canonical_flow_identity(flows) -> tuple[str, str]:
+    """Return one stable identity for the ordered flow represented by all views."""
+
+    payload = tuple(
+        (
+            int(item.get("order", index + 1)),
+            str(item.get("sender", "")),
+            str(item.get("receiver", "")),
+            str(item.get("message", item.get("name", ""))),
+            str(item.get("guard", "")),
+            str(item.get("branch", "main")),
+            tuple(sorted(str(value) for value in item.get("requirement_ids", ()) if str(value))),
+        )
+        if isinstance(item, Mapping)
+        else (index + 1, "使用者", "系统", str(item), "", "main", ())
+        for index, item in enumerate(flows if isinstance(flows, (list, tuple)) else ())
+    )
+    flow_hash = canonical_hash(payload)
+    return f"flow-{flow_hash[:12]}", flow_hash
+
+
 def _steps(item: Mapping[str, object], requirement_ids: tuple[str, ...]):
     raw = item.get("interaction_steps") or item.get("steps") or item.get("main_flow") or ()
     if isinstance(raw, str):
@@ -47,6 +68,7 @@ def build_use_case_drafts(state: Mapping[str, object]) -> tuple[dict[str, object
             continue
         scenario_id = str(scenario.get("id", "")) or f"scenario-{index}"
         flow_ids = tuple(str(step["id"]) for step in flows)
+        flow_id, flow_hash = canonical_flow_identity(flows)
         drafts.append({
             "id": f"use-case-{canonical_hash((scenario_id, flow_ids))[:12]}",
             "name": str(scenario.get("title", scenario.get("name", "用例"))).strip() or "用例",
@@ -57,10 +79,12 @@ def build_use_case_drafts(state: Mapping[str, object]) -> tuple[dict[str, object
             "preconditions": list(scenario.get("preconditions", ())),
             "postconditions": list(scenario.get("expected_outcomes", scenario.get("postconditions", ()))),
             "main_flow": flows,
+            "canonical_flow_id": flow_id,
+            "canonical_flow_hash": flow_hash,
             "status": "accepted",
             "producer": str(scenario.get("producer", "rule")),
         })
     return tuple(drafts)
 
 
-__all__ = ["flow_step", "build_use_case_drafts"]
+__all__ = ["build_use_case_drafts", "canonical_flow_identity", "flow_step"]

@@ -11,6 +11,7 @@ from rflp_lite.application.mbse_semantics import (
     generate_mbse_semantic_revision,
     mbse_entity_index,
 )
+from rflp_lite.application.use_case_modeling import canonical_flow_identity
 
 
 def _unique(values: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -37,6 +38,8 @@ def generate_mbse_revision(state: dict[str, object]) -> dict[str, object]:
                 "actors": draft.get("actors", ()),
                 "steps": [step.get("message", "") for step in draft.get("main_flow", ()) if isinstance(step, dict)],
                 "interaction_steps": draft.get("main_flow", ()),
+                "canonical_flow_id": draft.get("canonical_flow_id", ""),
+                "canonical_flow_hash": draft.get("canonical_flow_hash", ""),
                 "preconditions": draft.get("preconditions", ()),
                 "expected_outcomes": draft.get("postconditions", ()),
                 "requirement_ids": draft.get("requirement_ids", ()),
@@ -46,6 +49,18 @@ def generate_mbse_revision(state: dict[str, object]) -> dict[str, object]:
             for draft in model_state.get("use_case_drafts", ())
             if isinstance(draft, dict)
         ]
+    normalized_scenarios = []
+    for scenario in model_state.get("scenarios", ()):
+        if not isinstance(scenario, dict):
+            continue
+        value = dict(scenario)
+        flows = value.get("interaction_steps") or value.get("steps") or ()
+        flow_id, flow_hash = canonical_flow_identity(flows)
+        value["canonical_flow_id"] = str(value.get("canonical_flow_id") or flow_id)
+        value["canonical_flow_hash"] = str(value.get("canonical_flow_hash") or flow_hash)
+        normalized_scenarios.append(value)
+    if normalized_scenarios:
+        model_state["scenarios"] = normalized_scenarios
     model = generate_mbse_semantic_revision(
         model_state,
         provenance={

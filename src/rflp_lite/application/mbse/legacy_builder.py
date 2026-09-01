@@ -7,6 +7,7 @@ from collections.abc import Iterable
 
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.application.use_case_modeling import canonical_flow_identity
 
 
 MBSE_SEMANTIC_MODEL_VERSION = 2
@@ -438,13 +439,21 @@ def build_legacy_mbse_semantic_model(
     scenario_items = _list(state.get("scenarios"))
     for index, item in enumerate(scenario_items):
         item_id = str(item.get("id", "")) or f"scenario-{index + 1}"
+        flow_identity_id, flow_identity_hash = canonical_flow_identity(
+            item.get("interaction_steps") or item.get("steps") or ()
+        )
+        scenario_payload = {
+            **item,
+            "canonical_flow_id": str(item.get("canonical_flow_id") or flow_identity_id),
+            "canonical_flow_hash": str(item.get("canonical_flow_hash") or flow_identity_hash),
+        }
         sections["operational"]["scenarios"].append(
             _entity(
                 state,
                 item_id,
                 "operational_scenario",
                 _text(item, "title", "name", fallback=item_id),
-                item,
+                scenario_payload,
                 scenario_type=_text(item, "scenario_type", fallback="normal"),
                 steps=item.get("steps", ()),
                 expected_outcomes=item.get("expected_outcomes", ()),
@@ -460,13 +469,21 @@ def build_legacy_mbse_semantic_model(
     if not scenario_items:
         for requirement_id in requirement_ids:
             scenario_id = f"scenario-{canonical_hash((requirement_id, 'normal'))[:12]}"
+            fallback_steps = ["识别任务条件", "执行系统功能", "确认结果"]
+            flow_identity_id, flow_identity_hash = canonical_flow_identity(fallback_steps)
             sections["operational"]["scenarios"].append(
                 _entity(
                     state,
                     scenario_id,
                     "operational_scenario",
                     f"验证：{requirement_id}",
-                    {"producer": "rule"},
+                    {
+                        "producer": "rule",
+                        "steps": fallback_steps,
+                        "requirement_ids": [requirement_id],
+                        "canonical_flow_id": flow_identity_id,
+                        "canonical_flow_hash": flow_identity_hash,
+                    },
                     needs_analysis=True,
                     scenario_type="normal",
                     steps=["识别任务条件", "执行系统功能", "确认结果"],
@@ -756,6 +773,8 @@ def legacy_mbse_projection(model: dict[str, object]) -> dict[str, object]:
             "preconditions": list(item.get("attributes", {}).get("preconditions", ())),
             "postconditions": list(item.get("attributes", {}).get("expected_outcomes", ())),
             "main_flow": list(item.get("attributes", {}).get("interaction_steps", item.get("attributes", {}).get("steps", ()))),
+            "canonical_flow_id": item.get("attributes", {}).get("canonical_flow_id", ""),
+            "canonical_flow_hash": item.get("attributes", {}).get("canonical_flow_hash", ""),
             "status": item.get("status", "accepted"),
         }
         for item in operational["scenarios"]
@@ -766,6 +785,8 @@ def legacy_mbse_projection(model: dict[str, object]) -> dict[str, object]:
             "name": item["name"],
             "kind": "use_case_flow",
             "steps": list(item.get("attributes", {}).get("interaction_steps", item.get("attributes", {}).get("steps", ()))),
+            "canonical_flow_id": item.get("attributes", {}).get("canonical_flow_id", ""),
+            "canonical_flow_hash": item.get("attributes", {}).get("canonical_flow_hash", ""),
             "predecessor_ids": [],
             "requirement_ids": list(item.get("attributes", {}).get("requirement_ids", ())),
             "status": item.get("status", "accepted"),
@@ -814,6 +835,8 @@ def legacy_mbse_projection(model: dict[str, object]) -> dict[str, object]:
                 "to_id": "lifeline-system" if from_id != "lifeline-system" else from_id,
                 "sequence": index,
                 "requirement_ids": list(scenario.get("attributes", {}).get("requirement_ids", ())),
+                "canonical_flow_id": scenario.get("attributes", {}).get("canonical_flow_id", ""),
+                "canonical_flow_hash": scenario.get("attributes", {}).get("canonical_flow_hash", ""),
                 "status": scenario.get("status", "accepted"),
             }
         )
@@ -842,4 +865,3 @@ def legacy_mbse_projection(model: dict[str, object]) -> dict[str, object]:
         "messages": sorted(messages, key=lambda item: str(item["id"])),
         "trace_links": sorted(trace_links, key=lambda item: (str(item["source_id"]), str(item["target_id"]))),
     }
-
