@@ -14,8 +14,8 @@
 | 项目隔离与需求串联 | 已完成首版 | 每个 workspace 绑定独立项目作用域；同项目内需求可通过 Stakeholder、Scenario、R/F/L/P、Interface 和 trace link 串联；跨项目引用会被拒绝 |
 | 真实需求输入 | 已完成 | 支持文本粘贴及 TXT、Markdown、DOCX、数字/扫描 PDF、Python、JSON、YAML、TOML 上传；PDF 页区域和 OCR 诊断保留在 v2 工作台 |
 | 客户需求结构化（验收 1.1） | 已完成增强版 | Word/PDF 版面证据、实体/需求/属性/显式与隐含约束分层、版本化历史数据集检索；隐含约束逐条审核 |
-| 需求追溯与验收指标 | 已完成增强版 | `derivedFrom / representedBy / constrainedBy / similarTo / satisfiedBy / refines` 矩阵、覆盖率、smoke/formal precision/recall/F1 与 provenance 指标 |
-| MBSE 用例辅助（验收 1.2） | 已完成增强版 | 从同一 canonical flow 生成 Use Case、活动图、时序图；支持结构化字段编辑和关联分支定向失效 |
+| 需求追溯与验收指标 | 已完成增强版 | 完整 Gold v3 使用稳定 key + source anchor；`derivedFrom / representedBy / constrainedBy / similarTo / satisfiedBy / refines` 矩阵、覆盖率、smoke/formal precision/recall/F1 与 provenance 指标 |
+| MBSE 用例辅助（验收 1.2） | 已完成增强版 | 从同一 canonical flow 生成 Use Case、活动图、时序图；跨视图哈希一致性、编辑 CAS 和定向失效可验收 |
 | MBSE 顺序图设计模块 | 已完成首版 | UML Interaction 契约、场景确认门禁、横向生命线/纵向时间轴、同步/异步/返回箭头、SVG 与 Web/API 入口；旧 MBSE 消息模型保持兼容 |
 | 需求/MBSE/场景确认闭环 | 已完成首版 | 候选逐条审核、编辑后回退、MBSE 草稿确认、场景确认门禁、审核历史和导出/执行状态门禁 |
 | 利益相关方前置链路 | 已完成首版 | StakeholderCandidate → Stakeholder/Concern/Need → Requirement |
@@ -36,7 +36,8 @@
 | 任务契约执行 | 已完成首版 | 重扫描项目目录，逐条判定 TaskContract 是否已满足（RESOLVED/UNRESOLVED），确定性、只读、不执行用户代码 |
 | 测试执行沙箱 | 已完成首版 | 支持 pytest/unittest、超时、输出、POSIX 内存/文件句柄限制、确定性缓存和受控并行；统一回填 Evidence 并如实报告每个 runner |
 | 拖拽图编辑、复杂文档版面、多人权限 | 延后 | 首版提供语义编辑 API；CAD/多学科仿真和组织级权限仍在后续 M3-M8 |
-| 总体概念布局与 MDO（验收 2.1/2.2） | 已完成首版 | 版本化领域包、JSON/CSV/SQLite 方案导入、3–5 套可行 SVG 布局、气动/结构/重量重心批量评估、缓存/失败隔离/代理门禁/Pareto、CLI/API/Web 与可执行验收报告 |
+| 总体概念布局与 MDO（验收 2.1/2.2） | 软件编排已完成；工程正式验证未完成 | 版本化领域包、JSON/CSV/SQLite 方案导入、3–5 套参数化二维概念 SVG 布局及 `LayoutArtifactManifest`、气动/结构/重量重心批量评估、缓存/失败隔离/Pareto、CLI/API/Web 与可执行验收报告；内置低阶评估器保持 `development_only`，不等同 CFD/FEA 或客户验证 |
+| 详细结构设计（验收 3.1–3.3） | 未实施 | 本版本不包含三维 CAD 驱动、PMI/GD&T 标注或 DFM/DFA 审查 |
 | 旧版智能 MBSE 发现 | 已完成兼容入口 | 保留显式 `--pack` 的发现页、CLI/API 和领域包能力；默认需求提交不再调用固定领域包 |
 | 下一阶段架构与质量门禁 | 已完成 | Use Case 窄依赖、raw `chat_completion` 扫描、六块契约矩阵、跨 workspace/部分失败 E2E、compileall、Import Linter 和 schema 检查 |
 

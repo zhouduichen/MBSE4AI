@@ -72,7 +72,7 @@ SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
 
 “运行中心”继续提供 Heuristic 或 CP-SAT 的完整 Candidate、Simulation、Baseline、Delta、TaskContract 和 Evidence 链路。
 
-需求分析验收同时提供 smoke 与 formal 两种口径：不带 gold 文件时 `status` 仅表示可执行烟测；带版本化 gold 文件时，`formal_status` 还必须满足需求 precision/recall ≥ 0.90、详情 F1 ≥ 0.85（提供时）及来源完整率 100%，零指标结果不能正式通过。DOCX 表格单元格保留表格/行列定位，稀疏 PDF 会补充 OCR 并记录 `pdf_page_hybrid_ocr` 诊断。历史需求和作战场景可从版本化 JSON/CSV 或只读 SQLite 导入，检索建议带数据集版本和匹配词证据。
+需求分析验收同时提供 smoke 与 formal 两种口径：不带 gold 文件时 `status` 仅表示可执行烟测；正式验收使用完整的 Gold v3（稳定 key + 原文 source anchor），`formal_status` 还必须满足需求 precision/recall ≥ 0.90、详情 F1 ≥ 0.85 及来源完整率 100%，零指标结果不能正式通过。动态 `region-*` ID 只作追溯证据，不作为跨运行身份。DOCX 表格单元格保留表格/行列定位，稀疏 PDF 会补充 OCR 并记录 `pdf_page_hybrid_ocr` 诊断。历史需求和作战场景可从版本化 JSON/CSV 或只读 SQLite 导入，检索建议带数据集版本和匹配词证据。
 
 ### 智能 MBSE 发现（CLI/API 兼容入口）
 
@@ -115,7 +115,7 @@ Web 端已并入 `/w/{workspace}/requirements` 的“提交并分析”流程；
 
 ### 总体概念设计与多学科评估（2.1/2.2）
 
-M3–M4 使用固定核心字段和版本化声明式领域包。固定翼首版支持历史方案 JSON/CSV/只读 SQLite 导入，生成 3–5 套确定性可行布局及 SVG 草图，并对气动、结构、重量/重心执行批量评估、缓存和 Pareto 排序。新增客户字段先保存在 `extensions`；需要进入检索、约束或评估时，再升级领域包版本。领域包不能覆盖核心身份、状态、哈希或正式证据门禁。
+M3–M4 使用固定核心字段和版本化声明式领域包。固定翼首版支持历史方案 JSON/CSV/只读 SQLite 导入，生成 3–5 套确定性可行的参数化二维概念布局 SVG，并为每个候选输出包含视图、来源方案、硬约束余量、候选差异和 SVG 哈希的 `LayoutArtifactManifest`；这不是三维 CAD。系统对气动、结构、重量/重心执行批量评估、缓存和 Pareto 排序。内置低阶评估器和无客户批准档案的结果保持 `development_only`，不能冒充工程正式验证；只有客户为每个评估器提供实现哈希、适用域、验证数据集、误差指标和人工批准依据后，正式状态才会变为 `passed`。新增客户字段先保存在 `extensions`；需要进入检索、约束或评估时，再升级领域包版本。领域包不能覆盖核心身份、状态、哈希或正式证据门禁。
 
 ```bash
 .venv/bin/rflp concept import --workspace <workspace> --pack <pack.json> --data <schemes.json|csv|db> [--table <table>]
@@ -130,7 +130,7 @@ M3–M4 使用固定核心字段和版本化声明式领域包。固定翼首版
   --evaluator-profile src/rflp_lite/resources/examples/concept-design/development-evaluator-profile.json
 ```
 
-验收命令的 `status=passed` 表示软件检查通过；随包提供的评估档案明确是 `formal_status=development_only`。只有客户另行提供并批准每个评估器及版本的档案，正式状态才会变为 `passed`。
+验收命令的 `status=passed` 表示软件编排、约束、差异和失败隔离检查通过；随包提供的评估档案明确是 `formal_status=development_only`。只有客户另行提供并批准每个评估器及版本的档案，正式状态才会变为 `passed`。本版本不实现 3.1–3.3 的三维 CAD 驱动、PMI/GD&T 标注或 DFM/DFA 审查。
 
 扫描只读 `.py`（AST）、OpenAPI JSON 与 JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件；不复制、不写入、不上传项目。测试运行支持 allowlist 中的 `pytest` 与 `unittest`，是受资源约束的本地测试运行器：默认 60s 超时并 kill，子进程只获得最小环境 allowlist、独立 HOME/TMP/输出目录，可配置 POSIX 内存/文件句柄上限、输出上限、结果缓存和多 runner 并行。
 

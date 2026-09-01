@@ -150,6 +150,8 @@ def test_api_v1_concept_design_workflow(client: TestClient) -> None:
     )
     assert run.status_code == 200, run.text
     assert 3 <= len(run.json()["run"]["candidates"]) <= 5
+    assert len(run.json()["run"]["layout_manifests"]) == len(run.json()["run"]["candidates"])
+    assert "approval_diagnostics" in run.json()["run"]["evaluations"][0]
     page = client.get("/w/concept/concept-design")
     assert page.status_code == 200
     run_payload = run.json()["run"]
@@ -161,6 +163,7 @@ def test_api_v1_concept_design_workflow(client: TestClient) -> None:
     assert rejected.status_code == 200
     reviewed_page = client.get(f"/w/concept/concept-design?run_id={run_payload['id']}")
     assert reviewed_page.status_code == 200
+    assert "参数化二维概念布局草图，不是三维 CAD" in reviewed_page.text
     assert "已驳回" in reviewed_page.text
 
 
