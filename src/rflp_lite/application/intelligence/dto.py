@@ -112,6 +112,23 @@ class RequirementConstraintItem:
 
 
 @dataclass(frozen=True, slots=True)
+class ImplicitConstraintItem:
+    id: str
+    requirement_ids: tuple[str, ...]
+    constraint_type: str
+    expression: str
+    explicitness: str
+    rationale: str
+    verification_method: str
+    source_region_ids: tuple[str, ...]
+    confidence: float
+
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, object]) -> "ImplicitConstraintItem":
+        return cls(_text(raw.get("id"), "id", required=True), _texts(raw.get("requirement_ids")), _text(raw.get("constraint_type"), "constraint_type", required=True), _text(raw.get("expression"), "expression", required=True), _text(raw.get("explicitness"), "explicitness", required=True), _text(raw.get("rationale"), "rationale", required=True), _text(raw.get("verification_method"), "verification_method", required=True), _texts(raw.get("source_region_ids")), _confidence(raw.get("confidence")))
+
+
+@dataclass(frozen=True, slots=True)
 class ScenarioItem:
     id: str
     title: str
@@ -193,6 +210,8 @@ def typed_item(block_id: str, raw: Mapping[str, object]) -> object:
         if str(raw.get("kind", "")) == "attribute":
             return RequirementAttributeItem.from_mapping(raw)
         return RequirementConstraintItem.from_mapping(raw)
+    if block_id == "implicit_constraints":
+        return ImplicitConstraintItem.from_mapping(raw)
     if block_id == "scenarios":
         return ScenarioItem.from_mapping(raw)
     if block_id == "architecture":
@@ -214,6 +233,7 @@ __all__ = [
     "RequirementItem",
     "RequirementAttributeItem",
     "RequirementConstraintItem",
+    "ImplicitConstraintItem",
     "ScenarioItem",
     "StakeholderItem",
     "dto_to_dict",

@@ -215,6 +215,24 @@ _CONSTRAINT = {
     "additionalProperties": False,
 }
 
+_IMPLICIT_CONSTRAINT = {
+    "type": "object",
+    "required": ["kind", "id", "requirement_ids", "constraint_type", "expression", "explicitness", "rationale", "verification_method", "source_region_ids", "confidence"],
+    "properties": {
+        "kind": {"const": "constraint"},
+        "id": {"type": "string", "minLength": 1, "maxLength": 120},
+        "requirement_ids": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 120}, "minItems": 1, "maxItems": 64, "uniqueItems": True},
+        "constraint_type": _SHORT_TEXT,
+        "expression": _TEXT,
+        "explicitness": {"const": "inferred"},
+        "rationale": _TEXT,
+        "verification_method": {"type": "string", "minLength": 1, "maxLength": 120},
+        "source_region_ids": _SOURCE_IDS,
+        "confidence": _CONFIDENCE,
+    },
+    "additionalProperties": False,
+}
+
 _SCENARIO = {
     "type": "object",
     "required": ["id", "title", "scenario_type", "actors", "steps", "expected_outcomes", "requirement_ids", "source_region_ids", "confidence"],
@@ -277,6 +295,7 @@ _SCHEMAS: dict[str, dict[str, object]] = {
     "concerns_needs": _envelope({"oneOf": [_CONCERN, _NEED]}, 18),
     "requirements": _envelope(_REQUIREMENT, 16),
     "requirement_details": _envelope({"oneOf": [_ATTRIBUTE, _CONSTRAINT]}, 32),
+    "implicit_constraints": _envelope(_IMPLICIT_CONSTRAINT, 32),
     "scenarios": _envelope(_SCENARIO, 10),
     "architecture": _envelope({"oneOf": [_ARCHITECTURE_ENTITY, _RELATION]}, 18),
 }

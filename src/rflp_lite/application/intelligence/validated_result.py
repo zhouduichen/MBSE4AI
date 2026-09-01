@@ -53,6 +53,11 @@ class RequirementDetailsDTO(BlockDTO):
 
 
 @dataclass(frozen=True, slots=True)
+class ImplicitConstraintsDTO(BlockDTO):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
 class ScenariosDTO(BlockDTO):
     pass
 
@@ -80,6 +85,7 @@ _DTO_TYPES = {
     "concerns_needs": ConcernsNeedsDTO,
     "requirements": RequirementsDTO,
     "requirement_details": RequirementDetailsDTO,
+    "implicit_constraints": ImplicitConstraintsDTO,
     "scenarios": ScenariosDTO,
     "architecture": ArchitectureDTO,
 }
@@ -256,6 +262,7 @@ __all__ = [
     "ConcernsNeedsDTO",
     "RequirementsDTO",
     "RequirementDetailsDTO",
+    "ImplicitConstraintsDTO",
     "ScenariosDTO",
     "StakeholdersDTO",
     "SystemScopeDTO",

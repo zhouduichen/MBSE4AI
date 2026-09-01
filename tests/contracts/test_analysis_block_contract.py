@@ -42,6 +42,23 @@ def test_each_block_has_a_strict_contract(block_id: str) -> None:
     assert schema_for(block_id)["additionalProperties"] is False
 
 
+def test_requirement_detail_and_implicit_constraint_blocks_are_strict():
+    explicit = {
+        "kind": "attribute", "id": "attr-1", "requirement_id": "req-1", "name": "速度",
+        "value": "120", "unit": "km/h", "source_region_ids": ["region-1"], "confidence": 0.9,
+    }
+    dto = parse_block_dto("requirement_details", {"items": [explicit], "diagnostics": []})
+    assert dto.block_id == "requirement_details"
+    inferred = {
+        "kind": "constraint", "id": "constraint-1", "requirement_ids": ["req-1"],
+        "constraint_type": "performance", "expression": "速度 >= 120 km/h", "explicitness": "inferred",
+        "rationale": "任务执行需要稳定速度", "verification_method": "test",
+        "source_region_ids": ["region-1"], "confidence": 0.7,
+    }
+    dto = parse_block_dto("implicit_constraints", {"items": [inferred], "diagnostics": []})
+    assert dto.block_id == "implicit_constraints"
+
+
 def test_extra_fields_and_invalid_confidence_are_rejected() -> None:
     payload = {"items": [{**_item("stakeholders"), "unapproved": True}], "diagnostics": []}
     with pytest.raises(ContractViolation, match="Strict Schema"):

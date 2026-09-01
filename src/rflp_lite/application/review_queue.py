@@ -13,6 +13,8 @@ _REVIEW_FIELDS = {
     "needs": "statement",
     "claims": "object",
     "structured_requirements": "statement",
+    "requirement_attributes": "name",
+    "requirement_constraints": "expression",
 }
 _IMPACT_GROUPS = tuple(_REVIEW_FIELDS)
 

@@ -27,6 +27,7 @@ _BLOCK_SPECS = (
     ("concerns_needs", 18, 1400, "concerns_needs：为已识别利益相关方补充关注点和可追溯需要，不生成架构。"),
     ("requirements", 16, 1600, "requirements：把明确目标和需要转成短小、可验证、可追溯的需求。"),
     ("requirement_details", 32, 1800, "requirement_details：补充已识别需求的属性和显式约束；不得生成隐含约束。"),
+    ("implicit_constraints", 32, 1800, "implicit_constraints：提出需人工逐条确认的隐含约束，不得自动批准。"),
     ("scenarios", 10, 1400, "scenarios：生成正常、边界、故障、恢复和误操作场景，不生成架构。"),
     ("architecture", 18, 1600, "architecture：基于已接受需求给出功能、逻辑组件、物理组件和接口候选。"),
 )
@@ -136,6 +137,8 @@ def _guidance(block_id: str, pack: dict[str, object]) -> dict[str, object]:
         "stakeholders": ("stakeholder_lenses", "coverage_rules"),
         "concerns_needs": ("stakeholder_lenses", "prompt_fragments"),
         "requirements": ("coverage_rules", "prompt_fragments"),
+        "requirement_details": ("coverage_rules", "prompt_fragments"),
+        "implicit_constraints": ("scenario_dimensions", "coverage_rules", "prompt_fragments"),
         "scenarios": ("scenario_dimensions", "coverage_rules", "prompt_fragments"),
         "architecture": ("lifecycle_phases", "coverage_rules", "prompt_fragments"),
         "system_scope": ("lifecycle_phases", "scenario_dimensions"),

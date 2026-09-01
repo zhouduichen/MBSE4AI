@@ -22,6 +22,7 @@ BLOCK_MAX_ITEMS = {
     "concerns_needs": 18,
     "requirements": 16,
     "requirement_details": 32,
+    "implicit_constraints": 32,
     "scenarios": 10,
     "architecture": 18,
 }
@@ -493,4 +494,3 @@ def merge_block(
         input_hash=context.input_hash,
     )
     return finalize_merge(processor(result, context), context)
-
