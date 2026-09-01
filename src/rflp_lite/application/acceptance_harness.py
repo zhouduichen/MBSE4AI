@@ -13,6 +13,7 @@ from rflp_lite.application.acceptance_metrics import (
 )
 from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.application.mbse_modeling import generate_mbse_revision
+from rflp_lite.application.mbse_acceptance import evaluate_mbse_acceptance
 from rflp_lite.application.requirements_workbench import accept_traceable, analyze_artifact
 
 
@@ -43,6 +44,9 @@ def run_customer_acceptance(
             "trace_links": len(model.get("trace_links", ())),
         },
     }
+    mbse_metrics = evaluate_mbse_acceptance(mbse_state) if explicit else None
+    if mbse_metrics is not None:
+        report["mbse_metrics"] = mbse_metrics
     if gold_path is not None:
         gold = json.loads(gold_path.read_text(encoding="utf-8"))
         source_text_by_region = {
@@ -108,6 +112,16 @@ def run_customer_acceptance(
                 failures.append("unexpected_actual_requirements")
             if metrics.get("unmatched_expected"):
                 failures.append("missing_expected_requirements")
+            expectations = contract.mbse_expectations if contract is not None else {}
+            if isinstance(expectations, dict) and mbse_metrics is not None:
+                if float(mbse_metrics.get("requirement_coverage", 0.0)) < float(expectations.get("requirement_coverage", 1.0)):
+                    failures.append("mbse_requirement_coverage")
+                if float(mbse_metrics.get("trace_complete", 0.0)) < float(expectations.get("trace_complete", 1.0)):
+                    failures.append("mbse_trace_complete")
+                if expectations.get("canonical_flow_consistent") is True and float(mbse_metrics.get("cross_view_consistency", 0.0)) < 1.0:
+                    failures.append("mbse_canonical_flow_consistency")
+                if expectations.get("edit_cas_verified") is True and mbse_metrics.get("edit_cas_verified") is not True:
+                    failures.append("mbse_edit_cas")
         report["formal_failures"] = failures
     checks = {
         "1.1.document_capture": bool(report["document"]["parsed"]),

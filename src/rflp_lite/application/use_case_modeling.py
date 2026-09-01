@@ -31,10 +31,9 @@ def canonical_flow_identity(flows) -> tuple[str, str]:
             str(item.get("message", item.get("name", ""))),
             str(item.get("guard", "")),
             str(item.get("branch", "main")),
-            tuple(sorted(str(value) for value in item.get("requirement_ids", ()) if str(value))),
         )
         if isinstance(item, Mapping)
-        else (index + 1, "使用者", "系统", str(item), "", "main", ())
+        else (index + 1, "使用者", "系统", str(item), "", "main")
         for index, item in enumerate(flows if isinstance(flows, (list, tuple)) else ())
     )
     flow_hash = canonical_hash(payload)
