@@ -10,6 +10,8 @@ from rflp_lite.application.concept_design_service import run_concept_design
 from rflp_lite.application.dependencies import ApplicationDependencies, configured_dependencies
 from rflp_lite.application.discipline_batch import evaluate_candidates, validate_evaluator_profile
 from rflp_lite.application.domain_packs import load_domain_pack
+from rflp_lite.application.layout_evidence import validate_layout_manifest
+from rflp_lite.application.layout_generation import candidate_distance
 from rflp_lite.application.scheme_library import import_scheme_rows
 from rflp_lite.domain.canonical import canonical_hash
 
@@ -96,6 +98,14 @@ def run_concept_acceptance(
         (first.candidates[0],), pack, profile, failing_registry, _MemoryStore()
     )
     isolated_disciplines = {item.discipline: item.status for item in isolated.evaluations}
+    manifests = tuple(first.layout_manifests)
+    generation = pack.get("generation", {}) if isinstance(pack.get("generation"), Mapping) else {}
+    minimum_distance = float(generation.get("minimum_distance", 0.0))
+    pairwise_distances = tuple(
+        candidate_distance(pack, left, right)
+        for index, left in enumerate(first.candidates)
+        for right in first.candidates[index + 1 :]
+    )
     checks = {
         "2.1.candidate_count": 3 <= len(first.candidates) <= 5,
         "2.1.hard_constraints": all(
@@ -106,6 +116,21 @@ def run_concept_acceptance(
         ),
         "2.1.reproducible": candidate_hashes_first == candidate_hashes_second
         and evaluation_hashes_first == evaluation_hashes_second,
+        "2.1.candidate_diversity": bool(pairwise_distances)
+        and min(pairwise_distances) >= minimum_distance,
+        "2.1.layout_manifest": len(manifests) == len(first.candidates)
+        and all(validate_layout_manifest(item) for item in manifests),
+        "2.1.conceptual_representation": all(
+            item.get("representation_kind") == "conceptual_2d_svg"
+            and item.get("views") == ["top", "side"]
+            for item in manifests
+        ),
+        "2.1.source_trace": all(
+            item.get("reference_scheme_ids")
+            and item.get("similarity_matches")
+            and item.get("envelope_id")
+            for item in manifests
+        ),
         "2.2.three_disciplines": {item.discipline for item in first.evaluations}
         == {"aerodynamics", "structures", "weight_balance"},
         "2.2.failure_isolation": isolated_disciplines.get("structures") == "failed"
