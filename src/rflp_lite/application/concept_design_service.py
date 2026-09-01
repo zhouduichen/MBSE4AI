@@ -16,6 +16,7 @@ from typing import Any
 from rflp_lite.application.domain_packs import validate_domain_pack
 from rflp_lite.application.discipline_batch import evaluate_candidates
 from rflp_lite.application.layout_generation import generate_layout_candidates
+from rflp_lite.application.layout_evidence import build_layout_manifest
 from rflp_lite.application.multidisciplinary_optimization import (
     OptimizationResult,
     rank_evaluated_candidates,
@@ -48,6 +49,7 @@ class ConceptRunResult:
     formal_status: str
     input_hash: str
     result_hash: str
+    layout_manifests: tuple[dict[str, object], ...] = ()
 
 
 def _call(store: object, name: str, *args: object) -> object | None:
@@ -321,6 +323,10 @@ def run_concept_design(
     candidates = tuple(initial_candidates)
     evaluations = tuple(initial_evaluations)
     optimization = optimized.run
+    layout_manifests = tuple(
+        build_layout_manifest(normalized_pack, candidate, candidates)
+        for candidate in candidates
+    )
     formal_status = (
         "passed"
         if evaluations and all(item.evidence_status == "formal" for item in evaluations)
@@ -335,6 +341,7 @@ def run_concept_design(
             "evaluations": evaluations,
             "optimization": optimization,
             "trace_links": trace_links,
+            "layout_manifests": layout_manifests,
         }
     )
     result = ConceptRunResult(
@@ -349,6 +356,7 @@ def run_concept_design(
         formal_status=formal_status,
         input_hash=initial_hash,
         result_hash=result_hash,
+        layout_manifests=layout_manifests,
     )
     _call(store, "save_discipline_evaluations", evaluations)
     _call(store, "save_optimization_runs", (optimization,))
@@ -461,6 +469,9 @@ def concept_run_from_payload(value: Mapping[str, object]) -> ConceptRunResult:
         trace_links=tuple(tuple(str(i) for i in link) for link in value.get("trace_links", ())),
         status=str(value.get("status", "")), formal_status=str(value.get("formal_status", "development")),
         input_hash=str(value["input_hash"]), result_hash=str(value["result_hash"]),
+        layout_manifests=tuple(
+            dict(item) for item in value.get("layout_manifests", ()) if isinstance(item, Mapping)
+        ),
     )
 
 

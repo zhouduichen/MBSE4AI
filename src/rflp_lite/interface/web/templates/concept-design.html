@@ -4,6 +4,7 @@
 <section class="page-header"><div><h1>总体概念设计与多学科评估</h1></div></section>
 <div class="card-grid"><section class="card"><h2>1. 领域包与历史方案</h2><p><strong>{{ pack_id }}@{{ pack_version }}</strong></p></section><section class="card"><h2>2. 指标包络</h2><p class="muted">评估档案：{{ evaluator_profile }}</p></section></div>
 {% if concept_run %}
+<section class="card"><h2>表示与证据边界</h2><p>参数化二维概念布局草图，不是三维 CAD。</p><p>正式证据：{{ concept_run.formal_status }}</p>{% if concept_run.layout_manifests %}<ul>{% for manifest in concept_run.layout_manifests %}<li>{{ manifest.candidate_id }} · {{ manifest.representation_kind }} · 视图：{{ manifest.views|join(', ') }} · SVG 哈希：{{ manifest.svg_hash }} · 最小候选差异：{{ manifest.minimum_pairwise_distance }}</li>{% endfor %}</ul>{% endif %}</section>
 <section class="card"><h2>3. 3–5 套可行布局与人工确认</h2><div class="card-grid">
 {% for candidate in concept_run.candidates %}
 {% set candidate_reviews = concept_run.reviews|selectattr('candidate_id', 'equalto', candidate.id)|list %}
