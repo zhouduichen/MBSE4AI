@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "thresholds": {
+    "requirement_precision": 0.9,
+    "requirement_recall": 0.9,
+    "detail_micro_f1": 0.85,
+    "provenance_complete": 100
+  },
+  "requirements": [
+    {
+      "statement": "导入作战纲要、技战术指标文档（Word/PDF）",
+      "source_text": "支持导入作战纲要、技战术指标文档（Word/PDF）"
+    }
+  ]
+}
