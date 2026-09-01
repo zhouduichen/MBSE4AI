@@ -39,6 +39,10 @@ class DocumentRegion:
     text: str
     bbox: tuple[float, float, float, float] = ()
     confidence: float = 1.0
+    heading_path: tuple[str, ...] = ()
+    table_id: str = ""
+    row_index: int | None = None
+    column_index: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
