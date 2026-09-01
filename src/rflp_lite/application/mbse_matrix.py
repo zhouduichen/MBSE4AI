@@ -42,7 +42,7 @@ def matrix_view_data(model: object, view_id: str) -> dict[str, object]:
                 if item.get("target_id") and str(item.get("target_id")) in entity_index
             }
         )
-        allowed = {"derivedFrom", "satisfiedBy", "refines", "allocatedTo", "realizedBy", "verifiedBy"}
+        allowed = {"derivedFrom", "satisfiedBy", "refines", "constrainedBy", "similarTo", "representedBy", "allocatedTo", "realizedBy", "verifiedBy"}
     row_ids = list(dict.fromkeys(row_ids))
     col_ids = list(dict.fromkeys(col_ids))
     cells: dict[tuple[str, str], list[str]] = {}

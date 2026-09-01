@@ -40,12 +40,41 @@ def build_trace_matrix(state: dict[str, object]) -> tuple[dict[str, object], ...
             ]
             for target in targets:
                 rows.append(_row(requirement_id, "satisfiedBy", str(target.get("id", "")), "accepted", "rflp"))
+    for attribute in state.get("requirement_attributes", ()):
+        if not isinstance(attribute, dict) or attribute.get("status") != "accepted":
+            continue
+        requirement_id = str(attribute.get("requirement_id", "")); attribute_id = str(attribute.get("id", ""))
+        if requirement_id and attribute_id:
+            rows.append(_row(requirement_id, "representedBy", attribute_id, "accepted", str(attribute.get("producer", "rule"))))
+    for constraint in state.get("requirement_constraints", ()):
+        if not isinstance(constraint, dict) or constraint.get("status") != "accepted":
+            continue
+        for requirement_id in constraint.get("requirement_ids", ()):
+            if str(requirement_id) and constraint.get("id"):
+                rows.append(_row(str(requirement_id), "constrainedBy", str(constraint["id"]), "accepted", str(constraint.get("producer", "rule"))))
+    for suggestion in state.get("retrieval_suggestions", ()):
+        if not isinstance(suggestion, dict) or suggestion.get("status") != "accepted":
+            continue
+        record_id = str(suggestion.get("record_id", ""))
+        requirement_id = str(suggestion.get("requirement_id", suggestion.get("target_requirement_id", "")))
+        if record_id and requirement_id:
+            rows.append(_row(record_id, "similarTo", requirement_id, "accepted", str(suggestion.get("producer", "retrieval"))))
     mbse = state.get("mbse") or {}
     for link in mbse.get("trace_links", ()):
         source_id = str(link.get("source_id", ""))
         target_id = str(link.get("target_id", ""))
         if source_id and target_id:
             rows.append(_row(source_id, str(link.get("predicate", "refines")), target_id, str(link.get("status", "candidate")), "mbse"))
+    for group in ("use_cases", "activities", "messages"):
+        for item in mbse.get(group, ()):
+            if not isinstance(item, dict):
+                continue
+            entity_id = str(item.get("id", ""))
+            if str(item.get("status", "accepted")) != "accepted" or not entity_id:
+                continue
+            for requirement_id in item.get("requirement_ids", ()):
+                if str(requirement_id):
+                    rows.append(_row(str(requirement_id), "refines", entity_id, "accepted", "mbse"))
     return tuple(sorted({str(item["id"]): item for item in rows}.values(), key=lambda item: (str(item["source_id"]), str(item["predicate"]), str(item["target_id"]))))
 
 
@@ -79,5 +108,17 @@ def refresh_traceability(state: dict[str, object]) -> dict[str, object]:
     result["trace_links"] = list(matrix)
     result["traceability"] = list(matrix)
     result["trace_coverage"] = trace_coverage(matrix, len(result.get("structured_requirements", ())))
+    result["trace_diagnostics"] = trace_diagnostics(result, matrix)
     return result
 
+
+def trace_diagnostics(state: dict[str, object], matrix: tuple[dict[str, object], ...] | list[dict[str, object]]) -> list[dict[str, object]]:
+    rows = tuple(matrix)
+    diagnostics: list[dict[str, object]] = []
+    for requirement in state.get("structured_requirements", ()):
+        if not isinstance(requirement, dict) or requirement.get("status") != "accepted":
+            continue
+        requirement_id = str(requirement.get("id", ""))
+        if requirement_id and not any(row.get("source_id") == requirement_id and row.get("predicate") in {"satisfiedBy", "refines"} for row in rows):
+            diagnostics.append({"code": "requirement_without_model", "source_id": requirement_id})
+    return diagnostics
