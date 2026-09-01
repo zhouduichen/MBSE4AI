@@ -21,6 +21,7 @@ BLOCK_IDS = (
     "scenarios",
     "architecture",
 )
+ALL_BLOCK_IDS = BLOCK_IDS + ("requirement_details", "implicit_constraints")
 PARENT_KIND = "requirements.analysis"
 CHILD_KIND = "requirements.analysis.block"
 RETRYABLE_STATUSES = frozenset({"failed", "degraded", "interrupted"})
@@ -75,6 +76,77 @@ class AnalysisCoordinator:
         self.dependencies = configured_dependencies(dependencies)
         self.jobs = job_service or self.dependencies.job_service_factory(self.workspace_path)
         self._runner_instance = runner
+        # Optional read-only dataset repositories can be injected by the
+        # composition root or tests without changing the existing job API.
+        self.requirement_history = None
+        self.combat_scenarios = None
+
+    @staticmethod
+    def _accepted_requirements(state: dict[str, object]) -> tuple[dict[str, object], ...]:
+        return tuple(
+            item for item in state.get("structured_requirements", ())
+            if isinstance(item, dict) and str(item.get("status", "")) == "accepted"
+        )
+
+    def run_local_retrieval(self, state: dict[str, object] | None = None) -> dict[str, object]:
+        """Run optional deterministic retrieval while isolating source failures."""
+        import json
+
+        from rflp_lite.application.knowledge_retrieval import retrieve_requirements, retrieve_scenarios
+
+        current = state if isinstance(state, dict) else self._load_state_for_retrieval()
+        result = json.loads(json.dumps(current, ensure_ascii=False))
+        result.setdefault("retrieval_suggestions", [])
+        result.setdefault("auto_analysis", {})
+        blocks = dict(result["auto_analysis"].get("blocks") or {})
+        requirements = self._accepted_requirements(result)
+        history = self.requirement_history
+        if history is not None:
+            try:
+                for requirement in requirements:
+                    matches = retrieve_requirements(requirement, history.records(), limit=5)
+                    result["retrieval_suggestions"].extend({
+                        "id": f"suggestion-{canonical_hash(('requirement_history', match.dataset_id, match.dataset_version, match.record_id))[:12]}",
+                        "kind": "requirement_history",
+                        "record_id": match.record_id,
+                        "dataset_id": match.dataset_id,
+                        "dataset_version": match.dataset_version,
+                        "score": match.score,
+                        "matched_terms": list(match.matched_terms),
+                        "status": "candidate",
+                    } for match in matches)
+                blocks["requirement_history"] = {"status": "succeeded"}
+            except Exception as exc:
+                blocks["requirement_history"] = {"status": "failed", "error": str(exc)}
+        scenarios = self.combat_scenarios
+        if scenarios is not None:
+            try:
+                matches = retrieve_scenarios(requirements, scenarios.records(), limit=5)
+                result["retrieval_suggestions"].extend({
+                    "id": f"suggestion-{canonical_hash(('scenario_retrieval', match.dataset_id, match.dataset_version, match.record_id))[:12]}",
+                    "kind": "scenario_retrieval",
+                    "record_id": match.record_id,
+                    "dataset_id": match.dataset_id,
+                    "dataset_version": match.dataset_version,
+                    "score": match.score,
+                    "matched_terms": list(match.matched_terms),
+                    "covered_requirement_ids": list(match.covered_requirement_ids),
+                    "status": "candidate",
+                } for match in matches)
+                blocks["scenario_retrieval"] = {"status": "succeeded"}
+            except Exception as exc:
+                blocks["scenario_retrieval"] = {"status": "failed", "error": str(exc)}
+        result["retrieval_suggestions"] = sorted({str(item.get("id")): item for item in result["retrieval_suggestions"] if isinstance(item, dict)}.values(), key=lambda item: str(item.get("id", "")))
+        result["auto_analysis"]["blocks"] = blocks
+        return result
+
+    def _load_state_for_retrieval(self) -> dict[str, object]:
+        repository = self.dependencies.repository_factory(self.workspace_path / ".rflp" / "model.db")
+        try:
+            state = repository.load_workbench()
+            return state if isinstance(state, dict) else {}
+        finally:
+            repository.close()
 
     def _runner(self) -> Any:
         if self._runner_instance is None:
@@ -387,7 +459,7 @@ class AnalysisCoordinator:
         analysis_config_hash: str = "",
         parent_job_id: str | None = None,
     ) -> dict[str, object]:
-        if block_id not in BLOCK_IDS:
+        if block_id not in ALL_BLOCK_IDS:
             raise ContractViolation(f"未知分析块: {block_id}")
         if parent_job_id:
             payload = self._child_payload(
@@ -436,4 +508,4 @@ class AnalysisCoordinator:
         )
 
 
-__all__ = ["AnalysisCoordinator", "BLOCK_IDS", "CHILD_KIND", "PARENT_KIND"]
+__all__ = ["AnalysisCoordinator", "BLOCK_IDS", "ALL_BLOCK_IDS", "CHILD_KIND", "PARENT_KIND"]
