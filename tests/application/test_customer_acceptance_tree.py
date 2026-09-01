@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,15 @@ def test_customer_corpus_is_atomic_and_excludes_3x():
     assert {node["key"] for node in contract.tree} == {"1.1", "1.2", "2.1", "2.2"}
 
 
+def test_document_corpus_manifest_declares_realistic_variants():
+    manifest = json.loads(
+        (CORPUS.parent / "corpus-manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["baseline"]["status"] == "executable"
+    assert {item["format"] for item in manifest["document_variants"]} >= {"docx", "pdf"}
+    assert all(item["status"] == "planned" for item in manifest["document_variants"])
+
+
 def test_acceptance_report_summarizes_four_parent_nodes():
     report = run_customer_acceptance(CORPUS.name, CORPUS.read_bytes(), GOLD)
     assert report["formal_status"] == "passed"
@@ -78,4 +88,3 @@ def test_acceptance_report_summarizes_four_parent_nodes():
     tree = {item["key"]: item for item in report["acceptance_tree"]}
     assert set(tree) == {"1.1", "1.2", "2.1", "2.2"}
     assert all(item["missing"] == [] and item["extra"] == [] and item["status"] == "passed" for item in tree.values())
-
