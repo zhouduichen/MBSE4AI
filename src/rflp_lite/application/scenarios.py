@@ -437,6 +437,10 @@ def generate_scenario_matrix(
     except (TypeError, ValueError):
         bounded_limit = SCENARIO_MATRIX_LIMIT
     result = json.loads(canonical_json(state))
+    # The historical medical matrix is a legacy domain pack only.  Generic
+    # projects receive scenarios derived from their own reviewed inputs.
+    if str(pack.get("id", "")) != "urban-medical-aam-v1":
+        return generate_scenario_drafts(result)
     claim = _scenario_claim(result)
     objective = str((claim or {}).get("object") or (claim or {}).get("statement") or "完成系统目标").strip().rstrip("。.!！?？")
     requirement_ids = (str(claim.get("id")),) if claim and claim.get("id") else ()

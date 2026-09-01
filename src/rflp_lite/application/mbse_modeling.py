@@ -28,8 +28,26 @@ def generate_mbse_revision(state: dict[str, object]) -> dict[str, object]:
     ]
     if not accepted:
         raise ContractViolation("请先接受至少一条结构化需求")
+    model_state = _clone(state)
+    if model_state.get("use_case_drafts") and not model_state.get("scenarios"):
+        model_state["scenarios"] = [
+            {
+                "id": draft.get("scenario_id", draft.get("id")),
+                "title": draft.get("title", draft.get("name", "用例")),
+                "actors": draft.get("actors", ()),
+                "steps": [step.get("message", "") for step in draft.get("main_flow", ()) if isinstance(step, dict)],
+                "interaction_steps": draft.get("main_flow", ()),
+                "preconditions": draft.get("preconditions", ()),
+                "expected_outcomes": draft.get("postconditions", ()),
+                "requirement_ids": draft.get("requirement_ids", ()),
+                "status": draft.get("status", "accepted"),
+                "producer": draft.get("producer", "rule"),
+            }
+            for draft in model_state.get("use_case_drafts", ())
+            if isinstance(draft, dict)
+        ]
     model = generate_mbse_semantic_revision(
-        state,
+        model_state,
         provenance={
             "producer": "mbse-modeling",
             "accepted_requirement_ids": [str(item["id"]) for item in accepted],

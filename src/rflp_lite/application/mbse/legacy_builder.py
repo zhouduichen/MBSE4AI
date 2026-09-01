@@ -751,13 +751,27 @@ def legacy_mbse_projection(model: dict[str, object]) -> dict[str, object]:
         {
             "id": item["id"],
             "name": item["name"],
-            "actor_ids": [],
-            "requirement_ids": [],
+            "actor_ids": [relation["source_id"] for relation in model["relations"] if relation["kind"] == "participatesIn" and relation["target_id"] == item["id"]],
+            "requirement_ids": list(item.get("attributes", {}).get("requirement_ids", ())),
+            "preconditions": list(item.get("attributes", {}).get("preconditions", ())),
+            "postconditions": list(item.get("attributes", {}).get("expected_outcomes", ())),
+            "main_flow": list(item.get("attributes", {}).get("interaction_steps", item.get("attributes", {}).get("steps", ()))),
             "status": item.get("status", "accepted"),
         }
         for item in operational["scenarios"]
     ]
     activities = [
+        {
+            "id": f"activity-{item['id']}",
+            "name": item["name"],
+            "kind": "use_case_flow",
+            "steps": list(item.get("attributes", {}).get("interaction_steps", item.get("attributes", {}).get("steps", ()))),
+            "predecessor_ids": [],
+            "requirement_ids": list(item.get("attributes", {}).get("requirement_ids", ())),
+            "status": item.get("status", "accepted"),
+        }
+        for item in operational["scenarios"]
+    ] + [
         {
             "id": item["id"],
             "name": item["name"],
@@ -789,14 +803,17 @@ def legacy_mbse_projection(model: dict[str, object]) -> dict[str, object]:
             if relation["kind"] == "participatesIn" and relation["target_id"] == scenario["id"]
         ]
         from_id = f"lifeline-{actors_for_scenario[0]}" if actors_for_scenario else "lifeline-system"
+        flow = scenario.get("attributes", {}).get("interaction_steps", scenario.get("attributes", {}).get("steps", ()))
+        flow = list(flow) if isinstance(flow, (list, tuple)) else []
+        message_name = flow[0].get("message", "") if flow and isinstance(flow[0], dict) else (str(flow[0]) if flow else scenario["name"])
         messages.append(
             {
                 "id": f"message-{canonical_hash((scenario['id'], index))[:12]}",
-                "name": scenario["name"],
+                "name": message_name or scenario["name"],
                 "from_id": from_id,
                 "to_id": "lifeline-system" if from_id != "lifeline-system" else from_id,
                 "sequence": index,
-                "requirement_ids": [],
+                "requirement_ids": list(scenario.get("attributes", {}).get("requirement_ids", ())),
                 "status": scenario.get("status", "accepted"),
             }
         )
@@ -825,5 +842,4 @@ def legacy_mbse_projection(model: dict[str, object]) -> dict[str, object]:
         "messages": sorted(messages, key=lambda item: str(item["id"])),
         "trace_links": sorted(trace_links, key=lambda item: (str(item["source_id"]), str(item["target_id"]))),
     }
-
 
