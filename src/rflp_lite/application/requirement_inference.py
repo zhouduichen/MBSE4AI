@@ -8,7 +8,11 @@ from typing import Any
 
 from rflp_lite.domain.errors import AdapterFailure
 from rflp_lite.domain.requirements import DocumentRegion, StructuredRequirement
-from rflp_lite.ports.generative_model import GenerationRequest, GenerativeModel
+from rflp_lite.ports.generative_model import (
+    GenerationRequest,
+    GenerativeModel,
+    add_simplified_chinese_instruction,
+)
 
 
 _REQUIRED = {
@@ -56,7 +60,9 @@ def suggest_implicit_requirements(
 
     source_ids = {region.id for region in regions}
     prompt = {
-        "task": "只提出文本中隐含但未明确写出的工程约束；不得改写原文，不得批准结果。",
+        "task": add_simplified_chinese_instruction(
+            "只提出文本中隐含但未明确写出的工程约束；不得改写原文，不得批准结果。"
+        ),
         "schema": sorted(_REQUIRED),
         "regions": [{"id": region.id, "text": region.text} for region in regions],
     }

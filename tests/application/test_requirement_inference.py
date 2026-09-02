@@ -28,6 +28,31 @@ def test_unknown_llm_source_is_rejected():
         suggest_implicit_requirements((region,), {"model": "local"}, complete)
 
 
+def test_legacy_completion_prompt_requires_simplified_chinese_output():
+    region = DocumentRegion(
+        "region-1",
+        "artifact-1",
+        1,
+        "paragraph",
+        "page-1/paragraph-1",
+        "The system shall import PDF",
+    )
+    captured = {}
+
+    def complete(_config, prompt):
+        captured["prompt"] = prompt
+        return (
+            '[{"source_region_id":"region-1","statement":"系统应支持导入 PDF",'
+            '"entities":[],"constraints":[],"verification_method":"inspection",'
+            '"confidence":0.6}]'
+        )
+
+    suggest_implicit_requirements((region,), {"model": "local"}, complete)
+
+    assert "简体中文" in captured["prompt"]["task"]
+    assert "只提出文本中隐含但未明确写出的工程约束" in captured["prompt"]["task"]
+
+
 def test_inferred_requirement_is_not_bulk_accepted():
     state = analyze_artifact("requirements.txt", "系统应满足隐含工艺约束。".encode())
     region_id = state["document_regions"][0]["id"]
