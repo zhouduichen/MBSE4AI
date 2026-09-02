@@ -31,6 +31,10 @@ class WorkbenchRepositoryPort(Protocol):
 
     def load_workbench(self) -> dict[str, object] | None: ...
 
+    def load_workbench_summary(self) -> Mapping[str, object] | None: ...
+
+    def workbench_exists(self) -> bool: ...
+
     def save_workbench(
         self,
         value: dict[str, object],

@@ -1,8 +1,10 @@
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
 
+from rflp_lite.adapters.sqlite_repository import SQLiteRepository
 from rflp_lite.interface.web.app import create_app
 
 
@@ -57,12 +59,67 @@ def test_root_manages_multiple_projects_and_expands_requirements(client: TestCli
     page = client.get("/")
 
     assert page.status_code == 200
-    assert page.text.count('<details class="project-card">') == 2
+    assert page.text.count('<details class="project-card"') == 2
     assert '<details class="project-card" open' not in page.text
     assert "alpha" in page.text and "beta" in page.text
-    assert "管理员 必须 恢复历史版本" in page.text
+    assert "管理员 必须 恢复历史版本" not in page.text
     assert "/w/alpha/requirements" in page.text
-    assert "暂无需求" in page.text
+    assert "展开后读取项目需求" in page.text
+    assert "hx-trigger=\"toggle once\"" in page.text
+    details = client.get("/w/alpha/project/details")
+    assert details.status_code == 200
+    assert "管理员 必须 恢复历史版本" in details.text
+    assert "暂无需求" in client.get("/w/beta/project/details").text
+
+
+def test_project_name_input_is_editable_and_accepts_chinese(client: TestClient) -> None:
+    page = client.get("/")
+
+    assert page.status_code == 200
+    assert 'id="project-name"' in page.text
+    assert 'type="text"' in page.text
+    assert "autofocus" in page.text
+    assert 'placeholder="例如：小型飞行汽车项目"' in page.text
+    assert 'pattern="[A-Za-z0-9]' not in page.text
+    assert "readonly" not in page.text
+    assert "disabled" not in page.text
+
+    created = client.post(
+        "/workspaces", data={"name": "中文测试项目"}, follow_redirects=False
+    )
+
+    assert created.status_code == 303
+    assert unquote(created.headers["location"]) == "/w/中文测试项目"
+
+
+def test_root_project_overview_does_not_load_full_workbench(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "demo"})
+    facade = client.app.state.facade
+    facade.requirements = lambda _name: (_ for _ in ()).throw(AssertionError("full state loaded"))
+    facade.runs = lambda _name: (_ for _ in ()).throw(AssertionError("runs loaded"))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "demo" in response.text
+
+
+def test_root_legacy_workbench_without_summary_stays_lightweight(client: TestClient) -> None:
+    client.post("/workspaces", data={"name": "legacy"})
+    database = client.app.state.facade.workspace("legacy").path / ".rflp" / "model.db"
+    repository = SQLiteRepository(database)
+    repository._connection.execute(
+        "INSERT INTO workbench(id, revision, content_revision, payload) VALUES (?, ?, ?, ?)",
+        ("current", 7, 3, '{"claims": [{"id": "legacy-claim"}]}'),
+    )
+    repository.close()
+    facade = client.app.state.facade
+    facade.requirements = lambda _name: (_ for _ in ()).throw(AssertionError("full state loaded"))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "摘要待读取" in response.text
 
 
 def test_requirement_delete_keeps_project_and_audit_history(client: TestClient) -> None:
@@ -87,7 +144,7 @@ def test_requirement_delete_keeps_project_and_audit_history(client: TestClient) 
     assert after["scenarios"] == []
     assert after["rflp"] is None
     assert after["mbse"] is None
-    assert "暂无需求" in client.get("/").text
+    assert "暂无需求" in client.get("/w/demo/project/details").text
     assert "已删除" in client.get("/w/demo/requirements/overview").text
     assert any(
         event["kind"] == "requirements.deleted"

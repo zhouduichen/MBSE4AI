@@ -208,27 +208,36 @@ class WebFacade:
 
         summaries = []
         for workspace in self.workspaces():
-            state = self.requirements(workspace.name)
-            overview = self.requirement_overview(workspace.name)
-            current_requirements = tuple(
-                item for item in overview["items"] if item.get("is_current")
-            )
-            runs = self.runs(workspace.name)
-            model_state = "未生成"
-            if state and state.get("rflp") and not state.get("draft"):
-                model_state = "正式模型"
-            elif state and state.get("draft"):
-                model_state = "草稿"
+            database = workspace.path / ".rflp" / "model.db"
+            summary = None
+            has_workbench = False
+            if database.is_file():
+                repository = self.dependencies.repository_factory(database)
+                try:
+                    summary = repository.load_workbench_summary()
+                    has_workbench = repository.workbench_exists()
+                finally:
+                    repository.close()
+            if summary is not None:
+                requirement_count = summary["requirement_count"]
+                accepted_count = summary["accepted_count"]
+                model_state = summary["model_state"]
+            elif has_workbench:
+                requirement_count = None
+                accepted_count = None
+                model_state = "摘要待读取"
+            else:
+                requirement_count = 0
+                accepted_count = 0
+                model_state = "未生成"
             summaries.append(
                 {
                     "workspace": workspace,
-                    "requirements": current_requirements,
-                    "requirement_count": len(current_requirements),
-                    "accepted_count": sum(
-                        item.get("status") == "accepted" for item in current_requirements
-                    ),
+                    "requirements": (),
+                    "requirement_count": requirement_count,
+                    "accepted_count": accepted_count,
                     "model_state": model_state,
-                    "latest_run": runs[0] if runs else None,
+                    "latest_run": None,
                 }
             )
         return tuple(summaries)

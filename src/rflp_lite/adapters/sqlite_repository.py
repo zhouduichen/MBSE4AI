@@ -384,6 +384,33 @@ class SQLiteRepository:
                 raise ConcurrentModificationError(
                     "Workbench changed while the write was being committed"
                 )
+            claims = tuple(
+                item for item in payload.get("claims", ()) if isinstance(item, dict)
+            )
+            model_state = (
+                "正式模型"
+                if payload.get("rflp") and not payload.get("draft")
+                else "草稿"
+                if payload.get("draft")
+                else "未生成"
+            )
+            self._connection.execute(
+                """
+                INSERT OR REPLACE INTO workbench_summary(
+                    id, revision, content_revision, requirement_count,
+                    accepted_count, model_state, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "current",
+                    next_revision,
+                    content_revision,
+                    len(claims),
+                    sum(item.get("status") == "accepted" for item in claims),
+                    model_state,
+                    created_at,
+                ),
+            )
             self._connection.execute(
                 """
                 INSERT INTO workbench_revisions(revision, event, created_at, payload)
@@ -401,6 +428,34 @@ class SQLiteRepository:
                 "SELECT payload FROM workbench WHERE id = 'current'"
             ).fetchone()
             return json.loads(row[0]) if row else None
+
+    def load_workbench_summary(self) -> Mapping[str, object] | None:
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT revision, content_revision, requirement_count,
+                       accepted_count, model_state, updated_at
+                FROM workbench_summary
+                WHERE id = 'current'
+                """
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "revision": int(row[0]),
+            "content_revision": int(row[1]),
+            "requirement_count": int(row[2]),
+            "accepted_count": int(row[3]),
+            "model_state": str(row[4]),
+            "updated_at": str(row[5]),
+        }
+
+    def workbench_exists(self) -> bool:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT 1 FROM workbench WHERE id = 'current'"
+            ).fetchone()
+        return row is not None
 
     def workbench_revisions(self) -> tuple[dict[str, object], ...]:
         rows = self._connection.execute(

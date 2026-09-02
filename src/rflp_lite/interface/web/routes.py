@@ -204,6 +204,40 @@ def dashboard(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/w/{workspace_name}/project/details", response_class=HTMLResponse)
+def project_details(request: Request, workspace_name: str) -> HTMLResponse:
+    try:
+        facade = _facade(request)
+        workspace = facade.workspace(workspace_name)
+        state = facade.requirements(workspace_name)
+        labels = {
+            "candidate": "待确认",
+            "accepted": "已接受",
+            "rejected": "已驳回",
+        }
+        requirements = tuple(
+            {
+                "id": str(item["id"]),
+                "subject": item.get("subject", ""),
+                "predicate": item.get("predicate", ""),
+                "object": item.get("object", ""),
+                "status": item.get("status", "candidate"),
+                "status_label": labels.get(
+                    str(item.get("status", "candidate")),
+                    str(item.get("status", "candidate")),
+                ),
+            }
+            for item in (state or {}).get("claims", ())
+            if isinstance(item, dict) and item.get("id")
+        )
+        context = {"workspace": workspace, "requirements": requirements}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _run_error(request, exc)
+    return templates.TemplateResponse(
+        request=request, name="_project-card-details.html", context=context
+    )
+
+
 @router.post("/workspaces")
 def create_workspace(request: Request, name: Annotated[str, Form()]) -> Response:
     workspace = _facade(request).create_workspace(name.strip())

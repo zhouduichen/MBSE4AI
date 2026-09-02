@@ -166,6 +166,23 @@ class MigrationRunner:
                     "CREATE TABLE IF NOT EXISTS workflow_runs (id TEXT PRIMARY KEY, payload TEXT NOT NULL)",
                 ),
             ),
+            Migration(
+                6,
+                "workbench_summary",
+                (
+                    """
+                    CREATE TABLE IF NOT EXISTS workbench_summary (
+                        id TEXT PRIMARY KEY,
+                        revision INTEGER NOT NULL,
+                        content_revision INTEGER NOT NULL,
+                        requirement_count INTEGER NOT NULL,
+                        accepted_count INTEGER NOT NULL,
+                        model_state TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """,
+                ),
+            ),
         )
 
     def _apply_migration(

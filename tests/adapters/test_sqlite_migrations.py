@@ -23,7 +23,7 @@ def test_fresh_and_repeated_migrations_are_idempotent(tmp_path: Path) -> None:
     ).fetchone()
     second.close()
 
-    assert versions == [(1,), (2,), (3,), (4,), (5,)]
+    assert versions == [(1,), (2,), (3,), (4,), (5,), (6,)]
     assert workflow_table == ("workflow_runs",)
     assert {row[1] for row in columns} >= {
         "revision",
