@@ -26,8 +26,7 @@ _METRIC_PATTERN = re.compile(
     rf"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>{_UNIT_PATTERN})",
     re.IGNORECASE,
 )
-_SPLIT_PATTERN = re.compile(r"[，,；;。!！?？\n]+|(?<!\d)\.(?!\d)")
-_CONNECTOR_PATTERN = re.compile(r"\s+(?:and|also|while|when)\s+|(?:并且|此外|以及)(?=[\u4e00-\u9fffA-Za-z])", re.IGNORECASE)
+_SENTENCE_BOUNDARY_PATTERN = re.compile(r"[。!！?？\n]+|\.(?=\s|$)")
 _BEHAVIOR_WORDS = ("通信中断", "失联", "故障", "中断", "自动返航", "返航", "恢复", "after", "when")
 _MISSION_WORDS = ("设计", "研制", "开发", "系统", "无人机", "侦察", "任务", "mission", "system")
 
@@ -159,13 +158,7 @@ def _kind(text: str, metrics: tuple[NormalizedMetric, ...]) -> str:
 
 
 def _parts(text: str) -> tuple[str, ...]:
-    chunks: list[str] = []
-    for sentence in _SPLIT_PATTERN.split(text):
-        for part in _CONNECTOR_PATTERN.split(sentence):
-            clean = part.strip()
-            if clean:
-                chunks.append(clean)
-    return tuple(chunks)
+    return tuple(part.strip() for part in _SENTENCE_BOUNDARY_PATTERN.split(text) if part.strip())
 
 
 def _clause_id(source_region_id: str, local_ordinal: int, clause: str, metrics: tuple[NormalizedMetric, ...]) -> str:
