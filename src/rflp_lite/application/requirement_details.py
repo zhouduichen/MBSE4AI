@@ -10,18 +10,20 @@ from rflp_lite.domain.requirement_details import RequirementAttribute, Requireme
 
 _BOUND = re.compile(
     r"(?P<name>[\u4e00-\u9fffA-Za-z_]{2,24})"
-    r".{0,8}?(?P<op>不低于|不少于|不超过|不得超过|不得大于|不高于|至少|以上|>=|<=|≥|≤)\s*"
+    r".{0,8}?(?P<op>不低于|不少于|不超过|不得超过|不得大于|不高于|至少|以上|大于等于|小于等于|>=|<=|≥|≤|>|<)\s*"
     r"(?P<value>\d+(?:\.\d+)?)\s*"
-    r"(?P<unit>km/h|m/s|km|mm|m|kg|s|秒|N|Pa|%|°|套|个|组)?"
+    r"(?P<unit>km/h|m/s|kg|km|mm|m|s|秒|N|Pa|%|°|套|个|组)?"
 )
 _OP_VALUE = re.compile(
-    r"(?P<op>不低于|不少于|不超过|不得超过|不得大于|不高于|至少|以上|>=|<=|≥|≤)\s*"
+    r"(?P<op>不低于|不少于|不超过|不得超过|不得大于|不高于|至少|以上|大于等于|小于等于|>=|<=|≥|≤|>|<)\s*"
     r"(?P<value>\d+(?:\.\d+)?)\s*"
-    r"(?P<unit>km/h|m/s|km|mm|m|kg|s|秒|N|Pa|%|°|套|个|组)?"
+    r"(?P<unit>km/h|m/s|kg|km|mm|m|s|秒|N|Pa|%|°|套|个|组)?"
 )
 _OPERATORS = {
-    "不低于": ">=", "不少于": ">=", "至少": ">=", "以上": ">=", "≥": ">=", ">=": ">=",
-    "不超过": "<=", "不得超过": "<=", "不得大于": "<=", "不高于": "<=", "≤": "<=", "<=": "<=",
+    "不低于": ">=", "不少于": ">=", "≥": ">=", ">=": ">=",
+    "不超过": "<=", "不得超过": "<=", "≤": "<=", "<=": "<=",
+    "不得大于": "<=", "不高于": "<=", "小于等于": "<=", "<": "<",
+    "至少": ">=", "以上": ">=", "大于等于": ">=", ">": ">",
 }
 
 
@@ -75,7 +77,7 @@ def extract_explicit_details(
         )
         for raw_operator, raw_value, raw_unit in values:
             value = raw_value.strip()
-            unit = raw_unit.strip()
+            unit = {"秒": "s"}.get(raw_unit.strip(), raw_unit.strip())
             operator = _OPERATORS[raw_operator]
             attributes.append(
                 RequirementAttribute.from_fields(

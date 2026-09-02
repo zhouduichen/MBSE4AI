@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any
-
 from rflp_lite.application.domain_packs import validate_domain_pack
 from rflp_lite.application.discipline_batch import evaluate_candidates
 from rflp_lite.application.layout_generation import generate_layout_candidates
@@ -24,7 +22,7 @@ from rflp_lite.application.multidisciplinary_optimization import (
 )
 from rflp_lite.application.parameter_rules import create_indicator_envelope
 from rflp_lite.application.scheme_retrieval import find_similar_schemes
-from rflp_lite.domain.canonical import canonical_hash, canonical_json, to_primitive
+from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.concept_design import (
     DisciplineEvaluation,
     IndicatorEnvelope,
@@ -225,7 +223,17 @@ def _initial_optimization(
         domain_pack_version=int(pack.get("version", 1)),
         candidate_ids=tuple(item.id for item in candidates),
         evaluation_ids=tuple(item.id for item in evaluations),
-        iteration_records=(("0", {"candidate_ids": tuple(item.id for item in candidates), "front_ids": front}),),
+        iteration_records=(
+            (
+                "0",
+                {
+                    "parent_ids": (),
+                    "candidate_ids": tuple(item.id for item in candidates),
+                    "front_ids": front,
+                    "generation_index": 0,
+                },
+            ),
+        ),
         front_candidate_ids=front,
         seed=seed,
         stop_reason="evaluation_budget",
@@ -235,6 +243,39 @@ def _initial_optimization(
         evidence_status=("passed" if evaluations and all(item.evidence_status == "formal" for item in evaluations) else "development"),
     )
     return OptimizationResult(run, candidates, evaluations)
+
+
+def _parent_inputs(
+    pack: Mapping[str, object], parents: tuple[LayoutCandidate, ...]
+) -> tuple[tuple[SchemeRecord, ...], tuple[SimilarityMatch, ...]]:
+    """Expose selected candidates as deterministic generation references."""
+
+    schemes = tuple(
+        SchemeRecord(
+            id=parent.id,
+            object_type=str(pack.get("object_type", "layout")),
+            schema_version=int(pack.get("schema_version", 1)),
+            domain_pack_id=str(pack.get("id", "")),
+            domain_pack_version=int(pack.get("version", 1)),
+            revision=1,
+            status="generated-parent",
+            source=f"parent:{parent.id}",
+            parameters=parent.parameters,
+            extensions=(),
+            content_hash=parent.result_hash,
+        )
+        for parent in parents[:3]
+    )
+    matches = tuple(
+        SimilarityMatch(
+            scheme_id=parent.id,
+            similarity=1.0,
+            feature_differences=(),
+            missing_features=(),
+        )
+        for parent in schemes
+    )
+    return schemes, matches
 
 
 def run_concept_design(
@@ -291,13 +332,22 @@ def run_concept_design(
     initial_evaluations = tuple(batch.evaluations)
 
     if optimize:
-        # Keep the customer-facing concept result at the required 3–5
-        # candidates.  Task 8's bounded optimizer still computes the Pareto
-        # front; this budget prevents an opaque second batch from changing the
-        # initial design set during the first workflow run.
-        def generate(_pack: Mapping[str, object], _front: object, next_seed: int) -> tuple[LayoutCandidate, ...]:
+        def generate(
+            _pack: Mapping[str, object], front: object, next_seed: int
+        ) -> tuple[LayoutCandidate, ...]:
+            parents = tuple(item for item in front if isinstance(item, LayoutCandidate))
+            parent_schemes, parent_matches = _parent_inputs(
+                normalized_pack, parents or tuple(initial_candidates)
+            )
             return generate_layout_candidates(
-                normalized_pack, envelope, scheme_values, matches, seed=next_seed
+                normalized_pack,
+                envelope,
+                parent_schemes,
+                parent_matches,
+                # Keep optimization randomness deterministic but separate
+                # from the initial generation stream; otherwise the same
+                # parent/reference/seed triple recreates an initial candidate.
+                seed=next_seed + 1000,
             )
 
         def evaluate(
@@ -315,7 +365,11 @@ def run_concept_design(
             generate,
             evaluate,
             iterations=3,
-            evaluation_budget=max(3, len(initial_evaluations)),
+            evaluation_budget=max(
+                3,
+                len(initial_evaluations)
+                + 3 * len(normalized_pack.get("disciplines", ())),
+            ),
             base_seed=seed,
         )
     else:
@@ -323,8 +377,8 @@ def run_concept_design(
             normalized_pack, envelope, tuple(initial_candidates), initial_evaluations, seed
         )
 
-    candidates = tuple(initial_candidates)
-    evaluations = tuple(initial_evaluations)
+    candidates = tuple(optimized.candidates)
+    evaluations = tuple(optimized.evaluations)
     optimization = optimized.run
     layout_manifests = tuple(
         build_layout_manifest(normalized_pack, candidate, candidates)
@@ -363,6 +417,7 @@ def run_concept_design(
         result_hash=result_hash,
         layout_manifests=layout_manifests,
     )
+    _call(store, "save_layout_candidates", candidates)
     _call(store, "save_discipline_evaluations", evaluations)
     _call(store, "save_optimization_runs", (optimization,))
     _call(store, "save_concept_runs", (result,))

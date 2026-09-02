@@ -338,7 +338,7 @@ def test_concept_cli_import_run_and_svg_export(tmp_path, capsys):
     capsys.readouterr()
     assert main(["concept", "run", "--workspace", str(workspace), "--pack", str(pack), "--evaluator-profile", str(profile), "--envelope", str(examples / "fixed-wing-envelope.json")]) == 0
     run_summary = json.loads(capsys.readouterr().out)
-    assert run_summary["candidate_count"] in {3, 4, 5}
+    assert run_summary["candidate_count"] >= 5
     assert main(
         [
             "concept",

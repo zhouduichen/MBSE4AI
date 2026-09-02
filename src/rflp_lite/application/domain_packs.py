@@ -13,8 +13,6 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Any
-
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.errors import ContractViolation
 
@@ -33,7 +31,13 @@ _REQUIRED = {
     "objectives",
     "disciplines",
 }
-_ALLOWED = _REQUIRED | {"schema_version", "display_name", "description"}
+_ALLOWED = _REQUIRED | {
+    "schema_version",
+    "display_name",
+    "description",
+    "requirement_mappings",
+    "requirement_derivations",
+}
 _CORE_FIELDS = {
     "id",
     "object_type",
@@ -282,6 +286,48 @@ def _validate_mappings(value: object, known_names: set[str]) -> None:
             raise _contract(f"mappings[{source!r}].null_policy is unsupported")
 
 
+def _validate_requirement_mappings(value: object, known_names: set[str]) -> None:
+    if value is None:
+        return
+    mappings = _mapping(value, "requirement_mappings")
+    for source, raw in mappings.items():
+        if not isinstance(source, str) or not source.strip():
+            raise _contract("requirement mapping source names must be non-empty strings")
+        if isinstance(raw, str):
+            target = raw
+            item: dict[str, object] = {"parameter": target}
+        else:
+            item = _mapping(raw, f"requirement_mappings[{source!r}]")
+            target = item.get("parameter")
+        if not isinstance(target, str) or target not in known_names:
+            raise _contract(f"requirement_mappings[{source!r}].parameter is not declared")
+        _keys(
+            item,
+            {"parameter"},
+            {"parameter", "unit", "aliases", "operator", "kind"},
+            f"requirement_mappings[{source!r}]",
+        )
+        if "aliases" in item:
+            aliases = _list(item["aliases"], f"requirement_mappings[{source!r}].aliases")
+            if not all(isinstance(alias, str) and alias.strip() for alias in aliases):
+                raise _contract(f"requirement_mappings[{source!r}].aliases must contain strings")
+        if "unit" in item and (not isinstance(item["unit"], str) or not item["unit"].strip()):
+            raise _contract(f"requirement_mappings[{source!r}].unit must be a string")
+        if "operator" in item and item["operator"] not in {"==", "!=", "<", "<=", ">", ">="}:
+            raise _contract(f"requirement_mappings[{source!r}].operator is unsupported")
+
+
+def _validate_requirement_derivations(value: object, known_names: set[str]) -> None:
+    if value is None:
+        return
+    derivations = _mapping(value, "requirement_derivations")
+    for name, raw in derivations.items():
+        if not isinstance(name, str) or name not in known_names:
+            raise _contract(f"requirement_derivations target is not declared: {name}")
+        formula = raw.get("formula") if isinstance(raw, dict) else raw
+        _validate_formula(formula, f"requirement_derivations[{name!r}]")
+
+
 def _validate_retrieval(value: object, known_names: set[str]) -> None:
     retrieval = _mapping(value, "retrieval")
     _keys(retrieval, {"features"}, {"features", "limit"}, "retrieval")
@@ -438,6 +484,8 @@ def validate_domain_pack(payload: object) -> dict[str, object]:
     known_names = parameter_names | derived_names
     _validate_constraints(payload["constraints"], known_names)
     _validate_mappings(payload["mappings"], known_names)
+    _validate_requirement_mappings(payload.get("requirement_mappings"), known_names)
+    _validate_requirement_derivations(payload.get("requirement_derivations"), known_names)
     _validate_retrieval(payload["retrieval"], known_names)
     _validate_generation(payload["generation"])
     discipline_names = _validate_disciplines(payload["disciplines"])

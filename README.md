@@ -115,7 +115,7 @@ Web 端已并入 `/w/{workspace}/requirements` 的“提交并分析”流程；
 
 ### 总体概念设计与多学科评估（2.1/2.2）
 
-M3–M4 使用固定核心字段和版本化声明式领域包。固定翼首版支持历史方案 JSON/CSV/只读 SQLite 导入，生成 3–5 套确定性可行的参数化二维概念布局 SVG，并为每个候选输出包含视图、来源方案、硬约束余量、候选差异和 SVG 哈希的 `LayoutArtifactManifest`；这不是三维 CAD。系统对气动、结构、重量/重心执行批量评估、缓存和 Pareto 排序。内置低阶评估器和无客户批准档案的结果保持 `development_only`，不能冒充工程正式验证；只有客户为每个评估器提供实现哈希、适用域、验证数据集、误差指标和人工批准依据后，正式状态才会变为 `passed`。新增客户字段先保存在 `extensions`；需要进入检索、约束或评估时，再升级领域包版本。领域包不能覆盖核心身份、状态、哈希或正式证据门禁。
+M3–M4 使用固定核心字段和版本化声明式领域包。固定翼首版支持历史方案 JSON/CSV/只读 SQLite 导入，先生成 3–5 套确定性可行的参数化二维概念布局 SVG，再通过优化新增 2–3 套候选，并为每个候选输出包含视图、来源方案、硬约束余量、候选差异和 SVG 哈希的 `LayoutArtifactManifest`；这不是三维 CAD。系统对气动、结构、重量/重心执行批量评估、缓存和 Pareto 排序。内置低阶评估器和无客户批准档案的结果保持 `development_only`，不能冒充工程正式验证；只有客户为每个评估器提供实现哈希、适用域、验证数据集、误差指标和人工批准依据后，正式状态才会变为 `passed`。新增客户字段先保存在 `extensions`；需要进入检索、约束或评估时，再升级领域包版本。领域包不能覆盖核心身份、状态、哈希或正式证据门禁。
 
 ```bash
 .venv/bin/rflp concept import --workspace <workspace> --pack <pack.json> --data <schemes.json|csv|db> [--table <table>]
@@ -129,6 +129,15 @@ M3–M4 使用固定核心字段和版本化声明式领域包。固定翼首版
   --envelope src/rflp_lite/resources/examples/concept-design/fixed-wing-envelope.json \
   --evaluator-profile src/rflp_lite/resources/examples/concept-design/development-evaluator-profile.json
 ```
+
+一句话直接运行需求 → LLM/规则概念草案 → MBSE →（匹配到专业包时）指标包络 → 历史方案 → 候选布局 → 多学科评估 → Pareto 推荐：
+
+```bash
+.venv/bin/pip install -e '.[demo]'
+.venv/bin/python scripts/seed_demo_schemes.py --workspace workspaces/concept-demo
+```
+
+随后在 Web UI 创建或打开同名工作区，进入“总体概念设计”，粘贴需求或上传 DOCX/PDF，点击“生成概念方案”。未配置历史方案也可以直接运行；Demo 历史方案种子可重复执行，已存在的方案会跳过；结果和中间状态保存在工作区 `.rflp/model.db`。
 
 验收命令的 `status=passed` 表示软件编排、约束、差异和失败隔离检查通过；随包提供的评估档案明确是 `formal_status=development_only`。只有客户另行提供并批准每个评估器及版本的档案，正式状态才会变为 `passed`。本版本不实现 3.1–3.3 的三维 CAD 驱动、PMI/GD&T 标注或 DFM/DFA 审查。
 
@@ -169,7 +178,7 @@ export RFLP_LLM_MODEL=your-model
 export RFLP_LLM_API_KEY=local-key
 ```
 
-未配置或不可用时，规则分析和人工审核仍可运行，但页面会明确显示“等待 LLM 分析”，不会用固定领域模板冒充智能结果；手动确认后仍可使用兼容性的本地 RFLP 链路。
+总体概念设计采用 LLM-first：输入任何非空的一句话需求都会先得到概念提案、假设、待确认问题和 MBSE 临时草案。LLM 不可用时仍保留规则解析并生成可继续编辑的临时结果；不会因为缺少历史方案或指标不完整而在 2.1 阻断。专业领域包、历史方案和确定性评估是可选增强层，显式指标与硬约束校验仍然优先。
 
 Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机地址。按 `Ctrl+C` 停止服务；SQLite 和已完成产物会保留。
 

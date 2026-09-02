@@ -99,6 +99,19 @@ def run_concept_acceptance(
     )
     isolated_disciplines = {item.discipline: item.status for item in isolated.evaluations}
     manifests = tuple(first.layout_manifests)
+    iteration_payloads = tuple(
+        payload
+        for _key, payload in first.optimization.iteration_records
+        if isinstance(payload, Mapping)
+    )
+    initial_iteration = next(
+        (item for item in iteration_payloads if int(item.get("generation_index", 0)) == 0),
+        {},
+    )
+    optimization_iterations = tuple(
+        item for item in iteration_payloads if int(item.get("generation_index", 0)) > 0
+    )
+    initial_candidate_ids = tuple(str(item) for item in initial_iteration.get("candidate_ids", ()))
     generation = pack.get("generation", {}) if isinstance(pack.get("generation"), Mapping) else {}
     minimum_distance = float(generation.get("minimum_distance", 0.0))
     pairwise_distances = tuple(
@@ -107,7 +120,7 @@ def run_concept_acceptance(
         for right in first.candidates[index + 1 :]
     )
     checks = {
-        "2.1.candidate_count": 3 <= len(first.candidates) <= 5,
+        "2.1.candidate_count": 3 <= len(initial_candidate_ids) <= 5,
         "2.1.hard_constraints": all(
             result.passed
             for candidate in first.candidates
@@ -138,6 +151,16 @@ def run_concept_acceptance(
         and isolated_disciplines.get("weight_balance") == "succeeded",
         "2.2.optimization_trace": bool(first.optimization.front_candidate_ids)
         and bool(first.trace_links),
+        "2.2.optimization_candidate_count": len(first.candidates) >= len(initial_candidate_ids) + 2,
+        "2.2.optimization_parent_trace": bool(optimization_iterations)
+        and all(
+            tuple(str(item) for item in record.get("parent_ids", ()))
+            and any(
+                str(parent_id) in initial_candidate_ids
+                for parent_id in record.get("parent_ids", ())
+            )
+            for record in optimization_iterations
+        ),
         "2.2.approval_gate": (
             first.formal_status == "passed"
             if profile.get("approvals")

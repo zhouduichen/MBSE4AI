@@ -1,43 +1,48 @@
+from __future__ import annotations
+
 from rflp_lite.application.requirement_clause_splitter import RequirementClauseSplitter
 
 
-DEMO_TEXT = (
-    "设计一型中程侦察无人机，最大起飞重量不超过500kg，"
-    "航程不低于800km，翼展不超过12m，任务载荷不低于50kg，"
-    "通信中断30秒后自动返航"
-)
-
-
-def test_splitter_extracts_five_numeric_constraints_and_behavior():
-    analysis = RequirementClauseSplitter().analyze(DEMO_TEXT)
-    metrics = {
-        metric.name: (metric.operator, metric.value, metric.unit)
-        for clause in analysis.clauses
-        for metric in clause.normalized_metrics
-    }
-    assert metrics["最大起飞重量"] == ("<=", 500.0, "kg")
-    assert metrics["航程"] == (">=", 800.0, "km")
-    assert metrics["翼展"] == ("<=", 12.0, "m")
-    assert metrics["任务载荷"] == (">=", 50.0, "kg")
-    assert metrics["通信中断"] == ("==", 30.0, "s")
-    assert any("自动返航" in clause.text for clause in analysis.clauses)
-
-
-def test_splitter_is_stable_for_repeated_input():
-    splitter = RequirementClauseSplitter()
-    assert splitter.analyze(DEMO_TEXT) == splitter.analyze(DEMO_TEXT)
-
-
-def test_operator_aliases_are_normalized():
-    result = RequirementClauseSplitter().analyze(
-        "质量不得大于2kg，航程至少10km，速度不高于100km/h"
+def test_split_preserves_behavior_and_normalizes_mixed_numeric_constraints() -> None:
+    text = (
+        "设计一型中程侦察无人机，最大起飞重量不超过 650 kg，"
+        "任务载荷至少 150 kg，翼展 ≤ 16 m，巡航速度 >= 240 km/h，"
+        "通信中断 30 秒后自动返航。"
     )
-    assert [
-        (metric.operator, metric.value, metric.unit)
-        for clause in result.clauses
-        for metric in clause.normalized_metrics
-    ] == [
-        ("<=", 2.0, "kg"),
-        (">=", 10.0, "km"),
-        ("<=", 100.0, "km/h"),
+
+    clauses = RequirementClauseSplitter().split(text)
+
+    assert [item.kind for item in clauses] == [
+        "mission",
+        "metric",
+        "metric",
+        "metric",
+        "metric",
+        "behavior",
     ]
+    metrics = {
+        item.normalized_metrics[0].name: item.normalized_metrics[0]
+        for item in clauses
+        if item.normalized_metrics and item.kind == "metric"
+    }
+    assert metrics["最大起飞重量"].operator == "<="
+    assert (metrics["最大起飞重量"].value, metrics["最大起飞重量"].unit) == (650.0, "kg")
+    assert metrics["任务载荷"].operator == ">="
+    assert metrics["翼展"].operator == "<="
+    assert (metrics["巡航速度"].value, metrics["巡航速度"].unit) == (240.0, "km/h")
+    assert "通信中断 30 秒后自动返航" in clauses[-1].text
+    assert clauses[-1].normalized_metrics[0].unit == "s"
+
+
+def test_clause_ids_order_and_analyzed_requirements_are_stable() -> None:
+    splitter = RequirementClauseSplitter()
+    source = "翼展不超过 16 m，且任务载荷不少于 150 kg"
+
+    first = splitter.analyze(source)
+    second = splitter.analyze(source)
+
+    assert first == second
+    assert [item.ordinal for item in first.clauses] == [1, 2]
+    assert [item.id for item in first.clauses] == [item.id for item in second.clauses]
+    assert len(first.requirements) == 2
+    assert all(item.source_region_id == first.clauses[index].source_region_id for index, item in enumerate(first.requirements))

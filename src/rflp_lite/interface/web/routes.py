@@ -235,11 +235,25 @@ def concept_design_page(
 ) -> HTMLResponse:
     facade = _facade(request)
     concept_run = None
+    workflow_run = None
     if run_id:
         try:
-            concept_run = facade.concept_run(workspace_name, run_id)
+            if run_id.startswith("WORKFLOW-"):
+                workflow_run = facade.concept_workflow(workspace_name, run_id)
+                concept_run = workflow_run
+            else:
+                concept_run = facade.concept_run(workspace_name, run_id)
         except (ContractViolation, RflpError, OSError):
             concept_run = None
+    else:
+        try:
+            workflow_run = facade.concept_workflow(workspace_name)
+            concept_run = workflow_run
+        except (ContractViolation, RflpError, OSError):
+            try:
+                concept_run = facade.concept_run(workspace_name)
+            except (ContractViolation, RflpError, OSError):
+                concept_run = None
     workspace = facade.workspace(workspace_name)
     return templates.TemplateResponse(
         request=request,
@@ -250,10 +264,61 @@ def concept_design_page(
             "active": "concept-design",
             "nav_result_hash": None,
             "concept_run": concept_run,
-            "pack_id": "fixed-wing",
-            "pack_version": 1,
+            "workflow_run": workflow_run,
+            "pack_id": "auto",
+            "pack_version": None,
             "evaluator_profile": "development-v1",
         },
+    )
+
+
+@router.post("/w/{workspace_name}/concept-design/generate")
+async def generate_concept_design_workflow(
+    request: Request,
+    workspace_name: str,
+    text: Annotated[str, Form()] = "",
+    artifact: UploadFile | None = File(default=None),
+) -> Response:
+    try:
+        filename = "requirements.txt"
+        content = None
+        if artifact is not None and artifact.filename:
+            filename = Path(artifact.filename).name
+            content = await artifact.read()
+        result = _facade(request).run_concept_workflow(
+            workspace_name,
+            text=text,
+            filename=filename,
+            document_bytes=content,
+        )
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(
+        f"/w/{workspace_name}/concept-design?run_id={quote(str(result['run_id']))}",
+        status_code=303,
+    )
+
+
+@router.post("/w/{workspace_name}/concept-design/baseline")
+def select_concept_design_baseline(
+    request: Request,
+    workspace_name: str,
+    run_id: Annotated[str, Form()],
+    candidate_id: Annotated[str, Form()],
+    rationale: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        _facade(request).select_concept_baseline(
+            workspace_name,
+            run_id,
+            candidate_id,
+            rationale=rationale,
+        )
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _run_error(request, exc)
+    return RedirectResponse(
+        f"/w/{workspace_name}/concept-design?run_id={quote(run_id)}",
+        status_code=303,
     )
 
 

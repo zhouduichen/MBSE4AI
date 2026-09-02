@@ -53,6 +53,17 @@
     "机身长度": {"parameter": "fuselage_length_m"},
     "巡航速度": {"parameter": "cruise_speed_mps"}
   },
+  "requirement_mappings": {
+    "最大起飞重量": {"parameter": "mass_kg", "aliases": ["最大起飞质量"]},
+    "任务载荷": {"parameter": "payload_kg", "aliases": ["载荷"]},
+    "翼展": {"parameter": "span_m"},
+    "巡航速度": {"parameter": "cruise_speed_mps"},
+    "机翼面积": {"parameter": "wing_area_m2"},
+    "机身长度": {"parameter": "fuselage_length_m"},
+    "截面模量": {"parameter": "section_modulus_m3", "aliases": ["剖面模量"]},
+    "许用应力": {"parameter": "allowable_stress_pa", "aliases": ["允许应力"]},
+    "重心位置": {"parameter": "cg_x_m", "aliases": ["重心"]}
+  },
   "retrieval": {
     "features": [
       {"parameter": "mass_kg", "weight": 1.0},

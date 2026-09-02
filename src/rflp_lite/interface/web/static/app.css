@@ -291,6 +291,15 @@ tr:last-child td { border-bottom: none; }
 .candidate-card h2 { margin: 6px 0 4px; font-size: 15px; font-weight: 750; color: var(--ink); }
 .candidate-card code { color: var(--muted); font-size: 9px; }
 .candidate-card ul { min-height: 64px; padding-left: 16px; color: var(--muted); font-size: 11px; line-height: 1.6; margin: 8px 0 0; }
+.concept-workflow-steps { grid-template-columns: repeat(7, minmax(110px, 1fr)); }
+.concept-workflow-steps .workflow-step { min-height: 72px; }
+.concept-workflow-steps em { grid-column: 1 / -1; color: var(--warn); font-size: 10px; font-style: normal; }
+.parameter-grid { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 8px; }
+.parameter-grid article { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-tint); }
+.parameter-grid strong { font-variant-numeric: tabular-nums; }
+.parameter-grid small { color: var(--muted); font-size: 10px; }
+.source-input { overflow-x: auto; white-space: pre-wrap; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-tint); color: var(--text); font: inherit; line-height: 1.6; }
+.recommendation-panel { border-color: var(--acc-border); box-shadow: 0 0 0 3px var(--acc-soft); }
 .task-card h2 { font-size: 13px; overflow-wrap: anywhere; }
 .task-card dl, .capability-card dl { display: grid; grid-template-columns: 88px 1fr; gap: 6px 10px; margin: 12px 0; font-size: 10px; }
 .task-card dt, .capability-card dt { color: var(--muted); }
@@ -461,6 +470,8 @@ tr:last-child td { border-bottom: none; }
 /* ---------- Responsive ---------- */
 @media (max-width: 1050px) {
   .candidate-grid, .task-grid, .capability-grid { grid-template-columns: repeat(2, 1fr); }
+  .concept-workflow-steps { grid-template-columns: repeat(4, minmax(110px, 1fr)); }
+  .parameter-grid { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
   .link-grid { grid-template-columns: repeat(2, 1fr); }
   .layer-grid { grid-template-columns: repeat(2, 1fr); }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -487,6 +498,7 @@ tr:last-child td { border-bottom: none; }
   .pipeline div { min-width: 130px; }
   .two-column, .review-columns, .checklist-grid, .module-grid, .relation-grid { grid-template-columns: 1fr; }
   .candidate-grid, .task-grid, .capability-grid, .link-grid, .download-list, .focus-layout { grid-template-columns: 1fr; }
+  .concept-workflow-steps, .parameter-grid { grid-template-columns: 1fr; }
   .metric-row { grid-template-columns: repeat(2, 1fr); }
   .claim { grid-template-columns: 1fr; }
   .review-row { grid-template-columns: auto auto auto; justify-content: end; }

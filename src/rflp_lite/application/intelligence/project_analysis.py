@@ -91,6 +91,30 @@ _ARCHITECTURE_ITEM_SCHEMA = _item_schema(
     ("id", "name", "description"),
     {"id": _NON_EMPTY_TEXT, "name": _NON_EMPTY_TEXT, "description": _TEXT},
 )
+_CONCEPT_PROPOSAL_SCHEMA = _item_schema(
+    (),
+    {
+        "summary": _TEXT,
+        "alternatives": _TEXT_LIST,
+        "rationale": _TEXT_LIST,
+        "assumptions": _TEXT_LIST,
+        "parameter_suggestions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": _NON_EMPTY_TEXT,
+                    "value": {},
+                    "unit": _TEXT,
+                    "minimum": {},
+                    "maximum": {},
+                    "reason": _TEXT,
+                },
+                "additionalProperties": True,
+            },
+        },
+    },
+)
 
 
 _RESPONSE_SCHEMA = {
@@ -127,6 +151,7 @@ _RESPONSE_SCHEMA = {
         ),
         "open_questions": {"type": "array", "items": {"type": "string"}},
         "diagnostics": {"type": "array", "items": {"type": "object"}},
+        "concept_proposal": _CONCEPT_PROPOSAL_SCHEMA,
     },
 }
 
@@ -137,7 +162,11 @@ _SYSTEM_PROMPT = """你是一个跨行业系统工程分析器，只返回符合
 非空 statement；禁止使用“未命名”、空字符串或只写 id。每个场景必须填写 scenario_type，五类至少各一项。
 所有内容标注 source_region_ids、confidence、assumptions 和 rationale；不确定内容放入 open_questions。
 同一项目内可以把多个需求串联到场景、功能、逻辑组件、物理组件和接口；不要生成指向输入之外
-或不存在对象的关系。内容简洁、结构化、可追溯，不输出 JSON 之外的解释文字。"""
+或不存在对象的关系。对于宽泛的设计意图，额外给出 concept_proposal：提出可执行的概念方向、
+可选方案、理由、假设和仍需确认的问题；如果能够基于常识给出参数初值，放入
+parameter_suggestions，并明确它们只是 inferred/suggested 候选，不是用户确认值或验证结论。
+不要因为输入信息不完整而拒绝回答，也不要把没有依据的行业固定参数写成已确认事实。
+内容简洁、结构化、可追溯，不输出 JSON 之外的解释文字。"""
 
 
 def _clone(value: object) -> object:
@@ -586,6 +615,56 @@ def _normalize_architecture(
     return result, raw_id_map
 
 
+def _normalize_concept_enrichment(
+    state: dict[str, object], raw_proposal: object
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    """Normalize optional concept guidance without treating it as a requirement."""
+
+    raw = raw_proposal if isinstance(raw_proposal, dict) else {}
+    proposal = {
+        "summary": _raw_text(raw, "summary", "title", "concept"),
+        "alternatives": _strings(raw.get("alternatives") or raw.get("options")),
+        "rationale": _strings(raw.get("rationale") or raw.get("reasons")),
+        "assumptions": _strings(raw.get("assumptions")),
+        "open_questions": _strings(raw.get("open_questions")),
+    }
+    suggestions: list[dict[str, object]] = []
+    raw_suggestions = raw.get("parameter_suggestions")
+    if isinstance(raw_suggestions, (list, tuple)):
+        for index, item in enumerate(raw_suggestions[:48]):
+            if not isinstance(item, dict):
+                continue
+            name = _raw_text(item, "name", "parameter", "field")
+            if not name or item.get("value") in (None, ""):
+                continue
+            suggestion = {
+                "id": _stable_id(state, "parameter-suggestion", item.get("id", name), name),
+                "name": name,
+                "value": item.get("value"),
+                "unit": _raw_text(item, "unit"),
+                "minimum": item.get("minimum"),
+                "maximum": item.get("maximum"),
+                "reason": _raw_text(item, "reason", "rationale") or "LLM 基于当前设计意图给出的初始估计",
+                "status": "candidate",
+                "producer": "llm",
+                "candidate_type": "suggested",
+                "analysis_input_hash": _input_hash(state),
+                "project_workspace": _workspace(state),
+                "confidence": float(item.get("confidence", 0.45) or 0.45),
+                "source_region_ids": _strings(item.get("source_region_ids")) or list(_region_ids(state)[:1]),
+            }
+            suggestions.append(suggestion)
+    proposal["parameter_suggestions"] = suggestions
+    if not any(proposal.values()):
+        return {}, []
+    proposal["producer"] = "llm"
+    proposal["candidate_type"] = "inferred"
+    proposal["status"] = "candidate"
+    proposal["analysis_input_hash"] = _input_hash(state)
+    proposal["project_workspace"] = _workspace(state)
+    return proposal, suggestions
+
+
 def apply_project_analysis(
     state: dict[str, object], response: GenerationResponse
 ) -> dict[str, object]:
@@ -817,15 +896,27 @@ def apply_project_analysis(
     rule_claims = [
         item
         for item in result.get("claims", ())
-        if not (
+        if claim_items
+        and not (
             isinstance(item, dict)
             and item.get("producer") == "rule"
             and item.get("source_type") in {"goal", "provisional"}
         )
-    ]
+    ] if claim_items else [dict(item) for item in result.get("claims", ()) if isinstance(item, dict)]
     result["claims"] = merge_auto_items(rule_claims, claim_items)
     result["scenarios"] = preserve_manual_and_replace_auto(result.get("scenarios"), scenario_items, _input_hash(result))
     result["discovery"]["open_questions"] = _strings(payload.get("open_questions"))[:24]
+    concept_proposal, parameter_suggestions = _normalize_concept_enrichment(
+        result, payload.get("concept_proposal")
+    )
+    result["concept_enrichment"] = {
+        "proposal": concept_proposal,
+        "parameter_suggestions": parameter_suggestions,
+        "provider_id": response.provider_id,
+        "model_id": response.model_id,
+        "input_hash": response.input_hash,
+        "output_hash": response.output_hash,
+    }
     result["auto_analysis"] = {
         "status": "completed",
         "mode": "llm-project-analysis",

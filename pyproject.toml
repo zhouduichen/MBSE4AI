@@ -36,6 +36,25 @@ web = [
   "httpx>=0.28,<1",
   "keyring>=25",
 ]
+demo = [
+  "pytest>=8.3",
+  "hypothesis>=6.112",
+  "jsonschema>=4.23",
+  "prance>=23.6.21",
+  "junitparser>=3.2",
+  "ortools>=9.11",
+  "pdfplumber>=0.11,<1",
+  "pypdfium2>=4.30,<5",
+  "Pillow>=11,<13",
+  "rapidocr>=3.6,<4",
+  "onnxruntime>=1.22,<2",
+  "fastapi>=0.116,<1",
+  "uvicorn>=0.35,<1",
+  "jinja2>=3.1,<4",
+  "python-multipart>=0.0.20,<1",
+  "httpx>=0.28,<1",
+  "keyring>=25",
+]
 test-full = [
   "setuptools>=75",
   "wheel",

@@ -77,6 +77,10 @@ from rflp_lite.application.concept_design_service import (
     review_layout_candidate,
     run_concept_design,
 )
+from rflp_lite.application.intelligent_concept_workflow import (
+    ConceptWorkflowOrchestrator,
+    ConceptWorkflowRequest,
+)
 from rflp_lite.application.domain_packs import load_domain_pack, validate_domain_pack
 from rflp_lite.application.mbse_domain_packs import load_mbse_domain_pack
 from rflp_lite.application.intelligence.service import IntelligenceService
@@ -124,7 +128,7 @@ from rflp_lite.application.use_cases.generate_mbse import GenerateMbseCommand, G
 from rflp_lite.application.use_cases.generate_rflp import GenerateRflpCommand, GenerateRflpUseCase
 from rflp_lite.ports.diagram_renderer import RenderedDiagram
 from rflp_lite.application.resources import resource_path
-from rflp_lite.application.scheme_library import import_scheme_rows
+from rflp_lite.application.scheme_import_mapper import map_scheme_rows
 from rflp_lite.application.workspaces import (
     WorkspaceRef,
     create_managed_workspace,
@@ -157,6 +161,11 @@ class WebFacade:
         self.fixture_root = fixture_root
         self.dependencies = configured_dependencies(dependencies)
         self.llm = LLMProfileService()
+        self._concept_workflow = ConceptWorkflowOrchestrator(
+            self.workspace_root,
+            dependencies=self.dependencies,
+            llm_config_provider=self.llm.active_config,
+        )
         self._requirements_analysis = RequirementsAnalysisService(
             RequirementsAnalysisDependencies(
                 repository_factory=self.dependencies.repository_factory,
@@ -239,8 +248,66 @@ class WebFacade:
         if isinstance(pack, Path):
             return load_domain_pack(pack)
         if isinstance(pack, str):
-            return load_domain_pack(Path(pack))
+            identifier = pack.strip()
+            if "/" not in identifier and "\\" not in identifier:
+                aliases = {"fixed-wing": "fixed-wing-v1.json", "fixed-wing-v1": "fixed-wing-v1.json"}
+                filename = aliases.get(identifier, identifier if identifier.endswith(".json") else f"{identifier}.json")
+                return load_domain_pack(resource_path(f"domain-packs/{filename}"))
+            return load_domain_pack(Path(identifier))
         return validate_domain_pack(pack)
+
+    def run_concept_workflow(
+        self,
+        workspace_name: str,
+        *,
+        text: str = "",
+        filename: str = "requirements.txt",
+        document_bytes: bytes | None = None,
+        pack: object = "auto",
+        evaluator_profile: object = "development-v1",
+        seed: int = 42,
+        demo_mode: bool = True,
+    ) -> dict[str, object]:
+        result = self._concept_workflow.run(
+            ConceptWorkflowRequest(
+                workspace_name=workspace_name,
+                text=text,
+                filename=filename,
+                document_bytes=document_bytes,
+                pack=pack,
+                evaluator_profile=evaluator_profile,
+                seed=seed,
+                demo_mode=demo_mode,
+            )
+        )
+        return result.to_payload()
+
+    def concept_workflow(
+        self, workspace_name: str, run_id: str | None = None
+    ) -> dict[str, object]:
+        result = (
+            self._concept_workflow.resume(run_id, workspace_name)
+            if run_id
+            else self._concept_workflow.latest(workspace_name)
+        )
+        return result.to_payload()
+
+    def select_concept_baseline(
+        self,
+        workspace_name: str,
+        run_id: str,
+        candidate_id: str,
+        *,
+        selected_by: str = "user",
+        rationale: str = "",
+    ) -> dict[str, object]:
+        return self._concept_workflow.select_as_concept_baseline(
+            workspace_name,
+            run_id,
+            candidate_id,
+            selected_by=selected_by,
+            rationale=rationale,
+        )
 
     def import_concept_schemes(
         self,
@@ -264,8 +331,22 @@ class WebFacade:
                 raw_rows = tuple(rows)  # type: ignore[arg-type]
             except TypeError as exc:
                 raise ContractViolation("scheme rows must be an iterable") from exc
-        imported = import_scheme_rows(normalized_pack, raw_rows, source)
         workspace = self.workspace(workspace_name)
+        repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
+        try:
+            existing_ids = {
+                str(item.get("id"))
+                for item in repository.scheme_records()
+                if isinstance(item, dict) and item.get("id")
+            }
+        finally:
+            repository.close()
+        imported = map_scheme_rows(
+            normalized_pack,
+            raw_rows,
+            source,
+            existing_ids=existing_ids,
+        )
         repository = self.dependencies.repository_factory(workspace.path / ".rflp" / "model.db")
         try:
             with repository.transaction():
@@ -276,6 +357,7 @@ class WebFacade:
                     {
                         "source": source,
                         "accepted": len(imported.records),
+                        "skipped": len(imported.skipped),
                         "rejected": len(imported.rejected),
                         "domain_pack": f"{normalized_pack['id']}@{normalized_pack['version']}",
                     },
@@ -283,6 +365,14 @@ class WebFacade:
         finally:
             repository.close()
         return json.loads(canonical_json(imported))
+
+    def seed_demo_schemes(self, workspace_name: str) -> dict[str, object]:
+        """Initialize the packaged fixed-wing Demo history idempotently."""
+
+        pack = load_domain_pack(resource_path("domain-packs/fixed-wing-v1.json"))
+        data_path = resource_path("examples/concept-design/demo-schemes.json")
+        rows = self.dependencies.scheme_reader(data_path.name, data_path.read_bytes())
+        return self.import_concept_schemes(workspace_name, pack, rows, str(data_path))
 
     def run_concept_design(
         self,

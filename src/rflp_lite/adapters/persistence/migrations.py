@@ -37,6 +37,7 @@ def _base_statements() -> tuple[str, ...]:
         "optimization_runs",
         "concept_runs",
         "candidate_reviews",
+        "workflow_runs",
     )
 
     return tuple(
@@ -156,6 +157,13 @@ class MigrationRunner:
                 "job_runtime_metadata",
                 (
                     "ALTER TABLE jobs ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'",
+                ),
+            ),
+            Migration(
+                5,
+                "concept_workflow_runs",
+                (
+                    "CREATE TABLE IF NOT EXISTS workflow_runs (id TEXT PRIMARY KEY, payload TEXT NOT NULL)",
                 ),
             ),
         )

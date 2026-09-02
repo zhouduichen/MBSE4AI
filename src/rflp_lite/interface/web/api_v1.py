@@ -186,6 +186,84 @@ async def create_concept_run(request: Request, workspace_name: str) -> JSONRespo
         return _error(exc)
 
 
+@api_v1.post("/workspaces/{workspace_name}/concept-workflow", response_model=None)
+@api_v1.post("/workspaces/{workspace_name}/concept-workflows", response_model=None)
+async def create_concept_workflow(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    """Run the one-shot requirements-to-concept-design workflow."""
+
+    try:
+        payload = await request.json()
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("concept workflow payload must be an object")
+        raw_content = payload.get("content")
+        text = str(payload.get("text", raw_content if isinstance(raw_content, str) else ""))
+        document_bytes = None
+        if payload.get("document_base64"):
+            try:
+                document_bytes = base64.b64decode(str(payload["document_base64"]), validate=True)
+            except (ValueError, TypeError) as exc:
+                raise ContractViolation("document_base64 is invalid") from exc
+        raw_pack = payload.get("pack", "auto")
+        pack = raw_pack if raw_pack is None or (isinstance(raw_pack, str) and raw_pack.strip().casefold() in {"", "auto"}) else _pack_payload(raw_pack)
+        profile = _evaluator_profile_payload(payload.get("evaluator_profile", "development-v1"))
+        seed = payload.get("seed", 42)
+        if isinstance(seed, bool) or not isinstance(seed, int):
+            raise ContractViolation("seed must be an integer")
+        result = _facade(request).run_concept_workflow(
+            workspace_name,
+            text=text,
+            filename=str(payload.get("filename", "requirements.txt")),
+            document_bytes=document_bytes,
+            pack=pack,
+            evaluator_profile=profile,
+            seed=seed,
+            demo_mode=bool(payload.get("demo_mode", True)),
+        )
+        return {"status": "ok", "workflow": result}
+    except (ContractViolation, RflpError, OSError, ValueError, UnicodeDecodeError) as exc:
+        return _error(exc)
+
+
+@api_v1.get("/workspaces/{workspace_name}/concept-workflow", response_model=None)
+@api_v1.get("/workspaces/{workspace_name}/concept-workflows", response_model=None)
+def get_latest_concept_workflow(request: Request, workspace_name: str) -> JSONResponse | dict[str, object]:
+    try:
+        return {"status": "ok", "workflow": _facade(request).concept_workflow(workspace_name)}
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
+@api_v1.get("/workspaces/{workspace_name}/concept-workflow/{run_id}", response_model=None)
+@api_v1.get("/workspaces/{workspace_name}/concept-workflows/{run_id}", response_model=None)
+def get_concept_workflow(request: Request, workspace_name: str, run_id: str) -> JSONResponse | dict[str, object]:
+    try:
+        return {"status": "ok", "workflow": _facade(request).concept_workflow(workspace_name, run_id)}
+    except (ContractViolation, RflpError, OSError) as exc:
+        return _error(exc, 404)
+
+
+@api_v1.post("/workspaces/{workspace_name}/concept-workflow/{run_id}/baseline", response_model=None)
+@api_v1.post("/workspaces/{workspace_name}/concept-workflows/{run_id}/baseline", response_model=None)
+async def select_concept_baseline(request: Request, workspace_name: str, run_id: str) -> JSONResponse | dict[str, object]:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("baseline selection payload must be an object")
+        candidate_id = str(payload.get("candidate_id", "")).strip()
+        if not candidate_id:
+            raise ContractViolation("candidate_id is required")
+        result = _facade(request).select_concept_baseline(
+            workspace_name,
+            run_id,
+            candidate_id,
+            selected_by=str(payload.get("selected_by", "user")),
+            rationale=str(payload.get("rationale", "")),
+        )
+        return {"status": "ok", "baseline": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @api_v1.get("/workspaces/{workspace_name}/concept-runs/{run_id}", response_model=None)
 def get_concept_run(request: Request, workspace_name: str, run_id: str) -> JSONResponse | dict[str, object]:
     try:

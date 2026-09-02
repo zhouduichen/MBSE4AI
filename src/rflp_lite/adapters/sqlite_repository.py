@@ -46,6 +46,7 @@ class SQLiteRepository:
         "optimization_runs",
         "concept_runs",
         "candidate_reviews",
+        "workflow_runs",
     )
 
     def __init__(self, path: Path):
@@ -283,6 +284,19 @@ class SQLiteRepository:
 
     def candidate_reviews(self) -> tuple[dict[str, object], ...]:
         return self._load_payloads("candidate_reviews")
+
+    def save_workflow_runs(self, values: tuple[object, ...]) -> None:
+        self._save_payloads("workflow_runs", values)
+
+    def workflow_runs(self) -> tuple[dict[str, object], ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT payload FROM workflow_runs ORDER BY rowid DESC"
+            ).fetchall()
+        return tuple(json.loads(row[0]) for row in rows)
+
+    def load_workflow_run(self, run_id: str) -> dict[str, object] | None:
+        return self._load_payload("workflow_runs", run_id)
 
     def save_workbench(
         self,

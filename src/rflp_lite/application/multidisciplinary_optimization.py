@@ -156,12 +156,23 @@ def run_optimization(
     previous_hash = canonical_hash(front_ids)
     unchanged = 0
     stop_reason = "iteration_limit"
-    iteration_records: list[tuple[str, object]] = []
+    iteration_records: list[tuple[str, object]] = [
+        (
+            "0",
+            {
+                "parent_ids": (),
+                "candidate_ids": tuple(item.id for item in candidates),
+                "front_ids": front_ids,
+                "generation_index": 0,
+            },
+        )
+    ]
     for iteration in range(iterations):
         if len(evaluations) >= evaluation_budget:
             stop_reason = "evaluation_budget"
             break
         front = tuple(item for item in candidates if item.id in front_ids)
+        parent_ids = tuple(item.id for item in (front or tuple(candidates))[:3])
         generated = _call_generator(generate, pack, front or tuple(candidates), base_seed + iteration)
         remaining = max(0, evaluation_budget - len(evaluations))
         generated = generated[: max(1, remaining // max(1, len(pack.get("disciplines", ()))))]
@@ -177,7 +188,17 @@ def run_optimization(
         front_hash = canonical_hash(front_ids)
         unchanged = unchanged + 1 if front_hash == previous_hash else 0
         previous_hash = front_hash
-        iteration_records.append((str(iteration), {"candidate_ids": tuple(item.id for item in generated), "front_ids": front_ids}))
+        iteration_records.append(
+            (
+                str(iteration + 1),
+                {
+                    "parent_ids": parent_ids,
+                    "candidate_ids": tuple(item.id for item in generated),
+                    "front_ids": front_ids,
+                    "generation_index": iteration + 1,
+                },
+            )
+        )
         if unchanged >= 2:
             stop_reason = "front_unchanged"
             break

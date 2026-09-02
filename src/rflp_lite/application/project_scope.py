@@ -64,6 +64,8 @@ def validate_project_references(state: dict[str, object]) -> None:
         "needs",
         "claims",
         "structured_requirements",
+        "requirement_attributes",
+        "requirement_constraints",
         "scenarios",
     ):
         known_ids.update(_ids(state.get(group)))
@@ -84,6 +86,16 @@ def validate_project_references(state: dict[str, object]) -> None:
                 known_ids.update(mbse_entity_index(semantic_model))
             except ContractViolation:
                 raise
+            sections = semantic_model.get("sections")
+            if isinstance(sections, dict):
+                for section in sections.values():
+                    items = section.get("items", ()) if isinstance(section, dict) else section
+                    if isinstance(items, (list, tuple)):
+                        known_ids.update(
+                            str(item.get("id"))
+                            for item in items
+                            if isinstance(item, dict) and item.get("id")
+                        )
 
     discovery = state.get("discovery")
     if isinstance(discovery, dict):

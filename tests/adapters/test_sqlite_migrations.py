@@ -18,9 +18,13 @@ def test_fresh_and_repeated_migrations_are_idempotent(tmp_path: Path) -> None:
         "SELECT version FROM schema_migrations ORDER BY version"
     ).fetchall()
     columns = second._connection.execute("PRAGMA table_info(workbench)").fetchall()
+    workflow_table = second._connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs'"
+    ).fetchone()
     second.close()
 
-    assert versions == [(1,), (2,), (3,), (4,)]
+    assert versions == [(1,), (2,), (3,), (4,), (5,)]
+    assert workflow_table == ("workflow_runs",)
     assert {row[1] for row in columns} >= {
         "revision",
         "content_revision",

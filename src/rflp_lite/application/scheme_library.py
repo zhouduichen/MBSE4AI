@@ -14,6 +14,7 @@ from rflp_lite.domain.concept_design import SchemeRecord
 class SchemeImportResult:
     records: tuple[SchemeRecord, ...]
     rejected: tuple[dict[str, object], ...]
+    skipped: tuple[str, ...] = ()
 
 
 _UNIT_SCALE = {

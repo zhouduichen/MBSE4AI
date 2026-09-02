@@ -1,54 +1,57 @@
-"""Deterministic sentence-clause splitting for concept-design intake."""
+"""Deterministic splitting and normalization for one-shot requirement input.
+
+The splitter is deliberately rule-first.  It keeps the original clause text
+and source region while making numeric constraints usable by downstream
+application services.  Model-assisted enrichment, when enabled elsewhere,
+can add semantics but must not replace these values.
+"""
 
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
-from rflp_lite.application.requirement_details import extract_explicit_details
-from rflp_lite.application.requirement_semantics import (
-    extract_requirement_candidates,
-    requirement_payload,
-)
-from rflp_lite.domain.canonical import canonical_hash, to_primitive
-from rflp_lite.domain.requirements import DocumentRegion
+from rflp_lite.application.requirement_semantics import extract_requirement_candidates
+from rflp_lite.domain.canonical import canonical_hash
+from rflp_lite.domain.requirement_details import RequirementAttribute, RequirementConstraint
+from rflp_lite.domain.requirements import DocumentRegion, StructuredRequirement
 
 
-_SEPARATOR = re.compile(r"(?<!\d)[，,；;。.!！？?]+(?!\d)")
-_NUMBER = r"\d+(?:\.\d+)?"
-_UNIT = r"km/h|kg|km|m|s|千克|公斤|公里|米|秒"
-_OPERATOR = r"不得大于|不得超过|不超过|不高于|不低于|不少于|至少|以上|<=|>=|≤|≥|<|>"
-_METRIC = re.compile(
-    rf"(?P<name>[\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9 _/\-]{{1,30}}?)"
-    rf"\s*(?P<operator>{_OPERATOR})\s*"
-    rf"(?P<value>{_NUMBER})\s*(?P<unit>{_UNIT})?",
+_OPERATOR_PATTERN = r"不超过|不得大于|不高于|不大于|不低于|不少于|至少|以上|大于等于|小于等于|等于|≤|≥|<=|>=|==|<|>"
+_UNIT_PATTERN = r"km/h|m/s|kg|km|mm|m2|m3|Pa|m|s|秒|米|千克"
+_METRIC_PATTERN = re.compile(
+    rf"(?P<name>[\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9 _/\-]{{1,32}}?)"
+    rf"\s*(?P<operator>{_OPERATOR_PATTERN})?\s*"
+    rf"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>{_UNIT_PATTERN})",
     re.IGNORECASE,
 )
-_BARE_DURATION = re.compile(
-    rf"(?P<name>通信中断|通信失联|失联|中断)\s*"
-    rf"(?P<value>{_NUMBER})\s*(?P<unit>秒|s)",
-    re.IGNORECASE,
-)
+_SPLIT_PATTERN = re.compile(r"[，,；;。!！?？\n]+|(?<!\d)\.(?!\d)")
+_CONNECTOR_PATTERN = re.compile(r"\s+(?:and|also|while|when)\s+|(?:并且|此外|以及)(?=[\u4e00-\u9fffA-Za-z])", re.IGNORECASE)
+_BEHAVIOR_WORDS = ("通信中断", "失联", "故障", "中断", "自动返航", "返航", "恢复", "after", "when")
+_MISSION_WORDS = ("设计", "研制", "开发", "系统", "无人机", "侦察", "任务", "mission", "system")
 
 _OPERATOR_ALIASES = {
-    "不得大于": "<=",
-    "不得超过": "<=",
     "不超过": "<=",
+    "不得大于": "<=",
     "不高于": "<=",
+    "不大于": "<=",
+    "小于等于": "<=",
     "≤": "<=",
     "<=": "<=",
-    "不低于": ">=",
-    "不少于": ">=",
     "至少": ">=",
+    "不少于": ">=",
+    "不低于": ">=",
+    "大于等于": ">=",
     "以上": ">=",
     "≥": ">=",
     ">=": ">=",
+    "等于": "==",
+    "==": "==",
     "<": "<",
     ">": ">",
 }
-_UNIT_ALIASES = {"千克": "kg", "公斤": "kg", "公里": "km", "米": "m", "秒": "s"}
-_TRAILING_MODAL = re.compile(r"(?:应当|必须|应|需|要)$")
+_UNIT_ALIASES = {"秒": "s", "米": "m", "千克": "kg", "pa": "Pa"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,14 +76,17 @@ class RequirementClause:
 @dataclass(frozen=True, slots=True)
 class ClauseAnalysis:
     clauses: tuple[RequirementClause, ...]
-    requirements: tuple[dict[str, object], ...]
-    attributes: tuple[dict[str, object], ...]
-    constraints: tuple[dict[str, object], ...]
+    requirements: tuple[StructuredRequirement, ...]
+    attributes: tuple[RequirementAttribute, ...]
+    constraints: tuple[RequirementConstraint, ...]
+
+    @property
+    def metrics(self) -> tuple[NormalizedMetric, ...]:
+        return tuple(metric for clause in self.clauses for metric in clause.normalized_metrics)
 
 
 def _regions(value: str | Sequence[DocumentRegion]) -> tuple[DocumentRegion, ...]:
     if isinstance(value, str):
-        text = value.strip()
         return (
             DocumentRegion(
                 id="region-1",
@@ -88,69 +94,104 @@ def _regions(value: str | Sequence[DocumentRegion]) -> tuple[DocumentRegion, ...
                 page=1,
                 kind="paragraph",
                 locator="paragraph-1",
-                text=text,
+                text=value,
             ),
-        ) if text else ()
-    return tuple(item for item in value if isinstance(item, DocumentRegion) and item.text.strip())
+        )
+    result: list[DocumentRegion] = []
+    for index, raw in enumerate(value, start=1):
+        if isinstance(raw, DocumentRegion):
+            result.append(raw)
+            continue
+        if isinstance(raw, dict):
+            result.append(
+                DocumentRegion(
+                    id=str(raw.get("id") or f"region-{index}"),
+                    artifact_id=str(raw.get("artifact_id", "")),
+                    page=raw.get("page"),
+                    kind=str(raw.get("kind", "paragraph")),
+                    locator=str(raw.get("locator", f"paragraph-{index}")),
+                    text=str(raw.get("text", "")),
+                    bbox=tuple(raw.get("bbox", ())),
+                    confidence=float(raw.get("confidence", 1.0)),
+                )
+            )
+            continue
+        raise TypeError("requirement input must contain DocumentRegion values")
+    return tuple(result)
 
 
 def _clean_name(value: str) -> str:
-    name = re.sub(r"^[\s：:、，,]+|[\s：:、，,]+$", "", value)
-    return _TRAILING_MODAL.sub("", name).strip() or name.strip()
-
-
-def _metric_from_match(match: re.Match[str], *, operator: str | None = None) -> NormalizedMetric:
-    raw_unit = (match.group("unit") or "").strip()
-    return NormalizedMetric(
-        name=_clean_name(match.group("name")),
-        value=float(match.group("value")),
-        unit=_UNIT_ALIASES.get(raw_unit, raw_unit),
-        operator=operator or _OPERATOR_ALIASES[match.group("operator")],
-        source_text=match.group(0).strip(),
-    )
+    return value.strip(" \t:：-—，,；;")
 
 
 def _metrics(text: str) -> tuple[NormalizedMetric, ...]:
-    values: list[NormalizedMetric] = []
-    for match in _METRIC.finditer(text):
-        values.append(_metric_from_match(match))
-    for match in _BARE_DURATION.finditer(text):
-        values.append(_metric_from_match(match, operator="=="))
-    return tuple(values)
+    result: list[NormalizedMetric] = []
+    for match in _METRIC_PATTERN.finditer(text):
+        name = _clean_name(match.group("name"))
+        # A conjunction can be captured as part of a metric name when the
+        # source omitted punctuation.  It is not part of the engineering term.
+        name = re.sub(r"^(?:且|并且|以及|and)\s*", "", name, flags=re.IGNORECASE)
+        if not name:
+            continue
+        operator = _OPERATOR_ALIASES.get(match.group("operator") or "", "==")
+        unit = _UNIT_ALIASES.get(match.group("unit"), match.group("unit"))
+        result.append(
+            NormalizedMetric(
+                name=name,
+                value=float(match.group("value")),
+                unit=unit,
+                operator=operator,
+                source_text=match.group(0).strip(),
+            )
+        )
+    return tuple(result)
 
 
 def _kind(text: str, metrics: tuple[NormalizedMetric, ...]) -> str:
     lowered = text.casefold()
-    if any(word in lowered for word in ("中断", "失联", "故障", "返航", "恢复", "自动")):
+    if any(word.casefold() in lowered for word in _BEHAVIOR_WORDS):
         return "behavior"
     if metrics:
         return "metric"
-    if any(word in text for word in ("设计", "任务", "侦察", "系统", "平台")):
+    if any(word.casefold() in lowered for word in _MISSION_WORDS):
         return "mission"
     return "context"
 
 
+def _parts(text: str) -> tuple[str, ...]:
+    chunks: list[str] = []
+    for sentence in _SPLIT_PATTERN.split(text):
+        for part in _CONNECTOR_PATTERN.split(sentence):
+            clean = part.strip()
+            if clean:
+                chunks.append(clean)
+    return tuple(chunks)
+
+
+def _clause_id(source_region_id: str, local_ordinal: int, clause: str, metrics: tuple[NormalizedMetric, ...]) -> str:
+    normalized = " ".join(clause.split())
+    return f"clause-{canonical_hash((source_region_id, local_ordinal, normalized, metrics))[:12]}"
+
+
 class RequirementClauseSplitter:
-    """Split source regions without changing source text or provenance."""
+    """Split text or document regions into stable, reviewable clauses."""
 
     def split(self, value: str | Sequence[DocumentRegion]) -> tuple[RequirementClause, ...]:
         clauses: list[RequirementClause] = []
         ordinal = 0
         for region in _regions(value):
-            parts = [part.strip() for part in _SEPARATOR.split(region.text) if part.strip()]
-            if not parts:
-                parts = [region.text.strip()]
-            for part in parts:
+            local_ordinal = 0
+            for text in _parts(region.text):
+                local_ordinal += 1
                 ordinal += 1
-                metrics = _metrics(part)
-                identity = (region.id, ordinal, part, tuple(to_primitive(item) for item in metrics))
+                metrics = _metrics(text)
                 clauses.append(
                     RequirementClause(
-                        id=f"clause-{canonical_hash(identity)[:12]}",
+                        id=_clause_id(region.id, local_ordinal, text, metrics),
                         source_region_id=region.id,
                         ordinal=ordinal,
-                        text=part,
-                        kind=_kind(part, metrics),
+                        text=text,
+                        kind=_kind(text, metrics),
                         normalized_metrics=metrics,
                     )
                 )
@@ -158,72 +199,48 @@ class RequirementClauseSplitter:
 
     def analyze(self, value: str | Sequence[DocumentRegion]) -> ClauseAnalysis:
         clauses = self.split(value)
-        temporary_regions = tuple(
-            DocumentRegion(
-                id=clause.id,
+        requirements: list[StructuredRequirement] = []
+        attributes: list[RequirementAttribute] = []
+        constraints: list[RequirementConstraint] = []
+        for clause in clauses:
+            region = DocumentRegion(
+                id=clause.source_region_id,
                 artifact_id="",
                 page=1,
                 kind="paragraph",
-                locator=f"clause-{clause.ordinal}",
+                locator=clause.id,
                 text=clause.text,
             )
-            for clause in clauses
-        )
-        candidates = extract_requirement_candidates(temporary_regions)
-        source_by_requirement = {
-            candidate.id: next(
-                clause.source_region_id for clause in clauses if clause.id == candidate.source_region_id
-            )
-            for candidate in candidates
-        }
-        requirements: list[dict[str, object]] = []
-        for candidate in candidates:
-            payload = requirement_payload(candidate)
-            source_region_id = source_by_requirement[candidate.id]
-            clause = next(item for item in clauses if item.id == candidate.source_region_id)
-            payload.update(
-                {
-                    "source_region_id": source_region_id,
-                    "source_region_ids": [source_region_id],
-                    "source_clause_id": clause.id,
-                    "normalized_metrics": [to_primitive(item) for item in clause.normalized_metrics],
-                }
-            )
-            requirements.append(payload)
-
-        detail_requirements = [
-            {
-                **item,
-                "source_region_id": item["source_clause_id"],
-                "source_region_ids": [item["source_clause_id"]],
-            }
-            for item in requirements
-        ]
-        temporary_text = {clause.id: clause.text for clause in clauses}
-        attributes, constraints = extract_explicit_details(detail_requirements, temporary_text)
-        source_by_clause = {clause.id: clause.source_region_id for clause in clauses}
-        attribute_payloads = []
-        for item in attributes:
-            payload = to_primitive(item)
-            payload["source_region_ids"] = [
-                source_by_clause.get(str(source), str(source))
-                for source in payload.get("source_region_ids", ())
-            ]
-            attribute_payloads.append(payload)
-        constraint_payloads = []
-        for item in constraints:
-            payload = to_primitive(item)
-            payload["source_region_ids"] = [
-                source_by_clause.get(str(source), str(source))
-                for source in payload.get("source_region_ids", ())
-            ]
-            constraint_payloads.append(payload)
-        return ClauseAnalysis(
-            clauses=clauses,
-            requirements=tuple(sorted(requirements, key=lambda item: str(item["source_clause_id"]))),
-            attributes=tuple(attribute_payloads),
-            constraints=tuple(constraint_payloads),
-        )
+            extracted = extract_requirement_candidates({"document_regions": (region,)})
+            if not extracted:
+                continue
+            requirement = extracted[0]
+            requirements.append(requirement)
+            for metric in clause.normalized_metrics:
+                minimum = str(metric.value) if metric.operator in {">=", ">"} else ""
+                maximum = str(metric.value) if metric.operator in {"<=", "<"} else ""
+                value_text = str(metric.value) if metric.operator == "==" else ""
+                attributes.append(
+                    RequirementAttribute.from_fields(
+                        requirement_id=requirement.id,
+                        name=metric.name,
+                        value=value_text,
+                        unit=metric.unit,
+                        minimum=minimum,
+                        maximum=maximum,
+                        source_region_ids=(clause.source_region_id,),
+                    )
+                )
+                constraints.append(
+                    RequirementConstraint.from_fields(
+                        requirement_ids=(requirement.id,),
+                        constraint_type="behavior" if clause.kind == "behavior" else "performance",
+                        expression=f"{metric.name} {metric.operator} {metric.value} {metric.unit}",
+                        explicitness="explicit",
+                        source_region_ids=(clause.source_region_id,),
+                    )
+                )
+        return ClauseAnalysis(tuple(clauses), tuple(requirements), tuple(attributes), tuple(constraints))
 
 
 __all__ = [

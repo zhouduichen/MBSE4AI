@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-heading">
   <div><h1>开始项目</h1></div>
-  {% if workspace %}<a class="button primary" href="/w/{{ workspace.name }}/requirements/input">输入第一条需求 →</a>{% endif %}
+  {% if workspace %}<div class="workbench-actions"><a class="button primary" href="/w/{{ workspace.name }}/requirements/input">输入第一条需求 →</a><a class="button" href="/w/{{ workspace.name }}/concept-design">智能生成概念方案 →</a></div>{% endif %}
 </div>
 {% if not workspace %}
 <section class="empty-state">

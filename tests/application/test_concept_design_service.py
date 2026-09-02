@@ -34,9 +34,18 @@ def test_concept_run_links_envelope_candidates_evaluations_and_optimization(tmp_
             repository,
             optimize=True,
         )
-        assert 3 <= len(result.candidates) <= 5
+        assert len(result.candidates) >= 5
         assert len(result.evaluations) == len(result.candidates) * 3
         assert result.optimization.front_candidate_ids
+        assert result.optimization.iteration_records
+        assert len(result.optimization.candidate_ids) > 5
+        assert any(
+            candidate.reference_ids
+            and candidate.reference_ids[0] in {
+                item.id for item in result.candidates[:5]
+            }
+            for candidate in result.candidates[5:]
+        )
         assert all(item.envelope_id == result.envelope.id for item in result.candidates)
         assert result.trace_links
         assert result.formal_status == "development"

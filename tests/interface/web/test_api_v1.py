@@ -149,7 +149,7 @@ def test_api_v1_concept_design_workflow(client: TestClient) -> None:
         json={"pack": "fixed-wing-v1", "evaluator_profile": "development-v1", "envelope": envelope},
     )
     assert run.status_code == 200, run.text
-    assert 3 <= len(run.json()["run"]["candidates"]) <= 5
+    assert len(run.json()["run"]["candidates"]) >= 5
     assert len(run.json()["run"]["layout_manifests"]) == len(run.json()["run"]["candidates"])
     assert "approval_diagnostics" in run.json()["run"]["evaluations"][0]
     page = client.get("/w/concept/concept-design")
