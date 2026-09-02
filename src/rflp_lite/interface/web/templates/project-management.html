@@ -7,26 +7,14 @@
 <section class="panel"><div class="panel-head"><div><h2>我的项目</h2></div><span class="count-badge">{{ projects|length }} 个项目</span></div>
   <div class="project-card-list">
   {% for project in projects %}
-  <details class="project-card">
+  <details class="project-card" hx-get="/w/{{ project.workspace.name }}/project/details" hx-trigger="toggle once" hx-target="#project-details-{{ loop.index }}" hx-swap="innerHTML">
     <summary class="project-card-summary">
-      <span class="project-card-title"><strong>{{ project.workspace.name }}</strong><small>{{ project.requirement_count }} 条当前需求 · {{ project.model_state }}</small></span>
-      <span class="project-card-meta"><span class="count-badge">{{ project.accepted_count }} 条已接受</span><span class="project-expand-label">展开需求</span></span>
+      <span class="project-card-title"><strong>{{ project.workspace.name }}</strong><small>{% if project.requirement_count is none %}摘要待读取{% else %}{{ project.requirement_count }} 条当前需求 · {{ project.model_state }}{% endif %}</small></span>
+      <span class="project-card-meta"><span class="count-badge">{% if project.accepted_count is none %}摘要待读取{% else %}{{ project.accepted_count }} 条已接受{% endif %}</span><span class="project-expand-label">展开需求</span></span>
     </summary>
     <div class="project-card-body">
       <div class="project-card-actions"><a class="button compact primary" href="/w/{{ project.workspace.name }}/requirements">打开项目 →</a><a class="button compact" href="/w/{{ project.workspace.name }}/requirements/input">提交新需求</a></div>
-      {% if project.requirements %}
-      <div class="project-requirement-list">
-      {% for item in project.requirements %}
-      <article class="project-requirement-row">
-        <a href="/w/{{ project.workspace.name }}/requirements/input"><span><strong>{{ item.subject }} {{ item.predicate }} {{ item.object }}</strong><small>{{ item.id }}</small></span></a>
-        <span class="status-badge {{ item.status }}">{{ item.status_label }}</span>
-        <form method="post" action="/w/{{ project.workspace.name }}/requirements/entities/delete-preview"><input type="hidden" name="entity_type" value="requirement"><input type="hidden" name="entity_id" value="{{ item.id }}"><button class="button compact danger" type="submit">预览删除影响</button></form>
-      </article>
-      {% endfor %}
-      </div>
-      {% else %}
-      <div class="mini-empty">暂无需求。<a class="text-link" href="/w/{{ project.workspace.name }}/requirements/input">输入第一条需求 →</a></div>
-      {% endif %}
+      <div id="project-details-{{ loop.index }}"><div class="mini-empty">展开后读取项目需求…</div></div>
     </div>
   </details>
   {% endfor %}
