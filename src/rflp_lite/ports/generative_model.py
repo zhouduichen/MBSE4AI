@@ -6,6 +6,19 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
+SIMPLIFIED_CHINESE_OUTPUT_INSTRUCTION = (
+    "面向中国用户输出。无论输入资料使用何种语言，所有自然语言输出字段必须使用简体中文；"
+    "不得因为输入是英文而用英文回答。保留 JSON 字段名、ID、固定枚举值、型号、标准编号、"
+    "单位和必要专有名词原样。"
+)
+
+
+def add_simplified_chinese_instruction(prompt: str) -> str:
+    """Prefix one LLM prompt with the product's natural-language output rule."""
+
+    return f"{SIMPLIFIED_CHINESE_OUTPUT_INSTRUCTION}\n{str(prompt).strip()}"
+
+
 @dataclass(frozen=True, slots=True)
 class GenerationRequest:
     lens_id: str
@@ -32,4 +45,3 @@ class GenerationResponse:
 class GenerativeModel(Protocol):
     def complete_json(self, request: GenerationRequest) -> GenerationResponse:
         """Return a validated JSON object for one analysis lens."""
-

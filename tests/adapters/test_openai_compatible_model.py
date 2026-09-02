@@ -2,7 +2,10 @@ import pytest
 
 from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
 from rflp_lite.domain.errors import AdapterFailure
-from rflp_lite.ports.generative_model import GenerationRequest
+from rflp_lite.ports.generative_model import (
+    GenerationRequest,
+    SIMPLIFIED_CHINESE_OUTPUT_INSTRUCTION,
+)
 
 
 def request() -> GenerationRequest:
@@ -55,6 +58,33 @@ def test_adapter_parses_json_and_records_hashes():
     assert result.status == "completed"
     assert result.repaired is False
     assert calls[0][2] == 1200
+
+
+def test_adapter_adds_simplified_chinese_instruction_to_initial_prompt():
+    calls = []
+
+    def complete(_config, messages, *, max_tokens=None):
+        calls.append(messages)
+        return '{"items":[]}'
+
+    OpenAICompatibleModel({"model": "local"}, complete=complete).complete_json(request())
+
+    assert SIMPLIFIED_CHINESE_OUTPUT_INSTRUCTION in calls[0][0]["content"]
+    assert "只返回 JSON" in calls[0][0]["content"]
+
+
+def test_adapter_adds_simplified_chinese_instruction_to_repair_prompt():
+    calls = []
+    answers = iter(("not-json", '{"items":[]}'))
+
+    def complete(_config, messages, *, max_tokens=None):
+        calls.append(messages)
+        return next(answers)
+
+    OpenAICompatibleModel({"model": "local"}, complete=complete).complete_json(request())
+
+    assert SIMPLIFIED_CHINESE_OUTPUT_INSTRUCTION in calls[1][0]["content"]
+    assert "重新生成完整的 JSON 分析结果" in calls[1][0]["content"]
 
 
 def test_adapter_repairs_invalid_json_once():

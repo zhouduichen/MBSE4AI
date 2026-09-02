@@ -13,7 +13,11 @@ from rflp_lite.adapters.llm_client import (
 )
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.errors import AdapterFailure
-from rflp_lite.ports.generative_model import GenerationRequest, GenerationResponse
+from rflp_lite.ports.generative_model import (
+    GenerationRequest,
+    GenerationResponse,
+    add_simplified_chinese_instruction,
+)
 
 
 _REPAIR_FAILURE = "LLM response is not valid JSON after one repair"
@@ -143,7 +147,7 @@ class OpenAICompatibleModel:
         return [
             {
                 "role": "system",
-                "content": (
+                "content": add_simplified_chinese_instruction(
                     f"重新生成完整的 JSON 分析结果，最多返回 {max_items} 项；"
                     "保留有效内容，修复结构，不要解释，也不要用空数组规避任务。"
                 ),
@@ -165,7 +169,10 @@ class OpenAICompatibleModel:
             # truncation on a 4B model.
             prompt_payload["response_schema"] = request.response_schema
         messages = [
-            {"role": "system", "content": request.system_prompt},
+            {
+                "role": "system",
+                "content": add_simplified_chinese_instruction(request.system_prompt),
+            },
             {
                 "role": "user",
                 "content": json.dumps(prompt_payload, ensure_ascii=False, sort_keys=True),
