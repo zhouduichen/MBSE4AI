@@ -12,6 +12,54 @@ from dataclasses import dataclass
 from rflp_lite.domain.canonical import canonical_hash
 
 
+@dataclass(frozen=True, slots=True)
+class Metric:
+    name: str
+    operator: str
+    value: str
+    unit: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Requirement:
+    """Minimal v2 requirement; unsupported numeric content stays explicit."""
+
+    meta: "EntityMeta"
+    level: str
+    type: str
+    subject: str
+    condition: str
+    obligation: str
+    rationale: str = ""
+    metric: Metric | None = None
+    verification_method: str | None = None
+    source_entity_ids: tuple[str, ...] = ()
+
+    @classmethod
+    def from_fields(
+        cls,
+        *,
+        subject: str,
+        obligation: str,
+        level: str = "system",
+        type: str = "functional",
+        condition: str = "",
+        rationale: str = "",
+        metric: Metric | None = None,
+        verification_method: str | None = None,
+        source_entity_ids: tuple[str, ...] = (),
+    ) -> "Requirement":
+        from rflp_lite.domain.entities import EntityKind, EntityMeta
+
+        name = f"{subject.strip()} {obligation.strip()}".strip()
+        meta = EntityMeta.create(EntityKind.REQUIREMENT, name, source_ids=source_entity_ids)
+        return cls(meta, level.strip(), type.strip(), subject.strip(), condition.strip(), obligation.strip(), rationale.strip(), metric, verification_method, source_entity_ids)
+
+    @property
+    def parameter_gap(self) -> str | None:
+        return "TBD" if self.metric is None and self.type == "performance" else None
+
+
 def _stable_region_ids(values: object) -> tuple[str, ...]:
     """Return non-empty source IDs in stable first-seen order."""
 
