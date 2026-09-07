@@ -1,8 +1,20 @@
 # RFLP-Lite 开发状态
 
-**最后更新：** 2026-09-01
+**最后更新：** 2026-09-07
 **当前版本：** 0.1.0  
 **状态：** 复审文档要求的 Phase 2A → 2B → 3A → 3B → 5 → 4 → 6 → 7 已依次落实；保留兼容入口，新增路径由窄依赖、严格契约、可恢复 Job 和自动门禁保护
+
+## v2.0 重构基线
+
+2026-09-07 已加入校园无人配送机器人 Golden fixture。基线验证命令为：
+
+```bash
+.venv/bin/python -m pytest -q
+.venv/bin/python -m compileall -q src
+.venv/bin/python scripts/architecture_metrics.py
+```
+
+后续 PR 以该 fixture、完整测试、compileall 和架构指标为回归基线。
 
 ## 当前完成度
 

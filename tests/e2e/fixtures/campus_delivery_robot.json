@@ -1,0 +1,18 @@
+{
+  "system": "校园无人配送机器人",
+  "stakeholders": ["学生", "运营人员", "校园安全监管方", "维护人员"],
+  "lifecycle_stages": ["规划", "部署", "运行", "维护", "退役"],
+  "scenarios": ["正常配送", "障碍绕行", "低电量返航", "通信丢失恢复"],
+  "requirements": [
+    {
+      "id": "req-availability",
+      "statement": "系统应支持校园配送任务",
+      "verification_method": "demonstration"
+    },
+    {
+      "id": "req-maintenance",
+      "statement": "系统应支持维护人员进行故障处置",
+      "verification_method": "inspection"
+    }
+  ]
+}
