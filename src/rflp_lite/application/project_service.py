@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import json
 from pathlib import Path
 from typing import Callable
 
@@ -13,6 +14,9 @@ from rflp_lite.application.workspaces import (
     managed_workspace,
 )
 from rflp_lite.domain.errors import ContractViolation, NotFoundError
+from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
+from rflp_lite.domain.model import AddEntity, Patch, Relate
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.ports.document_intelligence import DocumentParserPort
 from rflp_lite.repository.port import ModelRepository
 
@@ -68,6 +72,13 @@ class ProjectService:
         }
 
     def ingest(self, project_id: str, document_path: Path) -> dict[str, object]:
+        if document_path.suffix.casefold() == ".json":
+            try:
+                fixture = json.loads(document_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ContractViolation("JSON document cannot be read") from exc
+            if isinstance(fixture, dict) and {"system", "stakeholders"} <= set(fixture):
+                return self.seed_fixture(project_id, fixture, source_path=document_path)
         repository = self.repository(project_id)
         source = document_path.expanduser().resolve()
         if not source.is_file():
@@ -103,4 +114,72 @@ class ProjectService:
             "name": parsed.artifact.path,
             "region_count": len(parsed.regions),
             "diagnostics": [asdict(item) for item in parsed.diagnostics],
+        }
+
+    def seed_fixture(
+        self,
+        project_id: str,
+        fixture: dict[str, object],
+        *,
+        source_path: Path | None = None,
+    ) -> dict[str, object]:
+        """Import a deterministic fixture into the typed graph for offline E2E."""
+
+        repository = self.repository(project_id)
+        graph = repository.load_graph(project_id)
+        operations: list[object] = []
+        by_key: dict[tuple[EntityKind, str], str] = {}
+
+        def add(kind: EntityKind, name: str, payload: dict[str, object] | None = None):
+            clean = str(name).strip()
+            if not clean or (kind, clean) in by_key:
+                return None
+            entity = make_entity(
+                kind,
+                clean,
+                payload or {},
+                status=EntityStatus.ACCEPTED,
+                producer=Producer.IMPORT,
+                confidence=1.0,
+                revision=graph.revision,
+            )
+            if entity.id in graph.entity_index:
+                by_key[(kind, clean)] = entity.id
+                return entity.id
+            by_key[(kind, clean)] = entity.id
+            operations.append(AddEntity(entity))
+            return entity.id
+
+        system_id = add(EntityKind.SYSTEM, str(fixture.get("system", "")), {"fixture": True})
+        stakeholder_ids = [add(EntityKind.STAKEHOLDER, str(item), {"fixture": True}) for item in fixture.get("stakeholders", ())]
+        stage_ids = [add(EntityKind.LIFECYCLE_STAGE, str(item), {"fixture": True}) for item in fixture.get("lifecycle_stages", ())]
+        scenario_ids = [add(EntityKind.SCENARIO_HYPOTHESIS, str(item), {"fixture": True}) for item in fixture.get("scenarios", ())]
+        requirement_ids = []
+        for item in fixture.get("requirements", ()):
+            if isinstance(item, dict):
+                requirement_ids.append(add(EntityKind.REQUIREMENT, str(item.get("statement", item.get("id", ""))), {"fixture_id": str(item.get("id", "")), "verification_method": str(item.get("verification_method", "review"))}))
+        relation_ops: list[object] = []
+        if system_id:
+            relation_ops.extend(
+                Relate(system_id, RelationPredicate.DECOMPOSES, target)
+                for target in stakeholder_ids if target
+            )
+        for stakeholder_id in stakeholder_ids:
+            for scenario_id in scenario_ids:
+                if stakeholder_id and scenario_id:
+                    relation_ops.append(Relate(stakeholder_id, RelationPredicate.DERIVED_FROM, scenario_id))
+        for requirement_id in requirement_ids:
+            for scenario_id in scenario_ids:
+                if requirement_id and scenario_id:
+                    relation_ops.append(Relate(requirement_id, RelationPredicate.DERIVED_FROM, scenario_id))
+        operations.extend(relation_ops)
+        if operations:
+            patch = Patch.create(project_id, "import.fixture", tuple(operations), "导入 Golden fixture", graph.revision)
+            repository.append_patch(project_id, patch, graph.revision)
+        return {
+            "document_id": f"fixture-{project_id}",
+            "region_count": 0,
+            "entity_count": len(operations) - len(relation_ops),
+            "relation_count": len(relation_ops),
+            "source_path": str(source_path) if source_path else "",
         }

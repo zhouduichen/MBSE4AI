@@ -195,6 +195,27 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
             "entity_ids": json.loads(row["entity_ids"]), "status": row["status"],
         } for row in rows)
 
+    def save_issue(self, project_id: str, issue: Mapping[str, object]) -> None:
+        self.ensure_project(project_id)
+        issue_id = str(issue.get("id", "")).strip()
+        if not issue_id:
+            raise ContractViolation("issue id is required")
+        with self._transaction():
+            self._connection.execute(
+                "INSERT OR REPLACE INTO issues(id, project_id, run_id, task_id, code, severity, entity_ids, suggested_rollback, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    issue_id,
+                    project_id,
+                    issue.get("run_id"),
+                    issue.get("task_id"),
+                    str(issue.get("code", "issue")),
+                    str(issue.get("severity", "warning")),
+                    _json(issue.get("entity_ids", [])),
+                    issue.get("suggested_rollback"),
+                    str(issue.get("status", "open")),
+                ),
+            )
+
     def save_document(self, project_id: str, document: Mapping[str, object]) -> None:
         self.ensure_project(project_id)
         document_id = str(document.get("id", "")).strip()

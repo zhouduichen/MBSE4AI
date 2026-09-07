@@ -14,6 +14,8 @@ from rflp_lite.interface.web.routes import router, templates
 from rflp_lite.interface.web.api_v1 import api_v1
 from rflp_lite.interface.web.discovery_api import discovery_api
 from rflp_lite.interface.web.discovery_routes import discovery_router
+from rflp_lite.interface.web.resource_api import resource_api
+from rflp_lite.interface.web.resource_pages import resource_pages
 
 
 def create_app(
@@ -41,6 +43,8 @@ def create_app(
     app.include_router(api_v1)
     app.include_router(discovery_router)
     app.include_router(discovery_api)
+    app.include_router(resource_api)
+    app.include_router(resource_pages)
 
     @app.exception_handler(ContractViolation)
     async def contract_error(request: Request, exc: ContractViolation) -> HTMLResponse:

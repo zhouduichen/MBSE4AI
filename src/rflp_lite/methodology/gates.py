@@ -36,7 +36,26 @@ def functional_gate(graph: ModelGraph) -> GateResult:
 
 def rflp_gate(graph: ModelGraph) -> GateResult:
     required = (EntityKind.REQUIREMENT, EntityKind.FUNCTION, EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK)
-    issues = () if _has(graph, *required) else (CoverageGap("incomplete_rflp_chain", "architecture"),)
+    if not _has(graph, *required):
+        return GateResult("P-Gate", False, (CoverageGap("incomplete_rflp_chain", "architecture"),), Phase.FUNCTIONAL)
+    index = graph.entity_index
+    accepted_requirements = {
+        entity.id for entity in graph.entities
+        if entity.kind is EntityKind.REQUIREMENT and entity.meta.status.value == "accepted"
+    }
+    if not accepted_requirements:
+        return GateResult("P-Gate", True)
+    by_source: dict[str, set[str]] = {}
+    for relation in graph.relations:
+        by_source.setdefault(relation.source_id, set()).add(relation.target_id)
+    missing = []
+    for requirement_id in sorted(accepted_requirements):
+        functions = {target for target in by_source.get(requirement_id, set()) if index.get(target) and index[target].kind is EntityKind.FUNCTION}
+        logical = {target for function_id in functions for target in by_source.get(function_id, set()) if index.get(target) and index[target].kind is EntityKind.LOGICAL_COMPONENT}
+        physical = {target for logical_id in logical for target in by_source.get(logical_id, set()) if index.get(target) and index[target].kind is EntityKind.PHYSICAL_BLOCK}
+        if not physical:
+            missing.append(requirement_id)
+    issues = (CoverageGap("broken_requirement_rflp_trace", "architecture", tuple(missing)),) if missing else ()
     return GateResult("P-Gate", not issues, issues, Phase.FUNCTIONAL if issues else None)
 
 

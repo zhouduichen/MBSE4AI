@@ -14,6 +14,8 @@ from rflp_lite.methodology.contracts import (
 )
 from rflp_lite.methodology.tasks import output_contract, tasks_for_phase
 from rflp_lite.methodology.gates import GateResult, gate_for_phase
+from rflp_lite.methodology.coverage import CoverageGap, CoverageReport
+from rflp_lite.methodology.repair import patch_for_plan, plan_repair
 from rflp_lite.repository.port import Run, RunRepository, Step
 
 
@@ -127,10 +129,48 @@ class WorkflowRunner:
         return RunSummary(result.run_id, result.project_id, result.phase, result.status, tuple(sorted(set(result.completed_tasks) | completed)), result.diagnostics)
 
     def repair(self, project_id: str, issue_id: str) -> RunSummary:
-        raise ContractViolation(f"repair requires a registered issue: {issue_id}")
+        issues = self.model_repository.list_issues(project_id)
+        issue = next((item for item in issues if item.get("id") == issue_id), None)
+        if issue is None:
+            raise ContractViolation(f"repair requires a registered issue: {issue_id}")
+        graph = self.model_repository.load_graph(project_id)
+        code = str(issue.get("code", "issue"))
+        root_cause = {
+            "missing_stakeholder": "stakeholder",
+            "missing_lifecycle": "lifecycle",
+            "missing_scenario": "scenario",
+            "missing_use_case": "scenario",
+            "missing_requirement": "requirement",
+            "missing_function": "function",
+            "incomplete_rflp_chain": "architecture",
+            "broken_requirement_rflp_trace": "architecture",
+            "missing_verification": "verification",
+        }.get(code, "evidence")
+        plan = plan_repair(CoverageReport((CoverageGap(code, root_cause, tuple(str(item) for item in issue.get("entity_ids", ()))),)), revision=graph.revision)
+        if not plan.operations:
+            raise ContractViolation(f"issue has no automatic repair: {issue_id}")
+        patch = patch_for_plan(project_id, f"repair.{code}", graph, plan)
+        self.model_repository.append_patch(project_id, patch, graph.revision)
+        return RunSummary(
+            f"repair-{patch.id}", project_id, plan.rollback_phase,
+            RunStatus.COMPLETED, (), (f"applied_patch={patch.id}",),
+        )
 
     def gate(self, project_id: str, phase: Phase) -> GateResult:
-        return gate_for_phase(phase, self.model_repository.load_graph(project_id))
+        graph = self.model_repository.load_graph(project_id)
+        result = gate_for_phase(phase, graph)
+        saver = getattr(self.model_repository, "save_issue", None)
+        if saver is not None:
+            for gap in result.issues:
+                issue_id = f"issue-{canonical_hash((project_id, result.gate_id, gap.code, graph.revision))[:16]}"
+                saver(project_id, {
+                    "id": issue_id,
+                    "code": gap.code,
+                    "severity": "error",
+                    "entity_ids": list(gap.entity_ids),
+                    "suggested_rollback": result.rollback_phase.value if result.rollback_phase else None,
+                })
+        return result
 
     def _update_run_status(self, run_id: str, status: RunStatus, diagnostics: tuple[str, ...]) -> None:
         updater = getattr(self.run_repository, "update_run", None)

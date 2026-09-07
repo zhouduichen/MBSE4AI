@@ -13,12 +13,13 @@ from rflp_lite.application.render_service import RenderService
 from rflp_lite.application.settings_service import SettingsService
 from rflp_lite.methodology.workflow import NoopRuntime, WorkflowRunner
 from rflp_lite.repository.sqlite import SQLiteModelRepository
+from rflp_lite.runtime.rule_based import RuleRuntime
 
 
 class V2Services:
     def __init__(self, workspace_root: Path, *, runtime=None, config_dir: Path | None = None):
         self.workspace_root = workspace_root.resolve()
-        self.runtime = runtime or NoopRuntime()
+        self.runtime = runtime or RuleRuntime()
         self.settings = SettingsService(config_dir)
         self.projects = ProjectService(
             self.workspace_root,
