@@ -149,6 +149,24 @@ def apply_patch(graph: ModelGraph, patch: Patch) -> ModelGraph:
             meta = entity.meta
             if "name" in operation.field_patch:
                 meta = replace(meta, name=str(operation.field_patch["name"]))
+            if "status" in operation.field_patch:
+                try:
+                    meta = replace(meta, status=EntityStatus(str(operation.field_patch["status"])))
+                except ValueError as exc:
+                    raise ContractViolation("unsupported entity status") from exc
+            if "confidence" in operation.field_patch:
+                confidence = operation.field_patch["confidence"]
+                meta = replace(meta, confidence=float(confidence) if confidence is not None else None)
+            if "lifecycle_ids" in operation.field_patch:
+                value = operation.field_patch["lifecycle_ids"]
+                if not isinstance(value, (list, tuple)):
+                    raise ContractViolation("lifecycle_ids patch must be an array")
+                meta = replace(meta, lifecycle_ids=tuple(str(item) for item in value))
+            if "evidence_ids" in operation.field_patch:
+                value = operation.field_patch["evidence_ids"]
+                if not isinstance(value, (list, tuple)):
+                    raise ContractViolation("evidence_ids patch must be an array")
+                meta = replace(meta, evidence_ids=tuple(str(item) for item in value))
             payload = dict(entity.payload)
             if "payload" in operation.field_patch:
                 value = operation.field_patch["payload"]

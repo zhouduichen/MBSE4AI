@@ -8,7 +8,7 @@ import threading
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.entities import Entity, EntityKind, EntityMeta, EntityStatus, Producer
@@ -16,7 +16,7 @@ from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolati
 from rflp_lite.domain.model import ModelGraph, Patch, Revision, apply_patch
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.repository.migrations import apply_v2_schema
-from rflp_lite.repository.port import Run, RunRepository, Step
+from rflp_lite.repository.port import ModelRepository, Run, RunRepository, Step
 
 
 def _json(value: object) -> str:
@@ -54,7 +54,7 @@ def _entity_from_dict(raw: Mapping[str, object]) -> Entity:
     return Entity(meta, dict(payload))
 
 
-class SQLiteModelRepository(RunRepository):
+class SQLiteModelRepository(ModelRepository, RunRepository):
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
@@ -141,6 +141,12 @@ class SQLiteModelRepository(RunRepository):
                 "INSERT INTO relations(id, project_id, source_id, predicate, target_id, evidence_ids, created_revision) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (relation.id, graph.project_id, relation.source_id, relation.predicate.value, relation.target_id, _json(relation.evidence_ids), revision),
             )
+        self._connection.execute("DELETE FROM entities_fts WHERE project_id = ?", (graph.project_id,))
+        for entity in graph.entities:
+            self._connection.execute(
+                "INSERT INTO entities_fts(project_id, entity_id, name, payload) VALUES (?, ?, ?, ?)",
+                (graph.project_id, entity.id, entity.meta.name, _json(entity.payload)),
+            )
 
     def append_patch(self, project_id: str, patch: Patch, expected_revision: int) -> Revision:
         if patch.project_id != project_id or patch.expected_revision != expected_revision:
@@ -188,6 +194,125 @@ class SQLiteModelRepository(RunRepository):
             "id": row["id"], "code": row["code"], "severity": row["severity"],
             "entity_ids": json.loads(row["entity_ids"]), "status": row["status"],
         } for row in rows)
+
+    def save_document(self, project_id: str, document: Mapping[str, object]) -> None:
+        self.ensure_project(project_id)
+        document_id = str(document.get("id", "")).strip()
+        if not document_id:
+            raise ContractViolation("document id is required")
+        with self._transaction():
+            self._connection.execute(
+                "INSERT OR REPLACE INTO documents(id, project_id, kind, path, name, sha256, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    document_id,
+                    project_id,
+                    str(document.get("kind", "document")),
+                    str(document.get("path", "")),
+                    str(document.get("name", document.get("path", ""))),
+                    str(document.get("sha256", "")),
+                    _json(document.get("metadata", {})),
+                ),
+            )
+
+    def save_source_regions(
+        self, project_id: str, regions: Sequence[Mapping[str, object]]
+    ) -> None:
+        self.ensure_project(project_id)
+        with self._transaction():
+            for region in regions:
+                region_id = str(region.get("id", "")).strip()
+                document_id = str(region.get("document_id", region.get("artifact_id", ""))).strip()
+                if not region_id or not document_id:
+                    raise ContractViolation("source region id and document id are required")
+                self._connection.execute(
+                    "INSERT OR REPLACE INTO source_regions(id, document_id, page, locator, text, bbox, heading_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        region_id,
+                        document_id,
+                        region.get("page"),
+                        str(region.get("locator", "")),
+                        str(region.get("text", "")),
+                        _json(region.get("bbox", [])),
+                        _json(region.get("heading_path", [])),
+                    ),
+                )
+                self._connection.execute("DELETE FROM source_regions_fts WHERE region_id = ?", (region_id,))
+                self._connection.execute(
+                    "INSERT INTO source_regions_fts(project_id, region_id, text, locator, heading_path) VALUES (?, ?, ?, ?, ?)",
+                    (project_id, region_id, str(region.get("text", "")), str(region.get("locator", "")), _json(region.get("heading_path", []))),
+                )
+
+    def save_evidence(self, project_id: str, evidence: Mapping[str, object]) -> None:
+        self.ensure_project(project_id)
+        evidence_id = str(evidence.get("id", "")).strip()
+        if not evidence_id:
+            raise ContractViolation("evidence id is required")
+        with self._transaction():
+            self._connection.execute(
+                "INSERT OR REPLACE INTO evidence(id, project_id, source_type, source_id, locator, claim, excerpt, authority, relevance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    evidence_id,
+                    project_id,
+                    str(evidence.get("source_type", "user_document")),
+                    str(evidence.get("source_id", "")),
+                    str(evidence.get("locator", "")),
+                    str(evidence.get("claim", "")),
+                    str(evidence.get("excerpt", "")),
+                    float(evidence["authority"]) if evidence.get("authority") is not None else None,
+                    float(evidence["relevance"]) if evidence.get("relevance") is not None else None,
+                ),
+            )
+            self._connection.execute("DELETE FROM evidence_fts WHERE evidence_id = ?", (evidence_id,))
+            self._connection.execute(
+                "INSERT INTO evidence_fts(project_id, evidence_id, claim, excerpt) VALUES (?, ?, ?, ?)",
+                (project_id, evidence_id, str(evidence.get("claim", "")), str(evidence.get("excerpt", ""))),
+            )
+
+    def list_evidence(self, project_id: str) -> tuple[dict[str, object], ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM evidence WHERE project_id = ? ORDER BY id", (project_id,)
+            ).fetchall()
+        return tuple(
+            {
+                "id": row["id"], "source_type": row["source_type"], "source_id": row["source_id"],
+                "locator": row["locator"], "claim": row["claim"], "excerpt": row["excerpt"],
+                "authority": row["authority"], "relevance": row["relevance"],
+            }
+            for row in rows
+        )
+
+    def search_fts(self, project_id: str, query: str, limit: int = 20) -> tuple[dict[str, object], ...]:
+        clean_query = " ".join(str(query).split()).strip()
+        if not clean_query:
+            return ()
+        bounded_limit = max(1, min(int(limit), 100))
+        with self._lock:
+            results: list[dict[str, object]] = []
+            for table, columns, kind in (
+                ("source_regions_fts", "region_id, text, locator, heading_path", "source_region"),
+                ("entities_fts", "entity_id, name, payload", "entity"),
+                ("evidence_fts", "evidence_id, claim, excerpt", "evidence"),
+            ):
+                try:
+                    rows = self._connection.execute(
+                        f"SELECT {columns} FROM {table} WHERE project_id = ? AND {table} MATCH ? LIMIT ?",
+                        (project_id, clean_query, bounded_limit),
+                    ).fetchall()
+                except sqlite3.OperationalError:
+                    search_columns = columns.split(", ")[1:]
+                    predicate = " OR ".join("{} LIKE ?".format(column) for column in search_columns)
+                    rows = self._connection.execute(
+                        f"SELECT {columns} FROM {table} WHERE project_id = ? AND ({predicate}) LIMIT ?",
+                        (project_id, *(f"%{clean_query}%" for _ in search_columns), bounded_limit),
+                    ).fetchall()
+                for row in rows:
+                    values = dict(row)
+                    values["kind"] = kind
+                    results.append(values)
+                    if len(results) >= bounded_limit:
+                        return tuple(results)
+        return tuple(results)
 
     def create_run(self, run: Run) -> None:
         self.ensure_project(run.project_id)

@@ -30,6 +30,7 @@ from rflp_lite.application.dependencies import (
 )
 from rflp_lite.application.jobs import JobService
 from rflp_lite.bootstrap.legacy_job_migration import migrate_legacy_jobs
+from rflp_lite.bootstrap.v2 import V2Services, build_v2_services
 
 
 def _evidence_readers(root: Path) -> tuple[object, ...]:
@@ -73,6 +74,7 @@ class ApplicationContainer:
     workspace_root: Path
     fixture_root: Path | None
     dependencies: ApplicationDependencies
+    v2: V2Services | None = None
 
 
 def build_container(
@@ -107,4 +109,5 @@ def build_container(
         workspace_root=workspace_root.resolve(),
         fixture_root=fixture_root,
         dependencies=dependencies,
+        v2=build_v2_services(workspace_root, config_dir=workspace_root / ".rflp" / "config"),
     )

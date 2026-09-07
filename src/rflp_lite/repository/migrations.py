@@ -147,3 +147,21 @@ def apply_v2_schema(connection: sqlite3.Connection) -> None:
         INSERT OR REPLACE INTO schema_migrations_v2(version, name) VALUES (2, 'model_graph_and_run_ledger');
         """
     )
+    # Standalone FTS tables keep the repository portable and make the search
+    # index rebuildable after an import.  Some minimal SQLite builds omit
+    # FTS5; regular shadow tables retain a LIKE-based fallback in that case.
+    for statement in (
+        "CREATE VIRTUAL TABLE IF NOT EXISTS source_regions_fts USING fts5(project_id UNINDEXED, region_id UNINDEXED, text, locator, heading_path)",
+        "CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(project_id UNINDEXED, entity_id UNINDEXED, name, payload)",
+        "CREATE VIRTUAL TABLE IF NOT EXISTS evidence_fts USING fts5(project_id UNINDEXED, evidence_id UNINDEXED, claim, excerpt)",
+    ):
+        try:
+            connection.execute(statement)
+        except sqlite3.OperationalError:
+            table = statement.split()[6]
+            if table == "source_regions_fts":
+                connection.execute("CREATE TABLE IF NOT EXISTS source_regions_fts (project_id TEXT, region_id TEXT, text TEXT, locator TEXT, heading_path TEXT)")
+            elif table == "entities_fts":
+                connection.execute("CREATE TABLE IF NOT EXISTS entities_fts (project_id TEXT, entity_id TEXT, name TEXT, payload TEXT)")
+            else:
+                connection.execute("CREATE TABLE IF NOT EXISTS evidence_fts (project_id TEXT, evidence_id TEXT, claim TEXT, excerpt TEXT)")

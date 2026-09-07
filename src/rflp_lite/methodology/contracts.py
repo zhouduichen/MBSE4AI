@@ -107,6 +107,10 @@ class TaskExecutionResponse:
     patch: Patch | None = None
     diagnostics: tuple[str, ...] = ()
     repaired: bool = False
+    input_hash: str = ""
+    output_hash: str = ""
+    provider_id: str = ""
+    model_id: str = ""
 
 
 class TaskRuntime(Protocol):

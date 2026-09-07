@@ -57,3 +57,44 @@ def task_catalog() -> tuple[TaskSpec, ...]:
 
 def tasks_for_phase(phase: Phase) -> tuple[TaskSpec, ...]:
     return tuple(task for task in task_catalog() if task.phase is phase)
+
+
+def output_contract(task: TaskSpec) -> dict[str, object]:
+    """Return the single bounded JSON envelope accepted from a task runtime.
+
+    The runtime intentionally accepts operations instead of a free-form
+    analysis dictionary.  This keeps the LLM useful for proposal generation
+    while leaving identity, relation typing, lock checks, and CAS semantics in
+    the domain/application layers.
+    """
+
+    kind_values = [kind.value for kind in task.output_kinds]
+    operation = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["op"],
+        "properties": {
+            "op": {"enum": ["ADD", "UPDATE", "RELATE", "DEPRECATE"]},
+            "kind": {"enum": kind_values},
+            "name": {"type": "string", "minLength": 1},
+            "entity_id": {"type": "string"},
+            "source_id": {"type": "string"},
+            "target_id": {"type": "string"},
+            "predicate": {"type": "string"},
+            "payload": {"type": "object"},
+            "field_patch": {"type": "object"},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "source_ids": {"type": "array", "items": {"type": "string"}},
+            "lifecycle_ids": {"type": "array", "items": {"type": "string"}},
+            "evidence_ids": {"type": "array", "items": {"type": "string"}},
+        },
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["operations"],
+        "properties": {
+            "operations": {"type": "array", "items": operation, "maxItems": 32},
+            "reason": {"type": "string", "maxLength": 300},
+        },
+    }

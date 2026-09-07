@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Mapping, Protocol, Sequence
 
 from rflp_lite.domain.entities import Entity, EntityKind
 from rflp_lite.domain.model import ModelGraph, Patch, Revision
@@ -48,6 +48,20 @@ class ModelRepository(Protocol):
     ) -> Revision: ...
 
     def list_issues(self, project_id: str) -> tuple[dict[str, object], ...]: ...
+
+    def save_document(self, project_id: str, document: Mapping[str, object]) -> None: ...
+
+    def save_source_regions(
+        self, project_id: str, regions: Sequence[Mapping[str, object]]
+    ) -> None: ...
+
+    def save_evidence(self, project_id: str, evidence: Mapping[str, object]) -> None: ...
+
+    def list_evidence(self, project_id: str) -> tuple[dict[str, object], ...]: ...
+
+    def search_fts(
+        self, project_id: str, query: str, limit: int = 20
+    ) -> tuple[dict[str, object], ...]: ...
 
 
 class RunRepository(Protocol):
