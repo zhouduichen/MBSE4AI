@@ -1,4 +1,4 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>Evidence &amp; Issues</title></head>
-<body><nav><a href="/projects">Projects</a> · <a href="/projects/{{ project_id }}/analysis">Analysis</a> · <a href="/projects/{{ project_id }}/model">MBSE Model</a> · Evidence &amp; Issues</nav>
+<body><nav><a href="/ui/projects">Projects</a> · <a href="/ui/projects/{{ project_id }}/analysis">Analysis</a> · <a href="/ui/projects/{{ project_id }}/model">MBSE Model</a> · Evidence &amp; Issues</nav>
 <main><h1>Evidence &amp; Issues</h1><h2>Evidence</h2><ul>{% for item in evidence %}<li>{{ item.claim }} — {{ item.locator }}</li>{% else %}<li>暂无证据</li>{% endfor %}</ul><h2>Issues</h2><ul>{% for issue in issues %}<li>{{ issue.code }} ({{ issue.status }})</li>{% else %}<li>暂无问题</li>{% endfor %}</ul></main></body></html>

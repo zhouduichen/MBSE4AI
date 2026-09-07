@@ -837,3 +837,4 @@ def _test_options(args: argparse.Namespace, workspace: Path) -> dict[str, object
 
 def entrypoint() -> None:
     raise SystemExit(main())
+
