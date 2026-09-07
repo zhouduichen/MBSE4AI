@@ -1,8 +1,10 @@
 # RFLP-Lite
 
-RFLP-Lite 是一个本地、确定性、可审计的 MBSE 研究原型。当前版本先跑通以下最小垂直链路：
+RFLP-Lite 是一个本地、确定性、可审计的 AI4MBSE Domain Harness。v2.0 的正式产品链路是：
 
-`Artifact -> Stakeholder / Concern / Need -> Claim -> R/F/L/P -> Candidate -> Simulation -> Baseline -> Delta -> TaskContract -> Evidence`
+`Project -> Documents / Evidence -> 4 Phase Workflow -> Typed ModelGraph -> Gate / Repair -> View / Export`
+
+Concept/MDO、Project Bridge/Test Runner、旧 Simulation/Baseline/TaskContract 和 MLflow 不属于 Core；需要时作为独立插件或研究 extra 恢复。
 
 开发资料：[当前完成状态](docs/DEVELOPMENT_STATUS.md) · [需求工作台设计](docs/superpowers/specs/2026-08-04-rflp-lite-requirements-workbench-design.md) · [实施计划](docs/superpowers/plans/2026-08-04-rflp-lite-requirements-workbench.md)
 
@@ -16,7 +18,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev,schema,evidence,opt,web,documents]'
 ```
 
-安装的首批开源组件包括 Import Linter、jsonschema/check-jsonschema、Hypothesis、Prance、junitparser 和 OR-Tools CP-SAT。它们都位于领域内核之外。
+安装的基础组件包括 Import Linter、jsonschema/check-jsonschema 和 Hypothesis。文档解析、Web、绘图引擎和其他研究能力均为 optional extra，不改变离线 Core。
 
 ## 跑通完整链路
 
@@ -191,6 +193,12 @@ Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机�
 ```
 
 同一 fixture、Profile 和 seed 的重复运行应产生相同的 `result_hash` 与 `baseline_hash`。Adapter 失败会回滚当前事务，并记录 `run.failed` 审计事件，不会修改已有 Baseline。
+
+## AI4MBSE Harness v2.0 重构边界
+
+方法论固定为 Operational、Functional、Logical/Physical、Assurance 四个 Phase 加 Closure。每个任务由 TaskSpec 描述输入实体、上下文查询、输出契约、Validator、Gate 和失败回退；AI 只能通过校验后的局部 Patch 修改 ModelGraph。SQLite 是 ModelGraph、Evidence、Run、Step、Patch、Revision 和 Issue 的唯一持久化真源。
+
+正式工作台收敛为 Projects、Analysis、MBSE Model、Evidence & Issues、Settings 五个一级页面；全生命周期是 Scenario、Requirement 和 Verification 的一等筛选维度。Web Search 只提供可选外部 Evidence，失败生成 Evidence Gap，不阻塞主流程。
 
 ## 当前边界
 

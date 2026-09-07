@@ -12,7 +12,7 @@ MBSE 研究与工程实践者(系统工程师、研究团队),在本地跑 RFLP 
 
 ## Product Purpose
 
-RFLP-Lite 是一个本地、确定性、可审计的 MBSE 研究原型:跑通 Artifact → Stakeholder/Concern/Need → Claim → R/F/L/P → Candidate → Simulation → Baseline → Delta → TaskContract → Evidence 的完整垂直链路,让需求到证据的每一步都有迹可查。
+RFLP-Lite 是一个本地、确定性、可审计的 AI4MBSE Domain Harness:跑通 Project → Documents/Evidence → Operational → Functional → Logical/Physical → Assurance → ModelGraph → Gate/Repair → View/Export 的完整生命周期链路,让每个方法论任务到证据的每一步都有迹可查。
 
 ## Positioning
 
@@ -21,16 +21,16 @@ RFLP-Lite 是一个本地、确定性、可审计的 MBSE 研究原型:跑通 Ar
 ## Operating Context
 
 - 本地命令行 + Web 控制台(uvicorn 服务),工作区目录在磁盘上,SQLite 为事务真源;
-- 用户创建工作区后,经过需求建模各页面进行输入、检查、补全、规划,再进入概念设计、项目验证、治理;
-- 20+ 个页面模块:需求规划子页簇、概念设计、候选与权衡、仿真、基线与差异、任务契约、证据审计、LLM 设置;
+- 用户创建项目后,经过文档/证据接入、四阶段方法论、Gate 检查和局部修复，进入模型查看与导出;
+- 5 个一级页面:Projects、Analysis、MBSE Model、Evidence & Issues、Settings;
 - 页面交互依赖 htmx 局部刷新,无前端构建步骤。
 
 ## Capabilities and Constraints
 
 - Python 3.11+,零前端构建(单 CSS + Jinja 模板 + htmx);
-- 确定性启发式求解器与 OR-Tools CP-SAT 双实现;
-- 功能冻结:本次为纯视觉重做,功能、路由、数据模型一律不动;
-- "能力中心"为规划中占位。
+- AI4MBSE Core 不包含 Concept/MDO、Project Bridge/Test Runner、旧 Simulation/Baseline/TaskContract 或 MLflow；这些能力只能作为独立插件/研究 extra 恢复;
+- ModelGraph 是模型唯一真源，AI 只能通过 Validate 后的 Patch 写入；图、矩阵和 SysML 都是 View/Export;
+- Web Search 为 optional，外部证据缺失不终止 Workflow。
 
 ## Brand Commitments
 

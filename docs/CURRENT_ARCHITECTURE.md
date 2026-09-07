@@ -4,7 +4,7 @@
 
 RFLP-Lite is a local modular monolith. The supported product path is:
 
-`Artifact -> Requirement -> RFLP -> MBSE -> Simulation/Baseline/Delta/Task/Evidence`
+`Project -> Documents/Evidence -> 4 Phase Workflow -> ModelGraph -> Gate/Repair -> View/Export`
 
 The runtime is Python 3.11+, SQLite, FastAPI/Jinja/HTMX, and optional local or
 OpenAI-compatible model/rendering integrations. Workspaces remain isolated
@@ -15,10 +15,8 @@ truth for the local aggregate and audit history.
 
 - `rflp_lite.interface.cli:entrypoint` exposes the `rflp` CLI.
 - `rflp_lite.interface.web.app:create_app` creates the local FastAPI app.
-- `rflp_lite.application.web_facade:WebFacade` is the compatibility service
-  used by routes and API handlers.
-- `rflp_lite.application.demo:run_demo` is the deterministic vertical-slice
-  entry point used by the CLI and tests.
+- `rflp_lite.application.analysis_service:AnalysisService` is the formal
+  workflow entry point; WebFacade and the old demo are migration-only paths.
 
 ## Historical boundary leaks and compatibility boundary
 
@@ -113,9 +111,11 @@ preserves successful results. The requirements page shows Chinese block labels,
 diagnostics, provenance, gaps, and one-block retry. MBSE view switching reads
 saved semantic state and does not invoke an LLM.
 
-## Phase 1 target boundary
+## v2 target boundary
 
-`interface -> application -> ports -> domain`
+`interface -> application -> methodology -> domain`
+
+`methodology -> ports -> runtime/repository`
 
 `bootstrap -> application + adapters`
 

@@ -85,6 +85,7 @@ test-full = [
 
 [project.scripts]
 rflp = "rflp_lite.interface.cli:entrypoint"
+ai4mbse = "rflp_lite.interface.cli:entrypoint"
 
 [tool.setuptools.packages.find]
 where = ["src"]
