@@ -197,13 +197,23 @@ class SQLiteModelRepository(RunRepository):
                 (run.id, run.project_id, run.phase, run.status, run.attempt, run.methodology_version, run.model_profile, run.input_hash, _json(run.diagnostics)),
             )
             for step in run.steps:
-                self.update_step(step)
+                self._connection.execute(
+                    "INSERT OR REPLACE INTO steps(run_id, task_id, status, attempt, input_hash, output_patch_id, diagnostics) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (step.run_id, step.task_id, step.status, step.attempt, step.input_hash, step.output_patch_id, _json(step.diagnostics)),
+                )
 
     def update_step(self, step: Step) -> None:
         with self._transaction():
             self._connection.execute(
                 "INSERT OR REPLACE INTO steps(run_id, task_id, status, attempt, input_hash, output_patch_id, diagnostics) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (step.run_id, step.task_id, step.status, step.attempt, step.input_hash, step.output_patch_id, _json(step.diagnostics)),
+            )
+
+    def update_run(self, run_id: str, status: str, diagnostics: tuple[str, ...] = ()) -> None:
+        with self._transaction():
+            self._connection.execute(
+                "UPDATE runs SET status = ?, diagnostics = ? WHERE id = ?",
+                (status, _json(diagnostics), run_id),
             )
 
     def load_run(self, project_id: str, run_id: str) -> Run | None:
