@@ -1,220 +1,72 @@
-# RFLP-Lite
+# AI4MBSE Harness
 
-RFLP-Lite 是一个本地、确定性、可审计的 AI4MBSE Domain Harness。v2.0 的正式产品链路是：
+AI4MBSE Harness v2.0 是一个本地优先、可复现、可审计的 MBSE 方法论执行器。核心链路为：
 
-`Project -> Documents / Evidence -> 4 Phase Workflow -> Typed ModelGraph -> Gate / Repair -> View / Export`
+```text
+Project → Documents / Evidence → Operational → Functional
+        → Logical / Physical → Assurance → Closure
+        → Typed ModelGraph → Gate / Repair → View / Export
+```
 
-Concept/MDO、Project Bridge/Test Runner、旧 Simulation/Baseline/TaskContract 和 MLflow 不属于 Core；需要时作为独立插件或研究 extra 恢复。
+ModelGraph 是模型唯一真源。任务运行只能通过经过契约、类型、关系和门禁校验的局部 Patch 修改模型；SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。
 
-开发资料：[当前完成状态](docs/DEVELOPMENT_STATUS.md) · [需求工作台设计](docs/superpowers/specs/2026-08-04-rflp-lite-requirements-workbench-design.md) · [实施计划](docs/superpowers/plans/2026-08-04-rflp-lite-requirements-workbench.md)
+## 安装
 
-## 本地安装
-
-需要 Python 3.11 或更高版本；不需要 Docker、GPU、PostgreSQL 或外部服务。
+需要 Python 3.11+：
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e '.[dev,schema,evidence,opt,web,documents]'
+.venv/bin/python -m pip install -e '.[dev,web,documents]'
 ```
 
-安装的基础组件包括 Import Linter、jsonschema/check-jsonschema 和 Hypothesis。文档解析、Web、绘图引擎和其他研究能力均为 optional extra，不改变离线 Core。
+不安装远程模型也可以完整运行离线规则 Runtime。OpenAI-compatible 模型是可选的，配置由 `model-profile` 管理。
 
-## 跑通完整链路
+## 最短路径
 
-确定性启发式求解器：
+使用仓库中的 Golden fixture 创建项目并运行分析：
 
 ```bash
-.venv/bin/rflp init .local-demo-heuristic
-.venv/bin/rflp demo --workspace .local-demo-heuristic --seed 42 --solver heuristic
+.venv/bin/ai4mbse --workspace-root .local-workspaces project create campus-demo
+.venv/bin/ai4mbse --workspace-root .local-workspaces project ingest campus-demo tests/e2e/fixtures/campus_delivery_robot.json
+.venv/bin/ai4mbse --workspace-root .local-workspaces analyze run campus-demo --phase operational
+.venv/bin/ai4mbse --workspace-root .local-workspaces model export campus-demo --format json
 ```
 
-OR-Tools CP-SAT 第二实现：
+CLI 的主要命令：
+
+```text
+project create|ingest
+analyze run|status
+model export
+issue list
+repair run
+model-profile list|save|activate
+```
+
+## Web
 
 ```bash
-.venv/bin/rflp init .local-demo-cp-sat
-.venv/bin/rflp demo --workspace .local-demo-cp-sat --seed 42 --solver cp-sat
+.venv/bin/uvicorn rflp_lite.interface.web.app:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-CLI 在标准输出返回一行规范化 JSON。完整结果位于工作目录的 `.rflp/runs/<result_hash>/`，包括：
+页面收敛为 Projects、Analysis、MBSE Model、Evidence & Issues、Settings；API 资源以 `/projects` 为根，提供项目、分析运行、模型、实体 CAS 编辑、证据、Issue、Repair 和 Export。
 
-- `artifacts.json`
-- `spans.json`
-- `claims.json`
-- `rflp.json`
-- `candidates.json`
-- `decision.json`
-- `simulation.json`
-- `baseline.json`
-- `delta.json`
-- `task-contracts.json`
-- `evidence.json`
-- `run-manifest.json`
-
-SQLite 事务真源位于 `<workspace>/.rflp/model.db`。
-
-## 启动本地 Web UI
+## 开发与验收
 
 ```bash
-.venv/bin/rflp web --host 127.0.0.1 --port 8000
+./.venv/bin/python -m pytest -q
+./.venv/bin/python -m compileall -q src
+./.venv/bin/python scripts/architecture_metrics.py
+./.venv/bin/lint-imports
 ```
 
-浏览器打开 `http://127.0.0.1:8000`。首次使用时在页面创建工作区，然后进入“需求建模”：
+设计说明、施工计划和当前状态：
 
-1. “开始项目”首页管理多个项目；展开项目卡片可查看该项目当前需求，点击项目进入对应需求工作台；
-2. 在项目下粘贴需求，或上传 TXT、Markdown、DOCX、PDF、Python、JSON、YAML、TOML；勾选“并入现有工作台”可把多份文档追加到同一工作台并保留已审核项；
-3. 点击“提交并分析”；系统对当前项目执行一次领域中立的 LLM 分析，并把利益相关方、Concern、Need、需求、属性/显式约束、隐含约束候选、多个场景和 R/F/L/P 架构自动写入对应模块。结果保留来源区域、置信度、假设和分析理由；隐含约束必须逐条人工确认，不会注入固定行业包；
-4. 场景模块展示本次项目输入推导出的正常、边界、故障、恢复、误操作等场景。场景数量和类型由当前项目内容决定，不再固定生成某个行业的 16 个矩阵场景；
-5. 在“场景生成”中先看到折叠卡片，点击任意卡片即可展开参与者、前置条件、步骤、预期结果、故障/异常和关联 Requirement ID；
-6. 项目卡片中的需求可以删除。删除会清理当前需求及其自动生成结果，保留原始输入和审计历史，项目本身不会被删除；
-7. 需求检查页支持直接编辑、接受或驳回；编辑/删除会使旧 RFLP、MBSE 和架构派生结果失效，重新生成后才会显示当前版本，避免陈旧图形被误用；
-8. 点击“生成执行轨迹”运行结构化场景的本地声明性执行，查看事件、断言和 Evidence；也可下载场景 JSON、执行记录和 SysML-lite 交换 JSON。
+- [当前架构](docs/CURRENT_ARCHITECTURE.md)
+- [开发状态](docs/DEVELOPMENT_STATUS.md)
+- [v2.0 设计规格](docs/superpowers/specs/2026-09-07-ai4mbse-harness-v2-design.md)
+- [v2.0 实施计划](docs/superpowers/plans/2026-09-07-ai4mbse-harness-v2-implementation.md)
 
-一次“提交并分析”会保存一份项目内的 MBSE 语义模型，后续可在“MBSE 设计图”中切换环境边界、利益相关方层级、需求树、生命周期、用例树、运行场景、功能分解/交互、逻辑分解/交互、分配矩阵、物理交互、技术需求、追踪矩阵和 RFLP 总览。各视图分别使用层级、流程、交互、时序或矩阵布局，不会重复调用 LLM。Graphviz/PlantUML 是可选的渲染增强；未安装时使用内置 SVG/矩阵 fallback，不增加普通用户的安装步骤。
+## 边界
 
-“运行中心”继续提供 Heuristic 或 CP-SAT 的完整 Candidate、Simulation、Baseline、Delta、TaskContract 和 Evidence 链路。
-
-需求分析验收同时提供 smoke 与 formal 两种口径：不带 gold 文件时 `status` 仅表示可执行烟测；正式验收使用完整的 Gold v3（稳定 key + 原文 source anchor），当前样例拆为 1.1/1.2/2.1/2.2 四个父节点下的 29 条原子条款，报告中的 `acceptance_tree` 会逐节点给出 expected/matched/missing/extra。`formal_status` 还必须满足需求 precision/recall ≥ 0.90、详情 F1 ≥ 0.85 及来源完整率 100%，零指标结果不能正式通过。动态 `region-*` ID 只作追溯证据，不作为跨运行身份。DOCX 表格单元格保留表格/行列定位，稀疏 PDF 会补充 OCR 并记录 `pdf_page_hybrid_ocr` 诊断。历史需求和作战场景可从版本化 JSON/CSV 或只读 SQLite 导入，检索建议带数据集版本和匹配词证据。
-
-### 智能 MBSE 发现（CLI/API 兼容入口）
-
-对一句话或零散需求运行城市医疗飞行汽车领域包：
-
-```bash
-# 从需求/工程资料文件直接开始（无需先建立已接受需求）
-.venv/bin/rflp discover draft --workspace workspaces/medical-aam --pack urban-medical-aam-v1 --input needs.txt
-# 或在已有需求工作台上运行智能补全
-.venv/bin/rflp discover draft --workspace workspaces/medical-aam --pack urban-medical-aam-v1
-.venv/bin/rflp discover review --workspace workspaces/medical-aam --candidate-id candidate-0123456789abcdef --decision accepted --revision 4
-.venv/bin/rflp discover finalize --workspace workspaces/medical-aam --pack urban-medical-aam-v1
-.venv/bin/rflp discover export --workspace workspaces/medical-aam --pack urban-medical-aam-v1 --diagram environment
-```
-
-Web 端已并入 `/w/{workspace}/requirements` 的“提交并分析”流程；旧的 `/requirements/discovery` 页面和 CLI/API 仍保留用于兼容已有调用。普通项目分析默认不启用领域包，只读取当前项目的输入和项目内已有手工内容；同一项目的多个需求可以互相追溯，项目之间不会共享利益相关方、场景、架构或关系。常见领域包仅可通过分析配置接口显式启用，窄领域包不进入普通项目分析路径。
-
-利益相关方、场景维度、覆盖规则和图形分组都属于版本化领域包，新增可选字段通常只需修改领域包，不需要改 Python 核心。
-
-### 连接本地 Python 项目
-
-需求建模生成 RFLP 后，进入“项目接入”（基线随正式 RFLP 自动生成），把一个本地 Python 项目目录对接：
-
-1. 填写本地项目目录的绝对路径，点击“分析项目”；
-2. 查看 ActualModel、基线→实际匹配、MISSING/EXTRA 差异、任务契约与证据；
-3. 对项目作出修改后，点击“执行验证”重扫描判定每条任务契约是否已满足（RESOLVED/UNRESOLVED）；
-4. 点击“运行项目测试”，选择 pytest/unittest、资源上限、并行度和缓存策略，在受资源约束的本地测试运行器中运行并查看每个 runner 的结果；
-5. 下载规范化 JSON：baseline、actual-model、matches、delta、task-contracts、evidence、project。
-
-场景和执行记录保存在现有工作台 JSON 中，不新增数据库表；LLM 生成的当前项目场景默认接受，手动新增或编辑的场景继续保留。步骤和预期结果按行记录，可选关联 Requirement ID。执行轨迹只处理结构化文本，不执行任意代码，结果明确标记为 `declarative-only`，可通过 `/w/{workspace}/requirements/scenarios.json`、`/w/{workspace}/requirements/scenario-runs.json` 下载。
-
-本地 MVP 还提供 Profile JSON 的 schema 校验/保存、运行记录导出、`sysml-lite/rflp` JSON 和 SysML v2 常用子集文本交换、本地持久化 Job 状态、进程内 Plugin Registry，以及 `/api/v1` JSON API。安装 `.[tracking]` 后可把运行记录真实写入 MLflow；API 当前默认只绑定本机，不包含登录、权限、限流或公网部署能力。
-
-启用真实 MLflow Tracking：
-
-```bash
-.venv/bin/pip install -e '.[tracking]'
-.venv/bin/rflp mlflow --workspace <workspace> --result-hash <result-hash>
-```
-
-### 总体概念设计与多学科评估（2.1/2.2）
-
-M3–M4 使用固定核心字段和版本化声明式领域包。固定翼首版支持历史方案 JSON/CSV/只读 SQLite 导入，先生成 3–5 套确定性可行的参数化二维概念布局 SVG，再通过优化新增 2–3 套候选，并为每个候选输出包含视图、来源方案、硬约束余量、候选差异和 SVG 哈希的 `LayoutArtifactManifest`；这不是三维 CAD。系统对气动、结构、重量/重心执行批量评估、缓存和 Pareto 排序。内置低阶评估器和无客户批准档案的结果保持 `development_only`，不能冒充工程正式验证；只有客户为每个评估器提供实现哈希、适用域、验证数据集、误差指标和人工批准依据后，正式状态才会变为 `passed`。新增客户字段先保存在 `extensions`；需要进入检索、约束或评估时，再升级领域包版本。领域包不能覆盖核心身份、状态、哈希或正式证据门禁。
-
-```bash
-.venv/bin/rflp concept import --workspace <workspace> --pack <pack.json> --data <schemes.json|csv|db> [--table <table>]
-.venv/bin/rflp concept run --workspace <workspace> --pack <pack.json> --evaluator-profile <profile.json> --envelope <envelope.json>
-.venv/bin/rflp concept export --workspace <workspace> --run-id <run-id> --format json
-.venv/bin/rflp concept export --workspace <workspace> --run-id <run-id> --format svg --candidate-id <candidate-id>
-.venv/bin/rflp concept review --workspace <workspace> --run-id <run-id> --candidate-id <candidate-id> --decision accepted|rejected
-.venv/bin/rflp concept acceptance \
-  --pack src/rflp_lite/resources/domain-packs/fixed-wing-v1.json \
-  --schemes src/rflp_lite/resources/examples/concept-design/fixed-wing-schemes.json \
-  --envelope src/rflp_lite/resources/examples/concept-design/fixed-wing-envelope.json \
-  --evaluator-profile src/rflp_lite/resources/examples/concept-design/development-evaluator-profile.json
-```
-
-一句话直接运行需求 → LLM/规则概念草案 → MBSE →（匹配到专业包时）指标包络 → 历史方案 → 候选布局 → 多学科评估 → Pareto 推荐：
-
-```bash
-.venv/bin/pip install -e '.[demo]'
-.venv/bin/python scripts/seed_demo_schemes.py --workspace workspaces/concept-demo
-```
-
-随后在 Web UI 创建或打开同名工作区，进入“总体概念设计”，粘贴需求或上传 DOCX/PDF，点击“生成概念方案”。未配置历史方案也可以直接运行；Demo 历史方案种子可重复执行，已存在的方案会跳过；结果和中间状态保存在工作区 `.rflp/model.db`。
-
-验收命令的 `status=passed` 表示软件编排、约束、差异和失败隔离检查通过；随包提供的评估档案明确是 `formal_status=development_only`。只有客户另行提供并批准每个评估器及版本的档案，正式状态才会变为 `passed`。本版本不实现 3.1–3.3 的三维 CAD 驱动、PMI/GD&T 标注或 DFM/DFA 审查。
-
-扫描只读 `.py`（AST）、OpenAPI JSON 与 JUnit XML；跳过隐藏目录、依赖目录、符号链接与超大文件；不复制、不写入、不上传项目。测试运行支持 allowlist 中的 `pytest` 与 `unittest`，是受资源约束的本地测试运行器：默认 60s 超时并 kill，子进程只获得最小环境 allowlist、独立 HOME/TMP/输出目录，可配置 POSIX 内存/文件句柄上限、输出上限、结果缓存和多 runner 并行。
-
-CLI 等效操作：
-
-```bash
-.venv/bin/rflp project approve --workspace <workspace>
-.venv/bin/rflp project analyze --workspace <workspace> --source <project-dir>
-.venv/bin/rflp project verify --workspace <workspace> --source <project-dir>
-.venv/bin/rflp project test --workspace <workspace> --source <project-dir> [--timeout 60] [--runner pytest|unittest] [--jobs 2]
-.venv/bin/rflp workbench build --workspace <workspace> --requirements <file>
-.venv/bin/rflp acceptance --requirements <file> [--gold <requirements-gold.json>]
-.venv/bin/rflp mbse generate --workspace <workspace>
-.venv/bin/rflp mbse confirm --workspace <workspace>
-.venv/bin/rflp mbse export --workspace <workspace> --format json|sysml|svg
-.venv/bin/rflp assess --workspace <workspace> --requirements <file> --source <project-dir> [--timeout 60]
-.venv/bin/rflp profile show --workspace <workspace>
-.venv/bin/rflp profile validate --profile <profile.json>
-.venv/bin/rflp profile save --workspace <workspace> --profile <profile.json>
-.venv/bin/rflp scenario execute --workspace <workspace> --scenario-id <scenario-id>
-.venv/bin/rflp run export --workspace <workspace> --result-hash <result-hash>
-.venv/bin/rflp sysml export --workspace <workspace> > rflp-model.sysml
-.venv/bin/rflp sysml import --workspace <workspace> --file rflp-model.sysml
-.venv/bin/rflp mlflow --workspace <workspace> --result-hash <result-hash>
-```
-
-`assess` 一步完成 需求工作台 → 批准基线 → 分析项目 → 运行测试 并输出汇总，适合脚本/CI 断言。`workbench build` 接受多个 `--requirements` 文件完成多文档合并。需求接入支持 DOCX 表格行（每行按 “ID | 义务句” 合并为一条 span）。
-
-测试命令还支持 `--memory-mib`、`--max-open-files`、`--output-mib` 和 `--no-cache`。多个 `--runner` 配合 `--jobs 2` 可并行运行 pytest/unittest；测试结果仍作为独立客观 Evidence，不改变 R/F 匹配。
-
-项目自动分析使用 OpenAI-compatible API：
-
-```bash
-export RFLP_LLM_BASE_URL=http://127.0.0.1:11434/v1
-export RFLP_LLM_MODEL=your-model
-export RFLP_LLM_API_KEY=local-key
-```
-
-总体概念设计采用 LLM-first：输入任何非空的一句话需求都会先得到概念提案、假设、待确认问题和 MBSE 临时草案。LLM 不可用时仍保留规则解析并生成可继续编辑的临时结果；不会因为缺少历史方案或指标不完整而在 2.1 阻断。专业领域包、历史方案和确定性评估是可选增强层，显式指标与硬约束校验仍然优先。
-
-Web UI 只管理仓库下 `workspaces/` 中的工作区，默认只监听本机地址。按 `Ctrl+C` 停止服务；SQLite 和已完成产物会保留。
-
-## 验证
-
-```bash
-.venv/bin/python -m pytest -v
-.venv/bin/lint-imports
-.venv/bin/check-jsonschema --schemafile schemas/profile.schema.json examples/profile.json
-```
-
-同一 fixture、Profile 和 seed 的重复运行应产生相同的 `result_hash` 与 `baseline_hash`。Adapter 失败会回滚当前事务，并记录 `run.failed` 审计事件，不会修改已有 Baseline。
-
-## AI4MBSE Harness v2.0 重构边界
-
-方法论固定为 Operational、Functional、Logical/Physical、Assurance 四个 Phase 加 Closure。每个任务由 TaskSpec 描述输入实体、上下文查询、输出契约、Validator、Gate 和失败回退；AI 只能通过校验后的局部 Patch 修改 ModelGraph。SQLite 是 ModelGraph、Evidence、Run、Step、Patch、Revision 和 Issue 的唯一持久化真源。
-
-正式工作台收敛为 Projects、Analysis、MBSE Model、Evidence & Issues、Settings 五个一级页面；全生命周期是 Scenario、Requirement 和 Verification 的一等筛选维度。Web Search 只提供可选外部 Evidence，失败生成 Evidence Gap，不阻塞主流程。
-
-## 当前边界
-
-### 客户验收功能（1.1—1.2）
-
-当前实现已覆盖需求分析与论证阶段的客户验收切片：TXT/Markdown/DOCX/数字 PDF/扫描 PDF 统一解析，保留页码、区域坐标、来源哈希和诊断；按客户工程语言抽取实体、能力、对象、数量范围和指标约束，生成可审查的 MBSE 结构化需求候选；持久化 `derivedFrom / representedBy / satisfiedBy / refines` 追溯链和覆盖率；已接受的明确需求生成 Use Case、活动图、时序图语义模型，并支持版本校验、逐条编辑、JSON/SysML 子集/SVG 导出。正式 Gold v3 已拆为只覆盖 1.1/1.2/2.1/2.2 的 29 条原子需求树，验收报告按父节点汇总缺失和额外项。LLM 只生成 `inferred` 候选，批量确认不会批准隐含约束。
-
-```bash
-.venv/bin/rflp acceptance --requirements src/rflp_lite/resources/examples/customer-acceptance/customer-requirements.txt
-.venv/bin/rflp mbse generate --workspace <workspace>
-.venv/bin/rflp mbse confirm --workspace <workspace>
-.venv/bin/rflp mbse export --workspace <workspace> --format json
-```
-
-需求分析、MBSE 和场景现在都采用显式确认门禁：文本分析只产生候选；“确认并生成 RFLP”确认需求后，使用 `mbse generate` 生成 MBSE 草稿，在 Web 的“模型输出”页逐条接受/驳回或点击“确认 MBSE 模型”，确认后才允许 JSON/SysML/SVG 导出。场景页支持编辑后回到待确认、确认、驳回和审核历史；只有已确认场景才能生成声明性执行轨迹。`run-flow` 只负责生成草稿并停在场景审核，不再绕过人工确认自动执行。
-
-文档依赖通过 `.[documents]` 安装；未安装时 PDF/OCR 返回明确的本地依赖诊断，不影响 TXT/DOCX 规则链路。
-
-当前已提供最小 OpenAI-compatible LLM 候选接口，但尚未提供模型管理、流式对话或专用 Ollama/llama.cpp 运行时。场景执行目前是安全的声明性轨迹，不连接真实系统，也不生成仿真通过结论。项目接入扫描只读 `.py` / OpenAPI JSON / JUnit XML，匹配按分词交集进行（中英文义务句之间无法用关键词对齐，会如实标为 MISSING）。“执行验证”是确定性重扫描——只读重算与已批准基线的差异并判定任务契约是否满足。测试结果作为独立客观 Evidence 呈现，不改变契约状态；运行器仅允许 pytest/unittest，POSIX 资源限制在平台不支持时会明确报告。SysML v2 常用子集文本桥接、MLflow 可选真实 Tracking、Profile、Job、API 和进程内插件已提供本地 MVP；完整 SysML v2 语义、Docling、LLM/Ollama 生命周期、登录权限和远程插件运行时仍未配置，能力中心会区分“局部可用”和“未配置”。
+Core 不包含旧版智能发现、Concept/MDO、Project Bridge、测试执行沙箱、仿真、旧 Baseline/TaskContract/Job 体系或 MLflow 适配器。它们不再作为隐式依赖存在；如未来需要，应以独立插件或独立研究包接入。

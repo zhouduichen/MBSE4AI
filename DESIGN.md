@@ -1,6 +1,6 @@
 # Web UI Design — Light Precision Instrument (B1)
 
-> Direction pinned by the user in brainstorming（screen B1）。设计决策记录在 `base.html` 头部注释与 `static/app.css`；本文档是稳定摘要，改动样式前先读这里。
+这是 v2 资源型 Web UI 的视觉基线。页面以工程模型和运行状态为主，不把模型对象包装成营销型 SaaS 仪表盘。
 
 ## 方向
 
@@ -19,11 +19,11 @@ Token 全部定义在 `app.css` 的 `:root`（短名：`--bg/--panel/--ink/--acc
 
 ## 布局与叙事
 
-- 固定左侧导航（分组标签）＋ 顶部白条（服务状态点）＋ 内容标题
-- 首屏：四个发丝度量块、流水线步骤行、状态胶囊
-- 每条模型对象（Claim / Baseline / Candidate / Evidence）都是可见、可验证的单位；每次运行的状态一眼可读
+- 五个资源页保持同一套浅色、细分隔线和可读状态标签。
+- Projects 展示项目范围；Analysis 展示阶段运行；MBSE Model 展示图/矩阵投影；Evidence & Issues 展示证据和门禁问题；Settings 展示模型配置。
+- 页面不复制模型真源，所有对象和状态来自资源 API / ModelGraph。
 
 ## 收尾状态
 
-- 全量 365 测试通过、Import Linter 4 契约、`python -m build` 成功，`--color-accent` 等旧 token 断言已迁移到 `--acc`
-- 无暗色残留（`color-scheme: light` 唯一来源）；SVG 图形由渲染器自带主题，不随页面样式改变
+- 资源页使用本地 CSS 和 HTMX，不需要前端构建步骤。
+- SVG 由确定性渲染器生成；页面主题不改变模型导出的内容哈希。

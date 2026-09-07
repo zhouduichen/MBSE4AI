@@ -3,22 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from typing import Protocol
 
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.methodology.contracts import ContextBundle
+from rflp_lite.retrieval.contracts import EvidenceCandidate
 from rflp_lite.retrieval.planner import DefaultRetrievalPlanner, KnowledgeGap, RetrievalTask, RetrievalPlanner
-
-
-@dataclass(frozen=True, slots=True)
-class EvidenceCandidate:
-    id: str
-    source_type: str
-    source_id: str
-    locator: str
-    claim: str
-    excerpt: str
-    confidence: float = 0.5
 
 
 @dataclass(frozen=True, slots=True)

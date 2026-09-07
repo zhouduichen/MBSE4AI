@@ -1,4 +1,0 @@
-{% extends "base.html" %}{% block title %}任务契约 · RFLP-Lite{% endblock %}{% block content %}
-<div class="page-heading"><div><h1>TaskContract DAG</h1></div><span class="count-badge">{{ tasks|length }}</span></div>
-<div class="task-grid">{% for task in tasks %}<article class="task-card"><div><h2>{{ task.id }}</h2></div><dl><dt>Depends on</dt><dd>{{ task.depends_on|join(', ') if task.depends_on else 'root' }}</dd><dt>Read set</dt><dd>{{ task.read_set|join(', ') }}</dd><dt>Write set</dt><dd>{{ task.write_set|join(', ') }}</dd><dt>Invariants</dt><dd>{{ task.invariants|join(' · ') }}</dd><dt>Acceptance</dt><dd>{{ task.acceptance|join(' · ') }}</dd></dl></article>{% endfor %}</div>
-{% endblock %}

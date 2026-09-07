@@ -58,19 +58,19 @@ class RuleRuntime:
         entity = make_entity(kind, name, payload, status=EntityStatus.CANDIDATE, producer=Producer.RULE, confidence=0.5, revision=request.context_bundle.revision)
         operations: list[object] = [AddEntity(entity)]
         context = request.context_bundle
-        requirement = _first(context, EntityKind.REQUIREMENT)
-        function = _first(context, EntityKind.FUNCTION)
+        requirements = [item for item in context.entities if item.kind is EntityKind.REQUIREMENT]
+        functions = [item for item in context.entities if item.kind is EntityKind.FUNCTION]
         logical = _first(context, EntityKind.LOGICAL_COMPONENT)
-        if kind is EntityKind.FUNCTION and requirement:
-            operations.append(Relate(requirement.id, RelationPredicate.SATISFIED_BY, entity.id))
-        elif kind is EntityKind.LOGICAL_COMPONENT and function:
-            operations.append(Relate(function.id, RelationPredicate.ALLOCATED_TO, entity.id))
+        if kind is EntityKind.FUNCTION:
+            operations.extend(Relate(item.id, RelationPredicate.SATISFIED_BY, entity.id) for item in requirements)
+        elif kind is EntityKind.LOGICAL_COMPONENT:
+            operations.extend(Relate(item.id, RelationPredicate.ALLOCATED_TO, entity.id) for item in functions)
         elif kind is EntityKind.PHYSICAL_BLOCK and logical:
             operations.append(Relate(logical.id, RelationPredicate.ALLOCATED_TO, entity.id))
-        elif kind is EntityKind.VERIFICATION_CASE and requirement:
-            operations.append(Relate(requirement.id, RelationPredicate.VERIFIED_BY, entity.id))
-        elif kind is EntityKind.INTERFACE and function:
-            operations.append(Relate(function.id, RelationPredicate.EXCHANGES_WITH, entity.id))
+        elif kind is EntityKind.VERIFICATION_CASE:
+            operations.extend(Relate(item.id, RelationPredicate.VERIFIED_BY, entity.id) for item in requirements)
+        elif kind is EntityKind.INTERFACE:
+            operations.extend(Relate(item.id, RelationPredicate.EXCHANGES_WITH, entity.id) for item in functions)
         elif kind is EntityKind.OPERATIONAL_SCENARIO:
             operations.extend(
                 Relate(item.id, RelationPredicate.PARTICIPATES_IN, entity.id)

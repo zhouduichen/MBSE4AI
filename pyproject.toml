@@ -16,11 +16,9 @@ dev = [
   "import-linter>=2.1",
   "check-jsonschema>=0.30",
   "build>=1.2",
+  "ruff>=0.9",
 ]
 schema = ["jsonschema>=4.23"]
-evidence = ["prance>=23.6.21", "junitparser>=3.2"]
-opt = ["ortools>=9.11"]
-tracking = ["mlflow>=2.0"]
 documents = [
   "pdfplumber>=0.11,<1",
   "pypdfium2>=4.30,<5",
@@ -36,55 +34,9 @@ web = [
   "httpx>=0.28,<1",
   "keyring>=25",
 ]
-demo = [
-  "pytest>=8.3",
-  "hypothesis>=6.112",
-  "jsonschema>=4.23",
-  "prance>=23.6.21",
-  "junitparser>=3.2",
-  "ortools>=9.11",
-  "pdfplumber>=0.11,<1",
-  "pypdfium2>=4.30,<5",
-  "Pillow>=11,<13",
-  "rapidocr>=3.6,<4",
-  "onnxruntime>=1.22,<2",
-  "fastapi>=0.116,<1",
-  "uvicorn>=0.35,<1",
-  "jinja2>=3.1,<4",
-  "python-multipart>=0.0.20,<1",
-  "httpx>=0.28,<1",
-  "keyring>=25",
-]
-test-full = [
-  "setuptools>=75",
-  "wheel",
-  "pytest>=8.3",
-  "hypothesis>=6.112",
-  "import-linter>=2.1",
-  "check-jsonschema>=0.30",
-  "build>=1.2",
-  "jsonschema>=4.23",
-  "prance>=23.6.21",
-  "junitparser>=3.2",
-  "ortools>=9.11",
-  "mlflow>=2.0",
-  "pdfplumber>=0.11,<1",
-  "pypdfium2>=4.30,<5",
-  "Pillow>=11,<13",
-  "rapidocr>=3.6,<4",
-  "onnxruntime>=1.22,<2",
-  "fastapi>=0.116,<1",
-  "uvicorn>=0.35,<1",
-  "jinja2>=3.1,<4",
-  "python-multipart>=0.0.20,<1",
-  "httpx>=0.28,<1",
-  "keyring>=25",
-  "ruff>=0.9",
-  "pyright>=1.1",
-]
 
 [project.scripts]
-rflp = "rflp_lite.interface.cli:entrypoint"
+rflp = "rflp_lite.interface.cli_v2:entrypoint"
 ai4mbse = "rflp_lite.interface.cli_v2:entrypoint"
 
 [tool.setuptools.packages.find]
@@ -93,12 +45,6 @@ where = ["src"]
 [tool.setuptools.package-data]
 "rflp_lite" = [
   "resources/schemas/*.json",
-  "resources/domain/*.json",
-  "resources/domain-packs/*.json",
-  "resources/examples/customer-acceptance/*",
-  "resources/examples/versioned-content-service/*",
-  "resources/examples/concept-design/*.json",
-  "resources/examples/discovery/*",
 ]
 "rflp_lite.interface.web" = [
   "templates/*.html",

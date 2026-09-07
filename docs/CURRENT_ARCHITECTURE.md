@@ -1,141 +1,50 @@
-# Current Architecture
+# 当前架构
 
-## Baseline
+## 产品主链路
 
-RFLP-Lite is a local modular monolith. The supported product path is:
+```text
+Project → Documents / Evidence → Operational → Functional
+        → Logical / Physical → Assurance → Closure
+        → Typed ModelGraph → Gate / Repair → View / Export
+```
 
-`Project -> Documents/Evidence -> 4 Phase Workflow -> ModelGraph -> Gate/Repair -> View/Export`
+这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。每个项目使用独立工作区和数据库，项目之间不共享模型或证据。
 
-The runtime is Python 3.11+, SQLite, FastAPI/Jinja/HTMX, and optional local or
-OpenAI-compatible model/rendering integrations. Workspaces remain isolated
-under the configured workspace root and SQLite remains the durable source of
-truth for the local aggregate and audit history.
+## 分层与依赖
 
-## Current entry points
+```text
+interface → application → methodology → domain
+                         ↘ ports → runtime / repository
+bootstrap → application + adapters
+adapters → ports + domain
+```
 
-- `rflp_lite.interface.cli:entrypoint` exposes the `rflp` CLI.
-- `rflp_lite.interface.web.app:create_app` creates the local FastAPI app.
-- `rflp_lite.application.analysis_service:AnalysisService` is the formal
-  workflow entry point; WebFacade and the old demo are migration-only paths.
+- `domain/`：Typed Entity、Relation、ModelGraph、Patch、Requirement 和稳定 ID；不依赖外层。
+- `methodology/`：23 个 TaskSpec、四个 Phase、Context、Validator、Gate、Repair 和 WorkflowRunner。
+- `application/`：Project、Analysis、Model、Evidence、Render、Settings 服务；只接收协议和工厂。
+- `repository/`：SQLite ModelRepository v2，保存 Graph、Evidence、Run、Step、Patch、Revision、Issue 和 FTS。
+- `runtime/`：结构化模型端口、OpenAI-compatible 适配和离线 RuleRuntime。
+- `adapters/`：文档解析、OCR 和模型/文档技术实现；由 `bootstrap/container.py` 组装。
+- `interface/`：`ai4mbse` CLI、FastAPI Resource API 和五个资源页面。
 
-## Historical boundary leaks and compatibility boundary
+## 写入与恢复规则
 
-Before Phase 1, several Application modules construct concrete adapters or
-call adapter functions directly:
+AI 或规则 Runtime 只返回结构化 TaskExecutionResponse。WorkflowRunner 将响应转换为局部 Patch，经实体字段、RelationPredicate、端点类型、状态、锁定标记和 expected revision 校验后提交。CAS 失败返回并发修改错误；`locked` 或 `user_modified` 的实体不能被自动覆盖。
 
-- `application.web_facade` constructs `SQLiteRepository`, LLM, discipline,
-  scheme, tracking, and SVG adapters.
-- `application.requirements_workbench` constructs document/claim readers and
-  calls `chat_completion` directly.
-- `application.intelligence.enrichment_jobs` constructs `SQLiteRepository`.
-- `application.project_bridge` calls the project scanner and test executor.
-- `application.mbse_render` constructs Graphviz, PlantUML, and Matrix engines.
-- `application.demo`, `application.compile`, `application.ingest`, and
-  `application.concept_acceptance` use concrete readers, solvers, or stores.
-- `interface.cli` and `interface.web.routes` construct repositories or
-  import test-execution/tracking helpers.
+每次运行拥有稳定 `run_id`、methodology version、input hash、步骤状态和诊断。恢复运行跳过已完成步骤；Gate 失败会写入 Issue，Repair 只能应用小范围本地 Patch，并再次执行 Gate。
 
-The Phase 2A/2B migration removed these leaks from the new Use Case path. The
-following compatibility callers remain intentionally scoped for later
-migration: legacy `requirements_workbench.analyze_artifact`, `ingest`,
-`compile`, `demo`, `concept_acceptance`, `mbse_render`, `llm_profiles`, and
-older CLI commands that still use `require_dependencies()` to preserve their
-public construction surface. New files under `application/use_cases/` do not
-use the global locator and do not import adapters. This is a migration
-boundary, not a reason to replace the local modular monolith with distributed
-infrastructure.
+## 对外资源
 
-## Phase 0/1 verification
+| 资源 | 入口 |
+|---|---|
+| 项目 / 文档 | `POST /projects`、`POST /projects/{id}/documents` |
+| 分析运行 | `POST /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
+| 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities` |
+| 人工编辑 | `PATCH /projects/{id}/entities/{entity_id}` |
+| 视图 / 导出 | `GET /projects/{id}/views/{view_id}`、`POST /projects/{id}/export` |
+| 证据 / Issue | `GET /projects/{id}/evidence`、`GET /projects/{id}/issues` |
+| 修复 / 配置 | `POST /projects/{id}/repair`、`/model-profiles` |
 
-The first migration slice is now verified: Application and Interface have no
-direct `rflp_lite.adapters` imports, concrete construction is centralized in
-`bootstrap/container.py`, and the legacy adapter-facing test-execution module
-continues to re-export the port-owned value objects. The AST boundary guard,
-Import Linter, full pytest suite, schema validation, and package build pass.
+## 质量门禁
 
-Phases 2A, 2B, 3A, 3B, 5, 4, 6, and 7 are implemented and covered by focused
-architecture, contract, semantic, recovery, interaction, and E2E tests. The
-compatibility callers above remain explicit follow-up work and do not
-participate in the new six-block analysis or Use Case paths.
-
-## Requirements analysis vertical slice
-
-The Phase 2 slice is now explicit: `RequirementsAnalysisService` owns
-workspace loading, artifact transformation, baseline persistence, input-copy
-creation, enrichment submission, and enrichment-status persistence. `WebFacade`
-keeps the existing public methods and supplies a narrow dependency bundle from
-the composition root. Retry uses the same explicit repository, job, and runner
-ports and does not consult the global compatibility registry.
-
-`application/use_cases/` now contains explicit bundles and thin orchestration
-for requirement review, RFLP/MBSE generation, project analysis, test
-execution, evidence recording, and enrichment blocks. `WebFacade` and the
-existing routes retain their public names and payloads while translating into
-these Use Cases. `requirements_workbench.py` remains the compatibility
-state-transition module.
-
-The slice is covered by fake-port service tests, dependency-boundary guards,
-and facade delegation tests. LLM generation now uses only
-`GenerativeModel.complete_json(GenerationRequest)` from Application code;
-raw `chat_completion` is adapter-internal.
-
-## Strict analysis and merge boundary
-
-The six blocks (`system_scope`, `stakeholders`, `concerns_needs`,
-`requirements`, `scenarios`, `architecture`) each have a versioned strict
-schema. Responses are checked for bounded fields, enums, finite confidence,
-source regions, workspace, and input hash before they become typed DTOs.
-`ValidatedBlockResult` is the production merge boundary. A semantic validator
-rejects duplicate IDs, missing sources, unknown relations, invalid relation
-endpoints, and cross-workspace content. A failed block records diagnostics and
-does not overwrite successful blocks; one bounded repair and per-block retry
-are supported.
-
-## Evidence-constrained MBSE
-
-`build_mbse_semantic_model()` emits formal Function, Logical, and Physical
-entities only when architecture evidence exists. Missing realizations are
-represented as explicit `needs-analysis` gaps. Formal `satisfiedBy`,
-`allocatedTo`, and `realizedBy` relations require matching evidence; unknown
-relation predicates are diagnosed and excluded rather than normalized to an
-unrelated relation. Technical requirements are emitted only when the input
-contains technical evidence such as a non-analysis verification method,
-parameters, constraints, or a domain rule.
-
-## Recoverable jobs and interaction closure
-
-Local JSON Job records now include attempt, lease, heartbeat, error,
-idempotency, and per-block state. Startup recovery marks expired running jobs
-as interrupted; retry selects only failed/degraded/interrupted blocks and
-preserves successful results. The requirements page shows Chinese block labels,
-diagnostics, provenance, gaps, and one-block retry. MBSE view switching reads
-saved semantic state and does not invoke an LLM.
-
-## v2 target boundary
-
-`interface -> application -> methodology -> domain`
-
-`methodology -> ports -> runtime/repository`
-
-`bootstrap -> application + adapters`
-
-`adapters -> ports + domain`
-
-The bootstrap composition root owns concrete construction. Application
-services receive protocols/factories and retain compatibility wrappers for
-existing CLI/Web calls. Adapter implementations remain local and replaceable.
-
-## Quality gates
-
-The implemented path is guarded by AST dependency checks, raw LLM bypass
-checks, strict six-block contract fixtures, semantic relation fixtures,
-cross-workspace and partial-failure E2E tests, compile checks, Import Linter,
-and the existing schema validation command.
-
-## Compatibility surface to preserve
-
-- Existing CLI command names and options.
-- Existing Web route paths, templates, and JSON API payloads.
-- Existing workspace directory and `.rflp` storage layout.
-- Existing workbench migrations and deterministic hashes.
-- Existing optional adapter fallbacks, especially built-in SVG/matrix output.
+仓库以 Golden fixture、领域/仓储/方法论/Runtime/API/E2E 测试、`compileall`、Import Linter 和架构预算作为验收基线。旧版智能发现、Concept/MDO、Project Bridge、测试执行、仿真、旧 Job/Baseline/TaskContract 和 MLflow 不属于 Core，已从主包和主测试集移除。

@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from rflp_lite.domain.canonical import canonical_hash
+from rflp_lite.domain.entities import EntityMeta
 
 
 @dataclass(frozen=True, slots=True)

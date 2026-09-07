@@ -1,19 +1,16 @@
+"""FastAPI composition root for resource-oriented Harness v2 pages/API."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from rflp_lite.application.resources import default_workspace_root
 from rflp_lite.bootstrap.container import ApplicationContainer, build_container
-from rflp_lite.application.web_facade import WebFacade
 from rflp_lite.domain.errors import ContractViolation, RflpError
-from rflp_lite.interface.web.routes import router, templates
-from rflp_lite.interface.web.api_v1 import api_v1
-from rflp_lite.interface.web.discovery_api import discovery_api
-from rflp_lite.interface.web.discovery_routes import discovery_router
 from rflp_lite.interface.web.resource_api import resource_api
 from rflp_lite.interface.web.resource_pages import resource_pages
 
@@ -23,45 +20,22 @@ def create_app(
     fixture_root: Path | None = None,
     container: ApplicationContainer | None = None,
 ) -> FastAPI:
-    package_dir = Path(__file__).resolve().parent
     root = (workspace_root or default_workspace_root()).resolve()
     application_container = container or build_container(root, fixture_root)
-    app = FastAPI(
-        title="RFLP-Lite Local Console",
-        docs_url=None,
-        redoc_url=None,
-        openapi_url=None,
-    )
+    app = FastAPI(title="AI4MBSE Harness", docs_url=None, redoc_url=None)
     app.state.container = application_container
-    app.state.facade = WebFacade(
-        root,
-        fixture_root,
-        dependencies=application_container.dependencies,
-    )
-    app.mount("/static", StaticFiles(directory=package_dir / "static"), name="static")
-    app.include_router(router)
-    app.include_router(api_v1)
-    app.include_router(discovery_router)
-    app.include_router(discovery_api)
+    static_dir = Path(__file__).resolve().parent / "static"
+    if static_dir.is_dir():
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
     app.include_router(resource_api)
     app.include_router(resource_pages)
 
     @app.exception_handler(ContractViolation)
-    async def contract_error(request: Request, exc: ContractViolation) -> HTMLResponse:
-        return templates.TemplateResponse(
-            request=request,
-            name="error.html",
-            context={"message": str(exc), "status_code": 404, "workspace": None},
-            status_code=404,
-        )
+    async def contract_error(_request: Request, exc: ContractViolation) -> JSONResponse:
+        return JSONResponse({"status": "failed", "error": type(exc).__name__, "message": str(exc)}, status_code=422)
 
     @app.exception_handler(RflpError)
-    async def application_error(request: Request, exc: RflpError) -> HTMLResponse:
-        return templates.TemplateResponse(
-            request=request,
-            name="error.html",
-            context={"message": str(exc), "status_code": 422, "workspace": None},
-            status_code=422,
-        )
+    async def application_error(_request: Request, exc: RflpError) -> JSONResponse:
+        return JSONResponse({"status": "failed", "error": type(exc).__name__, "message": str(exc)}, status_code=422)
 
     return app

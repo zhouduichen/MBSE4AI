@@ -1,5 +1,0 @@
-{% extends "base.html" %}{% block title %}能力中心 · RFLP-Lite{% endblock %}{% block content %}
-{% set labels = {"available": "已启用", "partial": "局部可用", "planned": "未配置"} %}
-<div class="page-heading"><div><h1>能力中心</h1></div></div>
-<div class="capability-grid">{% for item in capabilities %}<article class="capability-card"><div class="capability-head"><span>{{ '%02d'|format(loop.index) }}</span><span class="status-badge {{ item.status }}">{{ labels[item.status] }}</span></div><h2>{{ item.name }}</h2><p>{{ item.purpose }}</p><dl><dt>依赖</dt><dd>{{ item.dependency }}</dd><dt>输入</dt><dd>{{ item.expected_input }}</dd><dt>输出</dt><dd>{{ item.expected_output }}</dd><dt>限制</dt><dd>{{ item.enable_when }}</dd></dl>{% if item.status == 'available' %}<button class="button full" disabled aria-disabled="true">已启用</button>{% elif item.status == 'partial' %}<button class="button full" disabled aria-disabled="true">局部可用</button>{% else %}<button class="button full" disabled aria-disabled="true">未配置</button>{% endif %}</article>{% endfor %}</div>
-{% endblock %}

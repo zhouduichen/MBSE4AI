@@ -7,7 +7,7 @@ database or a separate embedding service.
 
 from __future__ import annotations
 
-from rflp_lite.retrieval.evidence import EvidenceCandidate
+from rflp_lite.retrieval.contracts import EvidenceCandidate
 from rflp_lite.retrieval.planner import RetrievalTask
 
 

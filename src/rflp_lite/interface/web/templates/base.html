@@ -3,73 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
-  <title>{% block title %}RFLP-Lite{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=3">
+  <title>{% block title %}AI4MBSE Harness{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
   <script src="{{ url_for('static', path='/vendor/htmx.min.js') }}" defer></script>
 </head>
 <body>
-<!-- direction=RFLP-Lite-PrecisionInstrument
-THESIS: RFLP-Lite is a precision instrument for engineering model truth, not a SaaS dashboard; it refuses the dark-teal AI-console look, nested cards, and teal-on-black accents.
-OWN-WORLD: paper-white #f6f7f9 canvas, white panels, hairline #d7dbe2 separators, ink #191c22 text, single deep-blue accent #1b4fd8, 4px radii, tabular numerals, flat surfaces.
-STORY: the engineer reads a dense dependable instrument where every model object — claims, baselines, candidates, evidence — is a visible, verifiable unit and each run's state is legible at a glance.
-FIRST VIEWPORT: fixed side-rail with grouped labels, white topbar with service-state dot, content heading, four hairline metric tiles, pipeline rows with status pills.
-FORM: Light Precision Instrument, user-pinned in brainstorming (screen B1). No seed.
-FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md. -->
-  <a class="skip-link" href="#main-content">跳到主要内容</a>
-  <div class="app-shell">
-    <aside class="sidebar">
-      {% macro nav_links() %}
-        <p class="nav-label">开始</p>
-        <a class="nav-item {% if active == 'dashboard' %}active{% endif %}" href="/">开始项目</a>
-        {% if workspace %}<a class="nav-item {% if active.startswith('requirements') %}active{% endif %}" href="/w/{{ workspace.name }}/requirements">需求规划</a>
-        <div class="nav-subnav" aria-label="需求规划模块">
-          <a class="nav-subitem {% if active == 'requirements-overview' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/overview">项目需求概览</a>
-          <a class="nav-subitem {% if active == 'requirements-input' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/input">需求输入</a>
-          <a class="nav-subitem {% if active == 'requirements-stakeholders' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/stakeholders">利益相关方</a>
-          <a class="nav-subitem {% if active == 'requirements-review' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/review">需求检查</a>
-          <a class="nav-subitem {% if active == 'requirements-scenarios' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/scenarios">场景生成</a>
-          <a class="nav-subitem {% if active == 'requirements-graph' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/graph">RFLP 规划图</a>
-          <a class="nav-subitem {% if active == 'requirements-mbse' %}active{% endif %}" href="/w/{{ workspace.name }}/requirements/mbse">MBSE 设计图</a>
-        </div>{% else %}<span class="nav-item muted">需求规划</span>{% endif %}
-        {% if workspace %}<a class="nav-item {% if active == 'concept-design' %}active{% endif %}" href="/w/{{ workspace.name }}/concept-design">总体概念设计</a>{% else %}<span class="nav-item muted">总体概念设计</span>{% endif %}
-        {% if workspace %}<a class="nav-item {% if active == 'project' %}active{% endif %}" href="/w/{{ workspace.name }}/project">项目验证</a>{% else %}<span class="nav-item muted">项目验证</span>{% endif %}
-        <p class="nav-label">高级工具</p>
-        <a class="nav-item {% if active == 'runs' %}active{% endif %}" href="{% if workspace %}/w/{{ workspace.name }}/runs{% else %}/{% endif %}">内置示例运行</a>
-        {% if workspace %}<a class="nav-item {% if active == 'artifacts' %}active{% endif %}" href="{% if nav_result_hash %}/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/model/artifacts{% else %}/w/{{ workspace.name }}/requirements{% endif %}">工件与声明</a>{% else %}<span class="nav-item muted">工件与声明</span>{% endif %}
-        {% if workspace and nav_result_hash %}<a class="nav-item {% if active == 'rflp' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/model/rflp">RFLP 模型</a>{% else %}<span class="nav-item muted">RFLP 模型</span>{% endif %}
-        <p class="nav-label">决策与治理</p>
-        {% if workspace and nav_result_hash %}
-        <a class="nav-item {% if active == 'candidates' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/decision/candidates">候选与权衡</a>
-        <a class="nav-item {% if active == 'simulation' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/decision/simulation">仿真结果</a>
-        {% else %}<span class="nav-item muted">候选与权衡</span><span class="nav-item muted">仿真结果</span>{% endif %}
-        <p class="nav-label">治理</p>
-        {% if workspace and nav_result_hash %}
-        <a class="nav-item {% if active == 'baselines' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/governance/baselines">基线与差异</a>
-        <a class="nav-item {% if active == 'tasks' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/governance/tasks">任务契约</a>
-        <a class="nav-item {% if active == 'evidence' %}active{% endif %}" href="/w/{{ workspace.name }}/runs/{{ nav_result_hash }}/governance/evidence">证据与审计</a>
-        {% else %}<span class="nav-item muted">基线与差异</span><span class="nav-item muted">任务契约</span><span class="nav-item muted">证据与审计</span>{% endif %}
-        <p class="nav-label">配置</p>
-        <a class="nav-item {% if active == 'settings' %}active{% endif %}" href="/settings/llm">LLM 设置</a>
-        <a class="nav-item {% if active == 'capabilities' %}active{% endif %}" href="/capabilities">能力中心 <span class="planned-dot">规划中</span></a>
-      {% endmacro %}
-      <a class="brand" href="/"><span class="brand-mark">RL</span><span>RFLP-Lite<small>LOCAL CONSOLE</small></span></a>
-      <div class="desktop-nav-shell">
-        <nav class="desktop-nav" aria-label="主导航">{{ nav_links() }}</nav>
-        <div class="local-card"><strong>本地工作区</strong></div>
-      </div>
-      <details class="mobile-nav"><summary>全部模块</summary>
-        <nav aria-label="主导航">{{ nav_links() }}</nav>
-        <div class="local-card"><strong>本地工作区</strong></div>
-      </details>
-    </aside>
-    <div class="main-column">
-      <header class="topbar">
-        <div><span class="top-label">LOCAL WORKSPACE</span><strong>{{ workspace.name if workspace else '尚未选择' }}</strong></div>
-        <div class="service-state"><span></span>本地服务正常</div>
-      </header>
-      <main id="main-content" class="content" tabindex="-1">{% block content %}{% endblock %}</main>
-    </div>
-  </div>
+  <header>
+    <a href="/ui/projects">AI4MBSE Harness</a>
+    <nav aria-label="主导航">
+      <a href="/ui/projects">Projects</a>
+      {% if project_id %}
+      · <a href="/ui/projects/{{ project_id }}/analysis">Analysis</a>
+      · <a href="/ui/projects/{{ project_id }}/model">MBSE Model</a>
+      · <a href="/ui/projects/{{ project_id }}/evidence">Evidence &amp; Issues</a>
+      {% endif %}
+      · <a href="/ui/settings">Settings</a>
+    </nav>
+  </header>
+  <main id="main-content">{% block content %}{% endblock %}</main>
 </body>
 </html>

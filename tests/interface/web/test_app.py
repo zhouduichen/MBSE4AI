@@ -5,12 +5,12 @@ from fastapi.testclient import TestClient
 from rflp_lite.interface.web.app import create_app
 
 
-def test_app_serves_local_assets_and_empty_dashboard(tmp_path: Path) -> None:
+def test_app_serves_resource_pages_and_local_assets(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path / "workspaces"))
-    response = client.get("/")
+    response = client.get("/ui/projects")
     assert response.status_code == 200
-    assert "RFLP-Lite" in response.text
-    assert "尚无工作区" in response.text
+    assert "Projects" in response.text
+    assert "MBSE Model" in response.text
     css = client.get("/static/app.css")
     assert css.status_code == 200
     assert "--acc" in css.text

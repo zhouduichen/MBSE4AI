@@ -46,6 +46,14 @@ class WorkflowRunner:
     ) -> RunSummary:
         selected_phase = phase or Phase.OPERATIONAL
         tasks = tasks_for_phase(selected_phase)
+        if selected_phase is Phase.CLOSURE:
+            graph = self.model_repository.load_graph(project_id)
+            effective_run_id = run_id or f"run-{canonical_hash((project_id, selected_phase.value, graph.revision, self.methodology_version))[:16]}"
+            if self.run_repository.load_run(project_id, effective_run_id) is None:
+                self.run_repository.create_run(Run(effective_run_id, project_id, selected_phase.value, RunStatus.COMPLETED.value, 0, self.methodology_version, "", graph.snapshot_hash))
+            else:
+                self._update_run_status(effective_run_id, RunStatus.COMPLETED, ())
+            return RunSummary(effective_run_id, project_id, selected_phase, RunStatus.COMPLETED)
         if not tasks:
             raise ContractViolation(f"phase has no tasks: {selected_phase.value}")
         graph = self.model_repository.load_graph(project_id)

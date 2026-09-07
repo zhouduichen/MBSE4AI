@@ -1,7 +1,7 @@
 """Coverage-driven, project-scoped evidence retrieval."""
 
+from rflp_lite.retrieval.contracts import EvidenceCandidate
 from rflp_lite.retrieval.evidence import (
-    EvidenceCandidate,
     EvidenceGap,
     EvidenceRetrievalResult,
     ExternalEvidenceGap,

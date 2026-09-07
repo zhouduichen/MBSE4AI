@@ -30,17 +30,8 @@ forbidden_modules =
     rflp_lite.interface
     rflp_lite.ports
 
-[importlinter:contract:intelligence-does-not-use-adapters]
-name = Intelligence and diagrams use ports, not adapters
-type = forbidden
-source_modules =
-    rflp_lite.application.intelligence
-    rflp_lite.application.diagrams
-forbidden_modules =
-    rflp_lite.adapters
-
-[importlinter:contract:application-no-adapters]
-name = Application does not import adapters
+[importlinter:contract:application-does-not-use-adapters]
+name = Application services use ports, not adapters
 type = forbidden
 source_modules =
     rflp_lite.application

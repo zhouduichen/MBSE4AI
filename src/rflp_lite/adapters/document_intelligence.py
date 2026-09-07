@@ -12,7 +12,7 @@ from rflp_lite.adapters.documents.pdf_reader import open_pdf
 from rflp_lite.adapters.documents.txt_reader import read_utf8_text
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.errors import AdapterFailure
-from rflp_lite.domain.models import Artifact
+from rflp_lite.domain.documents import Artifact
 from rflp_lite.domain.requirements import Diagnostic, DocumentRegion
 from rflp_lite.ports.document_intelligence import (
     DocumentPage,

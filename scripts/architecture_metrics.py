@@ -130,16 +130,17 @@ def measure() -> dict[str, int]:
     source_text = "\n".join(
         path.read_text(encoding="utf-8") for path in _python_files(SOURCE_ROOT)
     )
-    facade_path = SOURCE_ROOT / "application" / "web_facade.py"
-    facade_tree = ast.parse(facade_path.read_text(encoding="utf-8"))
     facade_methods = 0
-    for node in facade_tree.body:
-        if isinstance(node, ast.ClassDef) and node.name == "WebFacade":
-            facade_methods = sum(
-                isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
-                for item in node.body
-            )
-            break
+    facade_path = SOURCE_ROOT / "application" / "web_facade.py"
+    if facade_path.exists():
+        facade_tree = ast.parse(facade_path.read_text(encoding="utf-8"))
+        for node in facade_tree.body:
+            if isinstance(node, ast.ClassDef) and node.name == "WebFacade":
+                facade_methods = sum(
+                    isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    for item in node.body
+                )
+                break
     return {
         "require_dependencies_calls": _count_calls("require_dependencies"),
         "adapter_to_application_edges": _count_adapter_application_edges(),

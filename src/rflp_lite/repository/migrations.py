@@ -8,9 +8,7 @@ import sqlite3
 V2_SCHEMA_VERSION = 2
 
 
-def apply_v2_schema(connection: sqlite3.Connection) -> None:
-    connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute("PRAGMA journal_mode = WAL")
+def _apply_core_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS schema_migrations_v2 (
@@ -147,21 +145,24 @@ def apply_v2_schema(connection: sqlite3.Connection) -> None:
         INSERT OR REPLACE INTO schema_migrations_v2(version, name) VALUES (2, 'model_graph_and_run_ledger');
         """
     )
-    # Standalone FTS tables keep the repository portable and make the search
-    # index rebuildable after an import.  Some minimal SQLite builds omit
-    # FTS5; regular shadow tables retain a LIKE-based fallback in that case.
-    for statement in (
-        "CREATE VIRTUAL TABLE IF NOT EXISTS source_regions_fts USING fts5(project_id UNINDEXED, region_id UNINDEXED, text, locator, heading_path)",
-        "CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(project_id UNINDEXED, entity_id UNINDEXED, name, payload)",
-        "CREATE VIRTUAL TABLE IF NOT EXISTS evidence_fts USING fts5(project_id UNINDEXED, evidence_id UNINDEXED, claim, excerpt)",
-    ):
+def _apply_search_schema(connection: sqlite3.Connection) -> None:
+    """Create rebuildable FTS indexes, with a portable SQLite fallback."""
+
+    definitions = (
+        ("source_regions_fts", "project_id UNINDEXED, region_id UNINDEXED, text, locator, heading_path", "project_id TEXT, region_id TEXT, text TEXT, locator TEXT, heading_path TEXT"),
+        ("entities_fts", "project_id UNINDEXED, entity_id UNINDEXED, name, payload", "project_id TEXT, entity_id TEXT, name TEXT, payload TEXT"),
+        ("evidence_fts", "project_id UNINDEXED, evidence_id UNINDEXED, claim, excerpt", "project_id TEXT, evidence_id TEXT, claim TEXT, excerpt TEXT"),
+    )
+    for table, columns, fallback_columns in definitions:
+        statement = f"CREATE VIRTUAL TABLE IF NOT EXISTS {table} USING fts5({columns})"
         try:
             connection.execute(statement)
         except sqlite3.OperationalError:
-            table = statement.split()[6]
-            if table == "source_regions_fts":
-                connection.execute("CREATE TABLE IF NOT EXISTS source_regions_fts (project_id TEXT, region_id TEXT, text TEXT, locator TEXT, heading_path TEXT)")
-            elif table == "entities_fts":
-                connection.execute("CREATE TABLE IF NOT EXISTS entities_fts (project_id TEXT, entity_id TEXT, name TEXT, payload TEXT)")
-            else:
-                connection.execute("CREATE TABLE IF NOT EXISTS evidence_fts (project_id TEXT, evidence_id TEXT, claim TEXT, excerpt TEXT)")
+            connection.execute(f"CREATE TABLE IF NOT EXISTS {table} ({fallback_columns})")
+
+
+def apply_v2_schema(connection: sqlite3.Connection) -> None:
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA journal_mode = WAL")
+    _apply_core_schema(connection)
+    _apply_search_schema(connection)
