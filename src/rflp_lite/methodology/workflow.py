@@ -13,6 +13,7 @@ from rflp_lite.methodology.contracts import (
     TaskRuntime,
 )
 from rflp_lite.methodology.tasks import task_catalog, tasks_for_phase
+from rflp_lite.methodology.gates import GateResult, gate_for_phase
 from rflp_lite.repository.port import Run, RunRepository, Step
 
 
@@ -82,6 +83,9 @@ class WorkflowRunner:
 
     def repair(self, project_id: str, issue_id: str) -> RunSummary:
         raise ContractViolation(f"repair requires a registered issue: {issue_id}")
+
+    def gate(self, project_id: str, phase: Phase) -> GateResult:
+        return gate_for_phase(phase, self.model_repository.load_graph(project_id))
 
     def _update_run_status(self, run_id: str, status: RunStatus, diagnostics: tuple[str, ...]) -> None:
         updater = getattr(self.run_repository, "update_run", None)

@@ -2,7 +2,8 @@ from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.model import AddEntity, Patch
 from rflp_lite.methodology.contracts import Phase, StepStatus, TaskExecutionResponse
 from rflp_lite.methodology.workflow import WorkflowRunner
-from rflp_lite.repository.port import RunRepository, Step
+from rflp_lite.repository.port import Step
+from rflp_lite.methodology.tasks import tasks_for_phase
 from rflp_lite.repository.sqlite import SQLiteModelRepository
 
 
@@ -30,7 +31,7 @@ def test_runner_persists_steps_and_completes_offline(tmp_path):
     stored = repository.load_run("p1", summary.run_id)
 
     assert summary.status.value == "completed"
-    assert len(runtime.requests) == 4
+    assert len(runtime.requests) == len(tasks_for_phase(Phase.OPERATIONAL))
     assert stored is not None
     assert all(step.status == "completed" for step in stored.steps)
 

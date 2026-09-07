@@ -3,64 +3,55 @@
 from __future__ import annotations
 
 from rflp_lite.domain.entities import EntityKind
-from rflp_lite.methodology.contracts import CompletionCondition, ContextQuery, Phase, TaskSpec
+from rflp_lite.methodology.contracts import ContextQuery, Phase, TaskSpec
+
+
+def _task(
+    task_id: str,
+    phase: Phase,
+    input_kinds: set[EntityKind],
+    output_kinds: set[EntityKind],
+    *,
+    template: str | None = None,
+) -> TaskSpec:
+    kinds = frozenset(input_kinds)
+    return TaskSpec(
+        task_id,
+        phase,
+        kinds,
+        frozenset(output_kinds),
+        ContextQuery(kinds),
+        template or f"{phase.value}.{task_id}",
+        f"{task_id}.v2",
+        validators=("schema", "identity", "reference"),
+    )
 
 
 def task_catalog() -> tuple[TaskSpec, ...]:
     return (
-        TaskSpec(
-            "system_definition", Phase.OPERATIONAL, frozenset({EntityKind.SYSTEM}),
-            frozenset({EntityKind.SYSTEM}), ContextQuery(frozenset({EntityKind.SYSTEM}), 0),
-            "operational.system_definition", "system-definition.v2",
-            validators=("schema", "identity"),
-        ),
-        TaskSpec(
-            "stakeholder_analysis", Phase.OPERATIONAL, frozenset({EntityKind.SYSTEM, EntityKind.STAKEHOLDER}),
-            frozenset({EntityKind.STAKEHOLDER, EntityKind.CONCERN}),
-            ContextQuery(frozenset({EntityKind.SYSTEM, EntityKind.STAKEHOLDER})),
-            "operational.stakeholder_analysis", "stakeholder.v2", validators=("schema", "identity", "reference"),
-        ),
-        TaskSpec(
-            "lifecycle_analysis", Phase.OPERATIONAL, frozenset({EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE}),
-            frozenset({EntityKind.LIFECYCLE_STAGE, EntityKind.LIFECYCLE_TRANSITION}),
-            ContextQuery(frozenset({EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE})),
-            "operational.lifecycle_analysis", "lifecycle.v2", validators=("schema", "lifecycle"),
-        ),
-        TaskSpec(
-            "scenario_exploration", Phase.OPERATIONAL,
-            frozenset({EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE, EntityKind.SCENARIO_HYPOTHESIS}),
-            frozenset({EntityKind.SCENARIO_HYPOTHESIS, EntityKind.USE_CASE}),
-            ContextQuery(frozenset({EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE, EntityKind.SCENARIO_HYPOTHESIS})),
-            "operational.scenario_exploration", "scenario-hypothesis.v2", validators=("schema", "coverage"),
-        ),
-        TaskSpec(
-            "functional_identification", Phase.FUNCTIONAL,
-            frozenset({EntityKind.REQUIREMENT, EntityKind.USE_CASE, EntityKind.ACTIVITY}),
-            frozenset({EntityKind.FUNCTION, EntityKind.FUNCTIONAL_FLOW}),
-            ContextQuery(frozenset({EntityKind.REQUIREMENT, EntityKind.USE_CASE, EntityKind.ACTIVITY})),
-            "functional.identification", "function.v2", validators=("schema", "reference", "functional"),
-        ),
-        TaskSpec(
-            "logical_analysis", Phase.LOGICAL_PHYSICAL,
-            frozenset({EntityKind.FUNCTION, EntityKind.FUNCTIONAL_FLOW, EntityKind.REQUIREMENT}),
-            frozenset({EntityKind.LOGICAL_COMPONENT}),
-            ContextQuery(frozenset({EntityKind.FUNCTION, EntityKind.FUNCTIONAL_FLOW, EntityKind.REQUIREMENT})),
-            "logical.analysis", "logical-component.v2", validators=("schema", "reference", "rflp"),
-        ),
-        TaskSpec(
-            "physical_candidates", Phase.LOGICAL_PHYSICAL,
-            frozenset({EntityKind.LOGICAL_COMPONENT, EntityKind.REQUIREMENT, EntityKind.EVIDENCE}),
-            frozenset({EntityKind.PHYSICAL_BLOCK}),
-            ContextQuery(frozenset({EntityKind.LOGICAL_COMPONENT, EntityKind.REQUIREMENT, EntityKind.EVIDENCE})),
-            "physical.candidates", "physical-block.v2", validators=("schema", "reference", "rflp"),
-        ),
-        TaskSpec(
-            "verification_validation", Phase.ASSURANCE,
-            frozenset({EntityKind.REQUIREMENT, EntityKind.FUNCTION, EntityKind.SCENARIO_HYPOTHESIS, EntityKind.OPERATIONAL_SCENARIO}),
-            frozenset({EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}),
-            ContextQuery(frozenset({EntityKind.REQUIREMENT, EntityKind.FUNCTION, EntityKind.SCENARIO_HYPOTHESIS, EntityKind.OPERATIONAL_SCENARIO})),
-            "assurance.verification_validation", "verification-case.v2", validators=("schema", "reference", "verification"),
-        ),
+        _task("system_definition", Phase.OPERATIONAL, {EntityKind.SYSTEM}, {EntityKind.SYSTEM}),
+        _task("stakeholder_analysis", Phase.OPERATIONAL, {EntityKind.SYSTEM, EntityKind.STAKEHOLDER}, {EntityKind.STAKEHOLDER, EntityKind.CONCERN}),
+        _task("stakeholder_requirements", Phase.OPERATIONAL, {EntityKind.STAKEHOLDER, EntityKind.CONCERN, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
+        _task("lifecycle_analysis", Phase.OPERATIONAL, {EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE}, {EntityKind.LIFECYCLE_STAGE, EntityKind.LIFECYCLE_TRANSITION}),
+        _task("scenario_exploration", Phase.OPERATIONAL, {EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE, EntityKind.SCENARIO_HYPOTHESIS}, {EntityKind.SCENARIO_HYPOTHESIS}),
+        _task("use_case_analysis", Phase.OPERATIONAL, {EntityKind.SCENARIO_HYPOTHESIS, EntityKind.STAKEHOLDER, EntityKind.USE_CASE}, {EntityKind.USE_CASE}),
+        _task("operational_scenario", Phase.OPERATIONAL, {EntityKind.USE_CASE, EntityKind.STAKEHOLDER, EntityKind.OPERATIONAL_SCENARIO}, {EntityKind.OPERATIONAL_SCENARIO}),
+        _task("activity_analysis", Phase.OPERATIONAL, {EntityKind.OPERATIONAL_SCENARIO, EntityKind.ACTIVITY, EntityKind.REQUIREMENT}, {EntityKind.ACTIVITY}),
+        _task("system_requirement_derivation", Phase.OPERATIONAL, {EntityKind.ACTIVITY, EntityKind.OPERATIONAL_SCENARIO, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
+        _task("function_identification", Phase.FUNCTIONAL, {EntityKind.REQUIREMENT, EntityKind.USE_CASE, EntityKind.ACTIVITY}, {EntityKind.FUNCTION}),
+        _task("functional_decomposition", Phase.FUNCTIONAL, {EntityKind.FUNCTION, EntityKind.REQUIREMENT}, {EntityKind.FUNCTION}),
+        _task("functional_interaction", Phase.FUNCTIONAL, {EntityKind.FUNCTION, EntityKind.FUNCTIONAL_FLOW}, {EntityKind.FUNCTIONAL_FLOW}),
+        _task("functional_scenario", Phase.FUNCTIONAL, {EntityKind.FUNCTION, EntityKind.FUNCTIONAL_SCENARIO}, {EntityKind.FUNCTIONAL_SCENARIO}),
+        _task("functional_requirement", Phase.FUNCTIONAL, {EntityKind.FUNCTION, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
+        _task("logical_analysis", Phase.LOGICAL_PHYSICAL, {EntityKind.FUNCTION, EntityKind.FUNCTIONAL_FLOW, EntityKind.REQUIREMENT}, {EntityKind.LOGICAL_COMPONENT}),
+        _task("physical_candidates", Phase.LOGICAL_PHYSICAL, {EntityKind.LOGICAL_COMPONENT, EntityKind.REQUIREMENT, EntityKind.EVIDENCE}, {EntityKind.PHYSICAL_BLOCK}),
+        _task("allocation_tradeoff", Phase.LOGICAL_PHYSICAL, {EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK}, {EntityKind.PHYSICAL_BLOCK}),
+        _task("technical_requirement", Phase.LOGICAL_PHYSICAL, {EntityKind.PHYSICAL_BLOCK, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
+        _task("interface_sequence_state", Phase.ASSURANCE, {EntityKind.FUNCTION, EntityKind.LOGICAL_COMPONENT, EntityKind.INTERFACE, EntityKind.STATE}, {EntityKind.INTERFACE, EntityKind.STATE}),
+        _task("fmea_stpa_hazard", Phase.ASSURANCE, {EntityKind.HAZARD, EntityKind.FAILURE_MODE, EntityKind.REQUIREMENT}, {EntityKind.HAZARD, EntityKind.FAILURE_MODE}),
+        _task("verification_validation", Phase.ASSURANCE, {EntityKind.REQUIREMENT, EntityKind.OPERATIONAL_SCENARIO, EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}, {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}),
+        _task("reverse_feasibility", Phase.ASSURANCE, {EntityKind.REQUIREMENT, EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK}, {EntityKind.REQUIREMENT}),
+        _task("global_cross_analysis", Phase.ASSURANCE, {EntityKind.REQUIREMENT, EntityKind.VERIFICATION_CASE, EntityKind.HAZARD}, {EntityKind.VERIFICATION_CASE}),
     )
 
 
