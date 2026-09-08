@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from rflp_lite.application.resources import default_workspace_root
 from rflp_lite.bootstrap.container import ApplicationContainer, build_container
-from rflp_lite.domain.errors import ContractViolation, RflpError
+from rflp_lite.domain.errors import ContractViolation, NotFoundError, RflpError
 from rflp_lite.interface.web.resource_api import resource_api
 from rflp_lite.interface.web.resource_pages import resource_pages
 
@@ -33,6 +33,10 @@ def create_app(
     @app.exception_handler(ContractViolation)
     async def contract_error(_request: Request, exc: ContractViolation) -> JSONResponse:
         return JSONResponse({"status": "failed", "error": type(exc).__name__, "message": str(exc)}, status_code=422)
+
+    @app.exception_handler(NotFoundError)
+    async def not_found_error(_request: Request, exc: NotFoundError) -> JSONResponse:
+        return JSONResponse({"status": "failed", "error": type(exc).__name__, "message": str(exc)}, status_code=404)
 
     @app.exception_handler(RflpError)
     async def application_error(_request: Request, exc: RflpError) -> JSONResponse:

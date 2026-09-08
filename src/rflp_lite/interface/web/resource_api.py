@@ -10,7 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
 from rflp_lite.domain.entities import EntityKind
-from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation, RflpError
+from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation, NotFoundError, RflpError
 from rflp_lite.domain.model import Patch, UpdateEntity
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.retrieval.planner import KnowledgeGap
@@ -38,7 +38,7 @@ def _run_payload(summary) -> dict[str, object]:
 
 
 def _error(exc: Exception) -> JSONResponse:
-    status = 409 if isinstance(exc, ConcurrentModificationError) else 422
+    status = 404 if isinstance(exc, NotFoundError) else 409 if isinstance(exc, ConcurrentModificationError) else 422
     return JSONResponse({"status": "failed", "error": type(exc).__name__, "message": str(exc)}, status_code=status)
 
 
@@ -57,6 +57,14 @@ async def create_project(request: Request):
         if not project_id:
             raise ContractViolation("project id is required")
         return {"status": "ok", "project": _services(request).projects.create(project_id, str(payload.get("name", project_id)))}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.delete("/projects/{project_id}")
+def delete_project(request: Request, project_id: str):
+    try:
+        return {"status": "ok", **_services(request).delete_project(project_id)}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 

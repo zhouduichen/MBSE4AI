@@ -37,6 +37,12 @@ class V2Services:
             self._repositories[project_id] = repository
         return repository
 
+    def delete_project(self, project_id: str) -> dict[str, str]:
+        repository = self._repositories.pop(project_id, None)
+        if repository is not None:
+            repository.close()
+        return self.projects.delete(project_id)
+
     def model(self, project_id: str) -> ModelService:
         return ModelService(self.repository(project_id))
 

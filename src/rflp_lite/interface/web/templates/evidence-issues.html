@@ -1,4 +1,22 @@
-<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>Evidence &amp; Issues</title></head>
-<body><nav><a href="/ui/projects">Projects</a> · <a href="/ui/projects/{{ project_id }}/analysis">Analysis</a> · <a href="/ui/projects/{{ project_id }}/model">MBSE Model</a> · Evidence &amp; Issues</nav>
-<main><h1>Evidence &amp; Issues</h1><h2>Evidence</h2><ul>{% for item in evidence %}<li>{{ item.claim }} — {{ item.locator }}</li>{% else %}<li>暂无证据</li>{% endfor %}</ul><h2>Issues</h2><ul>{% for issue in issues %}<li>{{ issue.code }} ({{ issue.status }})</li>{% else %}<li>暂无问题</li>{% endfor %}</ul></main></body></html>
+{% extends "base.html" %}
+{% block title %}Evidence &amp; Issues · {{ project.id }}{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><h1>Evidence &amp; Issues</h1><p>项目：{{ project.id }} · Revision {{ project.revision }}</p></div>
+  <span class="count-badge">{{ evidence|length }} 条证据</span>
+</div>
+<div class="two-column">
+  <section class="panel">
+    <div class="panel-head"><div><h2>Evidence</h2><p>可追溯的来源和定位信息。</p></div></div>
+    <div class="record-list">
+      {% for item in evidence %}<article><span class="status-badge accepted">Evidence</span><div><strong>{{ item.claim }}</strong><p>{{ item.locator }}</p></div></article>{% else %}<div class="mini-empty">暂无证据</div>{% endfor %}
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><div><h2>Issues</h2><p>需要处理的模型问题。</p></div><span class="count-badge">{{ issues|length }}</span></div>
+    <div class="compact-list">
+      {% for issue in issues %}<article><span><strong>{{ issue.code }}</strong><small class="table-secondary">{{ issue.message if issue.message is defined else '模型问题' }}</small></span><span class="status-badge {{ issue.status }}">{{ issue.status }}</span></article>{% else %}<div class="mini-empty">暂无问题</div>{% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

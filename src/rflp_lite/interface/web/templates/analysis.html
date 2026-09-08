@@ -1,4 +1,42 @@
-<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>Analysis</title></head>
-<body><nav><a href="/ui/projects">Projects</a> · Analysis · <a href="/ui/projects/{{ project_id }}/model">MBSE Model</a> · <a href="/ui/projects/{{ project_id }}/evidence">Evidence &amp; Issues</a></nav>
-<main><h1>Analysis</h1><p>项目：{{ project.id }} · Revision {{ project.revision }}</p><form method="post" action="/projects/{{ project_id }}/analysis"><button>运行 Operational Phase</button></form></main></body></html>
+{% extends "base.html" %}
+{% block title %}Analysis · {{ project.id }}{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><h1>Analysis</h1><p>项目：{{ project.id }} · Revision {{ project.revision }}</p></div>
+  <span class="status-badge available">Ready</span>
+</div>
+<div class="metric-grid">
+  <article class="metric"><span>Revision</span><strong>{{ project.revision }}</strong><small>当前模型版本</small></article>
+  <article class="metric"><span>Entities</span><strong>{{ project.entity_count }}</strong><small>模型实体</small></article>
+  <article class="metric"><span>Relations</span><strong>{{ project.relation_count }}</strong><small>模型关系</small></article>
+  <article class="metric"><span>Evidence</span><strong>{{ project.evidence_count }}</strong><small>证据记录</small></article>
+</div>
+<section class="panel guide-panel">
+  <div class="panel-head"><div><h2>Operational Phase</h2><p>执行一次确定性的 v2 方法论分析。</p></div></div>
+  <form id="analysis-form" class="workbench-actions">
+    <button class="button primary" type="submit">运行 Operational Phase →</button>
+  </form>
+  <pre id="analysis-result" class="analysis-result" hidden></pre>
+</section>
+<script>
+  document.getElementById("analysis-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const output = document.getElementById("analysis-result");
+    output.hidden = false;
+    output.textContent = "运行中…";
+    try {
+      const response = await fetch("/projects/{{ project_id }}/analysis", {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({phase: "operational"})
+      });
+      const payload = await response.json();
+      output.textContent = JSON.stringify(payload, null, 2);
+      output.classList.toggle("warning", payload.status !== "ok");
+    } catch (error) {
+      output.textContent = "请求失败：" + error;
+      output.classList.add("warning");
+    }
+  });
+</script>
+{% endblock %}

@@ -41,6 +41,7 @@
 
 /* ---------- Base & browser surfaces ---------- */
 * { box-sizing: border-box; }
+*[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; min-width: 320px; background: var(--bg); line-height: 1.55; }
 a { color: var(--acc); text-decoration: none; }

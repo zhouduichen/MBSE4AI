@@ -8,6 +8,43 @@ import sqlite3
 V2_SCHEMA_VERSION = 2
 
 
+def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
+    return connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone() is not None
+
+
+def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    return {
+        str(row[1])
+        for row in connection.execute(f'PRAGMA table_info("{table_name}")')
+    }
+
+
+def _preserve_incompatible_tables(connection: sqlite3.Connection) -> None:
+    """Keep legacy tables intact before creating same-named v2 tables."""
+
+    contracts = {
+        "relations": {"id", "project_id", "source_id", "predicate", "target_id"},
+        "evidence": {"id", "project_id", "source_type", "claim", "excerpt"},
+        "audit_events": {"sequence", "project_id", "kind", "payload"},
+    }
+    for table_name, required_columns in contracts.items():
+        if not _table_exists(connection, table_name):
+            continue
+        if required_columns <= _table_columns(connection, table_name):
+            continue
+        legacy_name = f"legacy_{table_name}"
+        suffix = 1
+        while _table_exists(connection, legacy_name):
+            suffix += 1
+            legacy_name = f"legacy_{table_name}_{suffix}"
+        connection.execute(
+            f'ALTER TABLE "{table_name}" RENAME TO "{legacy_name}"'
+        )
+
+
 def _apply_core_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(
         """
@@ -164,5 +201,6 @@ def _apply_search_schema(connection: sqlite3.Connection) -> None:
 def apply_v2_schema(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA journal_mode = WAL")
+    _preserve_incompatible_tables(connection)
     _apply_core_schema(connection)
     _apply_search_schema(connection)

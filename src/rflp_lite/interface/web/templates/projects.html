@@ -1,4 +1,54 @@
-<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>Projects</title></head>
-<body><nav>Projects · Analysis · MBSE Model · Evidence &amp; Issues · Settings</nav>
-<main><h1>Projects</h1><ul>{% for project in projects %}<li><a href="/ui/projects/{{ project.name }}/analysis">{{ project.name }}</a></li>{% else %}<li>暂无项目</li>{% endfor %}</ul></main></body></html>
+{% extends "base.html" %}
+{% block title %}Projects · AI4MBSE Harness{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><h1>Projects</h1><p>选择一个项目进入分析、模型和证据工作台。</p></div>
+  <span class="count-badge">{{ projects|length }} 个项目</span>
+</div>
+{% if projects %}
+<section class="panel">
+  <div class="panel-head"><div><h2>项目列表</h2><p>所有项目均使用本地 Harness 服务。</p></div></div>
+  <div class="module-grid">
+    {% for project in projects %}
+    <article class="module-card">
+      <div>
+        <h2>{{ project.name }}</h2>
+        <p>进入项目分析工作台，查看当前 ModelGraph 和治理信息。</p>
+        <div class="workbench-actions">
+          <a class="button compact primary" href="/ui/projects/{{ project.name }}/analysis">打开 →</a>
+          <button class="button compact danger delete-project" type="button" data-project-id="{{ project.name }}" data-project-name="{{ project.name }}">删除</button>
+        </div>
+        <div class="error-banner delete-error" hidden></div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% else %}
+<section class="empty-state"><h2>暂无项目</h2><p>请先通过 Resource API 创建项目。</p></section>
+{% endif %}
+<script>
+  document.querySelectorAll(".delete-project").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const projectId = button.dataset.projectId;
+      const projectName = button.dataset.projectName;
+      if (!window.confirm(`确定永久删除项目“${projectName}”吗？项目文件、模型数据库和输入资料都将被删除且无法恢复。`)) return;
+
+      const card = button.closest(".module-card");
+      const error = card.querySelector(".delete-error");
+      button.disabled = true;
+      error.hidden = true;
+      try {
+        const response = await fetch(`/projects/${encodeURIComponent(projectId)}`, {method: "DELETE"});
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.message || "删除失败");
+        window.location.assign("/ui/projects");
+      } catch (failure) {
+        error.textContent = "删除失败：" + failure.message;
+        error.hidden = false;
+        button.disabled = false;
+      }
+    });
+  });
+</script>
+{% endblock %}

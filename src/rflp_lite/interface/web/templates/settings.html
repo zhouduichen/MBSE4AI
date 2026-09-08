@@ -1,3 +1,14 @@
-<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>Settings</title></head>
-<body><nav><a href="/ui/projects">Projects</a> · Settings</nav><main><h1>Settings</h1><p>Active model profile: {{ settings.active_id or '未配置' }}</p></main></body></html>
+{% extends "base.html" %}
+{% block title %}Settings · AI4MBSE Harness{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><h1>Settings</h1><p>管理当前 Harness 的模型配置。</p></div>
+  <span class="status-badge info">Local only</span>
+</div>
+<section class="panel">
+  <div class="panel-head"><div><h2>Active model profile</h2><p>当前激活配置：{{ settings.active_id or '未配置' }}</p></div></div>
+  {% if settings.profiles %}
+  <div class="profile-list">{% for profile in settings.profiles %}<article class="profile-card {% if profile.id == settings.active_id %}active{% endif %}"><div><strong>{{ profile.id }}</strong><span class="status-badge {% if profile.id == settings.active_id %}active{% else %}planned{% endif %}">{% if profile.id == settings.active_id %}Active{% else %}Available{% endif %}</span></div><p>{{ profile.base_url or '本地配置' }}</p></article>{% endfor %}</div>
+  {% else %}<div class="mini-empty">暂无模型配置。可通过 Resource API 添加配置。</div>{% endif %}
+</section>
+{% endblock %}

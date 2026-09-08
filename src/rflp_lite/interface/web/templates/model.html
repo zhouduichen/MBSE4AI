@@ -1,4 +1,16 @@
-<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>MBSE Model</title></head>
-<body><nav><a href="/ui/projects">Projects</a> · <a href="/ui/projects/{{ project_id }}/analysis">Analysis</a> · MBSE Model · <a href="/ui/projects/{{ project_id }}/evidence">Evidence &amp; Issues</a></nav>
-<main><h1>MBSE Model</h1><p>项目：{{ project.id }} · Revision {{ project.revision }}</p><p>从 ModelGraph 查看 RFLP、Lifecycle 和 Traceability 视图。</p></main></body></html>
+{% extends "base.html" %}
+{% block title %}MBSE Model · {{ project.id }}{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><h1>MBSE Model</h1><p>项目：{{ project.id }} · Revision {{ project.revision }}</p></div>
+  <span class="status-badge info">ModelGraph</span>
+</div>
+<section class="panel">
+  <div class="panel-head"><div><h2>ModelGraph 资源</h2><p>通过统一模型查看 RFLP、Lifecycle 和 Traceability 关系。</p></div></div>
+  <div class="module-grid">
+    <a class="module-card" href="/projects/{{ project_id }}/model"><div><h2>完整模型图</h2><p>查看实体、关系和当前快照哈希。</p></div><span class="ready">JSON →</span></a>
+    <a class="module-card" href="/projects/{{ project_id }}/entities"><div><h2>实体资源</h2><p>按类型读取模型中的实体集合。</p></div><span class="ready">JSON →</span></a>
+    <a class="module-card" href="/projects/{{ project_id }}/views/rflp"><div><h2>RFLP 视图</h2><p>读取可渲染的 RFLP 视图模型。</p></div><span class="ready">JSON →</span></a>
+  </div>
+</section>
+{% endblock %}

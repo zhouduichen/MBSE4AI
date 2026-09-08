@@ -16,3 +16,16 @@ def test_app_serves_resource_pages_and_local_assets(tmp_path: Path) -> None:
     assert "--acc" in css.text
     htmx = client.get("/static/vendor/htmx.min.js")
     assert htmx.status_code == 200
+
+
+def test_project_page_renders_shared_shell_and_delete_control(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "workspaces"))
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    response = client.get("/ui/projects")
+
+    assert response.status_code == 200
+    assert 'class="app-shell"' in response.text
+    assert 'delete-project' in response.text
+    assert 'data-project-id="p1"' in response.text
+    assert 'method: "DELETE"' in response.text

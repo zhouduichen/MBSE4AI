@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import json
 from pathlib import Path
+import shutil
 from typing import Callable
 
 from rflp_lite.application.workspaces import (
@@ -48,6 +49,18 @@ class ProjectService:
 
     def list(self) -> tuple[WorkspaceRef, ...]:
         return list_managed_workspaces(self.workspace_root)
+
+    def delete(self, project_id: str) -> dict[str, str]:
+        """Permanently remove one managed project workspace."""
+
+        path = managed_workspace(self.workspace_root, project_id)
+        raw_path = self.workspace_root / project_id
+        if raw_path.is_symlink():
+            raise ContractViolation("project workspace cannot be a symlink")
+        if not path.is_dir():
+            raise NotFoundError(f"project not found: {project_id}")
+        shutil.rmtree(path)
+        return {"project_id": project_id}
 
     def create(self, project_id: str, name: str = "") -> dict[str, object]:
         self.workspace_root.mkdir(parents=True, exist_ok=True)

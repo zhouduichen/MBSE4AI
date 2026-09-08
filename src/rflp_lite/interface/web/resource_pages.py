@@ -18,25 +18,25 @@ def _v2(request: Request):
 
 @resource_pages.get("/ui/projects", name="projects_page")
 def projects_page(request: Request):
-    return templates.TemplateResponse(request=request, name="projects.html", context={"projects": _v2(request).projects.list()})
+    return templates.TemplateResponse(request=request, name="projects.html", context={"projects": _v2(request).projects.list(), "active": "projects"})
 
 
 @resource_pages.get("/ui/projects/{project_id}/analysis", name="analysis_page")
 def analysis_page(request: Request, project_id: str):
-    return templates.TemplateResponse(request=request, name="analysis.html", context={"project": _v2(request).projects.summary(project_id), "project_id": project_id})
+    return templates.TemplateResponse(request=request, name="analysis.html", context={"project": _v2(request).projects.summary(project_id), "project_id": project_id, "active": "analysis"})
 
 
 @resource_pages.get("/ui/projects/{project_id}/model", name="model_page")
 def model_page(request: Request, project_id: str):
-    return templates.TemplateResponse(request=request, name="model.html", context={"project": _v2(request).projects.summary(project_id), "project_id": project_id})
+    return templates.TemplateResponse(request=request, name="model.html", context={"project": _v2(request).projects.summary(project_id), "project_id": project_id, "active": "model"})
 
 
 @resource_pages.get("/ui/projects/{project_id}/evidence", name="evidence_page")
 def evidence_page(request: Request, project_id: str):
     services = _v2(request)
-    return templates.TemplateResponse(request=request, name="evidence-issues.html", context={"project": services.projects.summary(project_id), "evidence": services.evidence(project_id).list(project_id), "issues": services.model(project_id).issues(project_id), "project_id": project_id})
+    return templates.TemplateResponse(request=request, name="evidence-issues.html", context={"project": services.projects.summary(project_id), "evidence": services.evidence(project_id).list(project_id), "issues": services.model(project_id).issues(project_id), "project_id": project_id, "active": "evidence"})
 
 
 @resource_pages.get("/ui/settings", name="settings_page")
 def settings_page(request: Request):
-    return templates.TemplateResponse(request=request, name="settings.html", context={"settings": _v2(request).settings.list_profiles()})
+    return templates.TemplateResponse(request=request, name="settings.html", context={"settings": _v2(request).settings.list_profiles(), "active": "settings"})
