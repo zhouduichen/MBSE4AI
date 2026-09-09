@@ -18,6 +18,7 @@ _KEYRING_SERVICE = "rflp-lite"
 PRESETS: dict[str, dict[str, object]] = {
     "deepseek": {
         "label": "DeepSeek",
+        "provider": "openai-compatible",
         "kind": "remote",
         "protocol": _PROTOCOL,
         "base_url": "https://api.deepseek.com",
@@ -25,6 +26,7 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "qwen": {
         "label": "通义千问",
+        "provider": "openai-compatible",
         "kind": "remote",
         "protocol": _PROTOCOL,
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -32,6 +34,7 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "openai": {
         "label": "OpenAI API",
+        "provider": "openai-compatible",
         "kind": "remote",
         "protocol": _PROTOCOL,
         "base_url": "https://api.openai.com/v1",
@@ -39,6 +42,7 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "ollama": {
         "label": "Ollama",
+        "provider": "ollama",
         "kind": "local",
         "protocol": _PROTOCOL,
         "base_url": "http://127.0.0.1:11434/v1",
@@ -46,6 +50,7 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "lmstudio": {
         "label": "LM Studio",
+        "provider": "openai-compatible",
         "kind": "local",
         "protocol": _PROTOCOL,
         "base_url": "http://127.0.0.1:1234/v1",
@@ -53,6 +58,7 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "custom": {
         "label": "自定义服务",
+        "provider": "openai-compatible",
         "kind": "remote",
         "protocol": _PROTOCOL,
         "base_url": "",
@@ -122,6 +128,18 @@ def _base_url(value: object) -> str:
     return result
 
 
+def _provider(payload: dict[str, object]) -> str:
+    value = str(payload.get("provider", "")).strip().casefold()
+    if value in {"openai", "openai-compatible", "openai_chat"}:
+        return "openai-compatible"
+    if value in {"ollama", "ollama-native"}:
+        return "ollama"
+    base_url = str(payload.get("base_url", "")).casefold()
+    if "11434" in base_url or "ollama" in base_url:
+        return "ollama"
+    return "openai-compatible"
+
+
 def normalize_profile(payload: object) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise InvariantViolation("LLM 档案必须是对象")
@@ -147,6 +165,7 @@ def normalize_profile(payload: object) -> dict[str, object]:
     return {
         "id": profile_id,
         "label": label[:120],
+        "provider": _provider(payload),
         "kind": kind,
         "protocol": protocol,
         "base_url": _base_url(payload.get("base_url")),
@@ -205,6 +224,7 @@ class LLMProfileService:
 
     def _public(self, profile: dict[str, object]) -> dict[str, object]:
         result = dict(profile)
+        result["provider"] = _provider(result)
         key = self._key(str(profile["id"]))
         result["api_key_configured"] = bool(key)
         result["credential_storage"] = (
@@ -255,7 +275,7 @@ class LLMProfileService:
         self._write(data)
         return self._public(profile)
 
-    def delete(self, profile_id: str) -> None:
+    def delete(self, profile_id: str) -> dict[str, object]:
         profile_id = _profile_id(profile_id)
         data = self._read()
         profiles = [item for item in data["profiles"] if item.get("id") != profile_id]
@@ -266,6 +286,7 @@ class LLMProfileService:
         if data.get("active_id") == profile_id:
             data["active_id"] = profiles[0].get("id") if profiles else None
         self._write(data)
+        return {"profile_id": profile_id, "active_id": data.get("active_id")}
 
     def active_config(self) -> dict[str, object] | None:
         data = self._read()
@@ -273,7 +294,7 @@ class LLMProfileService:
         profile = next((item for item in data["profiles"] if item.get("id") == profile_id), None)
         if not isinstance(profile, dict):
             return None
-        return {**profile, "api_key": self._key(str(profile["id"])) or ""}
+        return {**profile, "provider": _provider(profile), "api_key": self._key(str(profile["id"])) or ""}
 
     def config_for(self, payload: object) -> dict[str, object]:
         profile = normalize_profile(payload)
@@ -289,7 +310,6 @@ class LLMProfileService:
         if tester is None:
             return {"status": "configured", "profile_id": config["id"]}
         return tester(config)
-
 
 def environment_config() -> dict[str, object] | None:
     base_url = os.getenv("RFLP_LLM_BASE_URL", "").strip().rstrip("/")

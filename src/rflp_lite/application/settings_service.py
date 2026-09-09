@@ -20,5 +20,11 @@ class SettingsService:
     def activate_profile(self, profile_id: str) -> dict[str, object]:
         return self.profiles.activate(profile_id)
 
+    def delete_profile(self, profile_id: str) -> dict[str, object]:
+        return self.profiles.delete(profile_id)
+
+    def presets(self) -> dict[str, dict[str, object]]:
+        return self.profiles.presets()
+
     def active_config(self) -> dict[str, object] | None:
         return self.profiles.active_config()
