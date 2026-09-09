@@ -17,6 +17,7 @@ from rflp_lite.domain.model import Patch, UpdateEntity
 from rflp_lite.application.model_export import graph_sysml
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.gates import global_gate
+from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
 from rflp_lite.retrieval.planner import KnowledgeGap
 from rflp_lite.interface.web.resource_pages import (
     _gate_payload,
@@ -492,6 +493,16 @@ def get_trace(request: Request, project_id: str):
     try:
         trace = build_trace_view(request, project_id)
         return {"status": "ok", "trace": trace, **trace}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/coverage")
+def get_coverage(request: Request, project_id: str):
+    try:
+        graph = _services(request).model(project_id).graph(project_id)
+        matrix = build_requirement_coverage(graph)
+        return {"status": "ok", "project_id": project_id, "revision": graph.revision, "graph_hash": graph.snapshot_hash, **matrix.as_dict()}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 

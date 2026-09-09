@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from rflp_lite.domain.entities import EntityKind, make_entity
+from rflp_lite.domain.entities import EntityKind, EntityStatus, make_entity
 from rflp_lite.domain.model import AddEntity, Patch, Relate
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.interface.web.app import create_app
@@ -12,7 +12,7 @@ def test_model_trace_returns_clickable_rflp_verification_path(tmp_path: Path) ->
     client = TestClient(create_app(tmp_path / "workspaces"))
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
     repository = client.app.state.container.v2.repository("p1")
-    requirement = make_entity(EntityKind.REQUIREMENT, "Battery shall last 8 hours", {"statement": "Battery shall last 8 hours"})
+    requirement = make_entity(EntityKind.REQUIREMENT, "Battery shall last 8 hours", {"statement": "Battery shall last 8 hours", "obligation": "电池应持续 8 小时"}, status=EntityStatus.ACCEPTED)
     function = make_entity(EntityKind.FUNCTION, "Manage energy")
     logical = make_entity(EntityKind.LOGICAL_COMPONENT, "Energy controller")
     physical = make_entity(EntityKind.PHYSICAL_BLOCK, "Battery pack")
@@ -46,6 +46,11 @@ def test_model_trace_returns_clickable_rflp_verification_path(tmp_path: Path) ->
     assert path["complete"] is True
     assert [node["stage"] for node in path["nodes"]] == payload["stages"]
     assert path["nodes"][0]["href"].endswith(f"#entity-{requirement.id}")
+
+    coverage = client.get("/projects/p1/coverage")
+    assert coverage.status_code == 200
+    assert coverage.json()["metrics"]["requirement_count"] == 1
+    assert coverage.json()["rows"][0]["paths"] == [[requirement.id, function.id, logical.id, physical.id]]
 
     page = client.get("/ui/projects/p1/model")
     assert page.status_code == 200
