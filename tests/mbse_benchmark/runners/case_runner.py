@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import multiprocessing
-import os
 from pathlib import Path
 import tempfile
 import time
@@ -17,7 +16,6 @@ from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.runtime.rule_based import RuleRuntime
 
-from tests.mbse_benchmark.cases.loader import load_case
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -124,7 +122,7 @@ def _apply_fault_injection(services, project_id: str, case: Mapping[str, object]
 
     operations.append(Relate(function.id, RelationPredicate.ALLOCATED_TO, logical.id))
     for entity in requirements.values():
-        if isinstance(entity.payload, Mapping) and entity.payload.get("fault_injection_id") in {"REQ-WEIGHT", "REQ-RUNTIME"}:
+        if isinstance(entity.payload, Mapping) and entity.payload.get("fixture_id") in {"REQ-WEIGHT", "REQ-RUNTIME"}:
             operations.append(Relate(entity.id, RelationPredicate.SATISFIED_BY, function.id))
     for physical_id in physical_ids:
         operations.append(Relate(logical.id, RelationPredicate.ALLOCATED_TO, physical_id))

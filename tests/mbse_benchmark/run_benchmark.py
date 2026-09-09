@@ -1,5 +1,10 @@
 """Command-line entry point for the AI4MBSE benchmark."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from tests.mbse_benchmark.runners.benchmark_runner import main
 
 
