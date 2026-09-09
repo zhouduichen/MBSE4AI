@@ -176,3 +176,35 @@ def has_failure_signal(raw_result: Mapping[str, object], terms: Iterable[str]) -
         "audit": raw_result.get("audit", {}),
     })
     return any(normalize(term) in haystack for term in terms)
+
+
+def validate_structural_graph(graph: Mapping[str, object]) -> list[dict[str, object]]:
+    """Check graph references independently of semantic quality."""
+
+    graph_id = str(graph.get("project_id", ""))
+    index = by_id(graph)
+    seen_ids: set[str] = set()
+    findings: list[dict[str, object]] = []
+    for entity in entities(graph):
+        entity_id = str(entity.get("id", ""))
+        if not entity_id:
+            findings.append(finding("STRUCTURE", graph_id, "FAIL", severity="P0", category="schema", expected="non-empty entity ID", actual=entity, root_cause="entity ID is empty", recommended_fix="Generate stable typed entity IDs."))
+        elif entity_id in seen_ids:
+            findings.append(finding("STRUCTURE", graph_id, "FAIL", severity="P0", category="schema", expected="unique entity IDs", actual=entity_id, related_elements=[entity_id], root_cause="duplicate entity ID", recommended_fix="Use canonical identity for entity creation."))
+        seen_ids.add(entity_id)
+        if not str(entity.get("kind", "")) or not str(entity.get("name", "")).strip():
+            findings.append(finding("STRUCTURE", graph_id, "FAIL", severity="P0", category="schema", expected="entity kind and name", actual=entity, related_elements=[entity_id], root_cause="entity metadata is incomplete", recommended_fix="Reject incomplete model entities before persistence."))
+    relation_ids: set[str] = set()
+    for relation in relations(graph):
+        relation_id = str(relation.get("id", ""))
+        source = str(relation.get("source_id", ""))
+        target = str(relation.get("target_id", ""))
+        if relation_id in relation_ids:
+            findings.append(finding("STRUCTURE", graph_id, "FAIL", severity="P0", category="schema", expected="unique relation IDs", actual=relation_id, related_elements=[relation_id], root_cause="duplicate relation ID", recommended_fix="Generate canonical relation IDs."))
+        relation_ids.add(relation_id)
+        missing = [item for item in (source, target) if item not in index]
+        if missing:
+            findings.append(finding("STRUCTURE", graph_id, "FAIL", severity="P0", category="broken_reference", expected="relation endpoints exist", actual=missing, related_elements=[source, target], root_cause="relation points to an absent entity", recommended_fix="Validate relation endpoints before applying a patch."))
+        if not str(relation.get("predicate", "")):
+            findings.append(finding("STRUCTURE", graph_id, "FAIL", severity="P0", category="schema", expected="relation predicate", actual=relation, related_elements=[relation_id], root_cause="relation predicate is empty", recommended_fix="Use a closed relation vocabulary."))
+    return findings
