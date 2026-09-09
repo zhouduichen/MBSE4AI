@@ -51,11 +51,7 @@ class RapidOcrAdapter:
                 text = str(text).strip()
             if not text:
                 continue
-            flat = [
-                float(point)
-                for pair in box
-                for point in (pair if isinstance(pair, (list, tuple)) else (pair,))
-            ]
+            flat = _flatten_coordinates(box)
             if len(flat) >= 8:
                 bbox = (min(flat[0::2]), min(flat[1::2]), max(flat[0::2]), max(flat[1::2]))
             elif len(flat) >= 4:
@@ -73,3 +69,28 @@ class RapidOcrAdapter:
 
 def ocr_port(value: OcrPort | None = None) -> OcrPort:
     return value or RapidOcrAdapter()
+
+
+def _flatten_coordinates(value: Any) -> list[float]:
+    """Flatten list/tuple/array-like OCR coordinates safely.
+
+    RapidOCR versions can return either Python sequences or numpy arrays for
+    polygon points.  Keeping the conversion here dependency-free lets the
+    adapter accept both shapes without importing numpy at the application
+    boundary.
+    """
+
+    if hasattr(value, "tolist") and not isinstance(value, (str, bytes)):
+        try:
+            value = value.tolist()
+        except (AttributeError, TypeError, ValueError):
+            pass
+    if isinstance(value, (list, tuple)):
+        flattened: list[float] = []
+        for item in value:
+            flattened.extend(_flatten_coordinates(item))
+        return flattened
+    try:
+        return [float(value)]
+    except (TypeError, ValueError, OverflowError):
+        return []

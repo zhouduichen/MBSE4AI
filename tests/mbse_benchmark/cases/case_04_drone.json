@@ -1,0 +1,22 @@
+{
+  "case_id": "CASE-04",
+  "difficulty": "HIGH",
+  "system": "园区巡检小型无人机系统",
+  "brief": "设计一套用于园区巡检的小型无人机系统。无人机需要按照预定航线进行巡检，采集图像并上传巡检结果。系统要求：飞行时间不少于 60 分钟；最大起飞重量不超过 4 kg；需要搭载相机、计算模块、通信模块以及电池；通信中断后必须进入安全模式；低电量情况下必须安全返航。",
+  "stakeholders": ["巡检操作员", "园区管理方", "安全监管方", "制造商", "维护人员", "通信服务方"],
+  "lifecycle_stages": ["设计", "制造", "部署", "运行", "维护", "升级", "退役"],
+  "scenarios": [
+    {"id": "drone-route-inspection", "name": "预定航线巡检", "category": "normal", "text": "按照预定航线飞行并采集图像"},
+    {"id": "drone-upload-results", "name": "上传巡检结果", "category": "normal", "text": "采集图像并上传巡检结果"},
+    {"id": "drone-communication-loss", "name": "通信中断安全模式", "category": "exception", "text": "通信中断后进入安全模式"},
+    {"id": "drone-low-battery-return", "name": "低电量返航", "category": "exception", "text": "低电量情况下安全返航"},
+    {"id": "drone-maintenance", "name": "维护升级退役", "category": "maintenance", "text": "支持维护、升级和退役"}
+  ],
+  "requirements": [
+    {"id": "drone-endurance", "statement": "无人机飞行时间应不少于 60 分钟", "verification_method": "test", "metric": {"name": "runtime", "operator": ">=", "value": 60, "unit": "min"}},
+    {"id": "drone-mass", "statement": "无人机最大起飞重量应不超过 4 kg", "verification_method": "inspection", "metric": {"name": "mass", "operator": "<=", "value": 4, "unit": "kg"}},
+    {"id": "drone-payload", "statement": "无人机应搭载相机、计算模块、通信模块和电池", "verification_method": "inspection"},
+    {"id": "drone-communication-safe", "statement": "通信中断后系统必须进入安全模式", "verification_method": "test"},
+    {"id": "drone-low-battery-return", "statement": "低电量情况下系统必须安全返航", "verification_method": "test"}
+  ]
+}

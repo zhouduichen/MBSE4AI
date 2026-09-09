@@ -1,0 +1,18 @@
+{
+  "stakeholder_coverage": 0.85,
+  "lifecycle_coverage": 0.90,
+  "scenario_recall": 0.85,
+  "requirement_validity": 0.90,
+  "requirement_atomicity": 0.85,
+  "requirement_verifiability": 0.90,
+  "upstream_traceability": 0.95,
+  "use_case_activity_consistency": 0.90,
+  "derived_requirement_precision": 0.80,
+  "architecture_traceability": 0.90,
+  "verification_coverage": 0.90,
+  "end_to_end_traceability": 0.85,
+  "orphan_element_rate": 0.05,
+  "known_conflict_detection": 1.0,
+  "unsupported_hard_assumption_rate": 0.05,
+  "regression_stability": 0.85
+}

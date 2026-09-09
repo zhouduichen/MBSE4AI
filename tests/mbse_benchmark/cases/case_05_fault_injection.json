@@ -1,0 +1,24 @@
+{
+  "case_id": "CASE-05",
+  "difficulty": "FAULT-INJECTION",
+  "system": "校园无人配送车",
+  "brief": "故意注入重量和续航不可行的物理设计，验证系统能否拒绝明显不满足的架构。",
+  "stakeholders": ["配送运营人员", "系统工程师", "安全监管方"],
+  "lifecycle_stages": ["设计", "运行", "维护"],
+  "scenarios": [
+    {"id": "fault-feasibility-review", "name": "物理设计可行性评审", "category": "normal", "text": "检查重量和续航约束"},
+    {"id": "fault-verification-failure", "name": "验证失败反馈", "category": "exception", "text": "失败后定位需求并反馈修改"}
+  ],
+  "requirements": [
+    {"id": "REQ-WEIGHT", "statement": "整车重量不得超过 20 kg", "verification_method": "inspection", "metric": {"name": "mass", "operator": "<=", "value": 20, "unit": "kg"}},
+    {"id": "REQ-RUNTIME", "statement": "连续运行时间不得低于 12 小时", "verification_method": "test", "metric": {"name": "runtime", "operator": ">=", "value": 12, "unit": "h"}}
+  ],
+  "physical_design": [
+    {"id": "PHY-BATTERY", "name": "电池", "mass": 15, "mass_unit": "kg", "energy": 1000, "energy_unit": "Wh"},
+    {"id": "PHY-CHASSIS", "name": "底盘", "mass": 8, "mass_unit": "kg"},
+    {"id": "PHY-MOTOR", "name": "电机及驱动", "mass": 4, "mass_unit": "kg"},
+    {"id": "PHY-SENSOR", "name": "传感器", "mass": 3, "mass_unit": "kg"},
+    {"id": "PHY-COMPUTE", "name": "计算平台", "mass": 2, "mass_unit": "kg"}
+  ],
+  "power_budget": {"average_power": 200, "power_unit": "W"}
+}

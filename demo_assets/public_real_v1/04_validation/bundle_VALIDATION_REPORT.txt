@@ -1,0 +1,29 @@
+AI4MBSE public real test bundle validation
+Date: 2026-09-01
+Target project: AI4MBSE-0.1.0-source-5bb2e14 / fixed-wing-v1
+
+1. Historical scheme import
+   Input rows: 9
+   Imported records: 9
+   Rejected rows: 0
+
+2. Retrieval smoke test (tactical ISR envelope)
+   Top matches:
+   1) Bayraktar TB2
+   2) Hermes 450
+   3) IAI Tactical Heron
+   4) MQ-1B Predator
+   5) Hermes 900
+
+3. Layout generation
+   Feasible candidates generated: 5
+
+4. Multidisciplinary evaluation
+   Candidates: 5
+   Evaluations: 15 (5 x aerodynamics/structures/weight_balance)
+   Software status: complete for all five candidates
+   Formal status: development for all five candidates, as expected
+
+5. Interpretation
+   The bundle is syntactically compatible with the current project and exercises 2.1/2.2 end-to-end.
+   PUBLIC_FACTS_PLUS_EXPLICIT_DEMO_ASSUMPTIONS rows must not be represented as fully published aircraft engineering data.

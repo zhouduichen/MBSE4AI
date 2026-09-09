@@ -1,0 +1,27 @@
+{
+  "case_id": "CASE-03",
+  "difficulty": "MEDIUM",
+  "system": "校园无人配送车",
+  "brief": "设计校园无人配送车。系统用于校园快递配送。车辆能够自主导航、避障和到达指定位置。用户能够完成身份验证并取件。系统应考虑下雨、夜间、通信中断、低电量、定位异常、道路临时封闭、行人突然出现等情况。同时考虑制造、部署、运行、维护、升级和退役。",
+  "stakeholders": ["收件用户", "配送运营人员", "校园安全监管方", "制造商", "部署人员", "维护人员", "升级维护团队", "退役处置方"],
+  "lifecycle_stages": ["制造", "部署", "运行", "维护", "升级", "退役"],
+  "scenarios": [
+    {"id": "robot-normal-delivery", "name": "正常配送", "category": "normal", "text": "车辆自主导航到达指定位置并完成取件"},
+    {"id": "robot-rain", "name": "雨天配送", "category": "lifecycle-specific", "text": "下雨环境中保持安全配送或降级"},
+    {"id": "robot-night", "name": "夜间配送", "category": "lifecycle-specific", "text": "夜间运行并维持可见性与安全"},
+    {"id": "robot-communication-loss", "name": "通信中断", "category": "exception", "text": "通信中断后进入安全策略并恢复"},
+    {"id": "robot-low-battery", "name": "低电量", "category": "exception", "text": "低电量时安全返航或停止任务"},
+    {"id": "robot-localization-anomaly", "name": "定位异常", "category": "exception", "text": "定位异常时停止、重定位或请求人工处理"},
+    {"id": "robot-road-closed", "name": "道路临时封闭", "category": "alternative", "text": "道路封闭时重新规划或取消任务"},
+    {"id": "robot-pedestrian", "name": "行人突然出现", "category": "exception", "text": "行人突然出现时避障、减速或制动"},
+    {"id": "robot-maintenance-upgrade-retirement", "name": "维护升级退役", "category": "maintenance", "text": "制造、部署、维护、升级和退役均有操作流程"}
+  ],
+  "requirements": [
+    {"id": "robot-autonomous-navigation", "statement": "系统应支持校园配送车辆自主导航并到达指定位置", "verification_method": "demonstration"},
+    {"id": "robot-obstacle-avoidance", "statement": "系统应检测行人和障碍物并执行安全避障或制动", "verification_method": "test"},
+    {"id": "robot-user-pickup", "statement": "系统应对取件用户进行身份验证后开放取件", "verification_method": "test"},
+    {"id": "robot-communication-safe", "statement": "系统应在通信中断时进入安全模式并支持恢复", "verification_method": "test"},
+    {"id": "robot-low-battery", "statement": "系统应在低电量时安全返航或停止任务", "verification_method": "test"},
+    {"id": "robot-lifecycle-operations", "statement": "系统应支持制造、部署、运行、维护、升级和退役活动", "verification_method": "inspection"}
+  ]
+}

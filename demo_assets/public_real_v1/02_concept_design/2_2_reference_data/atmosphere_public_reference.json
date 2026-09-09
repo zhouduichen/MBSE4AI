@@ -1,0 +1,9 @@
+{
+  "standard": "U.S. Standard Atmosphere public NASA reference",
+  "sea_level_density_kg_m3": 1.225,
+  "sea_level_pressure_pa": 101325.0,
+  "sea_level_temperature_k": 288.15,
+  "gravity_m_s2": 9.807,
+  "source_url": "https://ntrs.nasa.gov/api/citations/19760003955/downloads/19760003955.pdf",
+  "note": "Matches current fixed-wing-v1 default air density."
+}

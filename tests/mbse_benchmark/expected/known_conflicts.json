@@ -1,0 +1,20 @@
+{
+  "CASE-05": [
+    {
+      "conflict_id": "weight-conflict",
+      "requirement_id": "REQ-WEIGHT",
+      "expected": "physical mass 32 kg > 20 kg",
+      "actual_value": 32,
+      "limit": 20,
+      "unit": "kg"
+    },
+    {
+      "conflict_id": "runtime-conflict",
+      "requirement_id": "REQ-RUNTIME",
+      "expected": "runtime 5 h < 12 h",
+      "actual_value": 5,
+      "limit": 12,
+      "unit": "h"
+    }
+  ]
+}

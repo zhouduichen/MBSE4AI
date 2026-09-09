@@ -1,0 +1,27 @@
+{
+  "schema": "public-material-reference-v1",
+  "materials": [
+    {
+      "name": "Aluminum 7075-T6",
+      "density_kg_m3": 2810,
+      "yield_strength_mpa": 503,
+      "ultimate_strength_mpa": 572,
+      "elastic_modulus_gpa": 71.7,
+      "shear_strength_mpa": 331,
+      "source_title": "NASA X-Hab Final Report, Table 44 Aluminum Trade Study",
+      "source_url": "https://ntrs.nasa.gov/api/citations/20205003988/downloads/UMd%20X_Hab_Final_Report__Final_xx.pdf",
+      "demo_allowable_stress_pa": 226350000,
+      "demo_allowable_rule": "0.45 * published yield strength; test-only safety factor, not certification allowable"
+    },
+    {
+      "name": "HexPly 8552 / AS4 carbon-epoxy",
+      "nominal_laminate_density_kg_m3": 1580,
+      "tensile_strength_0deg_mpa_25c_dry": 2207,
+      "compression_strength_0deg_mpa_25c_dry": 1531,
+      "tensile_modulus_0deg_gpa_25c_dry": 141,
+      "source_title": "Hexcel HexPly 8552 Product Data Sheet",
+      "source_url": "https://www.hexcel.com/wp-content/uploads/2025/12/HexPly_8552_eu_DataSheet1.pdf",
+      "note": "Reference material only; do not assign these coupon strengths directly as aircraft structural allowables."
+    }
+  ]
+}

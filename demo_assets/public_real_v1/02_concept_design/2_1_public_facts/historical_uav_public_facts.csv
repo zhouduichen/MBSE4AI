@@ -1,0 +1,10 @@
+﻿name,manufacturer,mtow_kg,payload_kg,span_m,length_m,ref_speed_value,ref_speed_unit,ref_speed_type,ref_speed_mps,source_authority,source_title,source_url
+MQ-1B Predator,General Atomics / U.S. Air Force,1020,204,16.8,8.22,70,kt,cruise,36.011,U.S. Air Force,U.S. Air Force MQ-1B Predator Fact Sheet,https://www.af.mil/About-Us/Fact-Sheets/Display/Article/%20104469/
+Bayraktar TB2,Baykar,700,150,12.0,6.4,90,KTAS,published travel/cruise lower endpoint,46.3,Baykar,Bayraktar TB2 Technical Specifications,https://baykartech.com/en/uav/bayraktar-tb2/
+Bayraktar TB3,Baykar,1600,280,14.0,8.35,110,KTAS,cruise,56.589,Baykar,Bayraktar TB3 Technical Specifications,https://baykartech.com/en/uav/bayraktar-tb3/
+Gray Eagle,General Atomics,1633,488,17.0,9.0,167,KTAS,max-speed proxy for current demo schema,85.912,GA-ASI,Gray Eagle,https://www.ga-asi.com/remotely-piloted-aircraft/gray-eagle
+Gray Eagle Extended Range,General Atomics,1905,408,17.0,9.0,167,KTAS,max-speed proxy for current demo schema,85.912,GA-ASI,Gray Eagle Extended Range,https://www.ga-asi.com/remotely-piloted-aircraft/gray-eagle-extended-range
+IAI Heron,Israel Aerospace Industries,1270,470,16.6,8.5,70,KTAS,midpoint of published 60-80 KTAS loiter range,36.011,IAI,Heron MALE ISR UAV,https://www.iai.co.il/product/heron/
+IAI Tactical Heron,Israel Aerospace Industries,600,180,10.6,7.3,70,KTAS,midpoint of published 60-80 KTAS loiter range,36.011,IAI,Tactical Heron,https://www.iai.co.il/product/tactical-heron/
+Hermes 900,Elbit Systems,1180,350,15.0,8.3,112,km/h,cruise,31.111,Brazilian Air Force (FAB),Hermes 900 participa de treinamento em Campo Grande,https://www.fab.mil.br/noticias/imprime/19863/OPERACIONAL%20%E2%80%93%20Hermes%20900%20participa%20de%20treinamento%20em%20Campo%20Grande
+Hermes 450,Elbit Systems,550,180,10.5,6.1,95,kt,max-speed proxy for current demo schema,48.872,Brazilian Air Force (FAB); payload/MTOW cross-check Elbit brochure,Dimensão 22 - Hermes RQ-450,https://www.fab.mil.br/dimensao22/

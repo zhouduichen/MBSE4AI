@@ -1,0 +1,35 @@
+{
+  "id": "FW-E-PUBLIC-TACTICAL-ISR",
+  "status": "approved",
+  "source_requirement_ids": ["PROMPT-TACTICAL-ISR"],
+  "parameters": {
+    "mass_kg": 500,
+    "payload_kg": 160,
+    "wing_area_m2": 13,
+    "span_m": 11.2,
+    "fuselage_length_m": 6.4,
+    "cruise_speed_mps": 46.3,
+    "section_modulus_m3": 0.021,
+    "allowable_stress_pa": 226350000,
+    "cg_x_m": 1.92
+  },
+  "bounds": {
+    "mass_kg": {"minimum": 420, "maximum": 530},
+    "payload_kg": {"minimum": 150, "maximum": 170},
+    "wing_area_m2": {"minimum": 10.5, "maximum": 15},
+    "span_m": {"minimum": 10, "maximum": 12},
+    "fuselage_length_m": {"minimum": 6, "maximum": 7.2},
+    "cruise_speed_mps": {"minimum": 40, "maximum": 50},
+    "section_modulus_m3": {"minimum": 0.0165, "maximum": 0.024},
+    "allowable_stress_pa": {"minimum": 210000000, "maximum": 240000000},
+    "cg_x_m": {"minimum": 1.8, "maximum": 2.16}
+  },
+  "interpretation": {
+    "mass_kg": "non-payload mass proxy; total public MTOW check is mass_kg + payload_kg",
+    "hard_constraints": [
+      "mass_kg + payload_kg <= 700 kg",
+      "payload_kg >= 150 kg",
+      "span_m <= 12 m"
+    ]
+  }
+}

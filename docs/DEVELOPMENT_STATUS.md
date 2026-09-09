@@ -1,6 +1,6 @@
 # 开发状态
 
-**更新时间：** 2026-09-08
+**更新时间：** 2026-09-09
 **产品版本：** rflp-lite 0.1.0
 **方法论协议：** v2.0
 
@@ -17,6 +17,8 @@
 | 运行可追溯 | active profile/provider/model、TaskSpec/prompt/context/input/output hash、step ledger、lease/heartbeat |
 | 资源服务 | Project、Analysis、Model、Evidence、Render、Settings 服务及统一依赖组装 |
 | CLI / Web | `ai4mbse` 命令、完整 Analysis 工作流页、Trace 页、连接测试和 JSON/SVG/DOT/SysML-lite 导出 |
+| Web 主流程入口 | `/` 重定向到项目列表；分析页支持需求文本和文档上传；无输入项目禁止运行分析并在页面禁用运行按钮 |
+| Web 运行配置 | 设置页支持保存模型配置、激活已有配置和连接测试；API Key 不进入页面或公开响应 |
 | 文档接入 | TXT、Markdown、DOCX、PDF 解析；扫描 PDF 使用可选 OCR 适配器 |
 | Golden E2E | 校园无人配送机器人 fixture 可导入并跑完整阶段；失败与锁定保护可验证 |
 

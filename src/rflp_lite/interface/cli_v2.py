@@ -10,6 +10,7 @@ from pathlib import Path
 
 from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.application.llm_profiles import default_config_dir
+from rflp_lite.application.model_export import graph_sysml
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import RflpError
 from rflp_lite.methodology.contracts import Phase
@@ -61,13 +62,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _graph_sysml(graph) -> str:
-    lines = ["package AI4MBSE_Model {", f"  // revision {graph.revision}"]
-    for entity in graph.entities:
-        lines.append(f'  // entity {json.dumps(entity.as_dict(), ensure_ascii=False, sort_keys=True)}')
-    for relation in graph.relations:
-        lines.append(f'  // relation {json.dumps({"id": relation.id, "source_id": relation.source_id, "predicate": relation.predicate.value, "target_id": relation.target_id}, ensure_ascii=False, sort_keys=True)}')
-    lines.append("}")
-    return "\n".join(lines) + "\n"
+    return graph_sysml(graph)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

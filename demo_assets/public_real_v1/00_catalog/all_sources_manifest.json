@@ -1,0 +1,142 @@
+[
+  {
+    "category": "requirements_document",
+    "name": "Design Requirements for Unmanned Rotorcraft Used in Low-Risk Concepts of Operation",
+    "authority": "NASA",
+    "url": "https://ntrs.nasa.gov/citations/20160014852",
+    "use": "1.1 primary: formal design/performance requirements; provenance; constraints"
+  },
+  {
+    "category": "requirements_document",
+    "name": "UTM Concept of Operations Version 2.0",
+    "authority": "FAA",
+    "url": "https://www.faa.gov/researchdevelopment/trafficmanagement/utm-concept-operations-version-20-utm-conops-v20",
+    "use": "1.2 primary: operational scenarios, actors, use-case inventory, contingency/lost-link flows"
+  },
+  {
+    "category": "requirements_document",
+    "name": "HALE UAS Concept of Operations Version 3.0",
+    "authority": "NASA",
+    "url": "https://ntrs.nasa.gov/citations/20080017112",
+    "use": "1.1+1.2: system-level ConOps, sample missions, operational requirements"
+  },
+  {
+    "category": "requirements_document",
+    "name": "Functional Requirements Document for HALE UAS Operations in the NAS: Step 1 Version 3",
+    "authority": "NASA",
+    "url": "https://ntrs.nasa.gov/citations/20080017417",
+    "use": "1.1 stress test: decomposed operational -> functional requirements"
+  },
+  {
+    "category": "requirements_document",
+    "name": "Collision Avoidance Functional Requirements for Step 1 Revision 6",
+    "authority": "NASA",
+    "url": "https://ntrs.nasa.gov/citations/20080017111",
+    "use": "1.1 stress test: requirement hierarchy, performance/safety guidelines"
+  },
+  {
+    "category": "requirements_document",
+    "name": "AC 107-2A Small Unmanned Aircraft System",
+    "authority": "FAA",
+    "url": "https://www.faa.gov/documentLibrary/media/Advisory_Circular/AC_107-2A.pdf",
+    "use": "1.1 regulatory-language test: must/requirements/limitations; long document"
+  },
+  {
+    "category": "requirements_document",
+    "name": "Unmanned Aircraft Systems Traffic Management TechPort Closeout Infosheet",
+    "authority": "NASA",
+    "url": "https://ntrs.nasa.gov/citations/20210018117",
+    "use": "1.1 Word ingestion: real public DOCX on NTRS"
+  },
+  {
+    "category": "requirements_document",
+    "name": "Work Package 5 Contingency Management - Mission Planning Requirements Document",
+    "authority": "NASA",
+    "url": "https://ntrs.nasa.gov/citations/20080017283",
+    "use": "1.1+1.2: mission-planning requirements and contingency analysis"
+  },
+  {
+    "category": "historical_aircraft",
+    "name": "MQ-1B Predator",
+    "authority": "U.S. Air Force",
+    "url": "https://www.af.mil/About-Us/Fact-Sheets/Display/Article/%20104469/",
+    "use": "2.1 historical scheme public facts"
+  },
+  {
+    "category": "historical_aircraft",
+    "name": "Bayraktar TB2",
+    "authority": "Baykar",
+    "url": "https://baykartech.com/en/uav/bayraktar-tb2/",
+    "use": "2.1 historical scheme public facts"
+  },
+  {
+    "category": "historical_aircraft",
+    "name": "Bayraktar TB3",
+    "authority": "Baykar",
+    "url": "https://baykartech.com/en/uav/bayraktar-tb3/",
+    "use": "2.1 historical scheme public facts"
+  },
+  {
+    "category": "historical_aircraft",
+    "name": "Gray Eagle",
+    "authority": "GA-ASI",
+    "url": "https://www.ga-asi.com/remotely-piloted-aircraft/gray-eagle",
+    "use": "2.1 historical scheme public facts"
+  },
+  {
+    "category": "historical_aircraft",
+    "name": "Gray Eagle Extended Range",
+    "authority": "GA-ASI",
+    "url": "https://www.ga-asi.com/remotely-piloted-aircraft/gray-eagle-extended-range",
+    "use": "2.1 historical scheme public facts"
+  },
+  {
+    "category": "historical_aircraft",
+    "name": "IAI Heron",
+    "authority": "IAI",
+    "url": "https://www.iai.co.il/product/heron/",
+    "use": "2.1 historical scheme public facts"
+  },
+  {
+    "category": "historical_aircraft",
+    "name": "IAI Tactical Heron",
+    "authority": "IAI",
+    "url": "https://www.iai.co.il/product/tactical-heron/",
+    "use": "2.1 historical scheme public facts"
+  },
+  {
+    "category": "historical_aircraft",
+    "name": "Hermes 900",
+    "authority": "Brazilian Air Force (FAB)",
+    "url": "https://www.fab.mil.br/noticias/imprime/19863/OPERACIONAL%20%E2%80%93%20Hermes%20900%20participa%20de%20treinamento%20em%20Campo%20Grande",
+    "use": "2.1 historical scheme public facts"
+  },
+  {
+    "category": "historical_aircraft",
+    "name": "Hermes 450",
+    "authority": "Brazilian Air Force (FAB); payload/MTOW cross-check Elbit brochure",
+    "url": "https://www.fab.mil.br/dimensao22/",
+    "use": "2.1 historical scheme public facts"
+  },
+  {
+    "category": "material",
+    "name": "Aluminum 7075-T6 material table",
+    "authority": "NASA-hosted public report",
+    "url": "https://ntrs.nasa.gov/api/citations/20205003988/downloads/UMd%20X_Hab_Final_Report__Final_xx.pdf",
+    "use": "2.2 structural demo reference"
+  },
+  {
+    "category": "material",
+    "name": "HexPly 8552 product data sheet",
+    "authority": "Hexcel",
+    "url": "https://www.hexcel.com/wp-content/uploads/2025/12/HexPly_8552_eu_DataSheet1.pdf",
+    "use": "2.2 composite reference"
+  },
+  {
+    "category": "environment",
+    "name": "U.S. Standard Atmosphere sea-level reference",
+    "authority": "NASA",
+    "url": "https://ntrs.nasa.gov/api/citations/19760003955/downloads/19760003955.pdf",
+    "use": "2.2 air density default"
+  }
+]

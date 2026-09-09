@@ -1,0 +1,74 @@
+[
+  {
+    "id": "REQDOC-01",
+    "title": "Design Requirements for Unmanned Rotorcraft Used in Low-Risk Concepts of Operation",
+    "organization": "NASA",
+    "format": "PDF",
+    "use_for": "1.1 primary: formal design/performance requirements; provenance; constraints",
+    "url": "https://ntrs.nasa.gov/citations/20160014852",
+    "direct_download_hint": "NTRS page -> Available Downloads -> 20160014852.pdf"
+  },
+  {
+    "id": "REQDOC-02",
+    "title": "UTM Concept of Operations Version 2.0",
+    "organization": "FAA",
+    "format": "PDF",
+    "use_for": "1.2 primary: operational scenarios, actors, use-case inventory, contingency/lost-link flows",
+    "url": "https://www.faa.gov/researchdevelopment/trafficmanagement/utm-concept-operations-version-20-utm-conops-v20",
+    "direct_download_hint": "FAA page -> UTM_ConOps_v2.pdf"
+  },
+  {
+    "id": "REQDOC-03",
+    "title": "HALE UAS Concept of Operations Version 3.0",
+    "organization": "NASA",
+    "format": "PDF",
+    "use_for": "1.1+1.2: system-level ConOps, sample missions, operational requirements",
+    "url": "https://ntrs.nasa.gov/citations/20080017112",
+    "direct_download_hint": "NTRS page -> 20080017112.pdf"
+  },
+  {
+    "id": "REQDOC-04",
+    "title": "Functional Requirements Document for HALE UAS Operations in the NAS: Step 1 Version 3",
+    "organization": "NASA",
+    "format": "PDF",
+    "use_for": "1.1 stress test: decomposed operational -> functional requirements",
+    "url": "https://ntrs.nasa.gov/citations/20080017417",
+    "direct_download_hint": "NTRS page -> Available Downloads"
+  },
+  {
+    "id": "REQDOC-05",
+    "title": "Collision Avoidance Functional Requirements for Step 1 Revision 6",
+    "organization": "NASA",
+    "format": "PDF",
+    "use_for": "1.1 stress test: requirement hierarchy, performance/safety guidelines",
+    "url": "https://ntrs.nasa.gov/citations/20080017111",
+    "direct_download_hint": "NTRS page -> Available Downloads"
+  },
+  {
+    "id": "REQDOC-06",
+    "title": "AC 107-2A Small Unmanned Aircraft System",
+    "organization": "FAA",
+    "format": "PDF",
+    "use_for": "1.1 regulatory-language test: must/requirements/limitations; long document",
+    "url": "https://www.faa.gov/documentLibrary/media/Advisory_Circular/AC_107-2A.pdf",
+    "direct_download_hint": "direct PDF"
+  },
+  {
+    "id": "REQDOC-07",
+    "title": "Unmanned Aircraft Systems Traffic Management TechPort Closeout Infosheet",
+    "organization": "NASA",
+    "format": "DOCX",
+    "use_for": "1.1 Word ingestion: real public DOCX on NTRS",
+    "url": "https://ntrs.nasa.gov/citations/20210018117",
+    "direct_download_hint": "NTRS page -> Techport_UTM Infosheet 2021 June update v2.docx"
+  },
+  {
+    "id": "REQDOC-08",
+    "title": "Work Package 5 Contingency Management - Mission Planning Requirements Document",
+    "organization": "NASA",
+    "format": "PDF",
+    "use_for": "1.1+1.2: mission-planning requirements and contingency analysis",
+    "url": "https://ntrs.nasa.gov/citations/20080017283",
+    "direct_download_hint": "NTRS page -> Available Downloads"
+  }
+]

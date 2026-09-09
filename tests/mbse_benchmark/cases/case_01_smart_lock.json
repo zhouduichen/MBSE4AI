@@ -1,0 +1,28 @@
+{
+  "case_id": "CASE-01",
+  "difficulty": "LOW",
+  "system": "宿舍智能门锁系统",
+  "brief": "设计一个宿舍智能门锁系统。学生可以使用校园卡或手机开门。管理员能够增加和删除用户。断网时仍然应该具备基本开门能力。系统需要记录开门记录。设备需要考虑安装、维护和更换。",
+  "stakeholders": [
+    "学生",
+    "宿舍管理员",
+    "学校管理部门",
+    "安装人员",
+    "维护人员",
+    "设备制造商",
+    "IT / 网络管理人员"
+  ],
+  "lifecycle_stages": ["设计", "部署", "运行", "维护", "更换", "退役"],
+  "scenarios": [
+    {"id": "normal-entry", "name": "正常开门", "category": "normal", "text": "学生使用校园卡或手机开门"},
+    {"id": "offline-entry", "name": "断网开门", "category": "exception", "text": "断网时使用本地凭证完成基本开门"},
+    {"id": "admin-user-management", "name": "用户管理", "category": "alternative", "text": "管理员增加和删除用户"},
+    {"id": "maintenance-replacement", "name": "安装维护更换", "category": "maintenance", "text": "安装、维护和更换设备"}
+  ],
+  "requirements": [
+    {"id": "lock-card-or-phone", "statement": "系统应允许学生使用校园卡或手机开门", "verification_method": "demonstration"},
+    {"id": "lock-offline-basic-entry", "statement": "系统应在断网时提供基本开门能力", "verification_method": "test"},
+    {"id": "lock-audit-log", "statement": "系统应记录开门记录", "verification_method": "inspection"},
+    {"id": "lock-user-management", "statement": "系统应允许宿舍管理员增加和删除用户", "verification_method": "demonstration"}
+  ]
+}

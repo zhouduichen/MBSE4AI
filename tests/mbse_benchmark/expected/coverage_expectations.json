@@ -1,0 +1,23 @@
+{
+  "stakeholder_synonyms": {
+    "direct_user": ["学生", "用户", "收件用户", "巡检操作员"],
+    "operator": ["管理员", "运营人员", "配送运营人员", "运营方"],
+    "maintenance": ["维护人员", "维修人员", "运维人员", "维修工程师"],
+    "manufacturing": ["设备制造商", "制造商", "供应商"],
+    "management_regulation": ["学校管理部门", "校园管理部门", "校园安全监管方", "安全监管方", "园区管理方"],
+    "network_service": ["IT", "网络管理人员", "通信服务方", "支付服务方"],
+    "lifecycle_late": ["升级维护团队", "退役处置方", "退役", "维护人员"]
+  },
+  "required_lifecycle": {
+    "CASE-01": ["design", "deployment", "operation", "maintenance"],
+    "CASE-02": ["design", "manufacturing", "deployment", "operation", "maintenance", "retirement"],
+    "CASE-03": ["manufacturing", "deployment", "operation", "maintenance", "upgrade", "retirement"],
+    "CASE-04": ["design", "manufacturing", "deployment", "operation", "maintenance", "upgrade", "retirement"],
+    "CASE-05": ["design", "operation", "maintenance"]
+  },
+  "required_scenarios": {
+    "CASE-02": ["商品售罄", "支付失败", "支付成功但出货失败", "卡货", "断网", "断电", "库存不足", "设备故障"],
+    "CASE-03": ["雨", "夜间", "通信中断", "低电量", "定位异常", "道路临时封闭", "行人突然出现"]
+  },
+  "scenario_categories": ["normal", "alternative", "exception", "maintenance"]
+}
