@@ -34,7 +34,7 @@ class RequirementRowView:
     issue_count: int
     locked: bool
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> Mapping[str, object]:
         return asdict(self)
 
 
@@ -56,7 +56,7 @@ class RequirementDetailView:
     trace_path: tuple[str, ...]
     revision: int
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> Mapping[str, object]:
         return asdict(self)
 
 
@@ -89,7 +89,7 @@ def _row(graph: ModelGraph, entity: Entity, issues: Mapping[str, tuple[Mapping[s
     )
 
 
-def build_requirements_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> dict[str, object]:
+def build_requirements_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> Mapping[str, object]:
     issue_index = issues_by_entity(issues)
     requirements = tuple(sorted((entity for entity in graph.entities if entity.kind is EntityKind.REQUIREMENT), key=lambda item: item.id))
     rows = tuple(_row(graph, entity, issue_index) for entity in requirements)
@@ -103,7 +103,7 @@ def build_requirements_view(graph: ModelGraph, issues: tuple[Mapping[str, object
     }
 
 
-def build_requirement_detail(graph: ModelGraph, entity_id: str, *, issues: tuple[Mapping[str, object], ...] = (), evidence: tuple[Mapping[str, object], ...] = ()) -> dict[str, object] | None:
+def build_requirement_detail(graph: ModelGraph, entity_id: str, *, issues: tuple[Mapping[str, object], ...] = (), evidence: tuple[Mapping[str, object], ...] = ()) -> Mapping[str, object] | None:
     entity = graph.entity_index.get(entity_id)
     if entity is None or entity.kind is not EntityKind.REQUIREMENT:
         return None

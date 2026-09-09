@@ -12,7 +12,7 @@ from rflp_lite.domain.model import ModelGraph
 _KINDS = (EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE, EntityKind.LIFECYCLE_TRANSITION, EntityKind.USE_CASE, EntityKind.OPERATIONAL_SCENARIO, EntityKind.ACTIVITY)
 
 
-def build_operational_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> dict[str, object]:
+def build_operational_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> Mapping[str, object]:
     issue_index = issues_by_entity(issues)
     sections = []
     for kind in _KINDS:

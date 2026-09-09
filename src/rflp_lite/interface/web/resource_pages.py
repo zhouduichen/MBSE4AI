@@ -86,6 +86,7 @@ _STATUS_LABELS = {
     "candidate": "候选",
     "validated": "已验证",
     "accepted": "已接受",
+    "rejected": "已拒绝",
     "deprecated": "已弃用",
     "locked": "已锁定",
     "passed": "已通过",

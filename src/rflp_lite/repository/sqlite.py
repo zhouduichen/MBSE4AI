@@ -179,8 +179,8 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
                 (graph.revision, graph.revision, project_id),
             )
             self._connection.execute(
-                "INSERT INTO revisions(id, project_id, sequence, parent_id, reason, snapshot_json, snapshot_hash, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (f"revision-{graph.revision}", project_id, graph.revision, revision.parent_id, revision.reason, _json(snapshot), revision.snapshot_hash, revision.run_id),
+                "INSERT INTO revisions(id, project_id, sequence, parent_id, reason, snapshot_json, snapshot_hash, run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (f"revision-{graph.revision}", project_id, graph.revision, revision.parent_id, revision.reason, _json(snapshot), revision.snapshot_hash, revision.run_id, time.time()),
             )
             self._connection.execute(
                 "INSERT INTO patches(id, run_id, task_id, operations_json, reason, status, input_hash, output_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -349,7 +349,7 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
     def list_revisions(self, project_id: str) -> tuple[Mapping[str, object], ...]:
         with self._lock:
             rows = self._connection.execute(
-                "SELECT id, project_id, sequence, parent_id, reason, snapshot_hash, run_id FROM revisions WHERE project_id = ? ORDER BY sequence",
+                "SELECT id, project_id, sequence, parent_id, reason, snapshot_hash, run_id, created_at FROM revisions WHERE project_id = ? ORDER BY sequence",
                 (project_id,),
             ).fetchall()
         return tuple(dict(row) for row in rows)

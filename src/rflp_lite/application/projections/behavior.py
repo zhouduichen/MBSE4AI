@@ -12,7 +12,7 @@ from rflp_lite.domain.model import ModelGraph
 _KINDS = (EntityKind.ACTIVITY, EntityKind.FUNCTIONAL_SCENARIO, EntityKind.INTERFACE, EntityKind.STATE)
 
 
-def build_behavior_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> dict[str, object]:
+def build_behavior_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> Mapping[str, object]:
     issue_index = issues_by_entity(issues)
     entity_ids = {item.id for item in graph.entities if item.kind in _KINDS}
     records = {kind.value: [entity_card(item, issue_count=len(issue_index.get(item.id, ()))) for item in sorted(graph.entities, key=lambda value: value.id) if item.kind is kind] for kind in _KINDS}

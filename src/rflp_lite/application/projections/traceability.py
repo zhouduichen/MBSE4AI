@@ -22,11 +22,11 @@ class TraceabilityRowView:
     coverage_percent: float
     status: str
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> Mapping[str, object]:
         return asdict(self)
 
 
-def build_traceability_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> dict[str, object]:
+def build_traceability_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> Mapping[str, object]:
     rows = []
     matrix = []
     for requirement in sorted((item for item in graph.entities if item.kind is EntityKind.REQUIREMENT), key=lambda item: item.id):

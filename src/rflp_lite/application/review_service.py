@@ -22,7 +22,7 @@ class ReviewCommandResult:
     patch_id: str
     audit_kind: str
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> Mapping[str, object]:
         return asdict(self)
 
 
@@ -37,7 +37,7 @@ class ReviewService:
             raise NotFoundError(f"entity not found: {entity_id}")
         return entity
 
-    def _apply(self, project_id: str, entity_id: str, action: str, fields: dict[str, object], expected_revision: int | None, reason: str):
+    def _apply(self, project_id: str, entity_id: str, action: str, fields: Mapping[str, object], expected_revision: int | None, reason: str):
         graph = self.model_service.graph(project_id)
         entity = graph.entity_index.get(entity_id)
         if entity is None:
@@ -76,7 +76,7 @@ class ReviewService:
             raise ContractViolation(f"only locked entities can be unlocked: {entity_id}")
         return self._apply(project_id, entity_id, "unlock", {"status": EntityStatus.ACCEPTED.value, "producer": Producer.USER.value, "payload": {"user_modified": False}}, expected_revision, "user unlocked engineering entity")
 
-    def edit_entity(self, project_id: str, entity_id: str, *, statement: str | None = None, name: str | None = None, payload: dict[str, object] | None = None, expected_revision: int | None = None) -> ReviewCommandResult:
+    def edit_entity(self, project_id: str, entity_id: str, *, statement: str | None = None, name: str | None = None, payload: Mapping[str, object] | None = None, expected_revision: int | None = None) -> ReviewCommandResult:
         entity = self._entity(project_id, entity_id)
         if entity.meta.status is EntityStatus.LOCKED:
             raise ConflictError(f"locked entity cannot be edited: {entity_id}")
@@ -85,14 +85,14 @@ class ReviewService:
             next_payload["statement"] = str(statement).strip()
         if not next_payload and name is None:
             raise ContractViolation("edit requires statement, name, or payload")
-        fields: dict[str, object] = {"producer": Producer.USER.value, "payload": {**next_payload, "user_modified": True}}
+        fields: Mapping[str, object] = {"producer": Producer.USER.value, "payload": {**next_payload, "user_modified": True}}
         if name is not None:
             fields["name"] = str(name).strip()
         if entity.meta.status is not EntityStatus.CANDIDATE:
             fields["status"] = EntityStatus.CANDIDATE.value
         return self._apply(project_id, entity_id, "edit", fields, expected_revision, "user edited engineering entity; downstream trace marked stale")
 
-    def request_reanalysis(self, project_id: str, entity_id: str, *, expected_revision: int | None = None) -> dict[str, object]:
+    def request_reanalysis(self, project_id: str, entity_id: str, *, expected_revision: int | None = None) -> Mapping[str, object]:
         entity = self._entity(project_id, entity_id)
         graph = self.model_service.graph(project_id)
         if expected_revision is not None and int(expected_revision) != graph.revision:

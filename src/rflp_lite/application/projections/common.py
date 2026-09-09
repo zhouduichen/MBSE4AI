@@ -18,7 +18,7 @@ class ProjectionHeader:
     revision: int
     snapshot_hash: str
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> Mapping[str, object]:
         return asdict(self)
 
 
@@ -38,7 +38,7 @@ def plain(value: object) -> object:
     return value
 
 
-def entity_card(entity: Entity, *, issue_count: int = 0) -> dict[str, object]:
+def entity_card(entity: Entity, *, issue_count: int = 0) -> Mapping[str, object]:
     return {
         "id": entity.id,
         "kind": entity.kind.value,
@@ -82,7 +82,7 @@ def relation_index(graph: ModelGraph) -> tuple[dict[str, Entity], dict[str, tupl
     return entities, {key: tuple(value) for key, value in outgoing.items()}, {key: tuple(value) for key, value in incoming.items()}
 
 
-def related_cards(graph: ModelGraph, entity_id: str, *, outgoing: bool, issues: Mapping[str, tuple[Mapping[str, object], ...]]) -> tuple[dict[str, object], ...]:
+def related_cards(graph: ModelGraph, entity_id: str, *, outgoing: bool, issues: Mapping[str, tuple[Mapping[str, object], ...]]) -> tuple[Mapping[str, object], ...]:
     entities, by_source, by_target = relation_index(graph)
     relations = by_source.get(entity_id, ()) if outgoing else by_target.get(entity_id, ())
     cards = []
@@ -143,7 +143,9 @@ def requirement_trace_status(graph: ModelGraph, requirement: Entity) -> tuple[st
     if invalid:
         return "INVALID_PREDICATE", ("invalid_predicate",), trace
     gaps = tuple(stage for stage, values in (("function", trace["functions"]), ("logical", trace["logical"]), ("physical", trace["physical"]), ("verification", trace["verification"])) if not values)
-    return ("PASS", (), trace) if not gaps else (gaps[0].upper() if len(gaps) == 1 else "BLOCKED", gaps, trace)
+    gap_codes = {"function": "MISSING_FUNCTION", "logical": "MISSING_LOGICAL", "physical": "MISSING_PHYSICAL", "verification": "MISSING_VERIFICATION"}
+    status = "PASS" if not gaps else gap_codes[gaps[0]] if len(gaps) == 1 else "BLOCKED"
+    return status, gaps, trace
 
 
 def as_payload(value: object) -> object:

@@ -48,7 +48,7 @@ def _services(request: Request):
     return services.v2
 
 
-def _run_payload(summary) -> dict[str, object]:
+def _run_payload(summary) -> Mapping[str, object]:
     raw = _plain(summary)
     data = dict(raw) if isinstance(raw, Mapping) else {}
     run_id = str(data.get("run_id") or data.get("id") or getattr(summary, "run_id", ""))
@@ -69,7 +69,7 @@ def _run_payload(summary) -> dict[str, object]:
     return payload
 
 
-def _attach_runtime_metadata(run: dict[str, object], analysis) -> dict[str, object]:
+def _attach_runtime_metadata(run: Mapping[str, object], analysis) -> Mapping[str, object]:
     runner = getattr(analysis, "runner", None)
     selection = getattr(runner, "runtime_selection", None)
     if selection is None:
@@ -141,10 +141,10 @@ def _call_run(analysis, project_id: str, phase: Phase, run_id: str | None = None
         return analysis.run(project_id, phase)
 
 
-def _pipeline_fallback(analysis, project_id: str, *, requested_run_id: str | None, force_run: bool) -> dict[str, object]:
+def _pipeline_fallback(analysis, project_id: str, *, requested_run_id: str | None, force_run: bool) -> Mapping[str, object]:
     pipeline_id = requested_run_id or f"pipeline-{uuid4().hex[:16]}"
-    phase_results: list[dict[str, object]] = []
-    gate_results: list[dict[str, object]] = []
+    phase_results: list[Mapping[str, object]] = []
+    gate_results: list[Mapping[str, object]] = []
     diagnostics: list[str] = []
     all_passed = True
     for phase in (Phase.OPERATIONAL, Phase.FUNCTIONAL, Phase.LOGICAL_PHYSICAL, Phase.ASSURANCE):
@@ -186,7 +186,7 @@ def _pipeline_fallback(analysis, project_id: str, *, requested_run_id: str | Non
             global_result = _gate_payload(global_gate(_services_from_analysis(analysis, project_id)), fallback_phase=Phase.ASSURANCE)
         global_result["phase"] = Phase.CLOSURE.value
         gate_results.append(global_result)
-    closure: dict[str, object]
+    closure: Mapping[str, object]
     if all_passed and global_result["passed"]:
         try:
             closure_summary = _call_run(analysis, project_id, Phase.CLOSURE, f"{pipeline_id}-closure" if force_run else None, force_run=force_run)
@@ -222,7 +222,7 @@ def _services_from_analysis(analysis, project_id: str):
     return analysis.runner.model_repository.load_graph(project_id)
 
 
-def _orchestrator_payload(analysis, project_id: str, result, *, force_run: bool) -> dict[str, object]:
+def _orchestrator_payload(analysis, project_id: str, result, *, force_run: bool) -> Mapping[str, object]:
     payload = _run_payload(result)
     phase_order = [phase.value for phase, _label in ((Phase.OPERATIONAL, ""), (Phase.FUNCTIONAL, ""), (Phase.LOGICAL_PHYSICAL, ""), (Phase.ASSURANCE, ""), (Phase.CLOSURE, ""))]
     result_phase = str(payload.get("phase", Phase.OPERATIONAL.value))
@@ -240,7 +240,7 @@ def _orchestrator_payload(analysis, project_id: str, result, *, force_run: bool)
         }
         for index, phase in enumerate(phase_order)
     ]
-    gate_results: list[dict[str, object]] = []
+    gate_results: list[Mapping[str, object]] = []
     for phase in (Phase.OPERATIONAL, Phase.FUNCTIONAL, Phase.LOGICAL_PHYSICAL, Phase.ASSURANCE, Phase.CLOSURE):
         try:
             gate = _gate_payload(analysis.gate(project_id, phase), fallback_phase=phase)
@@ -264,7 +264,7 @@ def _orchestrator_payload(analysis, project_id: str, result, *, force_run: bool)
     return payload
 
 
-def _invoke_pipeline(analysis, project_id: str, *, run_id: str | None, force_run: bool) -> dict[str, object]:
+def _invoke_pipeline(analysis, project_id: str, *, run_id: str | None, force_run: bool) -> Mapping[str, object]:
     pipeline = getattr(analysis, "run_pipeline", None)
     if callable(pipeline):
         try:
@@ -289,7 +289,7 @@ def _invoke_pipeline(analysis, project_id: str, *, run_id: str | None, force_run
     return _pipeline_fallback(analysis, project_id, requested_run_id=run_id, force_run=force_run)
 
 
-def _profile_test_payload(settings, raw: object) -> dict[str, object]:
+def _profile_test_payload(settings, raw: object) -> Mapping[str, object]:
     if not isinstance(raw, Mapping):
         raise ContractViolation("model profile test payload must be an object")
     payload = dict(raw)
@@ -306,7 +306,7 @@ def _profile_test_payload(settings, raw: object) -> dict[str, object]:
     return payload
 
 
-def _connection_failure(exc: AdapterFailure) -> dict[str, object]:
+def _connection_failure(exc: AdapterFailure) -> Mapping[str, object]:
     """Convert provider errors into safe, actionable UI status metadata."""
 
     detail = str(exc)
@@ -390,7 +390,8 @@ def _expected_revision(payload: Mapping[str, object]) -> int | None:
 
 
 async def _json_object(request: Request) -> Mapping[str, object]:
-    payload = await request.json()
+    raw = await request.body()
+    payload = json.loads(raw.decode("utf-8")) if raw else {}
     if payload is None:
         return {}
     if not isinstance(payload, Mapping):
@@ -582,7 +583,7 @@ def get_traceability(request: Request, project_id: str):
         return _error(exc)
 
 
-def _rflp_payload(request: Request, project_id: str, *, selected_requirement: str | None = None, kind: str | None = None, status: str | None = None, issue_only: str | None = None, accepted_only: str | None = None) -> dict[str, object]:
+def _rflp_payload(request: Request, project_id: str, *, selected_requirement: str | None = None, kind: str | None = None, status: str | None = None, issue_only: str | None = None, accepted_only: str | None = None) -> Mapping[str, object]:
     services = _services(request)
     return build_rflp_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)), selected_requirement=selected_requirement, kind=kind, status=status, issue_only=_flag(issue_only), accepted_only=_flag(accepted_only))
 

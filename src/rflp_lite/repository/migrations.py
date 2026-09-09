@@ -126,6 +126,7 @@ def _apply_core_schema(connection: sqlite3.Connection) -> None:
             snapshot_json TEXT NOT NULL,
             snapshot_hash TEXT NOT NULL,
             run_id TEXT,
+            created_at REAL NOT NULL DEFAULT 0,
             UNIQUE(project_id, sequence)
         );
         CREATE TABLE IF NOT EXISTS issues (
@@ -172,6 +173,7 @@ def _apply_core_schema(connection: sqlite3.Connection) -> None:
         "input_hash": "TEXT NOT NULL DEFAULT ''", "output_hash": "TEXT NOT NULL DEFAULT ''",
         "provider_id": "TEXT NOT NULL DEFAULT ''", "model_id": "TEXT NOT NULL DEFAULT ''",
     })
+    _ensure_columns(connection, "revisions", {"created_at": "REAL NOT NULL DEFAULT 0"})
 
 
 def _apply_ledger_schema(connection: sqlite3.Connection) -> None:

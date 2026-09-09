@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Mapping
 
-from rflp_lite.application.projections.common import entity_card, header, issues_by_entity, requirement_trace_status
+from rflp_lite.application.projections.common import entity_card, header, issues_by_entity
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.methodology.contracts import Phase
@@ -23,7 +23,7 @@ class GateSummaryView:
     coverage_summary: Mapping[str, object]
     rollback_phase: str | None
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> Mapping[str, object]:
         return asdict(self)
 
 
@@ -31,15 +31,18 @@ def _gate(graph: ModelGraph, phase: Phase, issues: tuple[Mapping[str, object], .
     result = gate_for_phase(phase, graph)
     blocking = []
     for issue in result.issues:
-        blocking.extend(issue_index.get(entity_id, ()) for entity_id in issue.entity_ids)
-    flattened = [item for group in blocking for item in group]
+        entity_ids = tuple(issue.entity_ids)
+        if not entity_ids:
+            blocking.append({"id": f"gate-{result.gate_id}-{issue.code}", "code": issue.code, "severity": "error", "entity_ids": [], "suggested_rollback": result.rollback_phase.value if result.rollback_phase else None, "status": "open"})
+        for entity_id in entity_ids:
+            blocking.extend(issue_index.get(entity_id, ()) or ({"id": f"gate-{result.gate_id}-{entity_id}", "code": issue.code, "severity": "error", "entity_ids": list(entity_ids), "suggested_rollback": result.rollback_phase.value if result.rollback_phase else None, "status": "open"},))
+    flattened = blocking
     coverage = build_requirement_coverage(graph).metrics
     return GateSummaryView(result.gate_id, phase.value, result.passed, tuple(result.checks), tuple(flattened), dict(coverage), result.rollback_phase.value if result.rollback_phase else None)
 
 
-def build_assurance_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> dict[str, object]:
+def build_assurance_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> Mapping[str, object]:
     issue_index = issues_by_entity(issues)
-    index = graph.entity_index
     verification = {item.id: item for item in graph.entities if item.kind is EntityKind.VERIFICATION_CASE}
     vv_rows = []
     for requirement in sorted((item for item in graph.entities if item.kind is EntityKind.REQUIREMENT), key=lambda item: item.id):

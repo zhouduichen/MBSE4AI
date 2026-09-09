@@ -23,7 +23,7 @@ def build_rflp_view(
     status: str | None = None,
     issue_only: bool = False,
     accepted_only: bool = False,
-) -> dict[str, object]:
+) -> Mapping[str, object]:
     issue_index = issues_by_entity(issues)
     selected_ids: set[str] = set()
     selected_trace: tuple[str, ...] = ()

@@ -38,7 +38,7 @@ class NotFoundError(ContractViolation):
     """Requested workspace or entity does not exist."""
 
 
-class ConflictError(RflpError):
+class ConflictError(ContractViolation):
     """A valid command conflicts with current business state."""
 
 
