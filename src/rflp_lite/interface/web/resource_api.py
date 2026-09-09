@@ -15,6 +15,14 @@ from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.errors import AdapterFailure, ConcurrentModificationError, ContractViolation, InputRequired, NotFoundError, RflpError
 from rflp_lite.domain.model import Patch, UpdateEntity
 from rflp_lite.application.model_export import graph_sysml
+from rflp_lite.application.projections.assurance import build_assurance_view
+from rflp_lite.application.projections.behavior import build_behavior_view
+from rflp_lite.application.projections.history import build_history_view, build_revision_diff
+from rflp_lite.application.projections.operational import build_operational_view
+from rflp_lite.application.projections.requirements import build_requirement_detail, build_requirements_view
+from rflp_lite.application.projections.rflp import build_rflp_view
+from rflp_lite.application.projections.traceability import build_traceability_view
+from rflp_lite.diagrams.engineering.rflp import render_rflp_svg
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.gates import global_gate
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
@@ -367,8 +375,27 @@ def _resolve_repair_issue(request: Request, project_id: str, issue_id: str, anal
 
 
 def _error(exc: Exception) -> JSONResponse:
-    status = 404 if isinstance(exc, NotFoundError) else 409 if isinstance(exc, ConcurrentModificationError) else 422
+    from rflp_lite.domain.errors import ConflictError
+    status = 404 if isinstance(exc, NotFoundError) else 409 if isinstance(exc, (ConcurrentModificationError, ConflictError)) else 422
     return JSONResponse({"status": "failed", "error": type(exc).__name__, "message": str(exc)}, status_code=status)
+
+
+def _flag(value: object) -> bool:
+    return str(value or "").casefold() in {"1", "true", "yes", "on"}
+
+
+def _expected_revision(payload: Mapping[str, object]) -> int | None:
+    value = payload.get("expected_revision")
+    return int(value) if value is not None and str(value).strip() else None
+
+
+async def _json_object(request: Request) -> Mapping[str, object]:
+    payload = await request.json()
+    if payload is None:
+        return {}
+    if not isinstance(payload, Mapping):
+        raise ContractViolation("request payload must be an object")
+    return payload
 
 
 @resource_api.get("/projects")
@@ -507,6 +534,139 @@ def get_coverage(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.get("/projects/{project_id}/requirements")
+def get_requirements(
+    request: Request,
+    project_id: str,
+    status: str | None = None,
+    level: str | None = None,
+    type: str | None = None,
+    producer: str | None = None,
+    has_issue: str | None = None,
+    missing_trace: str | None = None,
+    missing_verification: str | None = None,
+    q: str | None = None,
+):
+    try:
+        services = _services(request)
+        view = build_requirements_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)))
+        rows = list(view["rows"])
+        query = str(q or "").casefold().strip()
+        rows = [row for row in rows if (not status or row["status"] == status) and (not level or row["level"] == level) and (not type or row["type"] == type) and (not producer or row["producer"] == producer) and (_flag(has_issue) is False or row["issue_count"] > 0) and (_flag(missing_trace) is False or row["trace_status"] != "PASS") and (_flag(missing_verification) is False or row["verification_count"] == 0) and (not query or query in str(row["name"]).casefold() or query in str(row["statement"]).casefold() or query in str(row["id"]).casefold())]
+        view["rows"] = rows
+        view["filtered_count"] = len(rows)
+        return {"status": "ok", "requirements": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/requirements/{entity_id}")
+def get_requirement_detail(request: Request, project_id: str, entity_id: str):
+    try:
+        services = _services(request)
+        detail = build_requirement_detail(services.model(project_id).graph(project_id), entity_id, issues=tuple(services.model(project_id).issues(project_id)), evidence=tuple(services.evidence(project_id).list(project_id)))
+        if detail is None:
+            raise NotFoundError(f"requirement not found: {entity_id}")
+        return {"status": "ok", "requirement": detail, **detail}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/traceability")
+def get_traceability(request: Request, project_id: str):
+    try:
+        services = _services(request)
+        view = build_traceability_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)))
+        return {"status": "ok", "traceability": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+def _rflp_payload(request: Request, project_id: str, *, selected_requirement: str | None = None, kind: str | None = None, status: str | None = None, issue_only: str | None = None, accepted_only: str | None = None) -> dict[str, object]:
+    services = _services(request)
+    return build_rflp_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)), selected_requirement=selected_requirement, kind=kind, status=status, issue_only=_flag(issue_only), accepted_only=_flag(accepted_only))
+
+
+@resource_api.get("/projects/{project_id}/rflp")
+def get_rflp(request: Request, project_id: str, requirement_id: str | None = None, kind: str | None = None, status: str | None = None, issue_only: str | None = None, accepted_only: str | None = None):
+    try:
+        view = _rflp_payload(request, project_id, selected_requirement=requirement_id, kind=kind, status=status, issue_only=issue_only, accepted_only=accepted_only)
+        return {"status": "ok", "rflp": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/rflp/trace/{requirement_id}")
+def get_rflp_trace(request: Request, project_id: str, requirement_id: str):
+    try:
+        view = _rflp_payload(request, project_id, selected_requirement=requirement_id)
+        if requirement_id not in {str(node["id"]) for node in view["nodes"]}:
+            raise NotFoundError(f"requirement not found: {requirement_id}")
+        return {"status": "ok", "rflp": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/rflp.svg")
+def get_rflp_svg(request: Request, project_id: str, requirement_id: str | None = None):
+    try:
+        return Response(content=render_rflp_svg(_rflp_payload(request, project_id, selected_requirement=requirement_id)), media_type="image/svg+xml")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/operational")
+def get_operational(request: Request, project_id: str):
+    try:
+        services = _services(request)
+        view = build_operational_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)))
+        return {"status": "ok", "operational": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/behavior")
+def get_behavior(request: Request, project_id: str):
+    try:
+        services = _services(request)
+        view = build_behavior_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)))
+        return {"status": "ok", "behavior": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/assurance")
+def get_assurance(request: Request, project_id: str):
+    try:
+        services = _services(request)
+        view = build_assurance_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)))
+        return {"status": "ok", "assurance": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/history")
+def get_history(request: Request, project_id: str):
+    try:
+        view = build_history_view(_services(request).repository(project_id), project_id)
+        return {"status": "ok", "history": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/revisions/{revision}/diff")
+def get_revision_diff(request: Request, project_id: str, revision: int):
+    try:
+        repository = _services(request).repository(project_id)
+        after = repository.load_revision(project_id, revision)
+        if after is None:
+            raise NotFoundError(f"revision not found: {revision}")
+        before = repository.load_revision(project_id, revision - 1)
+        return {"status": "ok", "diff": build_revision_diff(before, after, revision=revision)}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.get("/projects/{project_id}/entities")
 def list_entities(request: Request, project_id: str, kind: str | None = None):
     try:
@@ -530,6 +690,78 @@ async def patch_entity(request: Request, project_id: str, entity_id: str):
         patch = Patch.create(project_id, "user.entity_patch", (UpdateEntity(entity_id, fields),), "user entity edit", expected_revision)
         revision = _services(request).model(project_id).apply_patch(project_id, patch, expected_revision)
         return {"status": "ok", "revision": asdict(revision)}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+async def _run_review_command(request: Request, project_id: str, entity_id: str, action: str):
+    payload = await _json_object(request)
+    service = _services(request).review(project_id)
+    expected = _expected_revision(payload)
+    if action == "accept":
+        result = service.accept_entity(project_id, entity_id, expected_revision=expected)
+    elif action == "reject":
+        result = service.reject_entity(project_id, entity_id, expected_revision=expected)
+    elif action == "lock":
+        result = service.lock_entity(project_id, entity_id, expected_revision=expected)
+    elif action == "unlock":
+        result = service.unlock_entity(project_id, entity_id, expected_revision=expected)
+    elif action == "edit":
+        raw_payload = payload.get("payload", {})
+        if not isinstance(raw_payload, Mapping):
+            raise ContractViolation("payload must be an object")
+        result = service.edit_entity(project_id, entity_id, statement=str(payload["statement"]) if payload.get("statement") is not None else None, name=str(payload["name"]) if payload.get("name") is not None else None, payload=dict(raw_payload), expected_revision=expected)
+    elif action == "reanalyze":
+        return {"status": "ok", "reanalysis": service.request_reanalysis(project_id, entity_id, expected_revision=expected)}
+    else:
+        raise ContractViolation(f"unsupported review action: {action}")
+    return {"status": "ok", "review": result.as_dict(), "revision": result.revision}
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/accept")
+async def accept_entity(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "accept")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/reject")
+async def reject_entity(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "reject")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/lock")
+async def lock_entity(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "lock")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/unlock")
+async def unlock_entity(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "unlock")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/edit")
+async def edit_entity(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "edit")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/reanalyze")
+async def request_entity_reanalysis(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "reanalyze")
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 

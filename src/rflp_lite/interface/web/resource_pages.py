@@ -17,6 +17,14 @@ from rflp_lite.domain.model import ModelGraph
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.gates import gate_for_phase, global_gate
 from rflp_lite.methodology.tasks import task_catalog, tasks_for_phase
+from rflp_lite.application.projections.assurance import build_assurance_view
+from rflp_lite.application.projections.behavior import build_behavior_view
+from rflp_lite.application.projections.history import build_history_view, build_revision_diff
+from rflp_lite.application.projections.operational import build_operational_view
+from rflp_lite.application.projections.requirements import build_requirement_detail, build_requirements_view
+from rflp_lite.application.projections.rflp import build_rflp_view
+from rflp_lite.application.projections.traceability import build_traceability_view
+from rflp_lite.diagrams.engineering.rflp import render_rflp_svg
 
 
 resource_pages = APIRouter()
@@ -902,3 +910,84 @@ def evidence_page(request: Request, project_id: str):
 def settings_page(request: Request):
     view = build_settings_view(request)
     return templates.TemplateResponse(request=request, name="settings.html", context={**view, "active": "settings"})
+
+
+def _review_context(request: Request, project_id: str) -> dict[str, object]:
+    services = _v2(request)
+    model = services.model(project_id)
+    graph = model.graph(project_id)
+    issues = tuple(model.issues(project_id))
+    return {"services": services, "graph": graph, "issues": issues}
+
+
+@resource_pages.get("/ui/projects/{project_id}/requirements", name="requirements_page")
+def requirements_page(request: Request, project_id: str, status: str | None = None, q: str | None = None):
+    context = _review_context(request, project_id)
+    view = build_requirements_view(context["graph"], context["issues"])
+    query = str(q or "").casefold().strip()
+    if status or query:
+        view["rows"] = [row for row in view["rows"] if (not status or row["status"] == status) and (not query or query in str(row["id"]).casefold() or query in str(row["name"]).casefold() or query in str(row["statement"]).casefold())]
+    return templates.TemplateResponse(request=request, name="requirements.html", context={**view, "project_id": project_id, "active": "requirements", "selected_status": status or "", "query": q or ""})
+
+
+@resource_pages.get("/ui/projects/{project_id}/requirements/{entity_id}", name="requirement_detail_page")
+def requirement_detail_page(request: Request, project_id: str, entity_id: str):
+    context = _review_context(request, project_id)
+    detail = build_requirement_detail(context["graph"], entity_id, issues=context["issues"], evidence=tuple(context["services"].evidence(project_id).list(project_id)))
+    if detail is None:
+        from rflp_lite.domain.errors import NotFoundError
+        raise NotFoundError(f"requirement not found: {entity_id}")
+    return templates.TemplateResponse(request=request, name="requirement-detail.html", context={**detail, "project_id": project_id, "active": "requirements"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/traceability", name="traceability_page")
+def traceability_page(request: Request, project_id: str):
+    context = _review_context(request, project_id)
+    view = build_traceability_view(context["graph"], context["issues"])
+    return templates.TemplateResponse(request=request, name="traceability.html", context={**view, "project_id": project_id, "active": "traceability"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/rflp", name="rflp_page")
+def rflp_page(request: Request, project_id: str, requirement_id: str | None = None):
+    context = _review_context(request, project_id)
+    view = build_rflp_view(context["graph"], context["issues"], selected_requirement=requirement_id)
+    return templates.TemplateResponse(request=request, name="rflp.html", context={**view, "svg": render_rflp_svg(view), "project_id": project_id, "active": "rflp"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/operational", name="operational_page")
+def operational_page(request: Request, project_id: str):
+    context = _review_context(request, project_id)
+    view = build_operational_view(context["graph"], context["issues"])
+    return templates.TemplateResponse(request=request, name="operational.html", context={**view, "project_id": project_id, "active": "operational"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/behavior", name="behavior_page")
+def behavior_page(request: Request, project_id: str):
+    context = _review_context(request, project_id)
+    view = build_behavior_view(context["graph"], context["issues"])
+    return templates.TemplateResponse(request=request, name="behavior.html", context={**view, "project_id": project_id, "active": "behavior"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/assurance", name="assurance_page")
+def assurance_page(request: Request, project_id: str):
+    context = _review_context(request, project_id)
+    view = build_assurance_view(context["graph"], context["issues"])
+    return templates.TemplateResponse(request=request, name="assurance.html", context={**view, "project_id": project_id, "active": "assurance"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/history", name="history_page")
+def history_page(request: Request, project_id: str):
+    view = build_history_view(_v2(request).repository(project_id), project_id)
+    return templates.TemplateResponse(request=request, name="history.html", context={**view, "project_id": project_id, "active": "history"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/history/revisions/{revision}/diff", name="revision_diff_page")
+def revision_diff_page(request: Request, project_id: str, revision: int):
+    repository = _v2(request).repository(project_id)
+    after = repository.load_revision(project_id, revision)
+    if after is None:
+        from rflp_lite.domain.errors import NotFoundError
+        raise NotFoundError(f"revision not found: {revision}")
+    before = repository.load_revision(project_id, revision - 1)
+    diff = build_revision_diff(before, after, revision=revision)
+    return templates.TemplateResponse(request=request, name="revision-diff.html", context={**diff, "project_id": project_id, "active": "history"})
