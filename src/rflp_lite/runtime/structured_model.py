@@ -33,7 +33,8 @@ class StructuredModelRuntime:
             GenerationRequest(
                 request.task_id,
                 (
-                    f"只完成当前 TaskSpec（prompt_template_id={request.prompt_template_id or request.task_id}）。"
+                    request.prompt_text
+                    + "\n\n"
                     "仅返回 operations/reason JSON 对象；不要解释，不要输出未授权类型或关系。"
                 ),
                 payload,

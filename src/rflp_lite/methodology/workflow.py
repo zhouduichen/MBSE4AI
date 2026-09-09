@@ -160,7 +160,7 @@ class WorkflowRunner:
             prior_attempt = next((step.attempt for step in (existing.steps if existing else ()) if step.task_id == task.id), 0)
             started = time.time()
             context_hash = canonical_hash(context)
-            self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.RUNNING.value, prior_attempt + 1, context_hash, None, (), "", self._provider_id(), self._model_id(), task.prompt_template_id, context_hash, started, 0.0))
+            self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.RUNNING.value, prior_attempt + 1, context_hash, None, (), "", self._provider_id(), self._model_id(), task.prompt_template_id, context_hash, started, 0.0, request.prompt_version, request.prompt_hash))
             try:
                 response = self.executor.execute(task, context, self.methodology_version)
                 patch_id = None
@@ -175,11 +175,11 @@ class WorkflowRunner:
                     completed.add(task.id)
                 else:
                     diagnostics.extend(response.diagnostics)
-                self.run_repository.update_step(Step(identity.run_id, task.id, response.status.value, prior_attempt + 1, response.input_hash or context_hash, patch_id, response.diagnostics, response.output_hash, response.provider_id or self._provider_id(), response.model_id or self._model_id(), task.prompt_template_id, context_hash, started, time.time()))
+                self.run_repository.update_step(Step(identity.run_id, task.id, response.status.value, prior_attempt + 1, response.input_hash or context_hash, patch_id, response.diagnostics, response.output_hash, response.provider_id or self._provider_id(), response.model_id or self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash))
             except Exception as exc:
                 message = f"{task.id}: {exc}"
                 diagnostics.append(message)
-                self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.DEGRADED.value, prior_attempt + 1, context_hash, None, (message,), "", self._provider_id(), self._model_id(), task.prompt_template_id, context_hash, started, time.time()))
+                self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.DEGRADED.value, prior_attempt + 1, context_hash, None, (message,), "", self._provider_id(), self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash))
         status = RunStatus.COMPLETED if len(completed) == len(tasks) else RunStatus.DEGRADED
         self._update_run_status(identity.run_id, status, tuple(diagnostics))
         return RunSummary(identity.run_id, project_id, phase, status, tuple(sorted(completed)), tuple(diagnostics))
@@ -189,7 +189,11 @@ class WorkflowRunner:
         selected_tasks = tuple(tasks or (task for item in self.orchestrator.phases for task in tasks_for_phase(item)))
         profile = str(getattr(self.runtime_selection, "profile_id", "offline-rule"))
         task_spec_hash = canonical_hash(tuple((item.id, item.output_schema_id, item.validators, item.max_attempts) for item in selected_tasks))
-        prompt_hash = canonical_hash(tuple(item.prompt_template_id for item in selected_tasks))
+        prompt_hash = canonical_hash(tuple(
+            (item.prompt_template_id, self.executor.prompts.resolve(item.prompt_template_id).version,
+             self.executor.prompts.resolve(item.prompt_template_id).prompt_hash)
+            for item in selected_tasks
+        ))
         identity = RunIdentity.create(project_id, model_profile=profile, methodology_version=self.methodology_version, task_spec_hash=task_spec_hash, prompt_hash=prompt_hash, context_hash=graph.snapshot_hash, input_hash=graph.snapshot_hash, force_new=force_new)
         if run_id and not force_new:
             identity = RunIdentity(identity.project_id, identity.model_profile, identity.methodology_version, identity.task_spec_hash, identity.prompt_hash, identity.context_hash, identity.input_hash, run_id)

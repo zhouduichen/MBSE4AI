@@ -25,6 +25,8 @@ class Step:
     context_hash: str = ""
     started_at: float = 0.0
     completed_at: float = 0.0
+    prompt_version: str = ""
+    prompt_hash: str = ""
 
 
 @dataclass(frozen=True, slots=True)

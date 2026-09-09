@@ -162,6 +162,7 @@ def _apply_core_schema(connection: sqlite3.Connection) -> None:
     _ensure_columns(connection, "steps", {
         "output_hash": "TEXT NOT NULL DEFAULT ''", "provider_id": "TEXT NOT NULL DEFAULT ''",
         "model_id": "TEXT NOT NULL DEFAULT ''", "prompt_template_id": "TEXT NOT NULL DEFAULT ''",
+        "prompt_version": "TEXT NOT NULL DEFAULT ''", "prompt_hash": "TEXT NOT NULL DEFAULT ''",
         "context_hash": "TEXT NOT NULL DEFAULT ''", "started_at": "REAL NOT NULL DEFAULT 0",
         "completed_at": "REAL NOT NULL DEFAULT 0",
     })

@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.model import Patch
 from rflp_lite.methodology.contracts import (
     ContextBundle, StepStatus, TaskExecutionRequest, TaskExecutionResponse, TaskRuntime, TaskSpec,
 )
@@ -41,18 +42,30 @@ class TaskExecutor:
     ) -> TaskExecutionRequest:
         contract = output_contract(task)
         self.schemas.register(task.output_schema_id, contract)
-        self.prompts.register(task.prompt_template_id, f"Execute {task.prompt_template_id} with the supplied evidence.")
+        prompt = self.prompts.resolve(task.prompt_template_id)
         contract = {
             **contract,
             "prompt_template_id": task.prompt_template_id,
+            "prompt_version": prompt.version,
+            "prompt_hash": prompt.prompt_hash,
             "validators": list(task.validators),
             "max_attempts": task.max_attempts,
         }
         return TaskExecutionRequest(
-            task.id, methodology_version, context,
+            task.id,
+            methodology_version,
+            context,
             evidence_bundle if evidence_bundle is not None else context.evidence,
-            contract, token_budget, task.tools, task.prompt_template_id,
-            task.validators, task.max_attempts, task.patch_policy,
+            contract,
+            token_budget,
+            task.tools,
+            task.prompt_template_id,
+            task.validators,
+            task.max_attempts,
+            task.patch_policy,
+            prompt.text,
+            prompt.version,
+            prompt.prompt_hash,
         )
 
     def execute(
@@ -67,7 +80,7 @@ class TaskExecutor:
     ) -> TaskExecutionResponse:
         request = self.request(task, context, methodology_version, evidence_bundle, token_budget)
         input_hash = canonical_hash({
-            "task_id": task.id, "prompt_template_id": task.prompt_template_id,
+            "task_id": task.id, "prompt_hash": request.prompt_hash,
             "context": context, "evidence": request.evidence_bundle,
             "contract": request.output_contract,
         })
@@ -100,5 +113,7 @@ class TaskExecutor:
 
 
 def _require_mapping(value: object) -> None:
-    if value and not isinstance(value, (dict, object)):
+    if value is None or isinstance(value, (dict, Patch)):
+        return
+    if not isinstance(value, dict):
         raise ContractViolation("task result is not serializable")

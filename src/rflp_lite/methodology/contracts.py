@@ -105,6 +105,9 @@ class TaskExecutionRequest:
     validators: tuple[str, ...] = ()
     max_attempts: int = 1
     patch_policy: PatchPolicy = field(default_factory=PatchPolicy)
+    prompt_text: str = ""
+    prompt_version: str = ""
+    prompt_hash: str = ""
 
 
 @dataclass(frozen=True, slots=True)

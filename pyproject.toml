@@ -47,6 +47,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "rflp_lite" = [
   "resources/schemas/*.json",
+  "resources/prompts/**/*.md",
 ]
 "rflp_lite.interface.web" = [
   "templates/*.html",

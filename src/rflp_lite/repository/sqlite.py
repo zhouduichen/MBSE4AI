@@ -412,15 +412,15 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
             )
             for step in run.steps:
                 self._connection.execute(
-                    "INSERT OR REPLACE INTO steps(run_id, task_id, status, attempt, input_hash, output_patch_id, diagnostics, output_hash, provider_id, model_id, prompt_template_id, context_hash, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (step.run_id, step.task_id, step.status, step.attempt, step.input_hash, step.output_patch_id, _json(step.diagnostics), step.output_hash, step.provider_id, step.model_id, step.prompt_template_id, step.context_hash, step.started_at, step.completed_at),
+                    "INSERT OR REPLACE INTO steps(run_id, task_id, status, attempt, input_hash, output_patch_id, diagnostics, output_hash, provider_id, model_id, prompt_template_id, prompt_version, prompt_hash, context_hash, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (step.run_id, step.task_id, step.status, step.attempt, step.input_hash, step.output_patch_id, _json(step.diagnostics), step.output_hash, step.provider_id, step.model_id, step.prompt_template_id, step.prompt_version, step.prompt_hash, step.context_hash, step.started_at, step.completed_at),
                 )
 
     def update_step(self, step: Step) -> None:
         with self._transaction():
             self._connection.execute(
-                "INSERT OR REPLACE INTO steps(run_id, task_id, status, attempt, input_hash, output_patch_id, diagnostics, output_hash, provider_id, model_id, prompt_template_id, context_hash, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (step.run_id, step.task_id, step.status, step.attempt, step.input_hash, step.output_patch_id, _json(step.diagnostics), step.output_hash, step.provider_id, step.model_id, step.prompt_template_id, step.context_hash, step.started_at, step.completed_at),
+                "INSERT OR REPLACE INTO steps(run_id, task_id, status, attempt, input_hash, output_patch_id, diagnostics, output_hash, provider_id, model_id, prompt_template_id, prompt_version, prompt_hash, context_hash, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (step.run_id, step.task_id, step.status, step.attempt, step.input_hash, step.output_patch_id, _json(step.diagnostics), step.output_hash, step.provider_id, step.model_id, step.prompt_template_id, step.prompt_version, step.prompt_hash, step.context_hash, step.started_at, step.completed_at),
             )
 
     def update_run(self, run_id: str, status: str, diagnostics: tuple[str, ...] = ()) -> None:
@@ -444,7 +444,7 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
             row["id"], row["project_id"], row["phase"], row["status"], row["attempt"],
             row["methodology_version"], row["model_profile"], row["input_hash"],
             tuple(json.loads(row["diagnostics"])), tuple(
-                Step(item["run_id"], item["task_id"], item["status"], item["attempt"], item["input_hash"], item["output_patch_id"], tuple(json.loads(item["diagnostics"])), item["output_hash"], item["provider_id"], item["model_id"], item["prompt_template_id"], item["context_hash"], item["started_at"], item["completed_at"])
+                Step(item["run_id"], item["task_id"], item["status"], item["attempt"], item["input_hash"], item["output_patch_id"], tuple(json.loads(item["diagnostics"])), item["output_hash"], item["provider_id"], item["model_id"], item["prompt_template_id"], item["context_hash"], item["started_at"], item["completed_at"], item["prompt_version"], item["prompt_hash"])
                 for item in steps
             ),
             row["provider_id"], row["model_id"], row["execution_mode"], row["context_hash"],
