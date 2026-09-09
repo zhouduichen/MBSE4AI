@@ -10,12 +10,15 @@ from rflp_lite.application.closure_service import ClosureService
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.methodology.context import ContextBuilder
-from rflp_lite.methodology.contracts import Phase, RunStatus, StepStatus, TaskExecutionResponse, TaskRuntime
+from rflp_lite.methodology.contracts import ContextBundle, Phase, RunStatus, StepStatus, TaskExecutionResponse, TaskRuntime
 from rflp_lite.methodology.coverage import CoverageGap, CoverageReport
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.gates import GateResult, gate_for_phase
 from rflp_lite.methodology.identity import RunIdentity
 from rflp_lite.methodology.repair import patch_for_plan, plan_repair
+from rflp_lite.methodology.repair_context import build_repair_context
+from rflp_lite.methodology.repair_planner import plan as plan_repair_task
+from rflp_lite.methodology.repair_strategies import LLMRepairStrategy, RuleFallbackRepairStrategy
 from rflp_lite.methodology.tasks import task_catalog, tasks_for_phase
 from rflp_lite.repository.port import Run, RunRepository, Step
 from rflp_lite.retrieval.evidence import RetrievalEngine
@@ -57,6 +60,7 @@ class LifecycleOrchestrator:
         gate_snapshot: list[dict[str, object]] = []
         phase_results: list[dict[str, object]] = []
         completed: list[str] = []
+        stalled_fingerprints: dict[tuple[object, ...], int] = {}
         for phase in self.phases:
             phase_summary = self.runner._run_phase(project_id, phase, run_id=identity.run_id)
             phase_results.append({"phase": phase.value, "status": phase_summary.status.value, "completed_tasks": list(phase_summary.completed_tasks), "diagnostics": list(phase_summary.diagnostics)})
@@ -78,6 +82,8 @@ class LifecycleOrchestrator:
                     phase_results.append({"phase": Phase.CLOSURE.value, "status": "blocked", "completed_tasks": [], "diagnostics": ["Global Gate must pass before Closure"]})
                     return RunSummary(identity.run_id, project_id, phase, RunStatus.DEGRADED, tuple(dict.fromkeys(completed)), tuple(diagnostics), gate.gate_id, False, tuple(phase_results), tuple(gate_snapshot), {"status": "blocked", "accepted_revision": None, "manifest": None})
                 self.runner._update_run_status(identity.run_id, RunStatus.REPAIRING, tuple(diagnostics))
+                before_graph = self.runner.model_repository.load_graph(project_id)
+                before_gap = tuple(sorted((item.code, item.entity_ids) for item in gate.issues))
                 for issue in gate.issues:
                     issue_id = self.runner._issue_id(project_id, gate, issue)
                     try:
@@ -92,8 +98,26 @@ class LifecycleOrchestrator:
                         diagnostics.extend(rerun.diagnostics)
                 gate = self.runner.gate(project_id, phase, run_id=identity.run_id)
                 gate_snapshot.append(self.runner._gate_payload(gate, phase))
+                if not gate.passed:
+                    after_graph = self.runner.model_repository.load_graph(project_id)
+                    after_gap = tuple(sorted((item.code, item.entity_ids) for item in gate.issues))
+                    if after_graph.snapshot_hash == before_graph.snapshot_hash or after_gap == before_gap:
+                        fingerprint = (phase.value, before_gap, after_gap)
+                        stalled_fingerprints[fingerprint] = stalled_fingerprints.get(fingerprint, 0) + 1
+                        if stalled_fingerprints[fingerprint] >= 2:
+                            diagnostics.append(f"repair_stalled: {phase.value}")
+                            self.runner._update_run_status(identity.run_id, RunStatus.DEGRADED, tuple(diagnostics))
+                            break
             if not gate.passed:
-                raise AssertionError("unreachable lifecycle gate state")
+                message = f"{phase.value}: {gate.gate_id} failed after targeted repair"
+                diagnostics.append(message)
+                self.runner._update_run_status(identity.run_id, RunStatus.DEGRADED, tuple(diagnostics))
+                completed_phases = {item["phase"] for item in phase_results}
+                for pending in self.phases:
+                    if pending.value not in completed_phases:
+                        phase_results.append({"phase": pending.value, "status": "pending", "completed_tasks": [], "diagnostics": []})
+                phase_results.append({"phase": Phase.CLOSURE.value, "status": "blocked", "completed_tasks": [], "diagnostics": ["Global Gate must pass before Closure"]})
+                return RunSummary(identity.run_id, project_id, phase, RunStatus.DEGRADED, tuple(dict.fromkeys(completed)), tuple(diagnostics), gate.gate_id, False, tuple(phase_results), tuple(gate_snapshot), {"status": "blocked", "accepted_revision": None, "manifest": None})
         closure = self.runner.closure.close(project_id, identity.run_id, gate_snapshot=tuple(gate_snapshot))
         diagnostics.append(f"closure_revision={closure.revision}")
         self.runner._update_run_status(identity.run_id, RunStatus.COMPLETED, tuple(diagnostics))
@@ -108,7 +132,7 @@ class WorkflowRunner:
         run_repository: RunRepository,
         runtime: TaskRuntime,
         context_builder: ContextBuilder | None = None,
-        methodology_version: str = "v2.0",
+        methodology_version: str = "v2.1",
         *,
         runtime_selection=None,
     ):
@@ -225,15 +249,38 @@ class WorkflowRunner:
             raise ContractViolation(f"repair requires a registered issue: {issue_id}")
         graph = self.model_repository.load_graph(project_id)
         code = str(issue.get("code", "issue"))
-        root_cause = {"missing_stakeholder": "stakeholder", "missing_lifecycle": "lifecycle", "missing_scenario": "scenario", "missing_use_case": "scenario", "missing_requirement": "requirement", "missing_function": "function", "incomplete_rflp_chain": "architecture", "broken_requirement_rflp_trace": "architecture", "broken_requirement_function_trace": "function", "missing_verification": "verification", "broken_requirement_verification_trace": "verification"}.get(code, "evidence")
-        plan = plan_repair(CoverageReport((CoverageGap(code, root_cause, tuple(str(item) for item in issue.get("entity_ids", ()))),)), revision=graph.revision)
-        operations = tuple(item for item in plan.operations if item.entity.id not in graph.entity_index)
+        effective_run_id = run_id or f"repair-{issue_id}"
+        context = build_repair_context(
+            project_id, effective_run_id, issue_id, {**issue, "failing_gate": issue.get("suggested_rollback", "")},
+            graph, evidence=tuple(self.model_repository.list_evidence(project_id)),
+        )
+        repair_task = plan_repair_task(context)
+        proposal = LLMRepairStrategy(self.executor).propose(context, repair_task)
+        if proposal is None or proposal.patch is None:
+            proposal = RuleFallbackRepairStrategy().propose(graph, context, repair_task)
+        patch = proposal.patch
+        if patch is None:
+            return RunSummary(effective_run_id, project_id, Phase.OPERATIONAL, RunStatus.DEGRADED, (), ("repair produced no patch",))
+        operations = tuple(
+            operation for operation in patch.operations
+            if not hasattr(operation, "entity") or operation.entity.id not in graph.entity_index
+        )
         if not operations:
-            return RunSummary(run_id or f"repair-{issue_id}", project_id, plan.rollback_phase, RunStatus.COMPLETED, (), ("repair already represented in current graph",))
-        plan = type(plan)(plan.rollback_phase, operations, plan.reason, plan.target_task)
-        patch = patch_for_plan(project_id, f"repair.{code}", graph, plan)
+            return RunSummary(effective_run_id, project_id, _phase_for_repair_task(repair_task.target_task_id), RunStatus.COMPLETED, (), ("repair already represented in current graph", f"strategy={proposal.strategy}"))
+        if operations != patch.operations:
+            patch = Patch.create(project_id, patch.task_id, operations, patch.reason, graph.revision)
+        repair_response = TaskExecutionResponse(StepStatus.COMPLETED, patch=patch)
+        repair_spec = repair_task.as_task_spec(context)
+        self.executor.validate_response(project_id, repair_spec, graph, ContextBundle(project_id, repair_spec.id, graph.revision, context.local_entities, context.local_relations, context.evidence), repair_response)
         self.model_repository.append_patch(project_id, patch, graph.revision, run_id=run_id)
-        return RunSummary(run_id or f"repair-{patch.id}", project_id, plan.rollback_phase, RunStatus.COMPLETED, (), (f"applied_patch={patch.id}",))
+        self._record_audit(project_id, "repair.applied", {
+            "run_id": run_id, "issue_id": issue_id, "issue_code": code,
+            "strategy": proposal.strategy, "target_task": proposal.target_task,
+            "patch_id": patch.id, "before_hash": graph.snapshot_hash,
+            "after_hash": self.model_repository.load_graph(project_id).snapshot_hash,
+            "diagnostics": list(proposal.diagnostics),
+        })
+        return RunSummary(effective_run_id, project_id, _phase_for_repair_task(repair_task.target_task_id), RunStatus.COMPLETED, (), (f"applied_patch={patch.id}", f"strategy={proposal.strategy}", *proposal.diagnostics))
 
     def gate(self, project_id: str, phase: Phase, *, run_id: str | None = None) -> GateResult:
         graph = self.model_repository.load_graph(project_id)
@@ -281,3 +328,13 @@ class NoopRuntime:
     def execute(self, request):
         del request
         return TaskExecutionResponse(StepStatus.COMPLETED)
+
+
+def _phase_for_repair_task(task_id: str) -> Phase:
+    if task_id == "function_identification":
+        return Phase.FUNCTIONAL
+    if task_id in {"logical_analysis", "physical_candidates"}:
+        return Phase.LOGICAL_PHYSICAL
+    if task_id == "verification_validation":
+        return Phase.ASSURANCE
+    return Phase.OPERATIONAL

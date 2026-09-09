@@ -37,7 +37,7 @@ def validate(context: ValidationContext) -> None:
             raise MethodologyValidationError("semantic_invalid", "requirement obligation is required")
         if kind is EntityKind.FUNCTION and _HARDWARE_WORDS.search(name):
             raise MethodologyValidationError("semantic_invalid", f"function name is solution-specific: {name}")
-        if kind is EntityKind.VERIFICATION_CASE:
+        if kind is EntityKind.VERIFICATION_CASE and not payload.get("fallback_placeholder"):
             if not str(payload.get("method", "")).strip() or not str(payload.get("pass_criteria", "")).strip():
                 raise MethodologyValidationError("semantic_invalid", "verification case requires method and pass_criteria")
         if kind in {EntityKind.HAZARD, EntityKind.FAILURE_MODE} and not payload:

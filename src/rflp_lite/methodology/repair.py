@@ -62,9 +62,13 @@ def plan_repair(report: CoverageReport, *, revision: int = 0) -> RepairPlan:
         entity = make_entity(
             kind,
             labels[gap.root_cause],
-            {"repair_code": gap.code, "requires_human_review": True},
+            {
+                "repair_code": gap.code,
+                "requires_human_review": True,
+                "fallback_placeholder": True,
+            },
             status=EntityStatus.CANDIDATE,
-            producer=Producer.LLM,
+            producer=Producer.RULE,
             revision=revision,
         )
         operations.append(AddEntity(entity))
