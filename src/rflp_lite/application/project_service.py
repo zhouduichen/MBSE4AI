@@ -84,6 +84,49 @@ class ProjectService:
             "evidence_count": len(repository.list_evidence(project_id)),
         }
 
+    def add_requirement(self, project_id: str, text: str) -> dict:
+        clean = " ".join(str(text).split()).strip()
+        if not clean:
+            raise ContractViolation("requirement text is required")
+        repository = self.repository(project_id)
+        graph = repository.load_graph(project_id)
+        entity = make_entity(
+            EntityKind.REQUIREMENT,
+            clean,
+            {
+                "statement": clean,
+                "source": "user_input",
+                "requires_human_review": True,
+                "verification_method": "review",
+            },
+            status=EntityStatus.CANDIDATE,
+            producer=Producer.USER,
+            confidence=1.0,
+            revision=graph.revision,
+        )
+        patch = Patch.create(
+            project_id,
+            "user.requirement_input",
+            (AddEntity(entity),),
+            "用户提交需求",
+            graph.revision,
+        )
+        revision = repository.append_patch(project_id, patch, graph.revision)
+        return {"requirement": entity.as_dict(), "revision": asdict(revision)}
+
+    def has_analysis_input(self, project_id: str) -> bool:
+        repository = self.repository(project_id)
+        graph = repository.load_graph(project_id)
+        if any(
+            item.kind is EntityKind.REQUIREMENT
+            and item.meta.status is not EntityStatus.DEPRECATED
+            and item.meta.producer in {Producer.USER, Producer.IMPORT}
+            for item in graph.entities
+        ):
+            return True
+        checker = getattr(repository, "has_documents", None)
+        return bool(checker(project_id)) if callable(checker) else False
+
     def ingest(self, project_id: str, document_path: Path) -> dict[str, object]:
         if document_path.suffix.casefold() == ".json":
             try:
@@ -92,11 +135,25 @@ class ProjectService:
                 raise ContractViolation("JSON document cannot be read") from exc
             if isinstance(fixture, dict) and {"system", "stakeholders"} <= set(fixture):
                 return self.seed_fixture(project_id, fixture, source_path=document_path)
-        repository = self.repository(project_id)
         source = document_path.expanduser().resolve()
         if not source.is_file():
             raise NotFoundError(f"document not found: {source}")
-        parsed = self.document_parser.parse(source.name, source.read_bytes())
+        return self._save_parsed_document(project_id, source.name, source.read_bytes())
+
+    def ingest_uploaded(self, project_id: str, filename: str, content: bytes) -> dict:
+        safe_name = Path(str(filename or "upload")).name
+        if not safe_name or safe_name in {".", ".."}:
+            raise ContractViolation("uploaded filename is required")
+        if not content:
+            raise ContractViolation("uploaded document is empty")
+        destination = self.path(project_id) / "inputs" / safe_name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(content)
+        return self._save_parsed_document(project_id, safe_name, content)
+
+    def _save_parsed_document(self, project_id: str, filename: str, content: bytes) -> dict:
+        parsed = self.document_parser.parse(filename, content)
+        repository = self.repository(project_id)
         repository.save_document(
             project_id,
             {

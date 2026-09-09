@@ -10,6 +10,10 @@ class ContractViolation(RflpError):
     """Raised when an external contract fails validation."""
 
 
+class InputRequired(ContractViolation):
+    """Raised when analysis is requested before user/project input exists."""
+
+
 class AdapterFailure(RflpError):
     """Raised when an adapter fails at a controlled boundary."""
 

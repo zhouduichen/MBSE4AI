@@ -18,6 +18,14 @@ def test_managed_workspace_create_and_list(tmp_path: Path) -> None:
     assert list_managed_workspaces(tmp_path / "workspaces") == (created,)
 
 
+def test_managed_workspace_accepts_chinese_name(tmp_path: Path) -> None:
+    created = create_managed_workspace(tmp_path / "workspaces", "中文测试项目")
+
+    assert created.name == "中文测试项目"
+    assert created.path.is_dir()
+    assert list_managed_workspaces(tmp_path / "workspaces")[0].name == "中文测试项目"
+
+
 @pytest.mark.parametrize("name", ("../escape", "/tmp/escape", "a/b", "a\\b", "", "."))
 def test_managed_workspace_rejects_unsafe_names(tmp_path: Path, name: str) -> None:
     with pytest.raises(ContractViolation):

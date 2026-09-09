@@ -46,3 +46,45 @@ def test_delete_rejects_symlinked_project_targets(tmp_path: Path) -> None:
     with pytest.raises(ContractViolation):
         _service(root).delete("linked")
     assert outside.exists()
+
+
+def test_add_requirement_creates_user_candidate_and_counts_as_analysis_input(tmp_path: Path) -> None:
+    root = tmp_path / "workspaces"
+    create_managed_workspace(root, "p1")
+    service = _service(root)
+
+    result = service.add_requirement("p1", "系统应在断网后继续安全运行")
+
+    assert result["requirement"]["name"] == "系统应在断网后继续安全运行"
+    assert result["requirement"]["producer"] == "user"
+    assert result["requirement"]["status"] == "candidate"
+    assert result["revision"]["sequence"] == 1
+    assert service.has_analysis_input("p1") is True
+
+
+def test_add_requirement_rejects_blank_text(tmp_path: Path) -> None:
+    root = tmp_path / "workspaces"
+    create_managed_workspace(root, "p1")
+
+    with pytest.raises(ContractViolation, match="requirement text is required"):
+        _service(root).add_requirement("p1", "  ")
+
+
+def test_uploaded_text_document_is_saved_and_counts_as_analysis_input(tmp_path: Path) -> None:
+    root = tmp_path / "workspaces"
+    project = create_managed_workspace(root, "p1")
+    service = _service(root)
+
+    result = service.ingest_uploaded("p1", "requirements.txt", "系统应支持人工接管\n".encode())
+
+    assert result["region_count"] == 1
+    assert (project.path / "inputs" / "requirements.txt").read_text(encoding="utf-8") == "系统应支持人工接管\n"
+    assert service.has_analysis_input("p1") is True
+
+
+def test_uploaded_empty_document_is_rejected(tmp_path: Path) -> None:
+    root = tmp_path / "workspaces"
+    create_managed_workspace(root, "p1")
+
+    with pytest.raises(ContractViolation, match="uploaded document is empty"):
+        _service(root).ingest_uploaded("p1", "empty.txt", b"")

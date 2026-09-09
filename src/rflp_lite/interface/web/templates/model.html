@@ -40,4 +40,51 @@
     <a class="module-card" href="/projects/{{ project_id }}/views/rflp"><div><h2>RFLP 视图</h2><p>读取可渲染的 RFLP 视图模型。</p></div><span class="ready">JSON →</span></a>
   </div>
 </section>
+
+<section class="panel export-panel">
+  <div class="panel-head"><div><h2>导出模型</h2><p>下载当前项目的 JSON、Graphviz DOT、SVG 或 SysML 文本。</p></div><span class="status-badge info">当前修订 {{ trace.revision }}</span></div>
+  <div class="workbench-actions export-actions">
+    <button class="button" type="button" data-export-format="json">下载 JSON</button>
+    <button class="button" type="button" data-export-format="dot">下载 DOT</button>
+    <button class="button" type="button" data-export-format="svg">下载 SVG</button>
+    <button class="button primary" type="button" data-export-format="sysml">下载 SysML</button>
+  </div>
+  <pre id="export-result" class="analysis-result" hidden></pre>
+</section>
+
+<script>
+(() => {
+  const projectId = {{ project_id|tojson }};
+  const output = document.getElementById("export-result");
+  document.querySelectorAll("[data-export-format]").forEach((button) => button.addEventListener("click", async () => {
+    const format = button.dataset.exportFormat;
+    button.disabled = true;
+    output.hidden = false;
+    output.classList.remove("warning");
+    output.textContent = "正在生成导出文件…";
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/export`, {
+        method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({view_id: "rflp", format}),
+      });
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.message || `HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${projectId}-rflp.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      output.textContent = `已生成 ${link.download}`;
+    } catch (error) {
+      output.textContent = "导出失败：" + error;
+      output.classList.add("warning");
+    } finally { button.disabled = false; }
+  }));
+})();
+</script>
 {% endblock %}

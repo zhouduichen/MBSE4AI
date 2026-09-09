@@ -270,6 +270,13 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
                     (project_id, region_id, str(region.get("text", "")), str(region.get("locator", "")), _json(region.get("heading_path", []))),
                 )
 
+    def has_documents(self, project_id: str) -> bool:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT 1 FROM documents WHERE project_id = ? LIMIT 1", (project_id,)
+            ).fetchone()
+        return row is not None
+
     def save_evidence(self, project_id: str, evidence: Mapping[str, object]) -> None:
         self.ensure_project(project_id)
         evidence_id = str(evidence.get("id", "")).strip()

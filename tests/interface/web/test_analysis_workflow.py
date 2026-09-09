@@ -28,6 +28,9 @@ def test_analysis_page_shows_full_harness_workflow(tmp_path: Path) -> None:
         "尝试次数",
         "补丁",
         "校验",
+        "输入需求",
+        "提交需求",
+        "上传文档",
         "定向修复",
         "封版归档",
         "离线规则模式",
@@ -55,6 +58,9 @@ def test_analysis_view_contains_chinese_module_cards(tmp_path: Path) -> None:
     ):
         assert title in page.text
     assert "analysis-sidebar" in page.text
+    assert 'id="requirement-input-form"' in page.text
+    assert 'id="document-upload-form"' in page.text
+    assert 'title="请先提交需求或上传文档"' in page.text
 
 
 def test_analysis_cards_switch_detail_panels_without_navigation(tmp_path: Path) -> None:
@@ -101,6 +107,8 @@ def test_analysis_api_supports_pipeline_and_force_run(tmp_path: Path) -> None:
         "Closure",
     ]
 
+    assert client.post("/projects/p1/requirements", json={"text": "系统应支持人工接管"}).status_code == 200
+
     response = client.post(
         "/projects/p1/analysis",
         json={"mode": "pipeline", "force_run": True},
@@ -129,6 +137,7 @@ def test_single_phase_analysis_keeps_legacy_shape(tmp_path: Path) -> None:
     app.state.container.v2.settings.profiles.path = tmp_path / "config" / "llm-profiles.json"
     client = TestClient(app)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    assert client.post("/projects/p1/requirements", json={"text": "系统应支持人工接管"}).status_code == 200
 
     response = client.post(
         "/projects/p1/analysis",

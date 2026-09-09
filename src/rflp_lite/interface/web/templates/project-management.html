@@ -24,5 +24,5 @@
 <section class="empty-state"><svg class="empty-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 3l2.2 6.8L21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2z"/></svg><h2>暂无项目</h2><p>尚无工作区。先创建一个项目，再在项目下面维护需求。</p></section>
 {% endif %}
 
-<section class="panel create-project-panel" id="create-project"><div class="panel-head"><div><h2>创建项目</h2></div></div><form method="post" action="/workspaces" class="inline-form"><label>项目名称<input name="name" value="demo-workspace" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" required></label><button class="button primary" type="submit">创建并开始</button></form></section>
+<section class="panel create-project-panel" id="create-project"><div class="panel-head"><div><h2>创建项目</h2></div></div><form method="post" action="/workspaces" class="inline-form"><label for="project-name">项目名称<input id="project-name" type="text" name="name" value="" placeholder="例如：小型飞行汽车项目" maxlength="64" autocomplete="off" autofocus required></label><button class="button primary" type="submit">创建并开始</button></form></section>
 {% endblock %}

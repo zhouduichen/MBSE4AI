@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from rflp_lite.application.resources import default_workspace_root
@@ -29,6 +29,10 @@ def create_app(
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
     app.include_router(resource_api)
     app.include_router(resource_pages)
+
+    @app.get("/", include_in_schema=False)
+    async def root_redirect() -> RedirectResponse:
+        return RedirectResponse("/ui/projects", status_code=303)
 
     @app.exception_handler(ContractViolation)
     async def contract_error(_request: Request, exc: ContractViolation) -> JSONResponse:

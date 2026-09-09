@@ -18,6 +18,29 @@
   <article class="metric"><span>全局质量门禁</span><strong>{{ global_gate.status_label }}</strong><small>{{ global_gate.issues|length }} 个问题</small></article>
 </div>
 
+<section class="panel intake-panel">
+  <div class="panel-head">
+    <div><h2>输入需求</h2><p>先提交一条需求或上传需求文档，再运行生命周期分析。</p></div>
+    <span class="status-badge {% if has_analysis_input %}accepted{% else %}candidate{% endif %}">{% if has_analysis_input %}已有输入{% else %}等待输入{% endif %}</span>
+  </div>
+  <div class="two-column workflow-columns">
+    <form id="requirement-input-form" class="intake-form">
+      <label class="field" for="requirement-text">需求描述
+        <textarea id="requirement-text" rows="5" placeholder="例如：系统应在断网后继续安全运行" required></textarea>
+      </label>
+      <button class="button primary" type="submit">提交需求</button>
+    </form>
+    <form id="document-upload-form" class="intake-form">
+      <label class="field" for="document-file">需求文档
+        <input id="document-file" type="file" accept=".txt,.md,.markdown,.docx,.pdf" required>
+      </label>
+      <span class="form-hint">支持 TXT、Markdown、DOCX、PDF。</span>
+      <button class="button" type="submit">上传文档</button>
+    </form>
+  </div>
+  <pre id="intake-result" class="analysis-result" hidden></pre>
+</section>
+
 <section class="panel workflow-panel">
   <div class="panel-head">
     <div><h2>生命周期阶段</h2><p>运行场景 → 功能分析 → 逻辑/物理架构 → 验证与确认 → 封版归档</p></div>
@@ -33,9 +56,9 @@
     {% endfor %}
   </div>
   <form id="analysis-form" class="workbench-actions">
-    <button class="button primary" type="submit" data-mode="pipeline">运行完整流程</button>
-    {% for phase in phases if phase.phase != 'closure' %}<button class="button" type="button" data-phase="{{ phase.phase }}">执行{{ phase.action_label }}</button>{% endfor %}
-    <label class="checkbox-control"><input id="force-run" type="checkbox"> 强制新运行</label>
+    <button class="button primary" type="submit" data-mode="pipeline"{% if not has_analysis_input %} disabled title="请先提交需求或上传文档"{% endif %}>运行完整流程</button>
+    {% for phase in phases if phase.phase != 'closure' %}<button class="button" type="button" data-phase="{{ phase.phase }}"{% if not has_analysis_input %} disabled title="请先提交需求或上传文档"{% endif %}>执行{{ phase.action_label }}</button>{% endfor %}
+    <label class="checkbox-control"><input id="force-run" type="checkbox"{% if not has_analysis_input %} disabled{% endif %}> 强制新运行</label>
     <span class="htmx-indicator" id="analysis-indicator"><span class="spinner"></span> 正在运行…</span>
   </form>
   <pre id="analysis-result" class="analysis-result" hidden></pre>
@@ -133,6 +156,9 @@
   const output = document.getElementById("analysis-result");
   const indicator = document.getElementById("analysis-indicator");
   const forceRun = document.getElementById("force-run");
+  const intakeResult = document.getElementById("intake-result");
+  const requirementInputForm = document.getElementById("requirement-input-form");
+  const documentUploadForm = document.getElementById("document-upload-form");
   const moduleCards = document.querySelectorAll(".analysis-module-card");
   const modulePanels = document.querySelectorAll("[data-module-panel]");
 
@@ -145,6 +171,44 @@
     modulePanels.forEach((panel) => { panel.hidden = panel.dataset.modulePanel !== moduleId; });
   }
   moduleCards.forEach((card) => card.addEventListener("click", () => selectModule(card.dataset.moduleId)));
+
+  function showIntakeResult(payload) {
+    intakeResult.hidden = false;
+    intakeResult.textContent = JSON.stringify(payload, null, 2);
+    intakeResult.classList.toggle("warning", payload.status !== "ok");
+  }
+
+  requirementInputForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const text = document.getElementById("requirement-text").value.trim();
+    if (!text) return;
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/requirements`, {
+        method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({text}),
+      });
+      const payload = await response.json();
+      showIntakeResult(payload);
+      if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+    } catch (error) {
+      showIntakeResult({status: "failed", message: "请求失败：" + error});
+    }
+  });
+
+  documentUploadForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const file = document.getElementById("document-file").files[0];
+    if (!file) return;
+    const body = new FormData();
+    body.append("file", file);
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/documents`, {method: "POST", body});
+      const payload = await response.json();
+      showIntakeResult(payload);
+      if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+    } catch (error) {
+      showIntakeResult({status: "failed", message: "请求失败：" + error});
+    }
+  });
 
   async function runAnalysis(mode, phase) {
     output.hidden = false;

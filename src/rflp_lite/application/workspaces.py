@@ -11,7 +11,7 @@ from rflp_lite.governance.validation import validate_json
 from rflp_lite.application.resources import PROJECT_ROOT, resource_path
 
 
-_WORKSPACE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+_WORKSPACE_NAME = re.compile(r"[^\W_][\w.-]{0,63}\Z", re.UNICODE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +37,7 @@ def initialize_workspace(path: Path) -> WorkspaceRef:
 def managed_workspace(root: Path, name: str) -> Path:
     if not _WORKSPACE_NAME.fullmatch(name):
         raise ContractViolation(
-            "workspace name must use 1-64 letters, digits, dot, underscore, or hyphen"
+            "项目名须为 1-64 个字符，允许中文、字母、数字、点、下划线和短横线，且不得包含空格或路径分隔符"
         )
     resolved_root = root.resolve()
     candidate = (resolved_root / name).resolve()

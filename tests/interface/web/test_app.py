@@ -38,5 +38,6 @@ def test_project_page_has_create_entry_and_posts_to_project_api(tmp_path: Path) 
 
     assert response.status_code == 200
     assert "创建项目" in response.text
+    assert "本地工作区不是自动创建的项目" in response.text
     assert 'id="create-project-form"' in response.text
     assert 'fetch("/projects", {method: "POST"' in response.text
