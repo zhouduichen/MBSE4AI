@@ -8,7 +8,7 @@ Project → Documents / Evidence → Operational → Functional
         → Typed ModelGraph → Gate / Repair → View / Export
 ```
 
-这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `0.1.0`，方法论协议是 `v2.0`。每个项目使用独立工作区和数据库，项目之间不共享模型或证据。
+这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `0.2.0`，方法论协议是 `v2.1`。每个项目使用独立工作区和数据库，项目之间不共享模型或证据。
 
 ## 分层与依赖
 
@@ -20,12 +20,13 @@ adapters → ports + domain
 ```
 
 - `domain/`：Typed Entity、Relation、ModelGraph、Patch、Requirement 和稳定 ID；不依赖外层。
-- `methodology/`：23 个 TaskSpec、四个 Phase、Context/Retrieval、Prompt/Schema/Validator/Retry、PatchPolicy、Gate、Repair 和 LifecycleOrchestrator。
+- `methodology/`：23 个 TaskSpec、版本化任务专属 Prompt、四个 Phase、Context/Retrieval、Schema/Validator/Retry、PatchPolicy、谓词感知 Gate/Coverage Matrix、局部 Repair 和 LifecycleOrchestrator。
 - `application/`：Project、Analysis、Model、Evidence、Render、Settings 服务；只接收协议和工厂。
 - `repository/`：SQLite ModelRepository v2，保存 Graph、Evidence、Run、Step、Patch、Revision、Issue、Closure 和 FTS，并提供 lease/heartbeat。
 - `runtime/`：RuntimeFactory、结构化模型端口、OpenAI-compatible 适配和离线 RuleRuntime；每次运行动态解析 active profile。
 - `adapters/`：文档解析、OCR 和模型/文档技术实现；由 `bootstrap/container.py` 组装。
 - `interface/`：`ai4mbse` CLI、FastAPI Resource API 和五个资源页面。
+- `tests/mbse_benchmark/tracks/`：Harness deterministic、显式 LLM/bare baseline、Agent robustness 三轨基准；各轨独立记录 runtime/profile/provider/model、方法论和哈希元数据。
 
 ## 写入与恢复规则
 

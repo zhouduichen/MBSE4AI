@@ -1,8 +1,8 @@
 # 开发状态
 
 **更新时间：** 2026-09-09
-**产品版本：** rflp-lite 0.1.0
-**方法论协议：** v2.0
+**产品版本：** rflp-lite 0.2.0
+**方法论协议：** v2.1
 
 ## 已完成
 
@@ -15,6 +15,8 @@
 | Gate / Repair | 覆盖率、语义、RFLP、证据、验证门禁；失败写 Issue，修复受 PatchPolicy 局部约束并定向重新 Gate |
 | 生命周期闭环 | 单次调用串联四阶段、Global Gate、Closure manifest、冻结 revision 和审计摘要；指定 phase 保留调试入口 |
 | 运行可追溯 | active profile/provider/model、TaskSpec/prompt/context/input/output hash、step ledger、lease/heartbeat |
+| 方法论智能化重构 | 23 个独立版本化 Prompt、可执行 Validator、谓词感知 Coverage Matrix、局部语义 Repair、Completion/Failure DSL、分层 Context Planner |
+| Benchmark 三轨 | Harness deterministic、显式 LLM + same-model bare baseline、Agent robustness faults 分开运行和报告，不共享总分 |
 | 资源服务 | Project、Analysis、Model、Evidence、Render、Settings 服务及统一依赖组装 |
 | CLI / Web | `ai4mbse` 命令、完整 Analysis 工作流页、Trace 页、连接测试和 JSON/SVG/DOT/SysML-lite 导出 |
 | Web 主流程入口 | `/` 重定向到项目列表；分析页支持需求文本和文档上传；无输入项目禁止运行分析并在页面禁用运行按钮 |
@@ -34,3 +36,9 @@
 ## 明确边界
 
 本版本聚焦可复现的需求到模型垂直链路。旧版智能发现、Concept/MDO、Project Bridge、测试执行沙箱、仿真、旧 Baseline/TaskContract/Job 和 MLflow 已退出 Core；复杂文档版面、多人权限、CAD/真实工程仿真留作后续独立能力。
+
+Track B 需要显式配置 profile，不能在无密钥 CI 中默认运行：
+
+```bash
+./.venv/bin/python tests/mbse_benchmark/run_benchmark.py --track llm --profile <profile-id>
+```

@@ -9,6 +9,7 @@ from uuid import uuid4
 from rflp_lite.application.closure_service import ClosureService
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.model import Patch
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.completion import evaluate_completion
 from rflp_lite.methodology.contracts import ContextBundle, Phase, RunStatus, StepStatus, TaskExecutionResponse, TaskRuntime
@@ -88,7 +89,7 @@ class LifecycleOrchestrator:
                 for issue in gate.issues:
                     issue_id = self.runner._issue_id(project_id, gate, issue)
                     try:
-                        repaired = self.runner.repair(project_id, issue_id, run_id=identity.run_id)
+                        repaired = self.runner.repair(project_id, issue_id, run_id=identity.run_id, repair_round=repair_round + 1)
                         diagnostics.extend(repaired.diagnostics)
                     except ContractViolation as exc:
                         diagnostics.append(f"repair {issue.code}: {exc}")
@@ -185,7 +186,7 @@ class WorkflowRunner:
             prior_attempt = next((step.attempt for step in (existing.steps if existing else ()) if step.task_id == task.id), 0)
             started = time.time()
             context_hash = canonical_hash(context)
-            self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.RUNNING.value, prior_attempt + 1, context_hash, None, (), "", self._provider_id(), self._model_id(), task.prompt_template_id, context_hash, started, 0.0, request.prompt_version, request.prompt_hash))
+            self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.RUNNING.value, prior_attempt + 1, context_hash, None, (), "", self._provider_id(), self._model_id(), task.prompt_template_id, context_hash, started, 0.0, request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
             try:
                 response = self.executor.execute(task, context, self.methodology_version)
                 patch_id = None
@@ -205,11 +206,11 @@ class WorkflowRunner:
                     completed.add(task.id)
                 else:
                     diagnostics.extend(response.diagnostics)
-                self.run_repository.update_step(Step(identity.run_id, task.id, response.status.value, prior_attempt + 1, response.input_hash or context_hash, patch_id, response.diagnostics, response.output_hash, response.provider_id or self._provider_id(), response.model_id or self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash))
+                self.run_repository.update_step(Step(identity.run_id, task.id, response.status.value, prior_attempt + 1, response.input_hash or context_hash, patch_id, response.diagnostics, response.output_hash, response.provider_id or self._provider_id(), response.model_id or self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
             except Exception as exc:
                 message = f"{task.id}: {exc}"
                 diagnostics.append(message)
-                self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.DEGRADED.value, prior_attempt + 1, context_hash, None, (message,), "", self._provider_id(), self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash))
+                self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.DEGRADED.value, prior_attempt + 1, context_hash, None, (message,), "", self._provider_id(), self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
         status = RunStatus.COMPLETED if len(completed) == len(tasks) else RunStatus.DEGRADED
         self._update_run_status(identity.run_id, status, tuple(diagnostics))
         return RunSummary(identity.run_id, project_id, phase, status, tuple(sorted(completed)), tuple(diagnostics))
@@ -246,7 +247,7 @@ class WorkflowRunner:
             return self.orchestrator.run(project_id, run_id=run_id)
         return self._run_phase(project_id, Phase(stored.phase), run_id=run_id)
 
-    def repair(self, project_id: str, issue_id: str, *, run_id: str | None = None) -> RunSummary:
+    def repair(self, project_id: str, issue_id: str, *, run_id: str | None = None, repair_round: int = 1) -> RunSummary:
         issues = self.model_repository.list_issues(project_id)
         issue = next((item for item in issues if item.get("id") == issue_id), None)
         if issue is None:
@@ -277,9 +278,32 @@ class WorkflowRunner:
         repair_spec = repair_task.as_task_spec(context)
         self.executor.validate_response(project_id, repair_spec, graph, ContextBundle(project_id, repair_spec.id, graph.revision, context.local_entities, context.local_relations, context.evidence), repair_response)
         self.model_repository.append_patch(project_id, patch, graph.revision, run_id=run_id)
+        if run_id and self.run_repository.load_run(project_id, run_id) is not None:
+            prompt = self.executor.prompts.resolve(repair_spec.prompt_template_id)
+            self.run_repository.update_step(Step(
+                effective_run_id,
+                repair_task.id,
+                StepStatus.COMPLETED.value,
+                repair_round,
+                graph.snapshot_hash,
+                patch.id,
+                proposal.diagnostics,
+                canonical_hash(patch.operations),
+                self._provider_id() if proposal.strategy == "llm" else "offline",
+                self._model_id() if proposal.strategy == "llm" else "rule-runtime",
+                repair_spec.prompt_template_id,
+                canonical_hash(context),
+                time.time(),
+                time.time(),
+                prompt.version,
+                prompt.prompt_hash,
+                task_spec_hash(repair_spec),
+                proposal.strategy,
+                repair_round,
+            ))
         self._record_audit(project_id, "repair.applied", {
             "run_id": run_id, "issue_id": issue_id, "issue_code": code,
-            "strategy": proposal.strategy, "target_task": proposal.target_task,
+            "strategy": proposal.strategy, "repair_round": repair_round, "target_task": proposal.target_task,
             "patch_id": patch.id, "before_hash": graph.snapshot_hash,
             "after_hash": self.model_repository.load_graph(project_id).snapshot_hash,
             "diagnostics": list(proposal.diagnostics),

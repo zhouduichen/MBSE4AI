@@ -165,6 +165,8 @@ def _apply_core_schema(connection: sqlite3.Connection) -> None:
         "prompt_version": "TEXT NOT NULL DEFAULT ''", "prompt_hash": "TEXT NOT NULL DEFAULT ''",
         "context_hash": "TEXT NOT NULL DEFAULT ''", "started_at": "REAL NOT NULL DEFAULT 0",
         "completed_at": "REAL NOT NULL DEFAULT 0",
+        "task_spec_hash": "TEXT NOT NULL DEFAULT ''", "repair_strategy": "TEXT NOT NULL DEFAULT ''",
+        "repair_round": "INTEGER NOT NULL DEFAULT 0",
     })
     _ensure_columns(connection, "patches", {
         "input_hash": "TEXT NOT NULL DEFAULT ''", "output_hash": "TEXT NOT NULL DEFAULT ''",
@@ -189,7 +191,10 @@ def _apply_ledger_schema(connection: sqlite3.Connection) -> None:
             attempt INTEGER NOT NULL DEFAULT 0, input_hash TEXT NOT NULL DEFAULT '', output_patch_id TEXT,
             diagnostics TEXT NOT NULL DEFAULT '[]', output_hash TEXT NOT NULL DEFAULT '', provider_id TEXT NOT NULL DEFAULT '',
             model_id TEXT NOT NULL DEFAULT '', prompt_template_id TEXT NOT NULL DEFAULT '', context_hash TEXT NOT NULL DEFAULT '',
-            started_at REAL NOT NULL DEFAULT 0, completed_at REAL NOT NULL DEFAULT 0, PRIMARY KEY (run_id, task_id)
+            started_at REAL NOT NULL DEFAULT 0, completed_at REAL NOT NULL DEFAULT 0,
+            prompt_version TEXT NOT NULL DEFAULT '', prompt_hash TEXT NOT NULL DEFAULT '',
+            task_spec_hash TEXT NOT NULL DEFAULT '', repair_strategy TEXT NOT NULL DEFAULT '', repair_round INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (run_id, task_id)
         );
         CREATE TABLE IF NOT EXISTS patches (
             id TEXT PRIMARY KEY, run_id TEXT REFERENCES runs(id) ON DELETE CASCADE, task_id TEXT NOT NULL,

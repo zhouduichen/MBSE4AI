@@ -27,6 +27,9 @@ class Step:
     completed_at: float = 0.0
     prompt_version: str = ""
     prompt_hash: str = ""
+    task_spec_hash: str = ""
+    repair_strategy: str = ""
+    repair_round: int = 0
 
 
 @dataclass(frozen=True, slots=True)

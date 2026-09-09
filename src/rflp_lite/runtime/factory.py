@@ -44,7 +44,7 @@ class RuntimeFactory:
                 str(config.get("id", "injected")) if config else "injected",
                 str(config.get("provider_id", "injected")) if config else "injected",
                 str(config.get("model", "injected")) if config else "injected",
-                "injected",
+                "configured" if config else "injected",
             )
         if config:
             profile_id = str(config.get("id", "")).strip()

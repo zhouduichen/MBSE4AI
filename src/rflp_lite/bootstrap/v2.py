@@ -19,9 +19,17 @@ from rflp_lite.runtime.factory import RuntimeFactory
 
 
 class V2Services:
-    def __init__(self, workspace_root: Path, *, runtime=None, config_dir: Path | None = None):
+    def __init__(
+        self,
+        workspace_root: Path,
+        *,
+        runtime=None,
+        runtime_config: Mapping[str, object] | None = None,
+        config_dir: Path | None = None,
+    ):
         self.workspace_root = workspace_root.resolve()
         self._runtime_override = runtime
+        self._runtime_config = dict(runtime_config) if runtime_config else None
         self.runtime_factory = RuntimeFactory()
         self.settings = SettingsService(config_dir)
         self.projects = ProjectService(
@@ -52,7 +60,8 @@ class V2Services:
     def analysis(self, project_id: str) -> AnalysisService:
         repository = self.repository(project_id)
         selection = self.runtime_factory.select(
-            self.settings.active_config(), runtime_override=self._runtime_override
+            self.settings.active_config() or self._runtime_config,
+            runtime_override=self._runtime_override,
         )
         return AnalysisService(
             WorkflowRunner(
@@ -73,8 +82,19 @@ class V2Services:
         return RenderService(self.model(project_id))
 
 
-def build_v2_services(workspace_root: Path, *, runtime=None, config_dir: Path | None = None) -> V2Services:
+def build_v2_services(
+    workspace_root: Path,
+    *,
+    runtime=None,
+    runtime_config: Mapping[str, object] | None = None,
+    config_dir: Path | None = None,
+) -> V2Services:
     # Library/test callers are isolated by default.  The real CLI and web
     # composition roots pass the user profile directory explicitly.
     effective_config_dir = config_dir if config_dir is not None else workspace_root.resolve() / ".rflp-config"
-    return V2Services(workspace_root, runtime=runtime, config_dir=effective_config_dir)
+    return V2Services(
+        workspace_root,
+        runtime=runtime,
+        runtime_config=runtime_config,
+        config_dir=effective_config_dir,
+    )

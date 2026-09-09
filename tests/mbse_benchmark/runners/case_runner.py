@@ -9,12 +9,14 @@ import tempfile
 import time
 from typing import Any, Mapping
 
+from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
 from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.domain.canonical import canonical_json, to_primitive
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
-from rflp_lite.runtime.rule_based import RuleRuntime
+from rflp_lite.runtime.structured_model import StructuredModelRuntime
+from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
 
 
 
@@ -139,7 +141,11 @@ def _apply_fault_injection(services, project_id: str, case: Mapping[str, object]
     return {"status": "applied", "patch_id": patch.id, "revision": revision.sequence}
 
 
-def _run_case_inner(case: Mapping[str, object], output_dir: Path) -> None:
+def _run_case_inner(
+    case: Mapping[str, object],
+    output_dir: Path,
+    runtime_config: Mapping[str, object] | None = None,
+) -> None:
     started = time.time()
     case_id = str(case["case_id"])
     project_id = case_id.lower()
@@ -149,15 +155,21 @@ def _run_case_inner(case: Mapping[str, object], output_dir: Path) -> None:
         "case_id": case_id,
         "project_id": project_id,
         "workspace": str(workspace),
-        "runtime": "offline-rule",
+        "runtime": "configured-llm" if runtime_config else "offline-rule",
         "entrypoint": "build_v2_services -> AnalysisService.run -> WorkflowRunner",
         "started_at": started,
     }
     services = None
     try:
+        runtime = (
+            StructuredModelRuntime(OpenAICompatibleModel(dict(runtime_config)))
+            if runtime_config
+            else None
+        )
         services = build_v2_services(
             workspace,
-            runtime=RuleRuntime(),
+            runtime=runtime,
+            runtime_config=dict(runtime_config) if runtime_config else None,
             config_dir=workspace / ".rflp-config",
         )
         services.projects.create(project_id, str(case.get("system", project_id)))
@@ -177,6 +189,7 @@ def _run_case_inner(case: Mapping[str, object], output_dir: Path) -> None:
         _write_json(output_dir / "run_summary.json", to_primitive(summary))
         _write_json(output_dir / "run_ledger.json", to_primitive(run) if run else {})
         _write_json(output_dir / "model.json", _graph_payload(graph))
+        _write_json(output_dir / "coverage_matrix.json", build_requirement_coverage(graph).as_dict())
         _write_json(output_dir / "issues.json", issues)
         _write_json(output_dir / "audit.json", audit)
         execution.update(
@@ -207,8 +220,12 @@ def _run_case_inner(case: Mapping[str, object], output_dir: Path) -> None:
                 repository.close()
 
 
-def _child_entry(case: Mapping[str, object], output_dir: str) -> None:
-    _run_case_inner(case, Path(output_dir))
+def _child_entry(
+    case: Mapping[str, object],
+    output_dir: str,
+    runtime_config: Mapping[str, object] | None = None,
+) -> None:
+    _run_case_inner(case, Path(output_dir), runtime_config)
 
 
 def run_case(
@@ -217,13 +234,17 @@ def run_case(
     *,
     repeat_index: int = 1,
     timeout_seconds: int = 60,
+    runtime_config: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Run one isolated real-system case and always return a result record."""
 
     output_dir = output_dir / f"repeat_{repeat_index:02d}"
     output_dir.mkdir(parents=True, exist_ok=True)
     context = multiprocessing.get_context("spawn")
-    process = context.Process(target=_child_entry, args=(dict(case), str(output_dir)))
+    process = context.Process(
+        target=_child_entry,
+        args=(dict(case), str(output_dir), dict(runtime_config) if runtime_config else None),
+    )
     started = time.time()
     process.start()
     process.join(max(1, int(timeout_seconds)))
@@ -262,8 +283,14 @@ def run_case(
         "graph": json.loads((output_dir / "model.json").read_text(encoding="utf-8"))
         if (output_dir / "model.json").exists()
         else {},
+        "coverage_matrix": json.loads((output_dir / "coverage_matrix.json").read_text(encoding="utf-8"))
+        if (output_dir / "coverage_matrix.json").exists()
+        else {},
         "run_summary": json.loads((output_dir / "run_summary.json").read_text(encoding="utf-8"))
         if (output_dir / "run_summary.json").exists()
+        else {},
+        "run_ledger": json.loads((output_dir / "run_ledger.json").read_text(encoding="utf-8"))
+        if (output_dir / "run_ledger.json").exists()
         else {},
         "issues": json.loads((output_dir / "issues.json").read_text(encoding="utf-8"))
         if (output_dir / "issues.json").exists()

@@ -1,6 +1,6 @@
 # AI4MBSE 施工文档索引
 
-产品版本：`rflp-lite 0.1.0`。方法论执行协议：`v2.0`。
+产品版本：`rflp-lite 0.2.0`。方法论执行协议：`v2.1`。
 
 ## Current
 
@@ -8,6 +8,8 @@
 - [代码级轻量化重构实施计划](plans/2026-09-07-ai4mbse-harness-v2-implementation.md)
 - [项目检查与修改建议设计](specs/2026-09-08-ai4mbse-harness-review-remediation-design.md)
 - [项目检查与修改建议实施计划](plans/2026-09-08-ai4mbse-harness-review-remediation.md)
+- [MBSE4AI v0.2 方法论智能化重构设计](specs/2026-09-09-mbse4ai-v0.2-methodology-reconstruction-design.md)
+- [MBSE4AI v0.2 方法论智能化重构实施计划](plans/2026-09-09-mbse4ai-v0.2-methodology-reconstruction.md)
 
 ## Superseded
 
