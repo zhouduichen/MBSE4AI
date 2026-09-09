@@ -1,120 +1,128 @@
 {% extends "base.html" %}
-{% block title %}Analysis · {{ project.id }}{% endblock %}
+{% block title %}分析工作台 · {{ project.id }}{% endblock %}
 {% block content %}
 <div class="page-heading">
   <div>
-    <p class="eyebrow">Harness workflow</p>
-    <h1>Analysis</h1>
-    <p>Project <strong>{{ project.id }}</strong> · Current Revision <code>{{ current_revision }}</code></p>
+    <p class="eyebrow">AI4MBSE 生命周期工作台</p>
+    <h1>分析工作台</h1>
+    <p>项目 <strong>{{ project.id }}</strong> · 当前修订 <code>{{ current_revision }}</code></p>
   </div>
-  <span class="status-badge {% if global_gate.passed %}accepted{% else %}candidate{% endif %}">{{ runtime.mode }}</span>
+  <span class="status-badge {% if global_gate.passed %}accepted{% else %}candidate{% endif %}">{{ runtime.mode_label }}</span>
 </div>
 
-<div class="metric-grid workflow-metrics" aria-label="Analysis status">
-  <article class="metric"><span>Project</span><strong>{{ project.id }}</strong><small>当前工作项目</small></article>
-  <article class="metric"><span>Current Revision</span><strong>{{ current_revision }}</strong><small>ModelGraph snapshot</small></article>
-  <article class="metric"><span>Active Model</span><strong>{{ runtime.model_id }}</strong><small>{{ runtime.provider_id }} · {{ runtime.profile_id }}</small></article>
-  <article class="metric"><span>Run Status</span><strong>{{ run_status|replace('_', ' ')|title }}</strong><small>{% if latest_run %}{{ latest_run.run_id }}{% else %}No run yet{% endif %}</small></article>
-  <article class="metric"><span>Global Gate</span><strong>{{ global_gate.status|title }}</strong><small>{{ global_gate.issues|length }} issue(s)</small></article>
+<div class="metric-grid workflow-metrics" aria-label="分析状态">
+  <article class="metric"><span>项目</span><strong>{{ project.id }}</strong><small>当前工作项目</small></article>
+  <article class="metric"><span>当前修订</span><strong>{{ current_revision }}</strong><small>模型图快照</small></article>
+  <article class="metric"><span>活动模型</span><strong>{{ runtime.model_label }}</strong><small>{{ runtime.provider_label }} · {{ runtime.profile_label }}</small></article>
+  <article class="metric"><span>运行状态</span><strong>{{ latest_run.status_label if latest_run else '待运行' }}</strong><small>{% if latest_run %}{{ latest_run.run_id }}{% else %}尚未运行{% endif %}</small></article>
+  <article class="metric"><span>全局质量门禁</span><strong>{{ global_gate.status_label }}</strong><small>{{ global_gate.issues|length }} 个问题</small></article>
 </div>
 
 <section class="panel workflow-panel">
   <div class="panel-head">
-    <div><h2>Lifecycle phases</h2><p>Operational → Functional → Logical/Physical → Assurance → Closure</p></div>
-    <span class="status-badge info">{{ runtime.mode }}</span>
+    <div><h2>生命周期阶段</h2><p>运行场景 → 功能分析 → 逻辑/物理架构 → 验证与确认 → 封版归档</p></div>
+    <span class="status-badge info">{{ runtime.mode_label }}</span>
   </div>
-  <div class="phase-rail" aria-label="Lifecycle phases">
+  <div class="phase-rail" aria-label="生命周期阶段">
     {% for phase in phases %}
     <article class="phase-node phase-{{ phase.status }}">
       <span class="phase-index">{{ loop.index }}</span>
-      <div><strong>{{ phase.name }}</strong><small>{{ phase.status|replace('_', ' ')|title }}</small></div>
-      <span class="status-badge {% if phase.gate.passed %}accepted{% else %}candidate{% endif %}">{{ phase.gate.status|title }}</span>
+      <div><strong>{{ phase.name_label }}</strong><small>{{ phase.status_label }}</small></div>
+      <span class="status-badge {% if phase.gate.passed %}accepted{% else %}candidate{% endif %}">{{ phase.gate.status_label }}</span>
     </article>
     {% endfor %}
   </div>
   <form id="analysis-form" class="workbench-actions">
-    <button class="button primary" type="submit" data-mode="pipeline">Run full pipeline →</button>
-    <button class="button" type="button" data-phase="operational">Run Operational</button>
-    <button class="button" type="button" data-phase="functional">Run Functional</button>
-    <label class="checkbox-control"><input id="force-run" type="checkbox"> force_run</label>
-    <span class="htmx-indicator" id="analysis-indicator"><span class="spinner"></span> running…</span>
+    <button class="button primary" type="submit" data-mode="pipeline">运行完整流程</button>
+    {% for phase in phases if phase.phase != 'closure' %}<button class="button" type="button" data-phase="{{ phase.phase }}">执行{{ phase.action_label }}</button>{% endfor %}
+    <label class="checkbox-control"><input id="force-run" type="checkbox"> 强制新运行</label>
+    <span class="htmx-indicator" id="analysis-indicator"><span class="spinner"></span> 正在运行…</span>
   </form>
   <pre id="analysis-result" class="analysis-result" hidden></pre>
 </section>
 
-<div class="two-column workflow-columns">
-  <section class="panel">
-    <div class="panel-head"><div><h2>Current Task</h2><p>Task input context, evidence and execution ledger.</p></div><span class="status-badge info">{{ current_task.status|title }}</span></div>
-    <div class="task-focus">
-      <div class="task-focus-title"><span class="task-kicker">{{ current_task.phase }}</span><strong>{{ current_task.task_id }}</strong></div>
-      <div class="ledger-grid">
-        <div><span>Evidence</span><strong>{{ current_task.evidence_count }}</strong></div>
-        <div><span>Attempt</span><strong>{{ current_task.attempt }}</strong></div>
-        <div><span>Patch</span><strong class="ledger-code">{{ current_task.patch_id }}</strong></div>
-        <div><span>Validation</span><strong>{{ current_task.validation }}</strong></div>
+<div class="analysis-layout">
+  <aside class="analysis-sidebar" aria-label="分析模块">
+    <div class="analysis-sidebar-head"><p class="sidebar-title">分析模块</p><small>点击卡片查看详情</small></div>
+    <div class="analysis-module-list">
+      {% for module in analysis_modules %}
+      <button class="analysis-module-card{% if loop.first %} selected{% endif %}" type="button" data-module-id="{{ module.id }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
+        <span><strong>{{ module.title }}</strong><small>{{ module.description }}</small></span>
+        <b>{{ module.count }}</b>
+      </button>
+      {% endfor %}
+    </div>
+  </aside>
+
+  <div class="analysis-detail" aria-live="polite">
+    {% for module in analysis_modules %}
+    <section class="panel analysis-module-panel" data-module-panel="{{ module.id }}"{% if not loop.first %} hidden{% endif %}>
+      <div class="panel-head"><div><h2>{{ module.title }}</h2><p>{{ module.description }}</p></div><span class="count-badge">{{ module.count }} 条记录</span></div>
+      {% if module.records %}
+      <div class="record-list module-record-list">
+        {% for record in module.records %}
+        <article>
+          <span class="status-badge info">{{ record.status_label }}</span>
+          <div><strong>{{ record.label }} · {{ record.name }}</strong><p>{{ record.detail }}</p>{% if record.id %}<code>{{ record.id }}</code>{% endif %}</div>
+        </article>
+        {% endfor %}
       </div>
-      <dl class="detail-list">
-        <dt>Provider / model</dt><dd>{{ current_task.provider_id }} / {{ current_task.model_id }}</dd>
-        <dt>Input context</dt><dd>{{ current_task.input_context.entity_count }} entities · {{ current_task.input_context.relation_count }} relations · revision {{ current_task.input_context.revision }}</dd>
-        <dt>Token estimate</dt><dd>{{ current_task.input_context.token_estimate }}</dd>
-      </dl>
-      {% if current_task.diagnostics %}<div class="callout warning">{{ current_task.diagnostics|join(' · ') }}</div>{% endif %}
-    </div>
-  </section>
+      {% else %}<div class="mini-empty">暂无{{ module.title }}记录</div>{% endif %}
 
-  <section class="panel">
-    <div class="panel-head"><div><h2>Run ledger</h2><p>Current run, task status and diagnostics.</p></div><span class="count-badge">{% if latest_run %}{{ latest_run.steps|length }} steps{% else %}0 steps{% endif %}</span></div>
-    {% if latest_run %}
-    <div class="compact-list run-ledger-list">
-      {% for step in latest_run.steps %}
-      <article><span><strong>{{ step.task_id }}</strong><small class="table-secondary">attempt {{ step.attempt }} · {{ step.input_hash or 'no input hash' }}</small></span><span class="status-badge {% if step.status == 'completed' %}accepted{% elif step.status in ['failed', 'degraded'] %}rejected{% else %}candidate{% endif %}">{{ step.status }}</span></article>
-      {% else %}<div class="mini-empty">No task steps recorded yet.</div>{% endfor %}
-    </div>
-    {% else %}<div class="mini-empty">No run yet. Start a phase or the full pipeline.</div>{% endif %}
-  </section>
-</div>
+      {% if module.id == 'evidence' and gate_issues %}
+      <div class="module-subsection">
+        <div class="panel-head"><div><h3>质量门禁问题</h3><p>可从根因出发执行定向修复。</p></div><span class="count-badge">{{ gate_issues|length }} 个</span></div>
+        <div class="issue-table-wrap">
+          <table class="issue-table">
+            <thead><tr><th>问题</th><th>根因</th><th>回退任务</th><th>证据缺口</th><th>操作</th></tr></thead>
+            <tbody>
+            {% for issue in gate_issues %}
+            <tr>
+              <td><strong>{{ issue.code_label }}</strong><small>{{ issue.entity_ids|join(', ') or '全图范围' }}</small></td>
+              <td>{{ issue.root_cause_label }}</td>
+              <td><strong>{{ issue.suggested_task_label }}</strong><small>{{ issue.rollback_phase_label }}</small></td>
+              <td>{{ issue.evidence_gap_label }}</td>
+              <td><button class="button compact repair-button" type="button" data-issue-id="{{ issue.id }}">执行修复</button></td>
+            </tr>
+            {% else %}<tr><td colspan="5" class="table-empty">暂无质量门禁问题</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
 
-<section class="panel">
-  <div class="panel-head"><div><h2>Gate Issues</h2><p>Coverage gaps, root cause and suggested rollback task.</p></div><span class="count-badge">{{ gate_issues|length }}</span></div>
-  <div class="issue-table-wrap">
-    <table class="issue-table">
-      <thead><tr><th>Issue</th><th>Root cause</th><th>Rollback</th><th>Evidence gap</th><th>Action</th></tr></thead>
-      <tbody>
-      {% for issue in gate_issues %}
-      <tr>
-        <td><strong>{{ issue.code }}</strong><small>{{ issue.entity_ids|join(', ') or 'graph-wide' }}</small></td>
-        <td>{{ issue.root_cause }}</td>
-        <td><code>{{ issue.suggested_task }}</code><small>{{ issue.rollback_phase or '—' }}</small></td>
-        <td>{% if issue.evidence_gap %}<span class="status-badge candidate">Missing</span>{% else %}<span class="status-badge accepted">No</span>{% endif %}</td>
-        <td><button class="button compact repair-button" type="button" data-issue-id="{{ issue.id }}">Repair</button></td>
-      </tr>
-      {% else %}<tr><td colspan="5" class="table-empty">No Gate issues.</td></tr>{% endfor %}
-      </tbody>
-    </table>
+      {% if module.id == 'runs' %}
+      <div class="module-subsection">
+        <div class="two-column workflow-columns">
+          <div class="card">
+            <div class="panel-head"><div><h3>当前任务</h3><p>任务上下文、证据和执行台账。</p></div><span class="status-badge info">{{ current_task.status_label }}</span></div>
+            <div class="task-focus-title"><span class="task-kicker">{{ current_task.phase_label }}</span><strong>{{ current_task.task_label }}</strong></div>
+            <div class="ledger-grid"><div><span>证据</span><strong>{{ current_task.evidence_count }}</strong></div><div><span>尝试次数</span><strong>{{ current_task.attempt }}</strong></div><div><span>补丁</span><strong class="ledger-code">{{ current_task.patch_id }}</strong></div><div><span>校验</span><strong>{{ current_task.validation }}</strong></div></div>
+            <dl class="detail-list"><dt>服务 / 模型</dt><dd>{{ current_task.provider_label }} / {{ current_task.model_label }}</dd><dt>输入上下文</dt><dd>{{ current_task.input_context.entity_count }} 个实体 · {{ current_task.input_context.relation_count }} 条关系 · 修订 {{ current_task.input_context.revision }}</dd><dt>令牌估算</dt><dd>{{ current_task.input_context.token_estimate }}</dd></dl>
+            {% if current_task.diagnostics %}<div class="callout warning">{{ current_task.diagnostics|join(' · ') }}</div>{% endif %}
+          </div>
+          <div class="card">
+            <div class="panel-head"><div><h3>运行台账</h3><p>当前运行、任务状态和诊断信息。</p></div><span class="count-badge">{{ latest_run.steps|length if latest_run else 0 }} 步</span></div>
+            {% if latest_run %}<div class="compact-list run-ledger-list">{% for step in latest_run.steps %}<article><span><strong>{{ step.task_label }}</strong><small class="table-secondary">第 {{ step.attempt }} 次尝试 · {{ step.input_hash or '无输入哈希' }}</small></span><span class="status-badge {% if step.status == 'completed' %}accepted{% elif step.status in ['failed', 'degraded'] %}rejected{% else %}candidate{% endif %}">{{ step.status_label }}</span></article>{% endfor %}</div>{% else %}<div class="mini-empty">尚未记录运行步骤</div>{% endif %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </section>
+    {% endfor %}
   </div>
-</section>
+</div>
 
 <div class="two-column workflow-columns">
   <section class="panel repair-panel">
-    <div class="panel-head"><div><h2>Repair</h2><p>Targeted root-cause repair and automatic re-gate.</p></div><span class="status-badge {% if repair.status in ['completed', 'applied'] %}accepted{% else %}candidate{% endif %}">{{ repair.status|title }}</span></div>
-    <dl class="detail-list">
-      <dt>Root cause</dt><dd>{{ repair.root_cause }}</dd>
-      <dt>Rollback task</dt><dd><code>{{ repair.rollback_task }}</code></dd>
-      <dt>Rollback phase</dt><dd>{{ repair.rollback_phase }}</dd>
-      <dt>Automatic rounds</dt><dd>{{ repair.automatic_round }}</dd>
-      <dt>Manual action</dt><dd>{{ repair.manual_action }}</dd>
-    </dl>
+    <div class="panel-head"><div><h2>定向修复</h2><p>按根因修复并自动重新执行质量门禁。</p></div><span class="status-badge {% if repair.status in ['completed', 'applied'] %}accepted{% else %}candidate{% endif %}">{{ repair.status_label or repair.status }}</span></div>
+    <dl class="detail-list"><dt>根因</dt><dd>{{ repair.root_cause_label or repair.root_cause }}</dd><dt>回退任务</dt><dd><code>{{ repair.rollback_task_label or repair.rollback_task }}</code></dd><dt>回退阶段</dt><dd>{{ repair.rollback_phase_label or repair.rollback_phase }}</dd><dt>自动轮次</dt><dd>{{ repair.automatic_round }}</dd><dt>人工操作</dt><dd>{{ repair.manual_action_label or repair.manual_action }}</dd></dl>
     <pre id="repair-result" class="analysis-result" hidden></pre>
   </section>
 
   <section class="panel closure-panel">
-    <div class="panel-head"><div><h2>Closure Summary</h2><p>Accepted revision, manifest and export readiness.</p></div><span class="status-badge {% if closure.status == 'completed' %}accepted{% else %}candidate{% endif %}">{{ closure.status|title }}</span></div>
-    <dl class="detail-list">
-      <dt>Accepted revision</dt><dd>{{ closure.accepted_revision if closure.accepted_revision is not none else '—' }}</dd>
-      <dt>Manifest</dt><dd><code>{{ closure.manifest or 'Not generated' }}</code></dd>
-      <dt>Global Gate</dt><dd>{{ global_gate.status|title }}</dd>
-      <dt>Graph hash</dt><dd class="break-all"><code>{{ graph_hash }}</code></dd>
-    </dl>
+    <div class="panel-head"><div><h2>封版归档</h2><p>查看已接受修订、清单和导出状态。</p></div><span class="status-badge {% if closure.status == 'completed' %}accepted{% else %}candidate{% endif %}">{{ closure.status_label or closure.status }}</span></div>
+    <dl class="detail-list"><dt>已接受修订</dt><dd>{{ closure.accepted_revision if closure.accepted_revision is not none else '—' }}</dd><dt>封版清单</dt><dd><code>{{ closure.manifest or '尚未生成' }}</code></dd><dt>全局质量门禁</dt><dd>{{ global_gate.status_label }}</dd><dt>模型哈希</dt><dd class="break-all"><code>{{ graph_hash }}</code></dd></dl>
   </section>
 </div>
 
@@ -125,9 +133,22 @@
   const output = document.getElementById("analysis-result");
   const indicator = document.getElementById("analysis-indicator");
   const forceRun = document.getElementById("force-run");
+  const moduleCards = document.querySelectorAll(".analysis-module-card");
+  const modulePanels = document.querySelectorAll("[data-module-panel]");
+
+  function selectModule(moduleId) {
+    moduleCards.forEach((card) => {
+      const selected = card.dataset.moduleId === moduleId;
+      card.classList.toggle("selected", selected);
+      card.setAttribute("aria-selected", selected ? "true" : "false");
+    });
+    modulePanels.forEach((panel) => { panel.hidden = panel.dataset.modulePanel !== moduleId; });
+  }
+  moduleCards.forEach((card) => card.addEventListener("click", () => selectModule(card.dataset.moduleId)));
+
   async function runAnalysis(mode, phase) {
     output.hidden = false;
-    output.textContent = "Running…";
+    output.textContent = "正在运行…";
     indicator.style.display = "inline-flex";
     const body = {mode, force_run: forceRun.checked};
     if (phase) body.phase = phase;
@@ -138,7 +159,7 @@
       output.classList.toggle("warning", payload.status !== "ok");
       if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
     } catch (error) {
-      output.textContent = "Request failed: " + error;
+      output.textContent = "请求失败：" + error;
       output.classList.add("warning");
     } finally { indicator.style.display = "none"; }
   }
@@ -147,14 +168,14 @@
   document.querySelectorAll(".repair-button").forEach((button) => button.addEventListener("click", async () => {
     const repairOutput = document.getElementById("repair-result");
     repairOutput.hidden = false;
-    repairOutput.textContent = "Repairing…";
+    repairOutput.textContent = "正在执行修复…";
     try {
       const response = await fetch(`/projects/${encodeURIComponent(projectId)}/repair`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({issue_id: button.dataset.issueId})});
       const payload = await response.json();
       repairOutput.textContent = JSON.stringify(payload, null, 2);
       repairOutput.classList.toggle("warning", payload.status !== "ok");
       if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
-    } catch (error) { repairOutput.textContent = "Request failed: " + error; repairOutput.classList.add("warning"); }
+    } catch (error) { repairOutput.textContent = "请求失败：" + error; repairOutput.classList.add("warning"); }
   }));
 })();
 </script>

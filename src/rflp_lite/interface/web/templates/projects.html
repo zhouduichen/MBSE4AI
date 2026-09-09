@@ -1,21 +1,21 @@
 {% extends "base.html" %}
-{% block title %}Projects · AI4MBSE Harness{% endblock %}
+{% block title %}项目 · AI4MBSE 本地工作台{% endblock %}
 {% block content %}
 <div class="page-heading">
-  <div><h1>Projects</h1><p>选择一个项目进入分析、模型和证据工作台。</p></div>
-  <span class="count-badge">{{ projects|length }} 个项目</span>
+  <div><h1>项目</h1><p>选择一个项目进入分析、模型和证据工作台。</p></div>
+  <div class="workbench-actions"><a class="button primary" href="#create-project">创建项目</a><span class="count-badge">{{ projects|length }} 个项目</span></div>
 </div>
 {% if projects %}
 <section class="panel">
-  <div class="panel-head"><div><h2>项目列表</h2><p>所有项目均使用本地 Harness 服务。</p></div></div>
+  <div class="panel-head"><div><h2>项目列表</h2><p>所有项目均使用本地工作台服务。</p></div></div>
   <div class="module-grid">
     {% for project in projects %}
     <article class="module-card">
       <div>
         <h2>{{ project.name }}</h2>
-        <p>进入项目分析工作台，查看当前 ModelGraph 和治理信息。</p>
+        <p>进入项目分析工作台，查看当前模型图和治理信息。</p>
         <div class="workbench-actions">
-          <a class="button compact primary" href="/ui/projects/{{ project.name }}/analysis">打开 →</a>
+          <a class="button compact primary" href="/ui/projects/{{ project.name }}/analysis">打开项目 →</a>
           <button class="button compact danger delete-project" type="button" data-project-id="{{ project.name }}" data-project-name="{{ project.name }}">删除</button>
         </div>
         <div class="error-banner delete-error" hidden></div>
@@ -25,9 +25,37 @@
   </div>
 </section>
 {% else %}
-<section class="empty-state"><h2>暂无项目</h2><p>请先通过 Resource API 创建项目。</p></section>
+<section class="empty-state"><h2>暂无项目</h2><p>请先创建一个项目，再进入分析工作台。</p></section>
 {% endif %}
+<section class="panel create-project-panel" id="create-project">
+  <div class="panel-head"><div><h2>创建项目</h2><p>输入项目名称后即可进入分析工作台；中文、英文和数字均可使用。</p></div></div>
+  <form id="create-project-form" class="inline-form">
+    <label for="new-project-name">项目名称<input id="new-project-name" type="text" name="name" placeholder="例如：智能电动牙刷" maxlength="64" autocomplete="off" required></label>
+    <button class="button primary" type="submit">创建并进入</button>
+  </form>
+  <div id="create-project-error" class="error-banner" hidden></div>
+</section>
 <script>
+  const createForm = document.getElementById("create-project-form");
+  const createError = document.getElementById("create-project-error");
+  createForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = createForm.querySelector("button[type=submit]");
+    const name = document.getElementById("new-project-name").value.trim();
+    if (!name) return;
+    submit.disabled = true;
+    createError.hidden = true;
+    try {
+      const response = await fetch("/projects", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({id: name, name})});
+      const payload = await response.json();
+      if (!response.ok || payload.status !== "ok") throw new Error(payload.message || "创建失败");
+      window.location.assign(`/ui/projects/${encodeURIComponent(payload.project.id)}/analysis`);
+    } catch (failure) {
+      createError.textContent = "创建失败：" + failure.message;
+      createError.hidden = false;
+      submit.disabled = false;
+    }
+  });
   document.querySelectorAll(".delete-project").forEach((button) => {
     button.addEventListener("click", async () => {
       const projectId = button.dataset.projectId;

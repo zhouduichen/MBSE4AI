@@ -49,5 +49,5 @@ def test_model_trace_returns_clickable_rflp_verification_path(tmp_path: Path) ->
 
     page = client.get("/ui/projects/p1/model")
     assert page.status_code == 200
-    assert "Requirement → Function → Logical → Physical → Verification" in page.text
+    assert "需求 → 功能 → 逻辑 → 物理 → 验证" in page.text
     assert "Battery endurance test" in page.text

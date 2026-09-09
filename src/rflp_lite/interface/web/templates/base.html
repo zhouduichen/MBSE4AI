@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>{% block title %}AI4MBSE Harness{% endblock %}</title>
+  <title>{% block title %}AI4MBSE 本地工作台{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v=5">
   <script src="{{ url_for('static', path='/vendor/htmx.min.js') }}" defer></script>
 </head>
@@ -14,31 +14,31 @@
     <aside class="sidebar">
       <a class="brand" href="/ui/projects">
         <span class="brand-mark">AI</span>
-        <span>AI4MBSE<small>LOCAL HARNESS</small></span>
+        <span>AI4MBSE<small>本地工作台</small></span>
       </a>
       <nav class="desktop-nav" aria-label="主导航">
-        <p class="nav-label">Workspace</p>
-        <a class="nav-item {% if active == 'projects' %}active{% endif %}" href="/ui/projects">Projects</a>
+        <p class="nav-label">工作区</p>
+        <a class="nav-item {% if active == 'projects' %}active{% endif %}" href="/ui/projects">项目</a>
         {% if project_id %}
-        <a class="nav-item {% if active == 'analysis' %}active{% endif %}" href="/ui/projects/{{ project_id }}/analysis">Analysis</a>
-        <a class="nav-item {% if active == 'model' %}active{% endif %}" href="/ui/projects/{{ project_id }}/model">MBSE Model</a>
-        <a class="nav-item {% if active == 'evidence' %}active{% endif %}" href="/ui/projects/{{ project_id }}/evidence">Evidence &amp; Issues</a>
+        <a class="nav-item {% if active == 'analysis' %}active{% endif %}" href="/ui/projects/{{ project_id }}/analysis">分析工作台</a>
+        <a class="nav-item {% if active == 'model' %}active{% endif %}" href="/ui/projects/{{ project_id }}/model">MBSE 模型</a>
+        <a class="nav-item {% if active == 'evidence' %}active{% endif %}" href="/ui/projects/{{ project_id }}/evidence">证据与问题</a>
         {% else %}
-        <span class="nav-item muted">Analysis</span>
-        <span class="nav-item muted">MBSE Model</span>
-        <span class="nav-item muted">Evidence &amp; Issues</span>
+        <span class="nav-item muted">分析工作台</span>
+        <span class="nav-item muted">MBSE 模型</span>
+        <span class="nav-item muted">证据与问题</span>
         {% endif %}
-        <p class="nav-label">Configuration</p>
-        <a class="nav-item {% if active == 'settings' %}active{% endif %}" href="/ui/settings">Settings</a>
+        <p class="nav-label">系统配置</p>
+        <a class="nav-item {% if active == 'settings' %}active{% endif %}" href="/ui/settings">设置</a>
       </nav>
       <div class="local-card">
         <strong>本地工作区</strong>
-        <span>AI4MBSE Harness v2.0<br>资源化 MBSE 工作台</span>
+        <span>AI4MBSE 本地工作台 v2.0<br>资源化 MBSE 工作台</span>
       </div>
     </aside>
     <div class="main-column">
       <header class="topbar">
-        <div><span class="top-label">LOCAL WORKSPACE</span><strong>{{ project_id or '项目总览' }}</strong></div>
+        <div><span class="top-label">本地工作区</span><strong>{{ project_id or '项目总览' }}</strong></div>
         <div class="service-state"><span></span>本地服务正常</div>
       </header>
       <main id="main-content" class="content" tabindex="-1">{% block content %}{% endblock %}</main>

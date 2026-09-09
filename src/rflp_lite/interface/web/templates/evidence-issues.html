@@ -1,21 +1,21 @@
 {% extends "base.html" %}
-{% block title %}Evidence &amp; Issues · {{ project.id }}{% endblock %}
+{% block title %}证据与问题 · {{ project.id }}{% endblock %}
 {% block content %}
 <div class="page-heading">
-  <div><h1>Evidence &amp; Issues</h1><p>项目：{{ project.id }} · Revision {{ project.revision }}</p></div>
+  <div><h1>证据与问题</h1><p>项目：{{ project.id }} · 当前修订 {{ project.revision }}</p></div>
   <span class="count-badge">{{ evidence|length }} 条证据</span>
 </div>
 <div class="two-column">
   <section class="panel">
-    <div class="panel-head"><div><h2>Evidence</h2><p>可追溯的来源和定位信息。</p></div></div>
+    <div class="panel-head"><div><h2>证据</h2><p>可追溯的来源和定位信息。</p></div></div>
     <div class="record-list">
-      {% for item in evidence %}<article><span class="status-badge accepted">Evidence</span><div><strong>{{ item.claim }}</strong><p>{{ item.locator }}</p></div></article>{% else %}<div class="mini-empty">暂无证据</div>{% endfor %}
+      {% for item in evidence %}<article><span class="status-badge accepted">已收录</span><div><strong>{{ item.claim }}</strong><p>{{ item.locator }}</p></div></article>{% else %}<div class="mini-empty">暂无证据</div>{% endfor %}
     </div>
   </section>
   <section class="panel">
-    <div class="panel-head"><div><h2>Issues</h2><p>需要处理的模型问题。</p></div><span class="count-badge">{{ issues|length }}</span></div>
+    <div class="panel-head"><div><h2>问题</h2><p>需要处理的模型问题。</p></div><span class="count-badge">{{ issues|length }} 个</span></div>
     <div class="compact-list">
-      {% for issue in issues %}<article><span><strong>{{ issue.code }}</strong><small class="table-secondary">{{ issue.message if issue.message is defined else '模型问题' }}</small></span><span class="status-badge {{ issue.status }}">{{ issue.status }}</span></article>{% else %}<div class="mini-empty">暂无问题</div>{% endfor %}
+      {% for issue in issues %}<article><span><strong>{{ issue.code_label or issue.code }}</strong><small class="table-secondary">{{ issue.message if issue.message is defined else '模型问题' }}</small></span><span class="status-badge {{ issue.status }}">{{ issue.status_label or issue.status }}</span></article>{% else %}<div class="mini-empty">暂无问题</div>{% endfor %}
     </div>
   </section>
 </div>

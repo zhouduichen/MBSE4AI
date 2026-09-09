@@ -1,45 +1,45 @@
 {% extends "base.html" %}
-{% block title %}Settings · AI4MBSE Harness{% endblock %}
+{% block title %}设置 · AI4MBSE 本地工作台{% endblock %}
 {% block content %}
 <div class="page-heading">
-  <div><p class="eyebrow">Configuration</p><h1>Settings</h1><p>Manage model profiles and verify the connection used by the next analysis.</p></div>
-  <span class="status-badge info">Local only</span>
+  <div><p class="eyebrow">运行配置</p><h1>设置</h1><p>管理模型配置，并测试下一次分析将使用的连接。</p></div>
+  <span class="status-badge info">仅本地</span>
 </div>
 
 <div class="metric-grid settings-metrics">
-  <article class="metric"><span>Actual runtime</span><strong>{{ runtime.mode }}</strong><small>{{ runtime.provider_id }} / {{ runtime.model_id }}</small></article>
-  <article class="metric"><span>Active profile</span><strong>{{ settings.active_id or 'None' }}</strong><small>Saved profile selection</small></article>
-  <article class="metric"><span>Credential state</span><strong>{% if settings.profiles %}Stored securely{% else %}Not configured{% endif %}</strong><small>Keys are never rendered</small></article>
+  <article class="metric"><span>实际运行时</span><strong>{{ runtime.mode_label }}</strong><small>{{ runtime.provider_label }} / {{ runtime.model_label }}</small></article>
+  <article class="metric"><span>活动配置</span><strong>{{ settings.active_id or '未选择' }}</strong><small>下一次分析将使用的配置</small></article>
+  <article class="metric"><span>凭据状态</span><strong>{% if settings.profiles %}已安全保存{% else %}未配置{% endif %}</strong><small>页面不会显示密钥</small></article>
 </div>
 
 <div class="two-column settings-columns">
   <section class="panel">
-    <div class="panel-head"><div><h2>Actual runtime</h2><p>This is the provider/model metadata the Analysis page will report.</p></div><span class="status-badge {% if runtime.configured %}accepted{% else %}candidate{% endif %}">{{ runtime.mode }}</span></div>
+    <div class="panel-head"><div><h2>实际运行时</h2><p>这是分析工作台将记录的服务与模型信息。</p></div><span class="status-badge {% if runtime.configured %}accepted{% else %}candidate{% endif %}">{{ runtime.mode_label }}</span></div>
     <dl class="detail-list">
-      <dt>Profile</dt><dd>{{ runtime.profile_id }}</dd>
-      <dt>Provider</dt><dd>{{ runtime.provider_id }}</dd>
-      <dt>Model</dt><dd>{{ runtime.model_id }}</dd>
-      <dt>Source</dt><dd>{{ runtime.source }}</dd>
+      <dt>配置</dt><dd>{{ runtime.profile_id }}</dd>
+      <dt>服务</dt><dd>{{ runtime.provider_label }}</dd>
+      <dt>模型</dt><dd>{{ runtime.model_label }}</dd>
+      <dt>来源</dt><dd>{{ runtime.source_label }}</dd>
     </dl>
   </section>
 
   <section class="panel">
-    <div class="panel-head"><div><h2>Connection test</h2><p>Probe a saved profile without changing configuration or displaying its API key.</p></div></div>
+    <div class="panel-head"><div><h2>连接测试</h2><p>测试已保存的配置，不会修改配置，也不会显示 API 密钥。</p></div></div>
     {% if settings.profiles %}
     <form id="connection-test-form" class="connection-test-form">
-      <label for="profile-to-test">Profile<select id="profile-to-test" name="profile_id">{% for profile in settings.profiles %}<option value="{{ profile.id }}" {% if profile.id == settings.active_id %}selected{% endif %}>{{ profile.id }} · {{ profile.model }}</option>{% endfor %}</select></label>
-      <button class="button primary" type="submit">Test connection</button>
+      <label for="profile-to-test">配置<select id="profile-to-test" name="profile_id">{% for profile in settings.profiles %}<option value="{{ profile.id }}" {% if profile.id == settings.active_id %}selected{% endif %}>{{ profile.id }} · {{ profile.model }}</option>{% endfor %}</select></label>
+      <button class="button primary" type="submit">测试连接</button>
     </form>
-    {% else %}<div class="mini-empty">No saved profile. Add one through the Resource API before testing.</div>{% endif %}
+    {% else %}<div class="mini-empty">暂无已保存配置，请先添加配置再进行测试。</div>{% endif %}
     <pre id="connection-test-result" class="analysis-result" hidden></pre>
   </section>
 </div>
 
 <section class="panel">
-  <div class="panel-head"><div><h2>Model profiles</h2><p>Profile metadata is public to the local UI; credentials stay out of the page and API responses.</p></div><span class="count-badge">{{ settings.profiles|length }}</span></div>
+  <div class="panel-head"><div><h2>模型配置</h2><p>页面只展示配置元数据，凭据不会进入页面或 API 响应。</p></div><span class="count-badge">{{ settings.profiles|length }} 个</span></div>
   {% if settings.profiles %}
-  <div class="profile-list">{% for profile in settings.profiles %}<article class="profile-card {% if profile.id == settings.active_id %}active{% endif %}"><div><strong>{{ profile.id }}</strong><span class="status-badge {% if profile.id == settings.active_id %}active{% else %}planned{% endif %}">{% if profile.id == settings.active_id %}Active{% else %}Available{% endif %}</span></div><p>{{ profile.label }} · {{ profile.kind }} · {{ profile.base_url }}</p><small>{{ profile.model }} · API key {% if profile.api_key_configured %}configured{% else %}missing{% endif %}</small></article>{% endfor %}</div>
-  {% else %}<div class="mini-empty">No model profiles configured. Add one through the Resource API.</div>{% endif %}
+  <div class="profile-list">{% for profile in settings.profiles %}<article class="profile-card {% if profile.id == settings.active_id %}active{% endif %}"><div><strong>{{ profile.id }}</strong><span class="status-badge {% if profile.id == settings.active_id %}active{% else %}planned{% endif %}">{% if profile.id == settings.active_id %}活动{% else %}可用{% endif %}</span></div><p>{{ profile.label }} · {{ profile.kind_label }} · {{ profile.base_url }}</p><small>{{ profile.model }} · API 密钥：{{ profile.credential_label }} · {{ profile.enabled_label }}</small></article>{% endfor %}</div>
+  {% else %}<div class="mini-empty">暂无模型配置，请通过配置接口添加。</div>{% endif %}
 </section>
 
 {% if settings.profiles %}
@@ -50,13 +50,13 @@
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     output.hidden = false;
-    output.textContent = "Testing connection…";
+    output.textContent = "正在测试连接…";
     try {
       const response = await fetch("/model-profiles/test", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({profile_id: document.getElementById("profile-to-test").value})});
       const payload = await response.json();
       output.textContent = JSON.stringify(payload, null, 2);
       output.classList.toggle("warning", payload.status !== "ok" || payload.connected === false);
-    } catch (error) { output.textContent = "Request failed: " + error; output.classList.add("warning"); }
+    } catch (error) { output.textContent = "请求失败：" + error; output.classList.add("warning"); }
   });
 })();
 </script>

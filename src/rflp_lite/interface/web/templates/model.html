@@ -1,39 +1,39 @@
 {% extends "base.html" %}
-{% block title %}MBSE Model · {{ project.id }}{% endblock %}
+{% block title %}MBSE 模型 · {{ project.id }}{% endblock %}
 {% block content %}
 <div class="page-heading">
-  <div><p class="eyebrow">Traceability</p><h1>MBSE Model</h1><p>Project <strong>{{ project.id }}</strong> · Revision {{ trace.revision }}</p></div>
-  <span class="status-badge info">ModelGraph</span>
+  <div><p class="eyebrow">关系追踪</p><h1>MBSE 模型</h1><p>项目 <strong>{{ project.id }}</strong> · 当前修订 {{ trace.revision }}</p></div>
+  <span class="status-badge info">模型图</span>
 </div>
 
 <section class="panel trace-panel">
-  <div class="panel-head"><div><h2>Requirement → Function → Logical → Physical → Verification</h2><p>Click a node to inspect its typed entity resource. Missing links remain visible as trace issues.</p></div><span class="count-badge">{{ trace.paths|length }} path(s)</span></div>
+  <div class="panel-head"><div><h2>需求 → 功能 → 逻辑 → 物理 → 验证</h2><p>点击节点查看对应的实体资源；缺失链路会作为追踪问题保留。</p></div><span class="count-badge">{{ trace.paths|length }} 条链路</span></div>
   <div class="trace-legend">
-    {% for stage in trace.stages %}<span><i>{{ loop.index }}</i>{{ stage }}</span>{% endfor %}
+    {% for stage in trace.stage_labels %}<span><i>{{ loop.index }}</i>{{ stage }}</span>{% endfor %}
   </div>
   {% for path in trace.paths %}
   <article class="trace-path {% if path.complete %}trace-complete{% else %}trace-incomplete{% endif %}">
-    <div class="trace-path-head"><strong>{{ path.requirement.name if path.requirement else 'Requirement' }}</strong><span class="status-badge {% if path.complete %}accepted{% else %}candidate{% endif %}">{% if path.complete %}Complete{% else %}Missing {{ path.missing|join(', ') }}{% endif %}</span></div>
+    <div class="trace-path-head"><strong>{{ path.requirement.name if path.requirement else '需求' }}</strong><span class="status-badge {% if path.complete %}accepted{% else %}candidate{% endif %}">{% if path.complete %}链路完整{% else %}缺少 {{ path.missing|join('、') }}{% endif %}</span></div>
     <div class="trace-nodes">
       {% for node in path.nodes %}
-      {% if node %}<a id="entity-{{ node.id }}" class="trace-node" href="{{ node.href }}"><span>{{ node.stage }}</span><strong>{{ node.name }}</strong><small>{{ node.kind }} · {{ node.status }}</small></a>
-      {% else %}<div class="trace-node trace-node-missing"><span>{{ trace.stages[loop.index0] }}</span><strong>Missing link</strong><small>Gate issue</small></div>{% endif %}
+      {% if node %}<a id="entity-{{ node.id }}" class="trace-node" href="{{ node.href }}"><span>{{ node.stage_label }}</span><strong>{{ node.name }}</strong><small>{{ node.kind_label }} · {{ node.status_label }}</small></a>
+      {% else %}<div class="trace-node trace-node-missing"><span>{{ trace.stage_labels[loop.index0] }}</span><strong>缺少链路</strong><small>质量门禁问题</small></div>{% endif %}
       {% if not loop.last %}<span class="trace-arrow" aria-hidden="true">→</span>{% endif %}
       {% endfor %}
     </div>
   </article>
-  {% else %}<div class="mini-empty">No Requirement entities are available for tracing yet.</div>{% endfor %}
+  {% else %}<div class="mini-empty">暂无需求实体可供追踪。</div>{% endfor %}
 </section>
 
 {% if trace.issues %}
 <section class="panel">
-  <div class="panel-head"><div><h2>Trace issues</h2><p>These missing links can be addressed from the Analysis Gate/Repair panel.</p></div><span class="count-badge">{{ trace.issues|length }}</span></div>
-  <div class="compact-list">{% for issue in trace.issues %}<article><span><strong>{{ issue.code }}</strong><small class="table-secondary">{{ issue.message }}</small></span><span class="status-badge candidate">{{ issue.severity }}</span></article>{% endfor %}</div>
+  <div class="panel-head"><div><h2>追踪问题</h2><p>可在分析工作台的质量门禁与修复区域处理这些缺失链路。</p></div><span class="count-badge">{{ trace.issues|length }} 个</span></div>
+  <div class="compact-list">{% for issue in trace.issues %}<article><span><strong>{{ issue.message }}</strong><small class="table-secondary">{{ issue.entity_ids|join(', ') }}</small></span><span class="status-badge candidate">{{ issue.severity_label or '警告' }}</span></article>{% endfor %}</div>
 </section>
 {% endif %}
 
 <section class="panel">
-  <div class="panel-head"><div><h2>ModelGraph resources</h2><p>Debug endpoints remain available alongside the typed trace.</p></div></div>
+  <div class="panel-head"><div><h2>模型图资源</h2><p>除关系追踪外，也可以读取原始模型资源进行诊断。</p></div></div>
   <div class="module-grid">
     <a class="module-card" href="/projects/{{ project_id }}/model"><div><h2>完整模型图</h2><p>查看实体、关系和当前快照哈希。</p></div><span class="ready">JSON →</span></a>
     <a class="module-card" href="/projects/{{ project_id }}/entities"><div><h2>实体资源</h2><p>按类型读取模型中的实体集合。</p></div><span class="ready">JSON →</span></a>

@@ -26,9 +26,9 @@ def test_settings_page_and_connection_test_do_not_expose_credentials(tmp_path: P
 
     page = client.get("/ui/settings")
     assert page.status_code == 200
-    assert "Connection test" in page.text
+    assert "连接测试" in page.text
     assert "do-not-return-this-secret" not in page.text
-    assert "Actual runtime" in page.text
+    assert "实际运行时" in page.text
 
     test = client.post("/model-profiles/test", json={"profile_id": "local-test"})
     assert test.status_code == 200
