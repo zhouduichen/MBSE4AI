@@ -18,43 +18,43 @@
 
 ## Task 1: PR08-1 projection contracts and repository reads
 
-- [ ] Add frozen ViewModels and projection modules in `src/rflp_lite/application/projections/` for common entity/status/issue aggregation, requirements, traceability, RFLP, behavior, assurance, and history.
-- [ ] Extend `src/rflp_lite/repository/port.py` and `src/rflp_lite/repository/sqlite.py` with read-only revision/patch/run/step queries and snapshot loading needed by history.
-- [ ] Add `tests/application/projections/test_requirements_projection.py`, `test_traceability_projection.py`, `test_rflp_projection.py`, `test_assurance_projection.py`, and `test_history_projection.py`.
-- [ ] Run `./.venv/bin/python -m pytest -q tests/application/projections` and commit `feat(review): add industrial MBSE projection layer`.
+- [x] Add frozen ViewModels and projection modules in `src/rflp_lite/application/projections/` for common entity/status/issue aggregation, requirements, traceability, RFLP, behavior, assurance, and history.
+- [x] Extend `src/rflp_lite/repository/port.py` and `src/rflp_lite/repository/sqlite.py` with read-only revision/patch/run/step queries and snapshot loading needed by history.
+- [x] Add `tests/application/projections/test_requirements_projection.py`, `test_traceability_projection.py`, `test_rflp_projection.py`, `test_assurance_projection.py`, and `test_history_projection.py`.
+- [x] Run `./.venv/bin/python -m pytest -q tests/application/projections` and commit `feat(review): add industrial MBSE projection layer`.
 
 ## Task 2: PR08-2 review commands, requirements workbench, and matrix
 
-- [ ] Add `src/rflp_lite/application/review_service.py` for accept/reject/edit/lock/unlock/re-analysis commands using `ModelService.apply_patch` and audit recording.
-- [ ] Add requirements/detail/traceability JSON routes in `src/rflp_lite/interface/web/resource_api.py`, with CAS and locked error mapping.
-- [ ] Add requirements, detail, and matrix pages/templates and navigation in `src/rflp_lite/interface/web/resource_pages.py` and `src/rflp_lite/interface/web/templates/`.
-- [ ] Add `tests/interface/web/test_requirements_workbench.py`, `test_traceability_matrix.py`, and `test_review_actions.py`.
-- [ ] Run focused application/web tests and commit `feat(review): add requirements workbench and traceability matrix`.
+- [x] Add `src/rflp_lite/application/review_service.py` for accept/reject/edit/lock/unlock/re-analysis commands using `ModelService.apply_patch` and audit recording.
+- [x] Add requirements/detail/traceability JSON routes in `src/rflp_lite/interface/web/resource_api.py`, with CAS and locked error mapping.
+- [x] Add requirements, detail, and matrix pages/templates and navigation in `src/rflp_lite/interface/web/resource_pages.py` and `src/rflp_lite/interface/web/templates/`.
+- [x] Add `tests/interface/web/test_requirements_workbench.py`, `test_traceability_matrix.py`, and `test_review_actions.py`.
+- [x] Run focused application/web tests and commit `feat(review): add requirements workbench and traceability matrix`.
 
 ## Task 3: PR08-3 RFLP architecture and deterministic trace view
 
-- [ ] Add deterministic RFLP SVG projection/rendering in `src/rflp_lite/application/projections/rflp.py` and `src/rflp_lite/diagrams/engineering/rflp.py`.
-- [ ] Add RFLP and focused trace routes/pages with issue/gap links and filters.
-- [ ] Add `tests/interface/web/test_rflp_view.py` and extend projection tests for invalid predicates and focus consistency.
-- [ ] Run focused tests and commit `feat(review): add interactive RFLP architecture review`.
+- [x] Add deterministic RFLP SVG projection/rendering in `src/rflp_lite/application/projections/rflp.py` and `src/rflp_lite/diagrams/engineering/rflp.py`.
+- [x] Add RFLP and focused trace routes/pages with issue/gap links and filters.
+- [x] Add `tests/interface/web/test_rflp_view.py` and extend projection tests for invalid predicates and focus consistency.
+- [x] Run focused tests and commit `feat(review): add interactive RFLP architecture review`.
 
 ## Task 4: PR08-4 behavior and assurance workbenches
 
-- [ ] Add operational, behavior, verification/validation, hazard/FMEA, gate, and repair projections using only existing entities and relations.
-- [ ] Add behavior/assurance API routes and pages/templates, preserving explicit incomplete states for missing facts.
-- [ ] Add `tests/interface/web/test_assurance_view.py` and behavior projection coverage.
-- [ ] Run focused tests and commit `feat(review): add behavior and assurance workbenches`.
+- [x] Add operational, behavior, verification/validation, hazard/FMEA, gate, and repair projections using only existing entities and relations.
+- [x] Add behavior/assurance API routes and pages/templates, preserving explicit incomplete states for missing facts.
+- [x] Add `tests/interface/web/test_assurance_view.py` and behavior projection coverage.
+- [x] Run focused tests and commit `feat(review): add behavior and assurance workbenches`.
 
 ## Task 5: PR08-5 history, audit, and revision diff
 
-- [ ] Add revision/patch/run/step/history projections and readable entity/payload/relation/status diffs.
-- [ ] Add history and revision diff routes/pages and provenance links from review entities/issues.
-- [ ] Add `tests/interface/web/test_history_diff.py` and end-to-end review story coverage.
-- [ ] Run focused tests and commit `feat(review): add revision history and engineering diff`.
+- [x] Add revision/patch/run/step/history projections and readable entity/payload/relation/status diffs.
+- [x] Add history and revision diff routes/pages and provenance links from review entities/issues.
+- [x] Add `tests/interface/web/test_history_diff.py` and end-to-end review story coverage.
+- [x] Run focused tests and commit `feat(review): add revision history and engineering diff`.
 
 ## Task 6: acceptance and handoff
 
-- [ ] Run full pytest, compileall, Ruff, architecture metrics, and lint-imports without touching benchmark result files.
-- [ ] Exercise the fixture review story and capture deterministic render/API evidence.
-- [ ] Add `PR08_ACCEPTANCE_REPORT.md` with baseline/final commit, slice file list, tests, metrics, limitations, and honest incomplete items.
-- [ ] Commit `docs(review): record PR08 acceptance report` and inspect final `git diff`/status.
+- [x] Run full pytest, compileall, Ruff, architecture metrics, and lint-imports without touching benchmark result files.
+- [x] Exercise the fixture review story and capture deterministic render/API evidence.
+- [x] Add `PR08_ACCEPTANCE_REPORT.md` with baseline/final commit, slice file list, tests, metrics, limitations, and honest incomplete items.
+- [x] Commit `docs(review): record PR08 acceptance report` and inspect final `git diff`/status.
