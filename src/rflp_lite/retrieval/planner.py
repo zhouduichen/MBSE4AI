@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from rflp_lite.methodology.contracts import ContextBundle
+from rflp_lite.methodology.contracts import ContextBundle, TaskSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +14,36 @@ class KnowledgeGap:
     query: str
     description: str = ""
     required_kinds: tuple[str, ...] = ()
+
+
+def build_gap_query(
+    task: TaskSpec,
+    root_entities,
+    issue: KnowledgeGap | object | None,
+    context: ContextBundle,
+) -> str:
+    """Build a stable retrieval query from the real gap and local model terms."""
+
+    terms: list[str] = [task.id.replace("_", " ")]
+    for entity in sorted(root_entities, key=lambda item: item.id):
+        terms.append(entity.meta.name)
+        for key in ("obligation", "candidate_type", "constraints", "rationale", "description"):
+            value = entity.payload.get(key)
+            if value:
+                terms.append(str(value))
+    if isinstance(issue, KnowledgeGap):
+        terms.extend(item for item in (issue.code, issue.description, issue.query) if item)
+    elif issue is not None:
+        terms.append(str(issue))
+    terms.extend(str(kind) for kind in getattr(issue, "required_kinds", ()) if str(kind))
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        clean = " ".join(str(term).split()).strip()
+        if clean and clean.casefold() not in seen:
+            seen.add(clean.casefold())
+            deduped.append(clean)
+    return " ".join(deduped)
 
 
 @dataclass(frozen=True, slots=True)
