@@ -346,6 +346,54 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
                 (project_id, kind, _json(payload)),
             )
 
+    def list_revisions(self, project_id: str) -> tuple[Mapping[str, object], ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT id, project_id, sequence, parent_id, reason, snapshot_hash, run_id FROM revisions WHERE project_id = ? ORDER BY sequence",
+                (project_id,),
+            ).fetchall()
+        return tuple(dict(row) for row in rows)
+
+    def load_revision(self, project_id: str, sequence: int) -> Mapping[str, object] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT id, project_id, sequence, parent_id, reason, snapshot_json, snapshot_hash, run_id FROM revisions WHERE project_id = ? AND sequence = ?",
+                (project_id, int(sequence)),
+            ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        result["snapshot"] = json.loads(result.pop("snapshot_json"))
+        return result
+
+    def list_patches(self, project_id: str) -> tuple[Mapping[str, object], ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT p.id, p.run_id, p.task_id, p.operations_json, p.reason, p.status, p.input_hash, p.output_hash, p.provider_id, p.model_id, r.sequence AS revision FROM patches p LEFT JOIN revisions r ON r.project_id = ? AND r.snapshot_hash = p.output_hash WHERE r.project_id = ? ORDER BY r.sequence, p.id",
+                (project_id, project_id),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["operations"] = json.loads(item.pop("operations_json"))
+            result.append(item)
+        return tuple(result)
+
+    def list_runs(self, project_id: str) -> tuple[Run, ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT id FROM runs WHERE project_id = ? ORDER BY started_at, id", (project_id,)
+            ).fetchall()
+        return tuple(run for row in rows if (run := self.load_run(project_id, str(row["id"]))) is not None)
+
+    def list_audit_events(self, project_id: str) -> tuple[Mapping[str, object], ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT sequence, project_id, kind, payload FROM audit_events WHERE project_id = ? ORDER BY sequence",
+                (project_id,),
+            ).fetchall()
+        return tuple({**dict(row), "payload": json.loads(row["payload"])} for row in rows)
+
     def update_patch_trace(self, patch_id: str, *, provider_id: str = "", model_id: str = "") -> None:
         with self._transaction():
             self._connection.execute(
