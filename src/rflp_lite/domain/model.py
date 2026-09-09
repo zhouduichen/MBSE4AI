@@ -131,11 +131,19 @@ def apply_patch(graph: ModelGraph, patch: Patch) -> ModelGraph:
         )
     entities = graph.entity_index
     relations = {item.id: item for item in graph.relations}
+    next_revision = graph.revision + 1
     for operation in patch.operations:
         if isinstance(operation, AddEntity):
             if operation.entity.id in entities:
                 raise ContractViolation(f"entity already exists: {operation.entity.id}")
-            entities[operation.entity.id] = operation.entity
+            entities[operation.entity.id] = Entity(
+                replace(
+                    operation.entity.meta,
+                    created_revision=next_revision,
+                    updated_revision=next_revision,
+                ),
+                operation.entity.payload,
+            )
         elif isinstance(operation, UpdateEntity):
             entity = entities.get(operation.entity_id)
             if entity is None:
@@ -173,14 +181,16 @@ def apply_patch(graph: ModelGraph, patch: Patch) -> ModelGraph:
                 if not isinstance(value, Mapping):
                     raise ContractViolation("entity payload patch must be an object")
                 payload.update(value)
-            entities[operation.entity_id] = Entity(meta, payload)
+            entities[operation.entity_id] = Entity(
+                replace(meta, updated_revision=next_revision), payload
+            )
         elif isinstance(operation, Deprecate):
             entity = entities.get(operation.entity_id)
             if entity is None:
                 raise ContractViolation(f"entity not found: {operation.entity_id}")
             if entity.meta.status is EntityStatus.LOCKED:
                 raise ContractViolation(f"entity is locked: {operation.entity_id}")
-            meta = replace(entity.meta, status=EntityStatus.DEPRECATED)
+            meta = replace(entity.meta, status=EntityStatus.DEPRECATED, updated_revision=next_revision)
             entities[operation.entity_id] = Entity(meta, entity.payload)
         else:
             relation_identity = (operation.source_id, operation.predicate.value, operation.target_id)
@@ -189,7 +199,7 @@ def apply_patch(graph: ModelGraph, patch: Patch) -> ModelGraph:
                 relation_id, operation.source_id, operation.predicate,
                 operation.target_id, operation.evidence_ids,
             )
-    next_graph = ModelGraph(graph.project_id, tuple(sorted(entities.values(), key=lambda item: item.id)), tuple(sorted(relations.values(), key=lambda item: item.id)), graph.revision + 1)
+    next_graph = ModelGraph(graph.project_id, tuple(sorted(entities.values(), key=lambda item: item.id)), tuple(sorted(relations.values(), key=lambda item: item.id)), next_revision)
     for relation in next_graph.relations:
         next_graph.validate_relation(relation)
     return next_graph

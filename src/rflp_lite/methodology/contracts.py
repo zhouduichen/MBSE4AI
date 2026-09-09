@@ -8,6 +8,7 @@ from typing import Mapping, Protocol
 
 from rflp_lite.domain.entities import Entity, EntityKind
 from rflp_lite.domain.model import Patch
+from rflp_lite.methodology.policy import PatchPolicy
 
 
 class Phase(StrEnum):
@@ -69,6 +70,7 @@ class TaskSpec:
     max_attempts: int = 2
     failure_routes: tuple[FailureRoute, ...] = ()
     completion_condition: CompletionCondition = field(default_factory=CompletionCondition)
+    patch_policy: PatchPolicy = field(default_factory=PatchPolicy)
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -99,6 +101,10 @@ class TaskExecutionRequest:
     output_contract: Mapping[str, object]
     token_budget: int
     tool_policy: tuple[str, ...] = ()
+    prompt_template_id: str = ""
+    validators: tuple[str, ...] = ()
+    max_attempts: int = 1
+    patch_policy: PatchPolicy = field(default_factory=PatchPolicy)
 
 
 @dataclass(frozen=True, slots=True)

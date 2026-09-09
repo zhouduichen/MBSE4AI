@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -130,7 +131,11 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
 
     def _persist_graph(self, graph: ModelGraph, revision: int) -> None:
         for entity in graph.entities:
-            meta = replace(entity.meta, created_revision=entity.meta.created_revision or revision, updated_revision=revision)
+            meta = replace(
+                entity.meta,
+                created_revision=entity.meta.created_revision or revision,
+                updated_revision=entity.meta.updated_revision or revision,
+            )
             self._connection.execute(
                 "INSERT OR REPLACE INTO entities(id, project_id, kind, name, status, lifecycle_hint, producer, confidence, payload_json, source_ids, evidence_ids, created_revision, updated_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (meta.id, graph.project_id, meta.kind.value, meta.name, meta.status.value, _json(meta.lifecycle_ids), meta.producer.value, meta.confidence, _json(entity.payload), _json(meta.source_ids), _json(meta.evidence_ids), meta.created_revision, meta.updated_revision),
@@ -148,7 +153,9 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
                 (graph.project_id, entity.id, entity.meta.name, _json(entity.payload)),
             )
 
-    def append_patch(self, project_id: str, patch: Patch, expected_revision: int) -> Revision:
+    def append_patch(
+        self, project_id: str, patch: Patch, expected_revision: int, *, run_id: str | None = None
+    ) -> Revision:
         if patch.project_id != project_id or patch.expected_revision != expected_revision:
             raise ContractViolation("patch project or expected revision does not match request")
         with self._transaction():
@@ -160,7 +167,7 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
             graph = apply_patch(self.load_graph(project_id), patch)
             revision = Revision(
                 project_id, graph.revision, f"revision-{current}" if current else None,
-                patch.reason, graph.snapshot_hash, None,
+                patch.reason, graph.snapshot_hash, run_id,
             )
             self._persist_graph(graph, graph.revision)
             snapshot = {"entities": [item.as_dict() for item in graph.entities], "relations": [
@@ -176,8 +183,8 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
                 (f"revision-{graph.revision}", project_id, graph.revision, revision.parent_id, revision.reason, _json(snapshot), revision.snapshot_hash, revision.run_id),
             )
             self._connection.execute(
-                "INSERT INTO patches(id, run_id, task_id, operations_json, reason, status) VALUES (?, ?, ?, ?, ?, ?)",
-                (patch.id, None, patch.task_id, _json([_operation_dict(item) for item in patch.operations]), patch.reason, "applied"),
+                "INSERT INTO patches(id, run_id, task_id, operations_json, reason, status, input_hash, output_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (patch.id, run_id, patch.task_id, _json([_operation_dict(item) for item in patch.operations]), patch.reason, "applied", canonical_hash((project_id, expected_revision, patch.id)), graph.snapshot_hash),
             )
             self._connection.execute(
                 "INSERT INTO audit_events(project_id, kind, payload) VALUES (?, ?, ?)",
@@ -303,6 +310,60 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
             for row in rows
         )
 
+    def audit_summary(self, project_id: str, run_id: str) -> dict[str, object]:
+        with self._lock:
+            events = self._connection.execute(
+                "SELECT sequence, kind, payload FROM audit_events WHERE project_id = ? ORDER BY sequence",
+                (project_id,),
+            ).fetchall()
+            patches = self._connection.execute(
+                "SELECT id, task_id, operations_json, reason, status, input_hash, output_hash, provider_id, model_id FROM patches WHERE run_id = ? ORDER BY id",
+                (run_id,),
+            ).fetchall()
+            revisions = self._connection.execute(
+                "SELECT id, sequence, parent_id, reason, snapshot_hash, run_id FROM revisions WHERE project_id = ? AND run_id = ? ORDER BY sequence",
+                (project_id, run_id),
+            ).fetchall()
+        return {
+            "run_id": run_id,
+            "events": [{"sequence": row["sequence"], "kind": row["kind"], "payload": json.loads(row["payload"])} for row in events],
+            "patches": [dict(row) for row in patches],
+            "revisions": [dict(row) for row in revisions],
+        }
+
+    def record_audit(self, project_id: str, kind: str, payload: Mapping[str, object]) -> None:
+        self.ensure_project(project_id)
+        with self._transaction():
+            self._connection.execute(
+                "INSERT INTO audit_events(project_id, kind, payload) VALUES (?, ?, ?)",
+                (project_id, kind, _json(payload)),
+            )
+
+    def update_patch_trace(self, patch_id: str, *, provider_id: str = "", model_id: str = "") -> None:
+        with self._transaction():
+            self._connection.execute(
+                "UPDATE patches SET provider_id = ?, model_id = ? WHERE id = ?",
+                (provider_id, model_id, patch_id),
+            )
+
+    def save_closure(self, project_id: str, run_id: str, payload: Mapping[str, object]) -> None:
+        with self._transaction():
+            self._connection.execute(
+                "INSERT OR REPLACE INTO closures(project_id, run_id, revision, manifest_json, gate_snapshot_json, audit_summary_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (project_id, run_id, int(payload.get("revision", 0)), _json(payload.get("manifest", {})), _json(payload.get("gate_snapshot", [])), _json(payload.get("audit_summary", {})), time.time()),
+            )
+            self._connection.execute(
+                "INSERT INTO audit_events(project_id, kind, payload) VALUES (?, ?, ?)",
+                (project_id, "run.closed", _json({"run_id": run_id, "revision": payload.get("revision", 0)})),
+            )
+
+    def freeze_revision(self, project_id: str, revision: int) -> None:
+        with self._transaction():
+            self._connection.execute(
+                "UPDATE projects SET status = 'frozen', content_revision = ? WHERE id = ?",
+                (revision, project_id),
+            )
+
     def search_fts(self, project_id: str, query: str, limit: int = 20) -> tuple[dict[str, object], ...]:
         clean_query = " ".join(str(query).split()).strip()
         if not clean_query:
@@ -339,27 +400,27 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
         self.ensure_project(run.project_id)
         with self._transaction():
             self._connection.execute(
-                "INSERT INTO runs(id, project_id, phase, status, attempt, methodology_version, model_profile, input_hash, diagnostics) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (run.id, run.project_id, run.phase, run.status, run.attempt, run.methodology_version, run.model_profile, run.input_hash, _json(run.diagnostics)),
+                "INSERT INTO runs(id, project_id, phase, status, attempt, methodology_version, model_profile, input_hash, diagnostics, provider_id, model_id, execution_mode, context_hash, task_spec_hash, prompt_hash, output_hash, started_at, completed_at, lease, heartbeat) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (run.id, run.project_id, run.phase, run.status, run.attempt, run.methodology_version, run.model_profile, run.input_hash, _json(run.diagnostics), run.provider_id, run.model_id, run.execution_mode, run.context_hash, run.task_spec_hash, run.prompt_hash, run.output_hash, run.started_at, run.completed_at, run.lease, run.heartbeat),
             )
             for step in run.steps:
                 self._connection.execute(
-                    "INSERT OR REPLACE INTO steps(run_id, task_id, status, attempt, input_hash, output_patch_id, diagnostics) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (step.run_id, step.task_id, step.status, step.attempt, step.input_hash, step.output_patch_id, _json(step.diagnostics)),
+                    "INSERT OR REPLACE INTO steps(run_id, task_id, status, attempt, input_hash, output_patch_id, diagnostics, output_hash, provider_id, model_id, prompt_template_id, context_hash, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (step.run_id, step.task_id, step.status, step.attempt, step.input_hash, step.output_patch_id, _json(step.diagnostics), step.output_hash, step.provider_id, step.model_id, step.prompt_template_id, step.context_hash, step.started_at, step.completed_at),
                 )
 
     def update_step(self, step: Step) -> None:
         with self._transaction():
             self._connection.execute(
-                "INSERT OR REPLACE INTO steps(run_id, task_id, status, attempt, input_hash, output_patch_id, diagnostics) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (step.run_id, step.task_id, step.status, step.attempt, step.input_hash, step.output_patch_id, _json(step.diagnostics)),
+                "INSERT OR REPLACE INTO steps(run_id, task_id, status, attempt, input_hash, output_patch_id, diagnostics, output_hash, provider_id, model_id, prompt_template_id, context_hash, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (step.run_id, step.task_id, step.status, step.attempt, step.input_hash, step.output_patch_id, _json(step.diagnostics), step.output_hash, step.provider_id, step.model_id, step.prompt_template_id, step.context_hash, step.started_at, step.completed_at),
             )
 
     def update_run(self, run_id: str, status: str, diagnostics: tuple[str, ...] = ()) -> None:
         with self._transaction():
             self._connection.execute(
-                "UPDATE runs SET status = ?, diagnostics = ? WHERE id = ?",
-                (status, _json(diagnostics), run_id),
+                "UPDATE runs SET status = ?, diagnostics = ?, completed_at = CASE WHEN ? IN ('completed', 'failed', 'degraded', 'cancelled') THEN ? ELSE completed_at END WHERE id = ?",
+                (status, _json(diagnostics), status, time.time(), run_id),
             )
 
     def load_run(self, project_id: str, run_id: str) -> Run | None:
@@ -376,7 +437,34 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
             row["id"], row["project_id"], row["phase"], row["status"], row["attempt"],
             row["methodology_version"], row["model_profile"], row["input_hash"],
             tuple(json.loads(row["diagnostics"])), tuple(
-                Step(item["run_id"], item["task_id"], item["status"], item["attempt"], item["input_hash"], item["output_patch_id"], tuple(json.loads(item["diagnostics"])))
+                Step(item["run_id"], item["task_id"], item["status"], item["attempt"], item["input_hash"], item["output_patch_id"], tuple(json.loads(item["diagnostics"])), item["output_hash"], item["provider_id"], item["model_id"], item["prompt_template_id"], item["context_hash"], item["started_at"], item["completed_at"])
                 for item in steps
             ),
+            row["provider_id"], row["model_id"], row["execution_mode"], row["context_hash"],
+            row["task_spec_hash"], row["prompt_hash"], row["output_hash"], row["started_at"],
+            row["completed_at"], row["lease"], row["heartbeat"],
         )
+
+    def claim_run(self, project_id: str, run_id: str, lease: str, now: float) -> bool:
+        with self._transaction():
+            cursor = self._connection.execute(
+                "UPDATE runs SET lease = ?, heartbeat = ? WHERE id = ? AND project_id = ? AND (lease = '' OR heartbeat < ?)",
+                (lease, now, run_id, project_id, now - 300),
+            )
+            return cursor.rowcount == 1
+
+    def heartbeat_run(self, run_id: str, lease: str, now: float) -> None:
+        with self._transaction():
+            cursor = self._connection.execute(
+                "UPDATE runs SET heartbeat = ? WHERE id = ? AND lease = ?",
+                (now, run_id, lease),
+            )
+            if cursor.rowcount != 1:
+                raise ContractViolation("run lease is not held")
+
+    def interrupt_run(self, run_id: str, lease: str) -> None:
+        with self._transaction():
+            self._connection.execute(
+                "UPDATE runs SET status = 'cancelled', lease = '', completed_at = ? WHERE id = ? AND lease = ?",
+                (time.time(), run_id, lease),
+            )

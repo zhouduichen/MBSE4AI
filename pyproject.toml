@@ -7,7 +7,9 @@ name = "rflp-lite"
 version = "0.1.0"
 description = "Deterministic local RFLP vertical slice for AI-agent software engineering"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "jsonschema>=4.23",
+]
 
 [project.optional-dependencies]
 dev = [

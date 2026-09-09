@@ -2,41 +2,160 @@
 {% block title %}Analysis · {{ project.id }}{% endblock %}
 {% block content %}
 <div class="page-heading">
-  <div><h1>Analysis</h1><p>项目：{{ project.id }} · Revision {{ project.revision }}</p></div>
-  <span class="status-badge available">Ready</span>
+  <div>
+    <p class="eyebrow">Harness workflow</p>
+    <h1>Analysis</h1>
+    <p>Project <strong>{{ project.id }}</strong> · Current Revision <code>{{ current_revision }}</code></p>
+  </div>
+  <span class="status-badge {% if global_gate.passed %}accepted{% else %}candidate{% endif %}">{{ runtime.mode }}</span>
 </div>
-<div class="metric-grid">
-  <article class="metric"><span>Revision</span><strong>{{ project.revision }}</strong><small>当前模型版本</small></article>
-  <article class="metric"><span>Entities</span><strong>{{ project.entity_count }}</strong><small>模型实体</small></article>
-  <article class="metric"><span>Relations</span><strong>{{ project.relation_count }}</strong><small>模型关系</small></article>
-  <article class="metric"><span>Evidence</span><strong>{{ project.evidence_count }}</strong><small>证据记录</small></article>
+
+<div class="metric-grid workflow-metrics" aria-label="Analysis status">
+  <article class="metric"><span>Project</span><strong>{{ project.id }}</strong><small>当前工作项目</small></article>
+  <article class="metric"><span>Current Revision</span><strong>{{ current_revision }}</strong><small>ModelGraph snapshot</small></article>
+  <article class="metric"><span>Active Model</span><strong>{{ runtime.model_id }}</strong><small>{{ runtime.provider_id }} · {{ runtime.profile_id }}</small></article>
+  <article class="metric"><span>Run Status</span><strong>{{ run_status|replace('_', ' ')|title }}</strong><small>{% if latest_run %}{{ latest_run.run_id }}{% else %}No run yet{% endif %}</small></article>
+  <article class="metric"><span>Global Gate</span><strong>{{ global_gate.status|title }}</strong><small>{{ global_gate.issues|length }} issue(s)</small></article>
 </div>
-<section class="panel guide-panel">
-  <div class="panel-head"><div><h2>Operational Phase</h2><p>执行一次确定性的 v2 方法论分析。</p></div></div>
+
+<section class="panel workflow-panel">
+  <div class="panel-head">
+    <div><h2>Lifecycle phases</h2><p>Operational → Functional → Logical/Physical → Assurance → Closure</p></div>
+    <span class="status-badge info">{{ runtime.mode }}</span>
+  </div>
+  <div class="phase-rail" aria-label="Lifecycle phases">
+    {% for phase in phases %}
+    <article class="phase-node phase-{{ phase.status }}">
+      <span class="phase-index">{{ loop.index }}</span>
+      <div><strong>{{ phase.name }}</strong><small>{{ phase.status|replace('_', ' ')|title }}</small></div>
+      <span class="status-badge {% if phase.gate.passed %}accepted{% else %}candidate{% endif %}">{{ phase.gate.status|title }}</span>
+    </article>
+    {% endfor %}
+  </div>
   <form id="analysis-form" class="workbench-actions">
-    <button class="button primary" type="submit">运行 Operational Phase →</button>
+    <button class="button primary" type="submit" data-mode="pipeline">Run full pipeline →</button>
+    <button class="button" type="button" data-phase="operational">Run Operational</button>
+    <button class="button" type="button" data-phase="functional">Run Functional</button>
+    <label class="checkbox-control"><input id="force-run" type="checkbox"> force_run</label>
+    <span class="htmx-indicator" id="analysis-indicator"><span class="spinner"></span> running…</span>
   </form>
   <pre id="analysis-result" class="analysis-result" hidden></pre>
 </section>
+
+<div class="two-column workflow-columns">
+  <section class="panel">
+    <div class="panel-head"><div><h2>Current Task</h2><p>Task input context, evidence and execution ledger.</p></div><span class="status-badge info">{{ current_task.status|title }}</span></div>
+    <div class="task-focus">
+      <div class="task-focus-title"><span class="task-kicker">{{ current_task.phase }}</span><strong>{{ current_task.task_id }}</strong></div>
+      <div class="ledger-grid">
+        <div><span>Evidence</span><strong>{{ current_task.evidence_count }}</strong></div>
+        <div><span>Attempt</span><strong>{{ current_task.attempt }}</strong></div>
+        <div><span>Patch</span><strong class="ledger-code">{{ current_task.patch_id }}</strong></div>
+        <div><span>Validation</span><strong>{{ current_task.validation }}</strong></div>
+      </div>
+      <dl class="detail-list">
+        <dt>Provider / model</dt><dd>{{ current_task.provider_id }} / {{ current_task.model_id }}</dd>
+        <dt>Input context</dt><dd>{{ current_task.input_context.entity_count }} entities · {{ current_task.input_context.relation_count }} relations · revision {{ current_task.input_context.revision }}</dd>
+        <dt>Token estimate</dt><dd>{{ current_task.input_context.token_estimate }}</dd>
+      </dl>
+      {% if current_task.diagnostics %}<div class="callout warning">{{ current_task.diagnostics|join(' · ') }}</div>{% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><h2>Run ledger</h2><p>Current run, task status and diagnostics.</p></div><span class="count-badge">{% if latest_run %}{{ latest_run.steps|length }} steps{% else %}0 steps{% endif %}</span></div>
+    {% if latest_run %}
+    <div class="compact-list run-ledger-list">
+      {% for step in latest_run.steps %}
+      <article><span><strong>{{ step.task_id }}</strong><small class="table-secondary">attempt {{ step.attempt }} · {{ step.input_hash or 'no input hash' }}</small></span><span class="status-badge {% if step.status == 'completed' %}accepted{% elif step.status in ['failed', 'degraded'] %}rejected{% else %}candidate{% endif %}">{{ step.status }}</span></article>
+      {% else %}<div class="mini-empty">No task steps recorded yet.</div>{% endfor %}
+    </div>
+    {% else %}<div class="mini-empty">No run yet. Start a phase or the full pipeline.</div>{% endif %}
+  </section>
+</div>
+
+<section class="panel">
+  <div class="panel-head"><div><h2>Gate Issues</h2><p>Coverage gaps, root cause and suggested rollback task.</p></div><span class="count-badge">{{ gate_issues|length }}</span></div>
+  <div class="issue-table-wrap">
+    <table class="issue-table">
+      <thead><tr><th>Issue</th><th>Root cause</th><th>Rollback</th><th>Evidence gap</th><th>Action</th></tr></thead>
+      <tbody>
+      {% for issue in gate_issues %}
+      <tr>
+        <td><strong>{{ issue.code }}</strong><small>{{ issue.entity_ids|join(', ') or 'graph-wide' }}</small></td>
+        <td>{{ issue.root_cause }}</td>
+        <td><code>{{ issue.suggested_task }}</code><small>{{ issue.rollback_phase or '—' }}</small></td>
+        <td>{% if issue.evidence_gap %}<span class="status-badge candidate">Missing</span>{% else %}<span class="status-badge accepted">No</span>{% endif %}</td>
+        <td><button class="button compact repair-button" type="button" data-issue-id="{{ issue.id }}">Repair</button></td>
+      </tr>
+      {% else %}<tr><td colspan="5" class="table-empty">No Gate issues.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="two-column workflow-columns">
+  <section class="panel repair-panel">
+    <div class="panel-head"><div><h2>Repair</h2><p>Targeted root-cause repair and automatic re-gate.</p></div><span class="status-badge {% if repair.status in ['completed', 'applied'] %}accepted{% else %}candidate{% endif %}">{{ repair.status|title }}</span></div>
+    <dl class="detail-list">
+      <dt>Root cause</dt><dd>{{ repair.root_cause }}</dd>
+      <dt>Rollback task</dt><dd><code>{{ repair.rollback_task }}</code></dd>
+      <dt>Rollback phase</dt><dd>{{ repair.rollback_phase }}</dd>
+      <dt>Automatic rounds</dt><dd>{{ repair.automatic_round }}</dd>
+      <dt>Manual action</dt><dd>{{ repair.manual_action }}</dd>
+    </dl>
+    <pre id="repair-result" class="analysis-result" hidden></pre>
+  </section>
+
+  <section class="panel closure-panel">
+    <div class="panel-head"><div><h2>Closure Summary</h2><p>Accepted revision, manifest and export readiness.</p></div><span class="status-badge {% if closure.status == 'completed' %}accepted{% else %}candidate{% endif %}">{{ closure.status|title }}</span></div>
+    <dl class="detail-list">
+      <dt>Accepted revision</dt><dd>{{ closure.accepted_revision if closure.accepted_revision is not none else '—' }}</dd>
+      <dt>Manifest</dt><dd><code>{{ closure.manifest or 'Not generated' }}</code></dd>
+      <dt>Global Gate</dt><dd>{{ global_gate.status|title }}</dd>
+      <dt>Graph hash</dt><dd class="break-all"><code>{{ graph_hash }}</code></dd>
+    </dl>
+  </section>
+</div>
+
 <script>
-  document.getElementById("analysis-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const output = document.getElementById("analysis-result");
+(() => {
+  const projectId = {{ project_id|tojson }};
+  const form = document.getElementById("analysis-form");
+  const output = document.getElementById("analysis-result");
+  const indicator = document.getElementById("analysis-indicator");
+  const forceRun = document.getElementById("force-run");
+  async function runAnalysis(mode, phase) {
     output.hidden = false;
-    output.textContent = "运行中…";
+    output.textContent = "Running…";
+    indicator.style.display = "inline-flex";
+    const body = {mode, force_run: forceRun.checked};
+    if (phase) body.phase = phase;
     try {
-      const response = await fetch("/projects/{{ project_id }}/analysis", {
-        method: "POST",
-        headers: {"content-type": "application/json"},
-        body: JSON.stringify({phase: "operational"})
-      });
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/analysis`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
       const payload = await response.json();
       output.textContent = JSON.stringify(payload, null, 2);
       output.classList.toggle("warning", payload.status !== "ok");
+      if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
     } catch (error) {
-      output.textContent = "请求失败：" + error;
+      output.textContent = "Request failed: " + error;
       output.classList.add("warning");
-    }
-  });
+    } finally { indicator.style.display = "none"; }
+  }
+  form.addEventListener("submit", (event) => { event.preventDefault(); runAnalysis("pipeline", null); });
+  form.querySelectorAll("[data-phase]").forEach((button) => button.addEventListener("click", () => runAnalysis("phase", button.dataset.phase)));
+  document.querySelectorAll(".repair-button").forEach((button) => button.addEventListener("click", async () => {
+    const repairOutput = document.getElementById("repair-result");
+    repairOutput.hidden = false;
+    repairOutput.textContent = "Repairing…";
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/repair`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({issue_id: button.dataset.issueId})});
+      const payload = await response.json();
+      repairOutput.textContent = JSON.stringify(payload, null, 2);
+      repairOutput.classList.toggle("warning", payload.status !== "ok");
+      if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+    } catch (error) { repairOutput.textContent = "Request failed: " + error; repairOutput.classList.add("warning"); }
+  }));
+})();
 </script>
 {% endblock %}

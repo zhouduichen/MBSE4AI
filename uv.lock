@@ -1752,6 +1752,9 @@ wheels = [
 name = "rflp-lite"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "jsonschema" },
+]
 
 [package.optional-dependencies]
 dev = [
@@ -1790,6 +1793,7 @@ requires-dist = [
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.112" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.1" },
     { name = "jinja2", marker = "extra == 'web'", specifier = ">=3.1,<4" },
+    { name = "jsonschema", specifier = ">=4.23" },
     { name = "jsonschema", marker = "extra == 'schema'", specifier = ">=4.23" },
     { name = "keyring", marker = "extra == 'web'", specifier = ">=25" },
     { name = "onnxruntime", marker = "extra == 'documents'", specifier = ">=1.22,<2" },

@@ -32,7 +32,10 @@ class StructuredModelRuntime:
         response = self.model.complete_json(
             GenerationRequest(
                 request.task_id,
-                "只完成当前 TaskSpec。仅返回 operations/reason JSON 对象；不要解释，不要输出未授权类型或关系。",
+                (
+                    f"只完成当前 TaskSpec（prompt_template_id={request.prompt_template_id or request.task_id}）。"
+                    "仅返回 operations/reason JSON 对象；不要解释，不要输出未授权类型或关系。"
+                ),
                 payload,
                 contract,
                 request.token_budget,
@@ -61,7 +64,7 @@ def _output_schema(contract: Mapping[str, object]) -> dict[str, object]:
     if isinstance(schema, Mapping):
         return dict(schema)
     if contract.get("type") == "object" and isinstance(contract.get("properties"), Mapping):
-        return {key: value for key, value in contract.items() if key in {"type", "additionalProperties", "required", "properties"}}
+        return {key: value for key, value in contract.items() if key in {"type", "additionalProperties", "required", "properties", "allOf"}}
     output_kinds = contract.get("output_kinds", ())
     kind_values = [str(value) for value in output_kinds]
     # This mirrors methodology.tasks.output_contract without making the

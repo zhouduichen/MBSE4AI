@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from rflp_lite.bootstrap.v2 import build_v2_services
+from rflp_lite.application.llm_profiles import default_config_dir
 from rflp_lite.domain.canonical import canonical_json
 from rflp_lite.domain.errors import RflpError
 from rflp_lite.methodology.contracts import Phase
@@ -30,7 +31,7 @@ def _parser() -> argparse.ArgumentParser:
     analyze_commands = analyze.add_subparsers(dest="analyze_command", required=True)
     run = analyze_commands.add_parser("run")
     run.add_argument("project_id")
-    run.add_argument("--phase", choices=[phase.value for phase in Phase if phase is not Phase.CLOSURE], default=Phase.OPERATIONAL.value)
+    run.add_argument("--phase", choices=[phase.value for phase in Phase if phase is not Phase.CLOSURE], default=None, help="仅运行单阶段；省略则执行完整生命周期")
     status = analyze_commands.add_parser("status")
     status.add_argument("project_id")
     status.add_argument("run_id")
@@ -71,7 +72,7 @@ def _graph_sysml(graph) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    services = build_v2_services(args.workspace_root.resolve())
+    services = build_v2_services(args.workspace_root.resolve(), config_dir=default_config_dir())
     if args.command == "project" and args.project_command == "create":
         print(canonical_json({"status": "ok", "project": services.projects.create(args.project_id, args.name)}))
         return 0
@@ -79,7 +80,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(canonical_json({"status": "ok", "document": services.projects.ingest(args.project_id, args.path)}))
         return 0
     if args.command == "analyze" and args.analyze_command == "run":
-        result = services.analysis(args.project_id).run(args.project_id, Phase(args.phase))
+        result = services.analysis(args.project_id).run(args.project_id, Phase(args.phase) if args.phase else None)
         print(canonical_json({"status": "ok", "run": {"run_id": result.run_id, "phase": result.phase.value, "status": result.status.value, "completed_tasks": result.completed_tasks, "diagnostics": result.diagnostics}}))
         return 0
     if args.command == "analyze" and args.analyze_command == "status":
@@ -121,4 +122,3 @@ def entrypoint() -> None:
     except RflpError as exc:
         print(canonical_json({"status": "failed", "error": type(exc).__name__, "message": str(exc)}), file=sys.stderr)
         raise SystemExit(1) from exc
-

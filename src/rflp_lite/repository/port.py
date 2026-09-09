@@ -18,6 +18,13 @@ class Step:
     input_hash: str = ""
     output_patch_id: str | None = None
     diagnostics: tuple[str, ...] = ()
+    output_hash: str = ""
+    provider_id: str = ""
+    model_id: str = ""
+    prompt_template_id: str = ""
+    context_hash: str = ""
+    started_at: float = 0.0
+    completed_at: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +39,17 @@ class Run:
     input_hash: str = ""
     diagnostics: tuple[str, ...] = ()
     steps: tuple[Step, ...] = ()
+    provider_id: str = ""
+    model_id: str = ""
+    execution_mode: str = ""
+    context_hash: str = ""
+    task_spec_hash: str = ""
+    prompt_hash: str = ""
+    output_hash: str = ""
+    started_at: float = 0.0
+    completed_at: float = 0.0
+    lease: str = ""
+    heartbeat: float = 0.0
 
 
 class ModelRepository(Protocol):
@@ -44,7 +62,7 @@ class ModelRepository(Protocol):
     ) -> tuple[Entity, ...]: ...
 
     def append_patch(
-        self, project_id: str, patch: Patch, expected_revision: int
+        self, project_id: str, patch: Patch, expected_revision: int, *, run_id: str | None = None
     ) -> Revision: ...
 
     def list_issues(self, project_id: str) -> tuple[dict[str, object], ...]: ...
@@ -65,6 +83,14 @@ class ModelRepository(Protocol):
         self, project_id: str, query: str, limit: int = 20
     ) -> tuple[dict[str, object], ...]: ...
 
+    def audit_summary(self, project_id: str, run_id: str) -> dict[str, object]: ...
+
+    def save_closure(self, project_id: str, run_id: str, payload: Mapping[str, object]) -> None: ...
+
+    def freeze_revision(self, project_id: str, revision: int) -> None: ...
+
+    def record_audit(self, project_id: str, kind: str, payload: Mapping[str, object]) -> None: ...
+
 
 class RunRepository(Protocol):
     def create_run(self, run: Run) -> None: ...
@@ -74,3 +100,9 @@ class RunRepository(Protocol):
     def update_run(self, run_id: str, status: str, diagnostics: tuple[str, ...] = ()) -> None: ...
 
     def load_run(self, project_id: str, run_id: str) -> Run | None: ...
+
+    def claim_run(self, project_id: str, run_id: str, lease: str, now: float) -> bool: ...
+
+    def heartbeat_run(self, run_id: str, lease: str, now: float) -> None: ...
+
+    def interrupt_run(self, run_id: str, lease: str) -> None: ...

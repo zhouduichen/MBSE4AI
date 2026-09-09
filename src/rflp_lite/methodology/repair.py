@@ -15,6 +15,7 @@ class RepairPlan:
     rollback_phase: Phase
     operations: tuple[AddEntity, ...]
     reason: str
+    target_task: str = ""
 
 
 _PHASES = {
@@ -31,9 +32,22 @@ _PHASES = {
 
 def plan_repair(report: CoverageReport, *, revision: int = 0) -> RepairPlan:
     if not report.gaps:
-        return RepairPlan(Phase.CLOSURE, (), "coverage is already saturated")
+        return RepairPlan(Phase.CLOSURE, (), "coverage is already saturated", "")
     phase = min((_PHASES[gap.root_cause] for gap in report.gaps), key=lambda item: list(Phase).index(item))
     operations: list[AddEntity] = []
+    task_by_root = {
+        "stakeholder": "stakeholder_analysis", "lifecycle": "lifecycle_analysis",
+        "scenario": "scenario_exploration", "requirement": "stakeholder_requirements",
+        "function": "function_identification", "architecture": "logical_analysis",
+        "verification": "verification_validation", "evidence": "system_definition",
+    }
+    labels = {
+        "stakeholder": "待确认的利益相关方", "lifecycle": "待确认的生命周期阶段",
+        "scenario": "待确认的场景假设", "requirement": "待确认的系统需求",
+        "function": "待确认的系统功能", "architecture": "待确认的逻辑架构候选",
+        "verification": "待确认的验证用例", "evidence": "待补充的证据",
+    }
+    target_task = task_by_root[report.gaps[0].root_cause]
     for gap in report.gaps:
         kind = {
             "stakeholder": EntityKind.STAKEHOLDER,
@@ -47,14 +61,14 @@ def plan_repair(report: CoverageReport, *, revision: int = 0) -> RepairPlan:
         }[gap.root_cause]
         entity = make_entity(
             kind,
-            f"{gap.code} 候选",
-            {"gap_code": gap.code, "requires_human_review": True},
+            labels[gap.root_cause],
+            {"repair_code": gap.code, "requires_human_review": True},
             status=EntityStatus.CANDIDATE,
             producer=Producer.LLM,
             revision=revision,
         )
         operations.append(AddEntity(entity))
-    return RepairPlan(phase, tuple(operations), "repair coverage gaps with local candidate patches")
+    return RepairPlan(phase, tuple(operations), "repair the smallest task root and re-run its gate", target_task)
 
 
 def patch_for_plan(project_id: str, task_id: str, graph: ModelGraph, plan: RepairPlan) -> Patch:

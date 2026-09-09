@@ -11,15 +11,16 @@ from rflp_lite.application.model_service import ModelService
 from rflp_lite.application.project_service import ProjectService
 from rflp_lite.application.render_service import RenderService
 from rflp_lite.application.settings_service import SettingsService
-from rflp_lite.methodology.workflow import NoopRuntime, WorkflowRunner
+from rflp_lite.methodology.workflow import WorkflowRunner
 from rflp_lite.repository.sqlite import SQLiteModelRepository
-from rflp_lite.runtime.rule_based import RuleRuntime
+from rflp_lite.runtime.factory import RuntimeFactory
 
 
 class V2Services:
     def __init__(self, workspace_root: Path, *, runtime=None, config_dir: Path | None = None):
         self.workspace_root = workspace_root.resolve()
-        self.runtime = runtime or RuleRuntime()
+        self._runtime_override = runtime
+        self.runtime_factory = RuntimeFactory()
         self.settings = SettingsService(config_dir)
         self.projects = ProjectService(
             self.workspace_root,
@@ -48,7 +49,17 @@ class V2Services:
 
     def analysis(self, project_id: str) -> AnalysisService:
         repository = self.repository(project_id)
-        return AnalysisService(WorkflowRunner(repository, repository, self.runtime))
+        selection = self.runtime_factory.select(
+            self.settings.active_config(), runtime_override=self._runtime_override
+        )
+        return AnalysisService(
+            WorkflowRunner(
+                repository,
+                repository,
+                selection.runtime,
+                runtime_selection=selection,
+            )
+        )
 
     def evidence(self, project_id: str) -> EvidenceService:
         return EvidenceService(self.repository(project_id))
@@ -57,5 +68,8 @@ class V2Services:
         return RenderService(self.model(project_id))
 
 
-def build_v2_services(workspace_root: Path, *, config_dir: Path | None = None) -> V2Services:
-    return V2Services(workspace_root, config_dir=config_dir)
+def build_v2_services(workspace_root: Path, *, runtime=None, config_dir: Path | None = None) -> V2Services:
+    # Library/test callers are isolated by default.  The real CLI and web
+    # composition roots pass the user profile directory explicitly.
+    effective_config_dir = config_dir if config_dir is not None else workspace_root.resolve() / ".rflp-config"
+    return V2Services(workspace_root, runtime=runtime, config_dir=effective_config_dir)

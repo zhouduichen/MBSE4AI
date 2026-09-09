@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from rflp_lite.domain.entities import EntityKind
-from rflp_lite.methodology.contracts import ContextQuery, Phase, TaskSpec
+from rflp_lite.methodology.contracts import CompletionCondition, ContextQuery, FailureRoute, Phase, TaskSpec
+from rflp_lite.methodology.policy import PatchPolicy
 
 
 def _task(
@@ -24,6 +25,10 @@ def _task(
         template or f"{phase.value}.{task_id}",
         f"{task_id}.v2",
         validators=("schema", "identity", "reference"),
+        max_attempts=2,
+        failure_routes=(FailureRoute("task_output_invalid", phase),),
+        completion_condition=CompletionCondition(frozenset(output_kinds), 0),
+        patch_policy=PatchPolicy.for_task(input_kinds, output_kinds),
     )
 
 
@@ -69,6 +74,47 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
     """
 
     kind_values = [kind.value for kind in task.output_kinds]
+    payload_schemas = {
+        EntityKind.REQUIREMENT.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "level": {"enum": ["stakeholder", "system", "functional", "technical"]},
+                "type": {"enum": ["functional", "performance", "interface", "safety", "constraint"]},
+                "obligation": {"type": "string", "minLength": 1},
+                "verification_method": {"type": "string", "minLength": 1},
+                "rationale": {"type": "string"}, "source": {"type": "string"},
+            },
+        },
+        EntityKind.OPERATIONAL_SCENARIO.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "actor_ids": {"type": "array", "items": {"type": "string"}},
+                "steps": {"type": "array"}, "exchanges": {"type": "array"},
+                "internal_component_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        EntityKind.FUNCTIONAL_SCENARIO.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {"function_ids": {"type": "array", "items": {"type": "string"}}, "steps": {"type": "array"}},
+        },
+        EntityKind.VERIFICATION_CASE.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "method": {"type": "string", "minLength": 1},
+                "pass_criteria": {"type": "string", "minLength": 1},
+                "requirement_ids": {"type": "array", "items": {"type": "string"}},
+                "scenario_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        EntityKind.PHYSICAL_BLOCK.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "candidate_type": {"type": "string"}, "vendor": {"type": "string"},
+                "part_number": {"type": "string"}, "constraints": {"type": "array"},
+                "rationale": {"type": "string"},
+            },
+        },
+    }
     operation = {
         "type": "object",
         "additionalProperties": False,
@@ -89,12 +135,31 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
             "evidence_ids": {"type": "array", "items": {"type": "string"}},
         },
     }
+    operation["allOf"] = [
+        {
+            "if": {"required": ["op", "kind"], "properties": {"op": {"const": "ADD"}, "kind": {"const": kind}}},
+            "then": {"properties": {"payload": schema}},
+        }
+        for kind, schema in payload_schemas.items()
+        if kind in kind_values
+    ]
     return {
         "type": "object",
+        "schema_id": task.output_schema_id,
+        "output_kinds": kind_values,
+        "validators": list(task.validators),
+        "max_attempts": task.max_attempts,
         "additionalProperties": False,
         "required": ["operations"],
         "properties": {
             "operations": {"type": "array", "items": operation, "maxItems": 32},
             "reason": {"type": "string", "maxLength": 300},
+        },
+        "$defs": {"payload_schemas": payload_schemas},
+        "x-payload-schemas": payload_schemas,
+        "patch_policy": {
+            "writable_kinds": [kind.value for kind in task.patch_policy.writable_kinds],
+            "writable_fields": sorted(task.patch_policy.writable_fields),
+            "allowed_predicates": [item.value for item in task.patch_policy.allowed_predicates],
         },
     }

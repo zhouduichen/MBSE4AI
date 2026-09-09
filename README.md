@@ -1,6 +1,6 @@
 # AI4MBSE Harness
 
-AI4MBSE Harness v2.0 是一个本地优先、可复现、可审计的 MBSE 方法论执行器。核心链路为：
+AI4MBSE Harness 产品版本为 `0.1.0`，方法论协议版本为 `v2.0`。它是一个本地优先、可复现、可审计的 MBSE 方法论执行器。核心链路为：
 
 ```text
 Project → Documents / Evidence → Operational → Functional
@@ -28,7 +28,8 @@ python3 -m venv .venv
 ```bash
 .venv/bin/ai4mbse --workspace-root .local-workspaces project create campus-demo
 .venv/bin/ai4mbse --workspace-root .local-workspaces project ingest campus-demo tests/e2e/fixtures/campus_delivery_robot.json
-.venv/bin/ai4mbse --workspace-root .local-workspaces analyze run campus-demo --phase operational
+.venv/bin/ai4mbse --workspace-root .local-workspaces analyze run campus-demo
+# 调试单阶段时再指定 --phase operational|functional|logical_physical|assurance
 .venv/bin/ai4mbse --workspace-root .local-workspaces model export campus-demo --format json
 ```
 
@@ -51,6 +52,8 @@ model-profile list|save|activate
 
 页面收敛为 Projects、Analysis、MBSE Model、Evidence & Issues、Settings；API 资源以 `/projects` 为根，提供项目、分析运行、模型、实体 CAS 编辑、证据、Issue、Repair 和 Export。
 
+未配置模型时页面会明确显示 `Offline Rule Mode`；配置并激活 Profile 后，每次新分析都会记录实际使用的 profile/provider/model。服务默认只监听 `127.0.0.1`，适用于单用户本地工作区。
+
 ## 开发与验收
 
 ```bash
@@ -66,6 +69,7 @@ model-profile list|save|activate
 - [开发状态](docs/DEVELOPMENT_STATUS.md)
 - [v2.0 设计规格](docs/superpowers/specs/2026-09-07-ai4mbse-harness-v2-design.md)
 - [v2.0 实施计划](docs/superpowers/plans/2026-09-07-ai4mbse-harness-v2-implementation.md)
+- [施工要求索引](docs/superpowers/README.md)
 
 ## 边界
 

@@ -1,7 +1,8 @@
 # 开发状态
 
-**更新时间：** 2026-09-07
-**版本：** AI4MBSE Harness v2.0 vertical slice
+**更新时间：** 2026-09-08
+**产品版本：** rflp-lite 0.1.0
+**方法论协议：** v2.0
 
 ## 已完成
 
@@ -11,9 +12,11 @@
 | Repository v2 | SQLite 事务、CAS Revision、Run/Step/Patch/Issue 台账、FTS |
 | 四阶段方法论 | Operational、Functional、Logical/Physical、Assurance 加 Closure，共 23 个任务 |
 | 结构化 Runtime | 离线 RuleRuntime 可运行；OpenAI-compatible Runtime 走严格 JSON 契约 |
-| Gate / Repair | 覆盖率、语义、RFLP、证据、验证门禁；失败写 Issue，修复受局部 Patch 约束 |
+| Gate / Repair | 覆盖率、语义、RFLP、证据、验证门禁；失败写 Issue，修复受 PatchPolicy 局部约束并定向重新 Gate |
+| 生命周期闭环 | 单次调用串联四阶段、Global Gate、Closure manifest、冻结 revision 和审计摘要；指定 phase 保留调试入口 |
+| 运行可追溯 | active profile/provider/model、TaskSpec/prompt/context/input/output hash、step ledger、lease/heartbeat |
 | 资源服务 | Project、Analysis、Model、Evidence、Render、Settings 服务及统一依赖组装 |
-| CLI / Web | `ai4mbse` 命令、资源 API、五个资源页面和 JSON/SVG/DOT/SysML-lite 导出 |
+| CLI / Web | `ai4mbse` 命令、完整 Analysis 工作流页、Trace 页、连接测试和 JSON/SVG/DOT/SysML-lite 导出 |
 | 文档接入 | TXT、Markdown、DOCX、PDF 解析；扫描 PDF 使用可选 OCR 适配器 |
 | Golden E2E | 校园无人配送机器人 fixture 可导入并跑完整阶段；失败与锁定保护可验证 |
 
