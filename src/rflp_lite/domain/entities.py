@@ -38,6 +38,7 @@ class EntityStatus(StrEnum):
     CANDIDATE = "candidate"
     VALIDATED = "validated"
     ACCEPTED = "accepted"
+    REJECTED = "rejected"
     DEPRECATED = "deprecated"
     LOCKED = "locked"
 

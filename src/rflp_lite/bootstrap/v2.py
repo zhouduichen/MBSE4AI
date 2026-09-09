@@ -12,6 +12,7 @@ from rflp_lite.application.evidence_service import EvidenceService
 from rflp_lite.application.model_service import ModelService
 from rflp_lite.application.project_service import ProjectService
 from rflp_lite.application.render_service import RenderService
+from rflp_lite.application.review_service import ReviewService
 from rflp_lite.application.settings_service import SettingsService
 from rflp_lite.methodology.workflow import WorkflowRunner
 from rflp_lite.repository.sqlite import SQLiteModelRepository
@@ -80,6 +81,9 @@ class V2Services:
 
     def render(self, project_id: str) -> RenderService:
         return RenderService(self.model(project_id))
+
+    def review(self, project_id: str) -> ReviewService:
+        return ReviewService(self.model(project_id))
 
 
 def build_v2_services(
