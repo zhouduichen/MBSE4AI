@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import time
 from uuid import uuid4
 
@@ -10,6 +10,7 @@ from rflp_lite.application.closure_service import ClosureService
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.methodology.context import ContextBuilder
+from rflp_lite.methodology.completion import evaluate_completion
 from rflp_lite.methodology.contracts import ContextBundle, Phase, RunStatus, StepStatus, TaskExecutionResponse, TaskRuntime
 from rflp_lite.methodology.coverage import CoverageGap, CoverageReport
 from rflp_lite.methodology.executor import TaskExecutor
@@ -19,7 +20,7 @@ from rflp_lite.methodology.repair import patch_for_plan, plan_repair
 from rflp_lite.methodology.repair_context import build_repair_context
 from rflp_lite.methodology.repair_planner import plan as plan_repair_task
 from rflp_lite.methodology.repair_strategies import LLMRepairStrategy, RuleFallbackRepairStrategy
-from rflp_lite.methodology.tasks import task_catalog, tasks_for_phase
+from rflp_lite.methodology.tasks import task_catalog, task_spec_hash, tasks_for_phase
 from rflp_lite.repository.port import Run, RunRepository, Step
 from rflp_lite.retrieval.evidence import RetrievalEngine
 
@@ -197,6 +198,9 @@ class WorkflowRunner:
                     if patch_trace is not None:
                         patch_trace(patch_id, provider_id=response.provider_id or self._provider_id(), model_id=response.model_id or self._model_id())
                     self._record_audit(project_id, "task.patch", {"run_id": identity.run_id, "task_id": task.id, "patch_id": patch_id, "revision": revision.sequence, "input_hash": response.input_hash, "output_hash": response.output_hash})
+                completion = evaluate_completion(task, self.model_repository.load_graph(project_id), response)
+                if not completion.passed:
+                    response = replace(response, status=StepStatus.DEGRADED, diagnostics=tuple(response.diagnostics) + completion.issue_codes)
                 if response.status is StepStatus.COMPLETED:
                     completed.add(task.id)
                 else:
@@ -214,19 +218,19 @@ class WorkflowRunner:
         graph = self.model_repository.load_graph(project_id)
         selected_tasks = tuple(tasks or (task for item in self.orchestrator.phases for task in tasks_for_phase(item)))
         profile = str(getattr(self.runtime_selection, "profile_id", "offline-rule"))
-        task_spec_hash = canonical_hash(tuple((item.id, item.output_schema_id, item.validators, item.max_attempts) for item in selected_tasks))
+        task_spec_hash_value = canonical_hash(tuple(task_spec_hash(item) for item in selected_tasks))
         prompt_hash = canonical_hash(tuple(
             (item.prompt_template_id, self.executor.prompts.resolve(item.prompt_template_id).version,
              self.executor.prompts.resolve(item.prompt_template_id).prompt_hash)
             for item in selected_tasks
         ))
-        identity = RunIdentity.create(project_id, model_profile=profile, methodology_version=self.methodology_version, task_spec_hash=task_spec_hash, prompt_hash=prompt_hash, context_hash=graph.snapshot_hash, input_hash=graph.snapshot_hash, force_new=force_new)
+        identity = RunIdentity.create(project_id, model_profile=profile, methodology_version=self.methodology_version, task_spec_hash=task_spec_hash_value, prompt_hash=prompt_hash, context_hash=graph.snapshot_hash, input_hash=graph.snapshot_hash, force_new=force_new)
         if run_id and not force_new:
             identity = RunIdentity(identity.project_id, identity.model_profile, identity.methodology_version, identity.task_spec_hash, identity.prompt_hash, identity.context_hash, identity.input_hash, run_id)
         existing = self.run_repository.load_run(project_id, identity.run_id)
         if existing is None:
             self.run_repository.create_run(Run(identity.run_id, project_id, "lifecycle" if phase is None else phase.value, RunStatus.RUNNING.value, 0, self.methodology_version, profile, identity.input_hash, (), tuple(Step(identity.run_id, task.id) for task in selected_tasks), self._provider_id(), self._model_id(), self._mode(), identity.context_hash, identity.task_spec_hash, identity.prompt_hash, "", time.time(), 0.0))
-            self._record_audit(project_id, "run.created", {"run_id": identity.run_id, "model_profile": profile, "provider_id": self._provider_id(), "model_id": self._model_id(), "task_spec_hash": task_spec_hash, "prompt_hash": prompt_hash, "context_hash": identity.context_hash, "input_hash": identity.input_hash})
+            self._record_audit(project_id, "run.created", {"run_id": identity.run_id, "model_profile": profile, "provider_id": self._provider_id(), "model_id": self._model_id(), "task_spec_hash": task_spec_hash_value, "prompt_hash": prompt_hash, "context_hash": identity.context_hash, "input_hash": identity.input_hash})
         if identity.run_id not in self._leases:
             lease = f"lease-{uuid4().hex}"
             claimer = getattr(self.run_repository, "claim_run", None)
@@ -297,6 +301,10 @@ class WorkflowRunner:
         return f"issue-{canonical_hash((project_id, result.gate_id, gap.code, graph.revision, gap.entity_ids))[:16]}"
 
     def _target_task_for_issue(self, code: str) -> str:
+        for task in task_catalog():
+            for route in task.failure_routes:
+                if route.issue_code == code and route.target_task_id:
+                    return route.target_task_id
         return {"missing_stakeholder": "stakeholder_analysis", "missing_lifecycle": "lifecycle_analysis", "missing_scenario": "scenario_exploration", "missing_use_case": "use_case_analysis", "missing_requirement": "stakeholder_requirements", "missing_function": "function_identification", "broken_requirement_function_trace": "function_identification", "incomplete_rflp_chain": "logical_analysis", "broken_requirement_rflp_trace": "logical_analysis", "missing_verification": "verification_validation", "broken_requirement_verification_trace": "verification_validation"}.get(code, "")
 
     def _gate_payload(self, result: GateResult, phase: Phase) -> dict[str, object]:

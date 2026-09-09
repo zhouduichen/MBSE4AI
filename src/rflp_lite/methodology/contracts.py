@@ -37,6 +37,15 @@ class StepStatus(StrEnum):
     COMPLETED = "completed"
 
 
+class FailureAction(StrEnum):
+    RETRY = "retry"
+    REPAIR = "repair"
+    ROLLBACK = "rollback"
+    NEED_EVIDENCE = "need_evidence"
+    HUMAN_REVIEW = "human_review"
+    FAIL_RUN = "fail_run"
+
+
 @dataclass(frozen=True, slots=True)
 class ContextQuery:
     entity_kinds: frozenset[EntityKind] = frozenset()
@@ -47,13 +56,17 @@ class ContextQuery:
 @dataclass(frozen=True, slots=True)
 class FailureRoute:
     issue_code: str
-    rollback_phase: Phase
+    rollback_phase: Phase | None = None
+    action: FailureAction = FailureAction.REPAIR
+    target_task_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class CompletionCondition:
     required_output_kinds: frozenset[EntityKind] = frozenset()
     minimum_entities: int = 0
+    require_accepted: bool = False
+    required_trace_rules: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

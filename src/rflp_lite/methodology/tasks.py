@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind
-from rflp_lite.methodology.contracts import CompletionCondition, ContextQuery, FailureRoute, Phase, TaskSpec
+from rflp_lite.methodology.contracts import CompletionCondition, ContextQuery, FailureAction, FailureRoute, Phase, TaskSpec
 from rflp_lite.methodology.policy import PatchPolicy
 
 
@@ -16,6 +17,19 @@ def _task(
     template: str | None = None,
 ) -> TaskSpec:
     kinds = frozenset(input_kinds)
+    routes = [FailureRoute("task_output_invalid", phase, FailureAction.RETRY, task_id)]
+    if task_id == "function_identification":
+        routes.append(FailureRoute("broken_requirement_function_trace", Phase.FUNCTIONAL, FailureAction.REPAIR, task_id))
+    elif task_id == "logical_analysis":
+        routes.extend((
+            FailureRoute("incomplete_rflp_chain", Phase.LOGICAL_PHYSICAL, FailureAction.REPAIR, task_id),
+            FailureRoute("broken_requirement_rflp_trace", Phase.LOGICAL_PHYSICAL, FailureAction.REPAIR, task_id),
+        ))
+    elif task_id == "verification_validation":
+        routes.extend((
+            FailureRoute("missing_verification", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
+            FailureRoute("broken_requirement_verification_trace", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
+        ))
     return TaskSpec(
         task_id,
         phase,
@@ -26,7 +40,7 @@ def _task(
         f"{task_id}.v2",
         validators=("schema", "identity", "reference", "evidence", "semantic", "patch_policy"),
         max_attempts=2,
-        failure_routes=(FailureRoute("task_output_invalid", phase),),
+        failure_routes=tuple(routes),
         completion_condition=CompletionCondition(frozenset(output_kinds), 0),
         patch_policy=PatchPolicy.for_task(input_kinds, output_kinds),
     )
@@ -62,6 +76,42 @@ def task_catalog() -> tuple[TaskSpec, ...]:
 
 def tasks_for_phase(phase: Phase) -> tuple[TaskSpec, ...]:
     return tuple(task for task in task_catalog() if task.phase is phase)
+
+
+def task_spec_hash(task: TaskSpec) -> str:
+    policy = task.patch_policy
+    return canonical_hash({
+        "id": task.id, "phase": task.phase.value,
+        "input_kinds": sorted(kind.value for kind in task.input_kinds),
+        "output_kinds": sorted(kind.value for kind in task.output_kinds),
+        "context_query": {
+            "entity_kinds": sorted(kind.value for kind in task.context_query.entity_kinds),
+            "neighborhood_hops": task.context_query.neighborhood_hops,
+            "include_evidence": task.context_query.include_evidence,
+        },
+        "prompt_template_id": task.prompt_template_id,
+        "output_schema_id": task.output_schema_id,
+        "tools": task.tools, "validators": task.validators, "max_attempts": task.max_attempts,
+        "failure_routes": tuple({
+            "issue_code": route.issue_code,
+            "rollback_phase": route.rollback_phase.value if route.rollback_phase else None,
+            "action": route.action.value,
+            "target_task_id": route.target_task_id,
+        } for route in task.failure_routes),
+        "completion_condition": {
+            "required_output_kinds": sorted(kind.value for kind in task.completion_condition.required_output_kinds),
+            "minimum_entities": task.completion_condition.minimum_entities,
+            "require_accepted": task.completion_condition.require_accepted,
+            "required_trace_rules": task.completion_condition.required_trace_rules,
+        },
+        "patch_policy": {
+            "writable_kinds": sorted(kind.value for kind in policy.writable_kinds),
+            "writable_fields": sorted(policy.writable_fields),
+            "allowed_predicates": sorted(item.value for item in policy.allowed_predicates),
+            "allowed_entity_scope": sorted(policy.allowed_entity_scope) if isinstance(policy.allowed_entity_scope, frozenset) else policy.allowed_entity_scope,
+            "max_operations": policy.max_operations,
+        },
+    })
 
 
 def output_contract(task: TaskSpec) -> dict[str, object]:
