@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import json
 from pathlib import Path
 from typing import Mapping
-from urllib.error import HTTPError, URLError
-from urllib.request import Request as URLRequest
-from urllib.request import urlopen
 from uuid import uuid4
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 
 from rflp_lite.domain.entities import EntityKind
-from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation, NotFoundError, RflpError
+from rflp_lite.domain.errors import AdapterFailure, ConcurrentModificationError, ContractViolation, InputRequired, NotFoundError, RflpError
 from rflp_lite.domain.model import Patch, UpdateEntity
+from rflp_lite.application.model_export import graph_sysml
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.gates import global_gate
 from rflp_lite.retrieval.planner import KnowledgeGap
@@ -298,20 +297,26 @@ def _profile_test_payload(settings, raw: object) -> dict[str, object]:
     return payload
 
 
-def _probe_model_profile(config: Mapping[str, object]) -> dict[str, object]:
-    base_url = str(config.get("base_url", "")).rstrip("/")
-    headers = {"accept": "application/json"}
-    api_key = str(config.get("api_key", "")).strip()
-    if api_key:
-        headers["authorization"] = f"Bearer {api_key}"
-    request = URLRequest(f"{base_url}/models", headers=headers, method="GET")
-    try:
-        with urlopen(request, timeout=min(5, int(config.get("timeout_seconds", 5)))) as response:
-            return {"connected": 200 <= response.status < 300, "connection_status": "connected", "status_code": response.status, "message": "Model endpoint responded."}
-    except HTTPError as exc:
-        return {"connected": False, "connection_status": "rejected", "status_code": exc.code, "message": "Model endpoint rejected the connection test."}
-    except (URLError, TimeoutError, OSError) as exc:
-        return {"connected": False, "connection_status": "unreachable", "status_code": None, "message": str(exc.reason if isinstance(exc, URLError) else exc)}
+def _connection_failure(exc: AdapterFailure) -> dict[str, object]:
+    """Convert provider errors into safe, actionable UI status metadata."""
+
+    detail = str(exc)
+    if "缺少 API Key" in detail:
+        status = "not_configured"
+        message = "远程模型尚未配置 API Key。"
+    elif "HTTP 401" in detail or "HTTP 403" in detail:
+        status = "authentication_failed"
+        message = "模型服务认证失败，请检查 API Key。"
+    elif "HTTP " in detail:
+        status = "rejected"
+        message = "模型服务拒绝了连接测试。"
+    elif "返回不是有效 JSON" in detail or "返回为空" in detail:
+        status = "invalid_response"
+        message = "模型服务返回格式无效或为空。"
+    else:
+        status = "unreachable"
+        message = "无法连接到模型服务，请确认 Base URL、服务状态和防火墙设置。"
+    return {"connected": False, "connection_status": status, "status_code": None, "message": message}
 
 
 def _resolve_repair_issue(request: Request, project_id: str, issue_id: str, analysis):
@@ -392,13 +397,33 @@ def delete_project(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.post("/projects/{project_id}/requirements")
+async def add_requirement(request: Request, project_id: str):
+    try:
+        payload = json.loads((await request.body()).decode("utf-8"))
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("requirement payload must be an object")
+        result = _services(request).projects.add_requirement(project_id, str(payload.get("text", "")))
+        return {"status": "ok", **result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/documents")
 async def ingest_document(request: Request, project_id: str):
     try:
-        payload = await request.json()
-        if not isinstance(payload, Mapping) or not payload.get("path"):
-            raise ContractViolation("document path is required")
-        result = _services(request).projects.ingest(project_id, Path(str(payload["path"])))
+        content_type = request.headers.get("content-type", "").casefold()
+        if content_type.startswith("multipart/form-data"):
+            form = await request.form()
+            upload = form.get("file")
+            if upload is None or (not isinstance(upload, UploadFile) and not hasattr(upload, "read")):
+                raise ContractViolation("multipart document field 'file' is required")
+            result = _services(request).projects.ingest_uploaded(project_id, upload.filename or "upload", await upload.read())
+        else:
+            payload = await request.json()
+            if not isinstance(payload, Mapping) or not payload.get("path"):
+                raise ContractViolation("document path is required")
+            result = _services(request).projects.ingest(project_id, Path(str(payload["path"])))
         return {"status": "ok", "document": result}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
@@ -414,6 +439,8 @@ async def run_analysis(request: Request, project_id: str):
         mode = str(payload.get("mode", "pipeline" if "phase" not in payload else "phase")).casefold()
         force_run = bool(payload.get("force_run", False))
         requested_run_id = str(payload.get("run_id", "")).strip() or None
+        if not _services(request).projects.has_analysis_input(project_id):
+            raise InputRequired("submit a requirement or ingest a document before analysis")
         if force_run and requested_run_id is None:
             requested_run_id = f"web-run-{uuid4().hex[:16]}"
         analysis = _analysis_service(request, project_id)
@@ -583,7 +610,11 @@ async def export_model(request: Request, project_id: str):
         payload = await request.json()
         view_id = str(payload.get("view_id", "rflp")) if isinstance(payload, Mapping) else "rflp"
         output_format = str(payload.get("format", "json")) if isinstance(payload, Mapping) else "json"
-        content, media_type = _services(request).render(project_id).export(project_id, view_id, output_format)
+        if output_format.casefold() == "sysml":
+            content = graph_sysml(_services(request).model(project_id).graph(project_id)).encode("utf-8")
+            media_type = "text/plain"
+        else:
+            content, media_type = _services(request).render(project_id).export(project_id, view_id, output_format)
         return Response(content=content, media_type=media_type)
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
@@ -592,6 +623,11 @@ async def export_model(request: Request, project_id: str):
 @resource_api.get("/model-profiles")
 def list_model_profiles(request: Request):
     return {"status": "ok", **_services(request).settings.list_profiles()}
+
+
+@resource_api.get("/model-profiles/presets")
+def list_model_profile_presets(request: Request):
+    return {"status": "ok", "presets": _services(request).settings.presets()}
 
 
 @resource_api.post("/model-profiles")
@@ -609,17 +645,12 @@ async def test_model_profile(request: Request):
         payload = _profile_test_payload(settings, await request.json())
         config = settings.profiles.config_for(payload)
         profile_id = str(config["id"])
-        provider_id = str(config.get("provider_id") or "openai-compatible")
+        provider_id = str(config.get("provider") or "openai-compatible")
         model_id = str(config.get("model", ""))
-        if str(config.get("kind", "remote")) == "remote" and not str(config.get("api_key", "")).strip():
-            connection = {
-                "connected": False,
-                "connection_status": "not_configured",
-                "status_code": None,
-                "message": "Remote profile has no API key configured.",
-            }
-        else:
-            connection = _probe_model_profile(config)
+        try:
+            connection = _services(request).test_model_profile(config)
+        except AdapterFailure as exc:
+            connection = _connection_failure(exc)
         return {
             "status": "ok",
             "profile_id": profile_id,
@@ -628,6 +659,14 @@ async def test_model_profile(request: Request):
             "connection": connection,
             **connection,
         }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.delete("/model-profiles/{profile_id}")
+def delete_model_profile(request: Request, profile_id: str):
+    try:
+        return {"status": "ok", **_services(request).settings.delete_profile(profile_id)}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 

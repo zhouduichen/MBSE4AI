@@ -52,6 +52,8 @@ class RuntimeFactory:
             model_id = str(config.get("model", "")).strip()
             if not profile_id or not model_id:
                 raise ValueError("active LLM profile must contain id and model")
+            if not bool(config.get("enabled", True)):
+                raise ValueError("active LLM profile is disabled")
             return RuntimeSelection(
                 openai_compatible_runtime(dict(config)),
                 profile_id,

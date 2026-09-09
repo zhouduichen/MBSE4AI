@@ -6,6 +6,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from typing import Mapping
 from urllib.parse import urlparse
 
 from rflp_lite.domain.errors import AdapterFailure, InvariantViolation
@@ -128,7 +129,7 @@ def _base_url(value: object) -> str:
     return result
 
 
-def _provider(payload: dict[str, object]) -> str:
+def _provider(payload: Mapping[str, object]) -> str:
     value = str(payload.get("provider", "")).strip().casefold()
     if value in {"openai", "openai-compatible", "openai_chat"}:
         return "openai-compatible"
@@ -275,7 +276,7 @@ class LLMProfileService:
         self._write(data)
         return self._public(profile)
 
-    def delete(self, profile_id: str) -> dict[str, object]:
+    def delete(self, profile_id: str) -> Mapping[str, object]:
         profile_id = _profile_id(profile_id)
         data = self._read()
         profiles = [item for item in data["profiles"] if item.get("id") != profile_id]
@@ -305,7 +306,7 @@ class LLMProfileService:
 
     def test(self, payload: object, tester=None) -> dict[str, object]:
         config = self.config_for(payload)
-        if config["kind"] == "remote" and not config["api_key"]:
+        if config["provider"] == "openai-compatible" and config["kind"] == "remote" and not config["api_key"]:
             raise AdapterFailure("远程 LLM 缺少 API Key")
         if tester is None:
             return {"status": "configured", "profile_id": config["id"]}

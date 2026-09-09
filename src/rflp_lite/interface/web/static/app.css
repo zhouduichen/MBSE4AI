@@ -344,6 +344,11 @@ tr:last-child td { border-bottom: none; }
 .profile-card code, .profile-url { overflow-wrap: anywhere; }
 .profile-card > small { display: block; margin-top: 6px; color: var(--muted); font-size: 10px; }
 .profile-card .workbench-actions { margin-bottom: 0; }
+.profile-actions { display: flex; gap: 8px; margin-top: 9px; }
+.profile-card .activate-profile, .profile-card .delete-profile { margin-top: 0; }
+.profile-save-form { max-width: 900px; }
+.profile-save-form .workflow-columns { margin-bottom: 2px; }
+.export-actions { flex-wrap: wrap; }
 
 /* ---------- Two-column & focus layouts ---------- */
 .two-column { display: grid; grid-template-columns: minmax(300px, .8fr) minmax(360px, 1.2fr); gap: 12px; align-items: start; }

@@ -308,3 +308,43 @@ def test_chat_completion_surfaces_nested_ollama_error_detail(monkeypatch):
             {"base_url": "http://127.0.0.1:11434/v1", "model": "qwen"},
             [{"role": "user", "content": "json"}],
         )
+
+
+def test_explicit_ollama_provider_uses_native_endpoint_for_remote_host(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(call, timeout):
+        captured["url"] = call.full_url
+        captured["body"] = json.loads(call.data.decode())
+        return _Response({"message": {"content": "OK"}})
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    result = llm_client.test_connection(
+        {
+            "provider": "ollama",
+            "kind": "remote",
+            "base_url": "http://10.0.0.8:11434/v1",
+            "model": "qwen3.5:9b",
+        }
+    )
+
+    assert captured["url"] == "http://10.0.0.8:11434/api/chat"
+    assert captured["body"]["stream"] is False
+    assert result["connection_status"] == "connected"
+    assert result["provider_id"] == "ollama"
+
+
+def test_openai_compatible_connection_requires_key_for_remote_profile(monkeypatch):
+    def fail_urlopen(*_args, **_kwargs):
+        raise AssertionError("network should not be called")
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fail_urlopen)
+    with pytest.raises(AdapterFailure, match="缺少 API Key"):
+        llm_client.test_connection(
+            {
+                "provider": "openai-compatible",
+                "kind": "remote",
+                "base_url": "https://api.example.test/v1",
+                "model": "model",
+            }
+        )

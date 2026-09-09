@@ -89,6 +89,9 @@ def _provider_error_message(value: object) -> str:
 
 
 def _is_native_ollama(config: dict[str, object]) -> bool:
+    provider = str(config.get("provider", "")).casefold()
+    if provider:
+        return provider in {"ollama", "ollama-native"}
     base_url = str(config.get("base_url", "")).casefold()
     return str(config.get("kind", "")).casefold() == "local" and (
         "11434" in base_url or "ollama" in base_url
@@ -199,8 +202,13 @@ def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *
 
 def test_connection(config: dict[str, object]) -> dict[str, object]:
     test_config = dict(config)
+    provider = str(test_config.get("provider", "")).casefold() or (
+        "ollama" if _is_native_ollama(test_config) else "openai-compatible"
+    )
     provider_text = f'{test_config.get("base_url", "")} {test_config.get("model", "")}'.casefold()
-    is_ollama = "11434" in provider_text or "ollama" in provider_text
+    is_ollama = provider == "ollama"
+    if provider == "openai-compatible" and str(test_config.get("kind", "")).casefold() == "remote" and not str(test_config.get("api_key", "")).strip():
+        raise AdapterFailure("远程 LLM 缺少 API Key")
     if "deepseek" in provider_text:
         test_config["thinking"] = {"type": "disabled"}
     if is_ollama:
@@ -210,10 +218,21 @@ def test_connection(config: dict[str, object]) -> dict[str, object]:
         [{"role": "user", "content": "Reply with OK only."}],
         max_tokens=16,
     )
+    text = str(content).strip()
+    if not text:
+        return {
+            "connected": False,
+            "connection_status": "invalid_response",
+            "message": "模型返回为空",
+        }
     return {
+        "connected": True,
+        "connection_status": "connected",
         "status": "connected",
         "provider": config.get("label", config.get("id", "LLM")),
+        "provider_id": provider,
         "model": config["model"],
         "base_url": config["base_url"],
-        "preview": content.strip()[:80],
+        "message": "模型已返回响应",
+        "preview": text[:80],
     }

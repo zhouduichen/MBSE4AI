@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Mapping
 
 from rflp_lite.adapters.document_intelligence import LocalDocumentParser
+from rflp_lite.adapters.llm_client import test_connection as test_llm_connection
 from rflp_lite.application.analysis_service import AnalysisService
 from rflp_lite.application.evidence_service import EvidenceService
 from rflp_lite.application.model_service import ModelService
@@ -63,6 +65,9 @@ class V2Services:
 
     def evidence(self, project_id: str) -> EvidenceService:
         return EvidenceService(self.repository(project_id))
+
+    def test_model_profile(self, config: Mapping[str, object]) -> Mapping[str, object]:
+        return test_llm_connection(config)
 
     def render(self, project_id: str) -> RenderService:
         return RenderService(self.model(project_id))

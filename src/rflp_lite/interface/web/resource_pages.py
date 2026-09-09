@@ -295,6 +295,7 @@ def _runtime_metadata(services, run: Mapping[str, object] | None = None) -> dict
         or run_data.get("provider")
         or recorded.get("provider_id")
         or active.get("provider_id")
+        or active.get("provider")
         or ("openai-compatible" if active else "offline")
     )
     model_id = str(
@@ -663,6 +664,7 @@ def build_analysis_view(request: Request, project_id: str) -> dict[str, object]:
     services = _services(request)
     project = _mapping(services.projects.summary(project_id))
     graph = services.model(project_id).graph(project_id)
+    has_analysis_input = services.projects.has_analysis_input(project_id)
     run = _aggregate_pipeline_steps(services, project_id, _latest_run(request, services, project_id))
     runtime = _runtime_metadata(services, run)
     record_gates = _record_gate_results(run)
@@ -743,6 +745,7 @@ def build_analysis_view(request: Request, project_id: str) -> dict[str, object]:
         "project": {**project, "revision": graph.revision},
         "project_id": project_id,
         "current_revision": graph.revision,
+        "has_analysis_input": has_analysis_input,
         "graph_hash": graph.snapshot_hash,
         "runtime": runtime,
         "active_runtime": runtime,
@@ -858,6 +861,7 @@ def build_settings_view(request: Request) -> dict[str, object]:
     for item in settings.get("profiles", ()):
         profile = _mapping(item)
         profile["kind_label"] = {"local": "本地服务", "remote": "远程服务"}.get(str(profile.get("kind", "")), "服务")
+        profile["provider_label"] = {"ollama": "Ollama", "openai-compatible": "OpenAI 兼容"}.get(str(profile.get("provider", "")), str(profile.get("provider", "服务")))
         profile["credential_label"] = "已配置" if profile.get("api_key_configured") else "未配置"
         profile["enabled_label"] = "已启用" if profile.get("enabled", True) else "已停用"
         profiles.append(profile)

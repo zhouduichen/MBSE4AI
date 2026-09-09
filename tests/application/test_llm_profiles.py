@@ -79,3 +79,19 @@ def test_deleting_active_profile_repairs_active_id(tmp_path: Path, monkeypatch) 
 
     assert result == {"profile_id": "first", "active_id": "second"}
     assert service.snapshot()["active_id"] == "second"
+
+
+def test_ollama_remote_profile_can_be_tested_without_api_key(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("rflp_lite.application.llm_profiles._keyring", lambda: None)
+    service = LLMProfileService(tmp_path / "config")
+    payload = {
+        "id": "ollama-remote",
+        "kind": "remote",
+        "provider": "ollama",
+        "base_url": "http://10.0.0.8:11434/v1",
+        "model": "qwen3.5:9b",
+    }
+
+    result = service.test(payload, tester=lambda config: {"provider": config["provider"]})
+
+    assert result == {"provider": "ollama"}

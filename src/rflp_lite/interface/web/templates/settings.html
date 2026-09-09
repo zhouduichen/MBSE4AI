@@ -36,29 +36,125 @@
 </div>
 
 <section class="panel">
+  <div class="panel-head"><div><h2>新增或保存模型配置</h2><p>保存后可在下方激活；凭据只写入系统密钥环或当前本地会话。</p></div><span class="status-badge info">配置入口</span></div>
+  <form id="profile-save-form" class="profile-save-form">
+    <div class="two-column workflow-columns">
+      <label class="field" for="profile-preset">快速模板<select id="profile-preset"><option value="">自定义配置</option></select></label>
+      <label class="field" for="profile-provider">接口类型<select id="profile-provider" name="provider"><option value="openai-compatible">OpenAI 兼容接口</option><option value="ollama">Ollama 原生接口</option></select></label>
+    </div>
+    <div class="two-column workflow-columns">
+      <div>
+        <label class="field" for="profile-id">配置 ID<input id="profile-id" name="id" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" placeholder="例如：local-ollama"></label>
+        <label class="field" for="profile-label">显示名称<input id="profile-label" name="label" placeholder="例如：本地 Ollama"></label>
+        <label class="field" for="profile-kind">服务类型<select id="profile-kind" name="kind"><option value="local">本地服务</option><option value="remote">远程服务</option></select></label>
+      </div>
+      <div>
+        <label class="field" for="profile-base-url">Base URL<input id="profile-base-url" name="base_url" type="url" required placeholder="http://127.0.0.1:11434/v1"></label>
+        <label class="field" for="profile-model">模型名<input id="profile-model" name="model" required placeholder="例如：llama3.2"></label>
+        <label class="field" for="profile-timeout">超时（秒）<input id="profile-timeout" name="timeout_seconds" type="number" min="1" max="300" value="300" required></label>
+        <label class="field" for="profile-api-key">API Key（可选）<input id="profile-api-key" name="api_key" type="password" autocomplete="new-password" placeholder="留空则保留已有凭据"></label>
+      </div>
+    </div>
+    <label class="checkbox-line"><input id="profile-active" name="active" type="checkbox"> 保存后立即激活</label>
+    <button class="button primary" type="submit">保存配置</button>
+  </form>
+  <pre id="profile-result" class="analysis-result" hidden></pre>
+</section>
+
+<section class="panel">
   <div class="panel-head"><div><h2>模型配置</h2><p>页面只展示配置元数据，凭据不会进入页面或 API 响应。</p></div><span class="count-badge">{{ settings.profiles|length }} 个</span></div>
   {% if settings.profiles %}
-  <div class="profile-list">{% for profile in settings.profiles %}<article class="profile-card {% if profile.id == settings.active_id %}active{% endif %}"><div><strong>{{ profile.id }}</strong><span class="status-badge {% if profile.id == settings.active_id %}active{% else %}planned{% endif %}">{% if profile.id == settings.active_id %}活动{% else %}可用{% endif %}</span></div><p>{{ profile.label }} · {{ profile.kind_label }} · {{ profile.base_url }}</p><small>{{ profile.model }} · API 密钥：{{ profile.credential_label }} · {{ profile.enabled_label }}</small></article>{% endfor %}</div>
+  <div class="profile-list">{% for profile in settings.profiles %}<article class="profile-card {% if profile.id == settings.active_id %}active{% endif %}"><div><strong>{{ profile.id }}</strong><span class="status-badge {% if profile.id == settings.active_id %}active{% else %}planned{% endif %}">{% if profile.id == settings.active_id %}活动{% else %}可用{% endif %}</span></div><p>{{ profile.label }} · {{ profile.provider_label }} · {{ profile.kind_label }} · {{ profile.base_url }}</p><small>{{ profile.model }} · API 密钥：{{ profile.credential_label }} · {{ profile.enabled_label }}</small><div class="profile-actions">{% if profile.id != settings.active_id %}<button class="button compact activate-profile" type="button" data-profile-id="{{ profile.id }}">激活</button>{% endif %}<button class="button compact danger delete-profile" type="button" data-profile-id="{{ profile.id }}">删除</button></div></article>{% endfor %}</div>
   {% else %}<div class="mini-empty">暂无模型配置，请通过配置接口添加。</div>{% endif %}
 </section>
 
-{% if settings.profiles %}
 <script>
 (() => {
-  const form = document.getElementById("connection-test-form");
-  const output = document.getElementById("connection-test-result");
-  form.addEventListener("submit", async (event) => {
+  const saveForm = document.getElementById("profile-save-form");
+  const saveOutput = document.getElementById("profile-result");
+  const presetSelect = document.getElementById("profile-preset");
+  const providerSelect = document.getElementById("profile-provider");
+  const presetFields = ["id", "label", "provider", "kind", "base_url", "model"];
+  const setField = (name, value) => {
+    const field = document.getElementById("profile-" + (name === "base_url" ? "base-url" : name));
+    if (field && value !== undefined) field.value = value;
+  };
+  const applyPreset = (name, presets) => {
+    const preset = presets[name];
+    if (!preset) return;
+    presetFields.forEach((field) => setField(field, preset[field]));
+    if (providerSelect) providerSelect.value = preset.provider || "openai-compatible";
+    document.getElementById("profile-api-key").value = "";
+  };
+  if (presetSelect) {
+    fetch("/model-profiles/presets").then((response) => response.json()).then((payload) => {
+      const presets = payload.presets || {};
+      Object.entries(presets).forEach(([name, preset]) => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = preset.label || name;
+        presetSelect.appendChild(option);
+      });
+      presetSelect.addEventListener("change", () => applyPreset(presetSelect.value, presets));
+    }).catch(() => {});
+  }
+
+  const connectionForm = document.getElementById("connection-test-form");
+  const connectionOutput = document.getElementById("connection-test-result");
+  if (connectionForm) connectionForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    output.hidden = false;
-    output.textContent = "正在测试连接…";
+    connectionOutput.hidden = false;
+    connectionOutput.textContent = "正在测试连接…";
     try {
       const response = await fetch("/model-profiles/test", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({profile_id: document.getElementById("profile-to-test").value})});
       const payload = await response.json();
-      output.textContent = JSON.stringify(payload, null, 2);
-      output.classList.toggle("warning", payload.status !== "ok" || payload.connected === false);
-    } catch (error) { output.textContent = "请求失败：" + error; output.classList.add("warning"); }
+      connectionOutput.textContent = JSON.stringify(payload, null, 2);
+      connectionOutput.classList.toggle("warning", payload.status !== "ok" || payload.connected === false);
+    } catch (error) { connectionOutput.textContent = "请求失败：" + error; connectionOutput.classList.add("warning"); }
   });
+
+  saveForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(saveForm);
+    const payload = Object.fromEntries(formData.entries());
+    payload.active = document.getElementById("profile-active").checked;
+    payload.timeout_seconds = Number(payload.timeout_seconds || 300);
+    saveOutput.hidden = false;
+    saveOutput.textContent = "正在保存配置…";
+    try {
+      const response = await fetch("/model-profiles", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(payload)});
+      const result = await response.json();
+      saveOutput.textContent = JSON.stringify(result, null, 2);
+      saveOutput.classList.toggle("warning", result.status !== "ok");
+      if (result.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+    } catch (error) { saveOutput.textContent = "请求失败：" + error; saveOutput.classList.add("warning"); }
+  });
+
+  document.querySelectorAll(".activate-profile").forEach((button) => button.addEventListener("click", async () => {
+    saveOutput.hidden = false;
+    saveOutput.textContent = "正在激活配置…";
+    try {
+      const response = await fetch(`/model-profiles/${encodeURIComponent(button.dataset.profileId)}/activate`, {method: "POST"});
+      const result = await response.json();
+      saveOutput.textContent = JSON.stringify(result, null, 2);
+      saveOutput.classList.toggle("warning", result.status !== "ok");
+      if (result.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+    } catch (error) { saveOutput.textContent = "请求失败：" + error; saveOutput.classList.add("warning"); }
+  }));
+
+  document.querySelectorAll(".delete-profile").forEach((button) => button.addEventListener("click", async () => {
+    const profileId = button.dataset.profileId;
+    if (!profileId || !window.confirm(`确认删除配置“${profileId}”？`)) return;
+    saveOutput.hidden = false;
+    saveOutput.textContent = "正在删除配置…";
+    try {
+      const response = await fetch(`/model-profiles/${encodeURIComponent(profileId)}`, {method: "DELETE"});
+      const result = await response.json();
+      saveOutput.textContent = JSON.stringify(result, null, 2);
+      saveOutput.classList.toggle("warning", result.status !== "ok");
+      if (result.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+    } catch (error) { saveOutput.textContent = "请求失败：" + error; saveOutput.classList.add("warning"); }
+  }));
 })();
 </script>
-{% endif %}
 {% endblock %}
