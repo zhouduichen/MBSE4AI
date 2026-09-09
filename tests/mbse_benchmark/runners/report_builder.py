@@ -1,0 +1,277 @@
+"""Aggregate validator results and render the required acceptance reports."""
+
+from __future__ import annotations
+
+import json
+import platform
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Mapping
+
+from rflp_lite.domain.canonical import canonical_json
+
+
+TARGETS = {
+    "stakeholder_coverage": 0.85,
+    "lifecycle_coverage": 0.90,
+    "scenario_recall": 0.85,
+    "requirement_validity": 0.90,
+    "requirement_atomicity": 0.85,
+    "requirement_verifiability": 0.90,
+    "upstream_traceability": 0.95,
+    "use_case_activity_consistency": 0.90,
+    "derived_requirement_precision": 0.80,
+    "architecture_traceability": 0.90,
+    "verification_coverage": 0.90,
+    "end_to_end_traceability": 0.85,
+    "orphan_element_rate": 0.05,
+    "known_conflict_detection": 1.0,
+    "unsupported_hard_assumption_rate": 0.05,
+    "regression_stability": 0.85,
+}
+
+
+def _numeric_values(values: list[object], *, missing: float | None = 0.0) -> float | None:
+    numeric = [float(item) for item in values if isinstance(item, (int, float)) and not isinstance(item, bool)]
+    return round(sum(numeric) / len(numeric), 6) if numeric else missing
+
+
+def compute_metrics(case_results: list[Mapping[str, object]]) -> dict[str, object]:
+    keys = tuple(TARGETS) + ("orphan_test_case_rate", "activity_branch_coverage")
+    aggregate: dict[str, object] = {}
+    per_case: dict[str, dict[str, object]] = {}
+    for result in case_results:
+        case_id = str(result.get("case_id", ""))
+        metrics = result.get("metrics", {})
+        metrics = dict(metrics) if isinstance(metrics, Mapping) else {}
+        per_case[case_id] = metrics
+    for key in keys:
+        values = [metrics.get(key) for metrics in per_case.values()]
+        aggregate[key] = _numeric_values(values, missing=None if key == "derived_requirement_precision" else 0.0)
+    aggregate["per_case"] = per_case
+    return aggregate
+
+
+def _threshold_pass(key: str, value: object) -> bool:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    if key in {"orphan_element_rate", "unsupported_hard_assumption_rate", "orphan_test_case_rate"}:
+        return float(value) <= TARGETS.get(key, 0.05)
+    return float(value) >= TARGETS.get(key, 0.0)
+
+
+def compute_score(metrics: Mapping[str, object], case_results: list[Mapping[str, object]]) -> dict[str, object]:
+    def value(key: str, default: float = 0.0) -> float:
+        raw = metrics.get(key)
+        return float(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else default
+
+    requirement_quality = sum(
+        1.0 if _threshold_pass("unsupported_hard_assumption_rate", value("unsupported_hard_assumption_rate", 1.0)) else 0.0
+        for _ in [0]
+    )
+    requirement_quality = (
+        min(1.0, value("requirement_validity"))
+        + min(1.0, value("requirement_atomicity"))
+        + min(1.0, value("requirement_verifiability"))
+    ) / 3.0
+    architecture_consistency = value("known_conflict_detection")
+    p0_conflicts = [
+        item for result in case_results
+        for item in result.get("details", {}).get("consistency", {}).get("findings", ())
+        if isinstance(item, Mapping) and str(item.get("test_id", "")) == "T9/T10"
+    ]
+    if any(str(item.get("status", "")) != "PASS" for item in p0_conflicts):
+        architecture_consistency = min(architecture_consistency, 0.0)
+    iteration_impact = (1.0 if bool(metrics.get("iteration_signal")) else 0.0)
+    category_scores = {
+        "Stakeholder & Lifecycle": min(value("stakeholder_coverage"), value("lifecycle_coverage")),
+        "Scenario Analysis": value("scenario_recall"),
+        "Requirement Quality": requirement_quality,
+        "Use Case & Activity": value("use_case_activity_consistency"),
+        "Derived Requirements": 0.0 if metrics.get("derived_requirement_precision") is None else value("derived_requirement_precision"),
+        "Traceability": min(value("upstream_traceability"), value("architecture_traceability"), value("end_to_end_traceability")),
+        "Architecture Consistency": architecture_consistency,
+        "Verification": value("verification_coverage"),
+        "Iteration / Impact Analysis": iteration_impact,
+    }
+    weights = {
+        "Stakeholder & Lifecycle": 10,
+        "Scenario Analysis": 10,
+        "Requirement Quality": 15,
+        "Use Case & Activity": 10,
+        "Derived Requirements": 10,
+        "Traceability": 15,
+        "Architecture Consistency": 10,
+        "Verification": 10,
+        "Iteration / Impact Analysis": 10,
+    }
+    score = round(sum(category_scores[key] * weights[key] for key in category_scores), 2)
+    p0 = {
+        "P0-01 weight conflict detected": value("known_conflict_detection") >= 1.0 and any(
+            str(item.get("conflict_id", "")) == "weight-conflict" and item.get("detected") is True
+            for result in case_results
+            for item in result.get("details", {}).get("consistency", {}).get("conflict_signals", ())
+        ),
+        "P0-02 runtime conflict detected": value("known_conflict_detection") >= 1.0 and any(
+            str(item.get("conflict_id", "")) == "runtime-conflict" and item.get("detected") is True
+            for result in case_results
+            for item in result.get("details", {}).get("consistency", {}).get("conflict_signals", ())
+        ),
+        "P0-03 upstream trace is not broadly broken": value("upstream_traceability") >= 0.95,
+        "P0-04 no false satisfied architecture": all(
+            not bool(result.get("details", {}).get("consistency", {}).get("false_satisfaction_signal"))
+            for result in case_results
+        ),
+        "P0-05 verification traces requirements": value("verification_coverage") >= 0.90,
+        "P0-06 failure feedback/iteration exists": any(
+            bool(result.get("details", {}).get("consistency", {}).get("iteration_signal"))
+            for result in case_results
+        ),
+    }
+    p0_passed = sum(1 for item in p0.values() if item)
+    return {
+        "score": score,
+        "category_scores": category_scores,
+        "category_weights": weights,
+        "p0": p0,
+        "p0_passed": p0_passed,
+        "p0_total": len(p0),
+        "final_status": "ACCEPTED" if score >= 80 and p0_passed == len(p0) else "REJECTED",
+    }
+
+
+def build_failures(case_results: list[Mapping[str, object]]) -> list[dict[str, object]]:
+    failures: list[dict[str, object]] = []
+    for result in case_results:
+        for item in result.get("findings", ()):
+            if not isinstance(item, Mapping) or str(item.get("status", "")) not in {"FAIL", "BLOCKED"}:
+                continue
+            failures.append(dict(item))
+    severity_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+    failures.sort(key=lambda item: (severity_order.get(str(item.get("severity", "P3")), 9), str(item.get("case_id", "")), str(item.get("test_id", ""))))
+    return failures
+
+
+def _git_value(args: list[str]) -> str:
+    try:
+        result = subprocess.run(["git", *args], check=True, capture_output=True, text=True)
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def _status_by_test(case_results: list[Mapping[str, object]]) -> dict[str, str]:
+    values: dict[str, list[str]] = {}
+    for result in case_results:
+        for finding in result.get("findings", ()):
+            if not isinstance(finding, Mapping):
+                continue
+            values.setdefault(str(finding.get("test_id", "")), []).append(str(finding.get("status", "")))
+    return {key: "FAIL" if "FAIL" in statuses else "BLOCKED" if "BLOCKED" in statuses else "PASS" if statuses and all(status == "PASS" for status in statuses) else "NOT_IMPLEMENTED" for key, statuses in values.items()}
+
+
+def render_benchmark_report(summary: Mapping[str, object]) -> str:
+    metrics = dict(summary.get("metrics", {}))
+    score = dict(summary.get("score", {}))
+    cases = list(summary.get("case_results", ()))
+    test_status = _status_by_test(cases)
+    lines = [
+        "# AI4MBSE Benchmark Report",
+        "",
+        "## 1. Executive Summary",
+        "",
+        f"FINAL STATUS: **{score.get('final_status', 'REJECTED')}**",
+        "",
+        f"Score: **{score.get('score', 0)} / 100**",
+        "",
+        f"P0: **{score.get('p0_passed', 0)} / {score.get('p0_total', 0)} passed**",
+        "",
+        "## 2. Tested System",
+        "",
+        f"- commit: `{summary.get('commit', 'unknown')}`",
+        f"- branch: `{summary.get('branch', 'unknown')}`",
+        f"- entrypoint: `{summary.get('entrypoint', 'unknown')}`",
+        f"- runtime/provider: `{summary.get('runtime', 'offline-rule')}`",
+        f"- test date: `{summary.get('test_date', '')}`",
+        f"- configuration: `{summary.get('configuration', '')}`",
+        "",
+        "## 3. Benchmark Results",
+        "",
+        "| Test | Result | Score | Critical Issues |",
+        "| ---- | ------ | ----: | --------------- |",
+    ]
+    for test_id in [f"T{index:02d}" for index in range(1, 21)]:
+        status = test_status.get(test_id, test_status.get("T9/T10" if test_id in {"T09", "T10"} else test_id, "NOT_IMPLEMENTED"))
+        lines.append(f"| {test_id} | {status} |  | {', '.join(item.get('category', '') for item in summary.get('failures', ()) if str(item.get('test_id', '')).startswith(test_id))} |")
+    lines.extend(["", "## 4. Metrics", "", "| Metric | Observed | Target |", "| ------ | -------: | -----: |"])
+    for key, target in TARGETS.items():
+        observed = metrics.get(key)
+        display = "NOT_IMPLEMENTED" if observed is None else f"{float(observed):.3f}"
+        lines.append(f"| {key} | {display} | {target:.2f} |")
+    lines.extend(["", "## 5. P0 Failures", ""])
+    p0 = score.get("p0", {})
+    if not any(not value for value in p0.values()):
+        lines.append("None")
+    else:
+        for label, passed in p0.items():
+            lines.append(f"- {'PASS' if passed else 'FAIL'}: {label}")
+    lines.extend(["", "## 6. Traceability Analysis", "", str(summary.get("traceability_summary", "No traceability data.")), "", "## 7. Requirement Quality", "", str(summary.get("requirement_quality_summary", "No requirement quality data.")), "", "## 8. Cross-stage Consistency", "", str(summary.get("consistency_summary", "No cross-stage consistency data.")), "", "## 9. Fault Injection Result", "", str(summary.get("fault_injection_summary", "CASE-05 was not executed.")), "", "## 10. Iteration Test", "", str(summary.get("iteration_summary", "No iteration evidence.")), "", "## 11. Critical Problems", ""])
+    failures = list(summary.get("failures", ()))
+    if failures:
+        for item in failures[:10]:
+            lines.append(f"- [{item.get('severity', 'P3')}] {item.get('case_id', '')} {item.get('test_id', '')}: {item.get('root_cause', '')}")
+    else:
+        lines.append("None")
+    lines.extend(["", "## 12. Recommended Fix Order", "", "| Priority | Problem | Reason | Affected Module | Suggested Fix | Expected Benefit |", "| -------- | ------- | ------ | --------------- | ------------- | --------------- |"])
+    for item in failures[:10]:
+        lines.append(f"| {item.get('severity', 'P3')} | {item.get('category', '')} | {item.get('root_cause', '')} | current workflow | {item.get('recommended_fix', '')} | restores measurable MBSE coverage |")
+    lines.extend(["", "## 13. Final Acceptance Decision", "", f"**{score.get('final_status', 'REJECTED')}**", ""])
+    return "\n".join(lines)
+
+
+def render_traceability_report(summary: Mapping[str, object]) -> str:
+    lines = ["# Traceability Report", "", "| Case | Requirement | Stakeholder | Scenario | Use Case | Activity | Function | Logical | Physical | Verification | Status |", "| ---- | ----------- | ----------- | -------- | -------- | -------- | -------- | ------- | -------- | ------------ | ------ |"]
+    complete = partial = broken = 0
+    for result in summary.get("case_results", ()):
+        details = result.get("details", {}) if isinstance(result, Mapping) else {}
+        trace = details.get("traceability", {}) if isinstance(details, Mapping) else {}
+        paths = trace.get("trace_paths", {}) if isinstance(trace, Mapping) else {}
+        complete_ids = set(trace.get("complete_requirement_ids", ())) if isinstance(trace, Mapping) else set()
+        for requirement_id, path in paths.items() if isinstance(paths, Mapping) else ():
+            values = {
+                "Function": bool(path.get("function")),
+                "Logical": bool(path.get("logical")),
+                "Physical": bool(path.get("physical")),
+                "Verification": requirement_id in set(trace.get("complete_requirement_ids", ())) if isinstance(trace, Mapping) else False,
+            }
+            if requirement_id in complete_ids:
+                status = "Complete"; complete += 1
+            elif any(values.values()):
+                status = "Partial"; partial += 1
+            else:
+                status = "Broken"; broken += 1
+            lines.append(f"| {result.get('case_id', '')} | {requirement_id} | {'PASS' if trace.get('upstream_traceability', 0) else 'FAIL'} | {'PASS' if trace.get('upstream_traceability', 0) else 'FAIL'} | {'PASS' if trace.get('use_case_traceability', 0) else 'FAIL'} | {'PASS' if trace.get('activity_traceability', 0) else 'FAIL'} | {'PASS' if values['Function'] else 'FAIL'} | {'PASS' if values['Logical'] else 'FAIL'} | {'PASS' if values['Physical'] else 'FAIL'} | {'PASS' if values['Verification'] else 'FAIL'} | {status} |")
+    total = complete + partial + broken
+    lines.extend(["", f"Complete Trace %: {complete / total:.3f}" if total else "Complete Trace %: 0.000", f"Partial Trace %: {partial / total:.3f}" if total else "Partial Trace %: 0.000", f"Broken Trace %: {broken / total:.3f}" if total else "Broken Trace %: 0.000", "Orphan %: see benchmark metrics."])
+    return "\n".join(lines) + "\n"
+
+
+def _summary_text(summary: Mapping[str, object], key: str) -> str:
+    values = []
+    for result in summary.get("case_results", ()):
+        details = result.get("details", {}) if isinstance(result, Mapping) else {}
+        value = details.get(key, {}) if isinstance(details, Mapping) else {}
+        if value:
+            values.append(f"{result.get('case_id', '')}: {json.dumps(value, ensure_ascii=False, sort_keys=True)}")
+    return "\n".join(values) if values else "None"
+
+
+def write_reports(summary: Mapping[str, object], report_dir: Path) -> None:
+    report_dir.mkdir(parents=True, exist_ok=True)
+    benchmark = render_benchmark_report(summary)
+    traceability = render_traceability_report(summary)
+    (report_dir / "benchmark_report.md").write_text(benchmark, encoding="utf-8")
+    (report_dir / "traceability_report.md").write_text(traceability, encoding="utf-8")
+    (report_dir / "metrics.json").write_text(canonical_json({"metrics": summary.get("metrics", {}), "score": summary.get("score", {})}) + "\n", encoding="utf-8")
+    (report_dir / "failures.json").write_text(canonical_json(summary.get("failures", [])) + "\n", encoding="utf-8")
