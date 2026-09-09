@@ -63,7 +63,15 @@ def validate_traceability(graph: Mapping[str, object]) -> dict[str, object]:
     _, incoming = edge_map(graph)
     upstream_ids = [
         str(item.get("id", "")) for item in requirements
-        if item.get("source_ids") or incoming.get(str(item.get("id", "")))
+        if item.get("source_ids")
+        or incoming.get(str(item.get("id", "")))
+        or any(
+            isinstance(relation, Mapping)
+            and str(relation.get("source_id", "")) == str(item.get("id", ""))
+            and str(relation.get("predicate", "")) in {"derivedFrom", "refines", "describedBy"}
+            and str(relation.get("target_id", "")) in index
+            for relation in graph.get("relations", ())
+        )
     ]
     use_case_ids = [
         str(item.get("id", "")) for item in requirements
