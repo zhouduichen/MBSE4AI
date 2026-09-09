@@ -1,0 +1,21 @@
+"""Structural checks after a runtime has converted output to a Patch."""
+
+from __future__ import annotations
+
+from rflp_lite.domain.errors import MethodologyValidationError
+from rflp_lite.domain.model import Patch
+from rflp_lite.methodology.validation import ValidationContext
+
+
+def validate(context: ValidationContext) -> None:
+    response = context.response
+    if not hasattr(response, "status"):
+        raise MethodologyValidationError("schema_invalid", "task response is not a TaskExecutionResponse")
+    if response.patch is not None and not isinstance(response.patch, Patch):
+        raise MethodologyValidationError("schema_invalid", "task response patch is not a Patch")
+    if response.patch is None:
+        return
+    if not isinstance(response.patch.operations, tuple):
+        raise MethodologyValidationError("schema_invalid", "patch operations must be a tuple")
+    if len(response.patch.operations) > 32:
+        raise MethodologyValidationError("schema_invalid", "patch exceeds the 32-operation contract")

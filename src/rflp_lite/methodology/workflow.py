@@ -164,6 +164,8 @@ class WorkflowRunner:
             try:
                 response = self.executor.execute(task, context, self.methodology_version)
                 patch_id = None
+                if response.status is StepStatus.COMPLETED:
+                    self.executor.validate_response(project_id, task, current, context, response)
                 if response.patch is not None:
                     revision = self.model_repository.append_patch(project_id, response.patch, current.revision, run_id=identity.run_id)
                     patch_id = response.patch.id

@@ -26,6 +26,14 @@ class ValidationError(ContractViolation):
     """Typed validation failure at an application boundary."""
 
 
+class MethodologyValidationError(ValidationError):
+    """A deterministic methodology contract failure with a routable code."""
+
+    def __init__(self, code: str, message: str):
+        self.code = str(code)
+        super().__init__(f"{self.code}: {message}")
+
+
 class NotFoundError(ContractViolation):
     """Requested workspace or entity does not exist."""
 

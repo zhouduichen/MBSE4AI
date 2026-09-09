@@ -53,6 +53,8 @@ class RuleRuntime:
         payload: dict[str, object] = {"task_id": request.task_id, "requires_human_review": True}
         if kind is EntityKind.REQUIREMENT:
             payload.update({"level": "system", "type": "functional", "obligation": "待确认", "verification_method": "review"})
+        if kind is EntityKind.VERIFICATION_CASE:
+            payload.update({"method": "review", "pass_criteria": "待确认的通过准则"})
         if kind is EntityKind.OPERATIONAL_SCENARIO:
             payload.update({"actor_ids": [item.id for item in request.context_bundle.entities if item.kind is EntityKind.STAKEHOLDER], "exchanges": [], "steps": [], "internal_component_ids": []})
         entity = make_entity(kind, name, payload, status=EntityStatus.CANDIDATE, producer=Producer.RULE, confidence=0.5, revision=request.context_bundle.revision)

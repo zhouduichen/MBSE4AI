@@ -22,6 +22,7 @@ class PatchPolicy:
     writable_fields: frozenset[str] = frozenset()
     allowed_predicates: frozenset[RelationPredicate] = frozenset()
     allowed_entity_scope: str | frozenset[str] = "context_and_outputs"
+    max_operations: int | None = None
 
     @classmethod
     def for_task(cls, input_kinds: Iterable[EntityKind], output_kinds: Iterable[EntityKind]) -> "PatchPolicy":

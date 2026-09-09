@@ -24,7 +24,7 @@ def _task(
         ContextQuery(kinds),
         template or f"{phase.value}.{task_id}",
         f"{task_id}.v2",
-        validators=("schema", "identity", "reference"),
+        validators=("schema", "identity", "reference", "evidence", "semantic", "patch_policy"),
         max_attempts=2,
         failure_routes=(FailureRoute("task_output_invalid", phase),),
         completion_condition=CompletionCondition(frozenset(output_kinds), 0),

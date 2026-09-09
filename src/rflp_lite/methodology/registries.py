@@ -8,7 +8,7 @@ from importlib.resources import files
 from typing import Any, Callable, Mapping
 
 from rflp_lite.domain.canonical import canonical_hash
-from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.errors import ContractViolation, MethodologyValidationError
 
 
 Validator = Callable[[Any], None]
@@ -109,17 +109,18 @@ class ValidatorRegistry:
     def register(self, validator_id: str, validator: Validator) -> None:
         self._validators[validator_id] = validator
 
-    def validate(self, validator_ids: tuple[str, ...], value: Any) -> None:
+    def validate(self, validator_ids: tuple[str, ...], value: Any = None, *, context: Any = None) -> None:
+        subject = context if context is not None else value
         for validator_id in validator_ids:
             validator = self._validators.get(validator_id)
             if validator is None:
                 raise ContractViolation(f"validator is not registered: {validator_id}")
             try:
-                validator(value)
+                validator(subject)
             except ContractViolation:
                 raise
             except Exception as exc:
-                raise ContractViolation(f"validator failed: {validator_id}: {exc}") from exc
+                raise MethodologyValidationError("validator_failed", f"{validator_id}: {exc}") from exc
 
 
 @dataclass(frozen=True, slots=True)

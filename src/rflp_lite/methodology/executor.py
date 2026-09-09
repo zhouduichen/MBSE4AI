@@ -12,6 +12,7 @@ from rflp_lite.methodology.contracts import (
 )
 from rflp_lite.methodology.registries import PromptRegistry, RetryPolicy, SchemaRegistry, ValidatorRegistry
 from rflp_lite.methodology.tasks import output_contract
+from rflp_lite.methodology.validators import default_validators
 
 
 class TaskExecutor:
@@ -26,11 +27,7 @@ class TaskExecutor:
         self.runtime = runtime
         self.prompts = prompt_registry or PromptRegistry()
         self.schemas = schema_registry or SchemaRegistry()
-        self.validators = validator_registry or ValidatorRegistry({
-            "schema": lambda value: _require_mapping(value),
-            "identity": lambda value: None,
-            "reference": lambda value: None,
-        })
+        self.validators = validator_registry or ValidatorRegistry(default_validators())
 
     def request(
         self,
@@ -92,7 +89,6 @@ class TaskExecutor:
                 response = self.runtime.execute(request)
                 last_response = response
                 if response.status is StepStatus.COMPLETED:
-                    self.validators.validate(task.validators, response.patch or {})
                     return replace(
                         response,
                         input_hash=response.input_hash or input_hash,
@@ -109,6 +105,16 @@ class TaskExecutor:
             output_hash=canonical_hash(last_response.patch if last_response else diagnostics),
             provider_id=last_response.provider_id if last_response else "",
             model_id=last_response.model_id if last_response else "",
+        )
+
+    def validate_response(self, project_id, task, graph, context, response) -> None:
+        """Run the same methodology validators for any runtime before CAS."""
+
+        from rflp_lite.methodology.validation import ValidationContext
+
+        self.validators.validate(
+            task.validators,
+            context=ValidationContext(project_id, task, graph, context, response),
         )
 
 
