@@ -48,7 +48,7 @@ def _apply_fault_injection(services, project_id: str, case: Mapping[str, object]
     repository = services.repository(project_id)
     graph = repository.load_graph(project_id)
     requirements = {
-        str(item.get("fixture_id")): entity
+        str(entity.payload.get("fixture_id")): entity
         for entity in graph.entities
         if entity.kind is EntityKind.REQUIREMENT
         and isinstance(entity.payload, Mapping)
