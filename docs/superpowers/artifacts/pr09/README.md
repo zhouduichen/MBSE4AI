@@ -16,4 +16,6 @@ RFLP_RUN_LIVE_LLM=1 ./.venv/bin/python -m tests.contract_conformance.runner --re
 
 结果包含 `json_parse_rate`、`schema_pass_rate`、`proposal_compile_rate`、`domain_validation_rate`、`first_pass_success_rate` 和 `structural_retry_rate`，以及每个样本的 prompt/schema metadata、诊断与 retry ledger。
 
+Runner 会在每个样本开始/结束时打印进度，并将 partial report checkpoint 到结果文件；Ollama live benchmark 默认把单请求 timeout 收紧为 60 秒，可用 `PR09_LIVE_TIMEOUT_SECONDS` 调整。Ollama structural repair 请求复用 provider-level `format` 约束，不再把完整 schema 再塞进 repair prompt。
+
 `run-07efa6e07f0a6b14` 的回归 manifest 位于 `tests/contract_conformance/fixtures/`。旧数据库保留原状；如果旧运行没有完整 raw response，manifest 不会虚构内容。
