@@ -77,7 +77,7 @@ def proposal_schema(
             "lifecycle_ids": {"type": "array", "items": {"type": "string"}},
         },
     }
-    entity_schema["allOf"] = [
+    payload_conditions = [
         {
             "if": {"properties": {"kind": {"const": kind}}},
             "then": {"properties": {"payload": dict(schema)}},
@@ -85,6 +85,8 @@ def proposal_schema(
         for kind, schema in payload_schemas.items()
         if kind in kind_values
     ]
+    if payload_conditions:
+        entity_schema["allOf"] = payload_conditions
     relation_schema = {
         "type": "object",
         "additionalProperties": False,
