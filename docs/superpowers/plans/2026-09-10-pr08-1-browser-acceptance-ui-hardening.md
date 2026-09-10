@@ -24,4 +24,4 @@
 
 - [x] Run focused tests, the full suite, lint/import checks, compile checks, and architecture metrics.
 - [x] Confirm unrelated benchmark working-tree changes remain unstaged.
-- [ ] Commit only PR08.1 code, acceptance artifacts, and its plan/spec; do not push or merge without an explicit request.
+- [x] Commit only PR08.1 code, acceptance artifacts, and its plan/spec; do not push or merge without an explicit request.
