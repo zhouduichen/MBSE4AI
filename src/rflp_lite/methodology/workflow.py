@@ -12,7 +12,7 @@ from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.domain.model import Patch
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.completion import evaluate_completion
-from rflp_lite.methodology.contracts import ContextBundle, Phase, RunStatus, StepStatus, TaskExecutionResponse, TaskRuntime
+from rflp_lite.methodology.contracts import ContextBundle, FailureStage, Phase, RunStatus, StepStatus, TaskExecutionResponse, TaskRuntime
 from rflp_lite.methodology.coverage import CoverageGap, CoverageReport
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.gates import GateResult, gate_for_phase
@@ -39,6 +39,7 @@ class RunSummary:
     phase_results: tuple[dict[str, object], ...] = ()
     gate_results: tuple[dict[str, object], ...] = ()
     closure: dict[str, object] | None = None
+    failure_stage: FailureStage | None = None
 
 
 class LifecycleOrchestrator:
@@ -68,6 +69,21 @@ class LifecycleOrchestrator:
             phase_results.append({"phase": phase.value, "status": phase_summary.status.value, "completed_tasks": list(phase_summary.completed_tasks), "diagnostics": list(phase_summary.diagnostics)})
             completed.extend(phase_summary.completed_tasks)
             diagnostics.extend(phase_summary.diagnostics)
+            if phase_summary.failure_stage in {FailureStage.STRUCTURAL, FailureStage.COMPILER}:
+                diagnostics.append(f"{phase.value}: {phase_summary.failure_stage.value} failure; semantic repair skipped")
+                self.runner._update_run_status(identity.run_id, RunStatus.DEGRADED, tuple(diagnostics))
+                completed_phases = {item["phase"] for item in phase_results}
+                for pending in self.phases:
+                    if pending.value not in completed_phases:
+                        phase_results.append({"phase": pending.value, "status": "pending", "completed_tasks": [], "diagnostics": []})
+                phase_results.append({"phase": Phase.CLOSURE.value, "status": "blocked", "completed_tasks": [], "diagnostics": ["Structural/compiler failure must be resolved before Closure"]})
+                return RunSummary(
+                    identity.run_id, project_id, phase, RunStatus.DEGRADED,
+                    tuple(dict.fromkeys(completed)), tuple(diagnostics), "", False,
+                    tuple(phase_results), tuple(gate_snapshot),
+                    {"status": "blocked", "accepted_revision": None, "manifest": None},
+                    phase_summary.failure_stage,
+                )
             gate = self.runner.gate(project_id, phase, run_id=identity.run_id)
             gate_snapshot.append(self.runner._gate_payload(gate, phase))
             for repair_round in range(max(0, max_repair_rounds) + 1):
@@ -199,6 +215,11 @@ class WorkflowRunner:
                     if patch_trace is not None:
                         patch_trace(patch_id, provider_id=response.provider_id or self._provider_id(), model_id=response.model_id or self._model_id())
                     self._record_audit(project_id, "task.patch", {"run_id": identity.run_id, "task_id": task.id, "patch_id": patch_id, "revision": revision.sequence, "input_hash": response.input_hash, "output_hash": response.output_hash})
+                if response.failure_stage in {FailureStage.STRUCTURAL, FailureStage.COMPILER}:
+                    diagnostics.extend(response.diagnostics)
+                    self.run_repository.update_step(Step(identity.run_id, task.id, response.status.value, prior_attempt + 1, response.input_hash or context_hash, patch_id, response.diagnostics, response.output_hash, response.provider_id or self._provider_id(), response.model_id or self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
+                    self._update_run_status(identity.run_id, RunStatus.DEGRADED, tuple(diagnostics))
+                    return RunSummary(identity.run_id, project_id, phase, RunStatus.DEGRADED, tuple(sorted(completed)), tuple(diagnostics), failure_stage=response.failure_stage)
                 completion = evaluate_completion(task, self.model_repository.load_graph(project_id), response)
                 if not completion.passed:
                     response = replace(response, status=StepStatus.DEGRADED, diagnostics=tuple(response.diagnostics) + completion.issue_codes)

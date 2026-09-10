@@ -33,8 +33,8 @@ def _repair_prompt(task: RepairTask) -> str:
         "# Evidence Rules", "只引用上下文中存在的 evidence id。",
         "# Relation Rules", "只使用 RepairTask policy 中的 predicate。",
         "# Forbidden Behavior", "不得改动 unrelated entity 或扩大操作数量。",
-        "# Output Guidance", "只返回符合结构化 Patch 契约的 operations/reason。",
-        "# Self-check Before Emitting Patch", "检查 operation 数、端点、predicate、证据和锁定保护。",
+        "# Output Guidance", "只返回 TaskProposal JSON，包含 entities、relations、updates、deprecations、reason；不要返回 Patch operations。",
+        "# Self-check Before Emitting Proposal", "检查实体 kind、引用、predicate、证据和锁定保护。",
     ))
 
 
