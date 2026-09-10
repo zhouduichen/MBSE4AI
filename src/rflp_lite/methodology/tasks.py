@@ -6,6 +6,7 @@ from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.methodology.contracts import CompletionCondition, ContextQuery, FailureAction, FailureRoute, Phase, TaskSpec
 from rflp_lite.methodology.policy import PatchPolicy
+from rflp_lite.methodology.proposal_compiler import proposal_schema
 
 
 def _task(
@@ -115,15 +116,8 @@ def task_spec_hash(task: TaskSpec) -> str:
 
 
 def output_contract(task: TaskSpec) -> dict[str, object]:
-    """Return the single bounded JSON envelope accepted from a task runtime.
+    """Return the semantic TaskProposal schema accepted from a task runtime."""
 
-    The runtime intentionally accepts operations instead of a free-form
-    analysis dictionary.  This keeps the LLM useful for proposal generation
-    while leaving identity, relation typing, lock checks, and CAS semantics in
-    the domain/application layers.
-    """
-
-    kind_values = [kind.value for kind in task.output_kinds]
     payload_schemas = {
         EntityKind.REQUIREMENT.value: {
             "type": "object", "additionalProperties": False,
@@ -165,51 +159,12 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
             },
         },
     }
-    operation = {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["op"],
-        "properties": {
-            "op": {"enum": ["ADD", "UPDATE", "RELATE", "DEPRECATE"]},
-            "kind": {"enum": kind_values},
-            "name": {"type": "string", "minLength": 1},
-            "entity_id": {"type": "string"},
-            "source_id": {"type": "string"},
-            "target_id": {"type": "string"},
-            "predicate": {"type": "string"},
-            "payload": {"type": "object"},
-            "field_patch": {"type": "object"},
-            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-            "source_ids": {"type": "array", "items": {"type": "string"}},
-            "lifecycle_ids": {"type": "array", "items": {"type": "string"}},
-            "evidence_ids": {"type": "array", "items": {"type": "string"}},
-        },
-    }
-    operation["allOf"] = [
-        {
-            "if": {"required": ["op", "kind"], "properties": {"op": {"const": "ADD"}, "kind": {"const": kind}}},
-            "then": {"properties": {"payload": schema}},
-        }
-        for kind, schema in payload_schemas.items()
-        if kind in kind_values
-    ]
-    return {
-        "type": "object",
-        "schema_id": task.output_schema_id,
-        "output_kinds": kind_values,
-        "validators": list(task.validators),
-        "max_attempts": task.max_attempts,
-        "additionalProperties": False,
-        "required": ["operations"],
-        "properties": {
-            "operations": {"type": "array", "items": operation, "maxItems": 32},
-            "reason": {"type": "string", "maxLength": 300},
-        },
-        "$defs": {"payload_schemas": payload_schemas},
-        "x-payload-schemas": payload_schemas,
-        "patch_policy": {
-            "writable_kinds": [kind.value for kind in task.patch_policy.writable_kinds],
-            "writable_fields": sorted(task.patch_policy.writable_fields),
-            "allowed_predicates": [item.value for item in task.patch_policy.allowed_predicates],
-        },
-    }
+    schema = proposal_schema(
+        tuple(sorted(task.output_kinds, key=lambda kind: kind.value)),
+        task.output_schema_id,
+        payload_schemas,
+        task.patch_policy,
+    )
+    schema["validators"] = list(task.validators)
+    schema["max_attempts"] = task.max_attempts
+    return schema
