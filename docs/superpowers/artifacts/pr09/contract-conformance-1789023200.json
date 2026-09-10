@@ -1,0 +1,72 @@
+{
+  "benchmark": "pr09-contract-conformance",
+  "created_at": "2026-09-10T06:53:20Z",
+  "metrics": {
+    "domain_validation_rate": 1.0,
+    "first_pass_success_rate": 1.0,
+    "json_parse_rate": 1.0,
+    "proposal_compile_rate": 1.0,
+    "schema_pass_rate": 1.0,
+    "structural_retry_rate": 0.0
+  },
+  "mode": "fixture",
+  "model_id": "proposal-fixture",
+  "profile_id": "offline-conformance",
+  "provider_id": "offline-conformance",
+  "repetitions": 1,
+  "sample_count": 3,
+  "samples": [
+    {
+      "compiled": true,
+      "diagnostics": [
+        "provider=offline-conformance",
+        "output_hash=7fdeae30a03bbbcbcf333b1aaa39f7cffe319edbd1bb2bc9c6d18a577551d5e9"
+      ],
+      "domain_valid": true,
+      "iteration": 1,
+      "json_parsed": true,
+      "schema_passed": true,
+      "structural_retries": 0,
+      "task_id": "system_definition"
+    },
+    {
+      "compiled": true,
+      "diagnostics": [
+        "provider=offline-conformance",
+        "output_hash=7fdeae30a03bbbcbcf333b1aaa39f7cffe319edbd1bb2bc9c6d18a577551d5e9"
+      ],
+      "domain_valid": true,
+      "iteration": 1,
+      "json_parsed": true,
+      "schema_passed": true,
+      "structural_retries": 0,
+      "task_id": "stakeholder_requirements"
+    },
+    {
+      "compiled": true,
+      "diagnostics": [
+        "provider=offline-conformance",
+        "output_hash=7fdeae30a03bbbcbcf333b1aaa39f7cffe319edbd1bb2bc9c6d18a577551d5e9"
+      ],
+      "domain_valid": true,
+      "iteration": 1,
+      "json_parsed": true,
+      "schema_passed": true,
+      "structural_retries": 0,
+      "task_id": "function_identification"
+    }
+  ],
+  "sampling": {
+    "temperature": 0
+  },
+  "schema_hashes": {
+    "function_identification": "4934e94d4bc0287cc5cffc888c5676c455cd532851041321d23c9c8bc1fabf36",
+    "stakeholder_requirements": "60467a1d9ad44650ebae3c1761d18199f644fce0435c9a66f278a5fbfd2f9dd6",
+    "system_definition": "94f820949decbbf635c6a9f9ea10181c702fef4e0c6311b57175f83a0fba5ea1"
+  },
+  "tasks": [
+    "system_definition",
+    "stakeholder_requirements",
+    "function_identification"
+  ]
+}
