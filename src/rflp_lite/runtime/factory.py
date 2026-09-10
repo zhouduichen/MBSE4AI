@@ -23,6 +23,11 @@ class RuntimeSelection:
     provider_id: str
     model_id: str
     mode: str
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    temperature: float = 0.0
+    seed: int | None = None
+    structured_output_mode: str = "json_schema"
 
     @property
     def configured(self) -> bool:
@@ -45,6 +50,11 @@ class RuntimeFactory:
                 str(config.get("provider_id", "injected")) if config else "injected",
                 str(config.get("model", "injected")) if config else "injected",
                 "configured" if config else "injected",
+                _int_value(config, "context_window") if config else None,
+                _int_value(config, "max_output_tokens") if config else None,
+                _float_value(config, "temperature", 0.0) if config else 0.0,
+                _int_value(config, "seed") if config else None,
+                str(config.get("structured_output_mode", "json_schema")) if config else "json_schema",
             )
         if config:
             profile_id = str(config.get("id", "")).strip()
@@ -60,5 +70,28 @@ class RuntimeFactory:
                 provider_id or "openai-compatible",
                 model_id,
                 "configured",
+                _int_value(config, "context_window"),
+                _int_value(config, "max_output_tokens"),
+                _float_value(config, "temperature", 0.0),
+                _int_value(config, "seed"),
+                str(config.get("structured_output_mode", "json_schema")),
             )
         return RuntimeSelection(RuleRuntime(), "offline-rule", "offline", "rule-runtime", "offline")
+
+
+def _int_value(config: Mapping[str, object] | None, name: str) -> int | None:
+    if not config or config.get(name) is None or config.get(name) == "":
+        return None
+    try:
+        return int(config[name])
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_value(config: Mapping[str, object] | None, name: str, default: float) -> float:
+    if not config or config.get(name) is None or config.get(name) == "":
+        return default
+    try:
+        return float(config[name])
+    except (TypeError, ValueError):
+        return default

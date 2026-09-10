@@ -6,7 +6,13 @@ import json
 from dataclasses import replace
 
 from rflp_lite.domain.canonical import canonical_hash
-from rflp_lite.domain.errors import ContractViolation, ProposalCompileFailure, StructuredOutputFailure
+from rflp_lite.domain.errors import (
+    AdapterFailure,
+    ContractViolation,
+    ProposalCompileFailure,
+    StructuredOutputFailure,
+    TransportFailure,
+)
 from rflp_lite.domain.model import Patch
 from rflp_lite.methodology.contracts import (
     ContextBundle, FailureStage, StepStatus, TaskExecutionRequest, TaskExecutionResponse, TaskRuntime, TaskSpec,
@@ -85,10 +91,21 @@ class TaskExecutor:
         policy = retry_policy or RetryPolicy(task.max_attempts)
         diagnostics: list[str] = []
         last_response: TaskExecutionResponse | None = None
+        last_failure_stage: FailureStage | None = None
         for attempt in range(1, policy.max_attempts + 1):
             try:
                 response = self.runtime.execute(request)
                 last_response = response
+                last_failure_stage = response.failure_stage
+                if response.patch is not None and response.status is not StepStatus.COMPLETED:
+                    return replace(
+                        response,
+                        diagnostics=tuple(response.diagnostics) + (
+                            "non-completed response cannot carry a committable patch",
+                        ),
+                        input_hash=response.input_hash or input_hash,
+                        output_hash=response.output_hash or canonical_hash(response.patch),
+                    )
                 if response.status is StepStatus.COMPLETED:
                     return replace(
                         response,
@@ -106,6 +123,7 @@ class TaskExecutor:
                     )
             except Exception as exc:
                 stage = _failure_stage(exc)
+                last_failure_stage = stage
                 diagnostics.append(_diagnostic(exc, attempt))
                 if stage in {FailureStage.STRUCTURAL, FailureStage.COMPILER}:
                     return TaskExecutionResponse(
@@ -116,6 +134,8 @@ class TaskExecutor:
                         provider_id=str(getattr(exc, "provider_id", "")),
                         model_id=str(getattr(exc, "model_id", "")),
                         failure_stage=stage,
+                        finish_reason=str(getattr(exc, "finish_reason", "")),
+                        usage=getattr(exc, "usage", {}),
                     )
         return TaskExecutionResponse(
             StepStatus.DEGRADED,
@@ -124,6 +144,7 @@ class TaskExecutor:
             output_hash=canonical_hash(last_response.patch if last_response else diagnostics),
             provider_id=last_response.provider_id if last_response else "",
             model_id=last_response.model_id if last_response else "",
+            failure_stage=(last_response.failure_stage or last_failure_stage) if last_response else last_failure_stage,
         )
 
     def validate_response(self, project_id, task, graph, context, response) -> None:
@@ -149,6 +170,8 @@ def _failure_stage(exc: Exception) -> FailureStage | None:
         return FailureStage.STRUCTURAL
     if isinstance(exc, ProposalCompileFailure):
         return FailureStage.COMPILER
+    if isinstance(exc, (TransportFailure, AdapterFailure)):
+        return FailureStage.TRANSPORT
     return None
 
 
@@ -157,18 +180,29 @@ def _diagnostic(exc: Exception, attempt: int) -> str:
         "attempt": attempt,
         "message": str(exc),
     }
-    if isinstance(exc, (StructuredOutputFailure, ProposalCompileFailure)):
+    if isinstance(exc, (StructuredOutputFailure, ProposalCompileFailure, TransportFailure)):
         payload.update({
             "stage": exc.stage,
             "code": exc.code,
         })
-    if isinstance(exc, StructuredOutputFailure):
+    if isinstance(exc, (StructuredOutputFailure, ProposalCompileFailure, TransportFailure)):
         payload.update({
-            "raw_response": exc.raw_response,
-            "initial_raw_response": exc.initial_raw_response,
+            **_response_evidence("raw_response", exc.raw_response),
+            **_response_evidence("initial_raw_response", exc.initial_raw_response),
             "schema_hash": exc.schema_hash,
             "retry_count": exc.retry_count,
             "provider_id": exc.provider_id,
             "model_id": exc.model_id,
+            "finish_reason": getattr(exc, "finish_reason", ""),
+            "usage": getattr(exc, "usage", {}),
         })
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _response_evidence(prefix: str, value: object, *, excerpt_limit: int = 2000) -> dict[str, object]:
+    text = str(value or "")
+    return {
+        f"{prefix}_excerpt": text[:excerpt_limit],
+        f"{prefix}_hash": canonical_hash(text),
+        f"{prefix}_size": len(text),
+    }

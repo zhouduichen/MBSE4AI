@@ -39,7 +39,7 @@ def test_proposal_compiles_without_model_owned_patch_fields():
     request = make_request(output_kinds=(EntityKind.REQUIREMENT,))
     proposal = {
         "entities": [{
-            "ref": "e1", "kind": "requirement", "name": "系统应完成投递",
+            "local_ref": "e1", "kind": "requirement", "name": "系统应完成投递",
             "payload": {"obligation": "shall"}, "confidence": 0.9,
             "source_ids": [], "evidence_ids": [], "lifecycle_ids": [],
         }],
@@ -122,7 +122,7 @@ Keep the existing payload schemas and policy metadata, but make the provider-fac
 }
 ```
 
-Entity `kind` and `name` remain required semantic fields; `op`, `patch_id`, `project_id`, `status`, `producer`, `revision`, `source_id`, and `target_id` operation fields are absent from the LLM schema.
+Entity `name` remains required; `kind` is required only when a Task allows multiple output kinds and is compiler-injected for singleton output tasks. `op`, `patch_id`, `project_id`, `status`, `producer`, `revision`, `source_id`, and `target_id` operation fields are absent from the LLM schema.
 
 - [ ] **Step 5: Run compiler tests and commit**
 
@@ -154,7 +154,7 @@ git commit -m "feat(pr09): add task proposal compiler"
 ```python
 def test_structured_runtime_compiles_proposal_not_operations():
     model = FakeModel({
-        "entities": [{"ref": "e1", "kind": "function", "name": "执行投递", "payload": {}}],
+        "entities": [{"local_ref": "e1", "kind": "function", "name": "执行投递", "payload": {}}],
         "relations": [], "updates": [], "deprecations": [], "reason": "识别功能",
     })
     response = StructuredModelRuntime(model).execute(make_function_request())
@@ -342,7 +342,7 @@ git commit -m "fix(pr09): isolate structural failures from semantic repair"
 
 **Interfaces:**
 - Consumes: `task_catalog()`, `TaskExecutor`, `output_contract()`, Proposal Compiler, validators, and a configured runtime。
-- Produces: `run_conformance(repetitions: int = 20, live: bool = False) -> dict[str, object]` and JSON output with six metrics plus per-sample ledger。
+- Produces: `run_conformance(repetitions: int = 20, live: bool = False) -> dict[str, object]` and JSON output with funnel metrics plus per-sample ledger。
 
 - [ ] **Step 1: Write deterministic metric tests**
 
@@ -375,7 +375,7 @@ Implement `SampleResult`, `summarize(samples)`, and `run_conformance(repetitions
 
 The regression fixture must record `run-07efa6e07f0a6b14`, its DB path, model/provider, known failure messages, and expected post-PR09 isolation behavior. It must not claim raw response content that is absent from the old run record.
 
-- [ ] **Step 4: Run unit tests and one explicit local conformance smoke test**
+- [x] **Step 4: Run unit tests and one explicit local conformance smoke test**
 
 Run:
 
@@ -384,9 +384,9 @@ Run:
 ./.venv/bin/python -m tests.contract_conformance.runner --repetitions 1
 ```
 
-Expected: all tests PASS; the smoke command writes a JSON result containing all six metric keys without contacting Ollama unless `RFLP_RUN_LIVE_LLM=1` is explicitly set.
+Expected: all tests PASS; the smoke command writes a JSON result containing the full funnel metric set without contacting Ollama unless `RFLP_RUN_LIVE_LLM=1` is explicitly set.
 
-- [ ] **Step 5: Run the live 20×3 contract benchmark and record results**
+- [x] **Step 5: Run the live 20×3 contract benchmark and record results**
 
 Run only after Tasks 1–4 pass:
 
@@ -394,27 +394,24 @@ Run only after Tasks 1–4 pass:
 RFLP_RUN_LIVE_LLM=1 ./.venv/bin/python -m tests.contract_conformance.runner --repetitions 20 --live
 ```
 
-Expected: one auditable result file with 60 samples, the configured `ollama/qwen3.5:9b-q8_0` metadata, structural retry counts, and the six metrics. Do not run the 23-task lifecycle in this step.
+Result: [`contract-conformance-1789049206566817000.json`](../../artifacts/pr09/contract-conformance-1789049206566817000.json) contains 60 samples and the configured `ollama/qwen3.5:9b-q8_0` metadata. Provider success is 60/60; JSON/schema/compile/domain are 58/60; two structural retries were not recovered. Do not run the 23-task lifecycle in this step.
 
-- [ ] **Step 6: Run final regression checks and commit**
+- [x] **Step 6: Run final regression checks (without committing)**
 
 Run: `./.venv/bin/pytest tests -q`
 
 Expected: PASS without staging or modifying `tests/mbse_benchmark/` user changes.
 
-```bash
-git add tests/contract_conformance docs/superpowers/artifacts/pr09
-git commit -m "test(pr09): add structured output conformance benchmark"
-```
+本次未执行 commit；保留当前工作树，包含用户已有的 benchmark 改动。
 
 ## Final acceptance checklist
 
-- [ ] `TaskProposal` is the only LLM task output protocol.
-- [ ] Canonical Patch metadata and operation discriminants are Harness-owned.
-- [ ] Ollama native request contains the provider-level `format` schema.
-- [ ] Structural retry is bounded and classified; raw failure evidence is retained.
-- [ ] Structural/compiler failure never calls semantic repair and reaches degraded terminal state.
-- [ ] Three-task, 20-repetition conformance output contains all six metrics.
-- [ ] `run-07efa6e07f0a6b14` remains available as regression evidence.
-- [ ] Full 23-task lifecycle remains not accepted until the conformance gate passes.
-- [ ] Existing PR08/UI files and unrelated benchmark working-tree changes remain untouched.
+- [x] `TaskProposal` is the only LLM task output protocol.
+- [x] Canonical Patch metadata and operation discriminants are Harness-owned.
+- [x] Ollama native request contains the provider-level `format` schema.
+- [x] Structural retry is bounded and classified; raw failure evidence is retained with excerpt/hash/size bounds.
+- [x] Structural/compiler failure never calls semantic repair and reaches degraded terminal state.
+- [x] Three-task, 20-repetition conformance output contains the full funnel metric set.
+- [x] `run-07efa6e07f0a6b14` remains available as regression evidence.
+- [x] Full 23-task lifecycle remains not accepted until the conformance gate passes.
+- [x] Existing PR08/UI files and unrelated benchmark working-tree changes remain untouched.

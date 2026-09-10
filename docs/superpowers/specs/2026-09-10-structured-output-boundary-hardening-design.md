@@ -65,7 +65,7 @@ LLM 的顶层输出改为 `TaskProposal`，只表达当前 Task 的工程语义�
 {
   "entities": [
     {
-      "ref": "e1",
+      "local_ref": "e1",
       "kind": "requirement",
       "name": "系统应在任务窗口内完成投递",
       "payload": {
@@ -115,7 +115,7 @@ Compiler 确定性生成：
 - `AddEntity`、`UpdateEntity`、`Relate`、`Deprecate` operation 类型。
 - Patch ID、Task ID、`project_id`、`expected_revision`/base revision。
 - `Producer.LLM`、默认 `EntityStatus.CANDIDATE`、创建/更新时间和当前 revision。
-- 实体 ID 的 canonical 生成与 proposal `ref → entity_id` 映射。
+- 实体 ID 的 canonical 生成与 proposal `local_ref → entity_id` 映射。
 - operation 顺序、最大 operation 数、允许写入范围和 predicate policy。
 
 模型返回旧的 `operations` Patch envelope 不再走兼容编译路径；它应在 proposal schema 阶段被拒绝，避免继续依赖“补一个 `kind`”的脆弱修复。
@@ -128,7 +128,7 @@ Compiler 确定性生成：
 
 1. 使用当前 Task 的 proposal schema 做 JSON Schema 校验。
 2. 解析为类型化的 `TaskProposal`，拒绝未知字段、未知 entity kind、非法 confidence 和不完整引用。
-3. 先根据 kind/name/source/lifecycle 生成新增实体的 canonical ID，再建立 `ref → ID` 表。
+3. 先根据 kind/name/source/lifecycle 生成新增实体的 canonical ID，再建立 `local_ref → ID` 表。
 4. 将关系引用解析为新增实体 ID 或当前上下文中的既有实体 ID；未知引用直接报告 compiler failure。
 5. 根据当前 `PatchPolicy` 检查 writable kinds、fields、predicates、scope 和 operation 上限。
 6. 由 Harness 构造领域 Patch；不接受 proposal 中的内部 Patch 元数据。
@@ -163,7 +163,7 @@ TaskExecutor 不得对 structural failure 再做一次完整 Task retry，避免
 
 ### 5.2 编译与领域阶段
 
-Proposal schema 通过后，compiler failure 使用独立的 `stage=compiler`；例如未知 ref、超出 policy、关系端点类型不允许。它也不得进入 MBSE semantic repair。
+Proposal schema 通过后，compiler failure 使用独立的 `stage=compiler`；例如未知 `local_ref`、超出 policy、关系端点类型不允许。它也不得进入 MBSE semantic repair。
 
 只有 proposal 已经成功编译成 Patch、且领域 validators 报告真实的业务语义问题时，才允许进入现有的 semantic repair。semantic repair 仍然通过 Task/RepairStrategy 产生新的 `TaskProposal`，而不是绕过边界直接产生任意 Patch。
 
@@ -202,7 +202,7 @@ Ollama 继续使用当前 `qwen3.5:9b-q8_0` 做 PR09 压力测试。对于 local
 - run/sample/task id
 - provider、model、sampling 参数
 - prompt hash、canonical schema hash
-- raw response 或有界的失败原文
+- raw response 的 excerpt/hash/size 失败证据；不持久化完整 credential/header 配置
 - JSON parse、schema、compile、domain validation 结果
 - structural retry 次数
 - diagnostics/repair ledger
@@ -211,12 +211,18 @@ Ollama 继续使用当前 `qwen3.5:9b-q8_0` 做 PR09 压力测试。对于 local
 
 | 指标 | 定义 |
 | --- | --- |
+| `provider_success_rate` | provider 请求完成且未发生 transport failure 的样本比例 |
 | `json_parse_rate` | raw response 可被 JSON decoder 解析的样本比例 |
 | `schema_pass_rate` | 通过 TaskProposal canonical schema 的样本比例 |
 | `proposal_compile_rate` | 成功编译为 canonical Patch 的样本比例 |
 | `domain_validation_rate` | Patch 通过领域 validators 的样本比例 |
 | `first_pass_success_rate` | 无 structural retry 且前述阶段全部成功的比例 |
 | `structural_retry_rate` | 至少触发一次 structural retry 的样本比例 |
+| `retry_recovery_rate` | 触发 structural retry 的样本中最终恢复成功的比例 |
+| `semantic_rejection_rate` | 已编译样本中被 `semantic_invalid` 拒绝的比例 |
+| `blocked_count` | 因前置非语义失败而未执行的样本数；不计入后续执行漏斗 |
+| `mean_output_tokens` | 每样本 provider 输出 token 数的均值 |
+| `mean_latency_ms` | 每样本端到端耗时毫秒数的均值 |
 
 只有结构层接近 100%，且 compiler/domain 指标稳定后，才重新执行 23 Task 完整生命周期。该 benchmark 不改变 Track A 分数，只回答“结构化输出边界是否可靠”。
 
@@ -236,16 +242,16 @@ Ollama 继续使用当前 `qwen3.5:9b-q8_0` 做 PR09 压力测试。对于 local
 
 ### 单元与集成测试
 
-1. proposal schema 要求 entity `kind`，但不接受顶层 `operations` Patch envelope。
+1. proposal schema 对多输出类型 Task 要求 entity `kind`，单一输出类型 Task 由 compiler 注入；同时不接受顶层 `operations` Patch envelope。
 2. 合法 proposal 能编译出正确的 `AddEntity`/`Relate`/`UpdateEntity`/`Deprecate`。
 3. Patch 的 producer、status、project、revision、operation discriminant 和 ID 不受模型字段覆盖。
-4. 新增实体 ref、既有实体 ID、未知 ref 的解析行为确定且有测试。
+4. 新增实体 `local_ref`、既有实体 ID、未知 `local_ref` 的解析行为确定且有测试。
 5. policy、scope、endpoint 和 operation limit 违规在 compiler/validator 阶段被拒绝。
 6. Ollama 请求真实携带 proposal schema `format`。
 7. 非法 JSON 或 schema invalid 最多发生配置上限内的 structural retry，且不会调用 semantic repair。
 8. structural/compiler failure 的 run 可结束为 degraded，不会长期停留在 `repairing`。
 9. diagnostics 包含 raw response、failure code、schema hash、retry count 和模型元数据。
-10. conformance runner 能产出六项指标及逐样本 ledger。
+10. conformance runner 能产出完整 funnel 指标及逐样本 ledger。
 
 ### PR09 通过条件
 

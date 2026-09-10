@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import asdict, is_dataclass
 from enum import Enum
+import json
 from pathlib import Path
 from typing import Mapping
 
@@ -268,6 +269,48 @@ def _task_label(value: object) -> str:
     return _label(_TASK_LABELS, value, "分析任务")
 
 
+def _diagnostic_details(values: object) -> list[dict[str, object]]:
+    details: list[dict[str, object]] = []
+    if not isinstance(values, (tuple, list)):
+        return details
+    for value in values:
+        try:
+            item = json.loads(str(value))
+        except (TypeError, ValueError):
+            continue
+        if isinstance(item, dict) and item.get("stage"):
+            details.append(item)
+    return details
+
+
+def _diagnostic_display(values: object) -> list[str]:
+    if not isinstance(values, (tuple, list)):
+        return []
+    result: list[str] = []
+    stage_labels = {
+        "structural": "结构化输出",
+        "compiler": "Proposal 编译",
+        "semantic": "MBSE 语义",
+        "transport": "模型传输",
+    }
+    for value in values:
+        text = str(value)
+        try:
+            item = json.loads(text)
+        except (TypeError, ValueError):
+            result.append(text)
+            continue
+        if not isinstance(item, Mapping) or not item.get("stage"):
+            result.append(text)
+            continue
+        stage = stage_labels.get(str(item.get("stage")), str(item.get("stage")))
+        code = str(item.get("code", "failure"))
+        size = item.get("raw_response_size")
+        suffix = f" · raw {size} 字符" if isinstance(size, int) else ""
+        result.append(f"{stage} · {code}{suffix}")
+    return result
+
+
 def _display_name(value: object, default: str = "未命名元素") -> str:
     name = str(value or default)
     task_name = name.removesuffix(" 候选")
@@ -362,6 +405,11 @@ def _normalize_run(raw: object) -> dict[str, object] | None:
             continue
         step["task_label"] = _task_label(step.get("task_id"))
         step["status_label"] = _status_label(step.get("status"))
+        details = _diagnostic_details(step.get("diagnostics", ()))
+        if details:
+            step["diagnostic_details"] = details
+            step["failure_stage"] = str(details[0].get("stage", ""))
+            step["failure_code"] = str(details[0].get("code", ""))
         steps.append(step)
     normalized["steps"] = steps
     return normalized
@@ -534,7 +582,19 @@ def _current_task(services, project_id: str, graph: ModelGraph, run: Mapping[str
     except Exception:
         pass
     step_status = str(step.get("status", "queued")) if step else "queued"
-    diagnostics = [str(item) for item in (step.get("diagnostics", ()) if step else ())]
+    raw_diagnostics = [str(item) for item in (step.get("diagnostics", ()) if step else ())]
+    diagnostics = _diagnostic_display(raw_diagnostics)
+    diagnostic_details = _diagnostic_details(raw_diagnostics)
+    failure_stage = str(
+        step.get("failure_stage", "") if step else ""
+    ) or str(
+        diagnostic_details[0].get("stage", "") if diagnostic_details else ""
+    )
+    failure_code = str(
+        step.get("failure_code", "") if step else ""
+    ) or str(
+        diagnostic_details[0].get("code", "") if diagnostic_details else ""
+    )
     if step_status == "completed":
         validation = "已通过"
     elif diagnostics:
@@ -563,6 +623,15 @@ def _current_task(services, project_id: str, graph: ModelGraph, run: Mapping[str
         "patch_id": patch_id,
         "validation": validation,
         "diagnostics": diagnostics,
+        "failure_stage": failure_stage,
+        "failure_stage_label": {
+            "structural": "结构化输出",
+            "compiler": "Proposal 编译",
+            "semantic": "MBSE 语义",
+            "transport": "模型传输",
+        }.get(failure_stage, ""),
+        "failure_code": failure_code,
+        "diagnostic_details": diagnostic_details,
     }
 
 

@@ -2,7 +2,7 @@ import pytest
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.errors import ContractViolation
-from rflp_lite.domain.model import AddEntity, Patch
+from rflp_lite.domain.model import AddEntity, Patch, Relate
 from rflp_lite.methodology.contracts import ContextBundle, TaskExecutionRequest
 from rflp_lite.methodology.proposal_compiler import compile_task_proposal, proposal_schema
 from rflp_lite.methodology.tasks import output_contract, task_catalog
@@ -31,7 +31,7 @@ def _request(output_kind: EntityKind = EntityKind.REQUIREMENT) -> TaskExecutionR
 def _proposal(**overrides):
     payload = {
         "entities": [{
-            "ref": "e1",
+            "local_ref": "e1",
             "kind": "requirement",
             "name": "系统应完成投递",
             "payload": {"obligation": "shall"},
@@ -59,6 +59,19 @@ def test_proposal_schema_requires_semantic_fields_without_patch_operations():
     assert schema["required"] == ["entities", "relations", "updates", "deprecations", "reason"]
     assert "operations" not in schema["properties"]
     assert "op" not in schema["properties"]["entities"]["items"]["properties"]
+    assert "local_ref" in schema["properties"]["entities"]["items"]["properties"]
+    assert "ref" not in schema["properties"]["entities"]["items"]["properties"]
+    field_patch = schema["properties"]["updates"]["items"]["properties"]["field_patch"]
+    assert field_patch["additionalProperties"] is False
+    assert "kind" not in field_patch["properties"]
+
+
+def test_singleton_payload_schema_is_enforced_at_the_structural_boundary():
+    task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
+    payload_schema = output_contract(task)["properties"]["entities"]["items"]["properties"]["payload"]
+
+    assert payload_schema["additionalProperties"] is False
+    assert "obligation" in payload_schema["properties"]
 
 
 def test_proposal_compiles_without_model_owned_patch_fields():
@@ -79,11 +92,91 @@ def test_old_patch_envelope_is_not_a_task_proposal():
         compile_task_proposal(_request(), {"operations": [{"op": "ADD", "kind": "requirement"}]})
 
 
-def test_missing_kind_is_rejected_at_proposal_schema_boundary():
+def test_singleton_task_injects_kind_when_model_omits_it():
     payload = _proposal()
     del payload["entities"][0]["kind"]
+    patch = compile_task_proposal(_request(), payload)
+
+    assert patch is not None
+    assert patch.operations[0].entity.kind is EntityKind.REQUIREMENT
+
+
+def test_multi_kind_task_requires_kind():
+    task = next(item for item in task_catalog() if len(item.output_kinds) > 1)
+    contract = output_contract(task)
+    context = ContextBundle("p1", task.id, 3, (make_entity(EntityKind.SYSTEM, "系统"),))
+    request = TaskExecutionRequest(task.id, "v2.1", context, (), contract, 100, patch_policy=task.patch_policy)
+    payload = _proposal()
+    payload["entities"][0].pop("kind")
     with pytest.raises(ContractViolation, match="schema"):
-        compile_task_proposal(_request(), payload)
+        compile_task_proposal(request, payload)
+
+
+def test_local_ref_resolves_relation_to_entity_created_in_same_proposal():
+    task = next(item for item in task_catalog() if item.id == "function_identification")
+    requirement = make_entity(EntityKind.REQUIREMENT, "系统应完成投递", {"obligation": "shall"})
+    context = ContextBundle("p1", task.id, 3, (requirement,))
+    request = TaskExecutionRequest(
+        task.id, "v2.1", context, (), output_contract(task), 100,
+        patch_policy=task.patch_policy,
+    )
+    payload = {
+        "entities": [{
+            "local_ref": "new:function:1",
+            "name": "规划配送路径",
+            "payload": {"description": "根据需求规划路径"},
+        }],
+        "relations": [], "updates": [], "deprecations": [], "reason": "识别功能",
+    }
+    payload["relations"] = [{
+        "source_ref": requirement.id,
+        "predicate": "satisfiedBy",
+        "target_ref": "new:function:1",
+        "evidence_ids": [],
+    }]
+
+    patch = compile_task_proposal(request, payload)
+
+    assert patch is not None
+    assert isinstance(patch.operations[0], AddEntity)
+    assert isinstance(patch.operations[1], Relate)
+    assert patch.operations[1].source_id == requirement.id
+    assert patch.operations[1].target_id == patch.operations[0].entity.id
+
+
+def test_local_ref_mapping_is_scoped_to_one_proposal():
+    task = next(item for item in task_catalog() if item.id == "function_identification")
+    requirement = make_entity(EntityKind.REQUIREMENT, "系统应完成投递", {"obligation": "shall"})
+    context = ContextBundle("p1", task.id, 3, (requirement,))
+    request = TaskExecutionRequest(
+        task.id, "v2.1", context, (), output_contract(task), 100,
+        patch_policy=task.patch_policy,
+    )
+    payload = {
+        "entities": [],
+        "relations": [{
+            "source_ref": requirement.id,
+            "predicate": "satisfiedBy",
+            "target_ref": "new:function:1",
+            "evidence_ids": [],
+        }],
+        "updates": [], "deprecations": [], "reason": "跨任务引用不应被接受",
+    }
+
+    with pytest.raises(ContractViolation, match="unknown"):
+        compile_task_proposal(request, payload)
+
+
+def test_same_proposal_compiles_to_the_same_patch_deterministically():
+    request = _request()
+    payload = _proposal()
+
+    first = compile_task_proposal(request, payload)
+    second = compile_task_proposal(request, payload)
+
+    assert first == second
+    assert first is not None
+    assert first.id == second.id
 
 
 def test_unknown_proposal_ref_is_rejected_before_patch_creation():
@@ -97,3 +190,14 @@ def test_unknown_proposal_ref_is_rejected_before_patch_creation():
     with pytest.raises(ContractViolation, match="reference"):
         compile_task_proposal(_request(), payload)
 
+
+def test_patch_like_update_fields_are_rejected_by_proposal_schema():
+    request = _request()
+    payload = _proposal(entities=[])
+    payload["updates"] = [{
+        "entity_id": request.context_bundle.entities[0].id,
+        "field_patch": {"kind": "system", "value": "not-an-entity-update"},
+    }]
+
+    with pytest.raises(ContractViolation, match="schema"):
+        compile_task_proposal(request, payload)

@@ -26,7 +26,7 @@
 不得编造产品、部件、供应商、型号、数值或隐藏的不确定性。
 
 # Output Guidance
-仅通过结构化输出表达系统定义变更；保持 Patch 小而可审计。
+只返回 TaskProposal；本 Task 只新增 system 语义和必要关系，`updates` 与 `deprecations` 必须为空数组。不要输出 Patch、operation、kind/value/path 更新 DSL。
 
 # Self-check Before Emitting Patch
 检查每条陈述是否属于问题空间、是否有来源、是否把方案误写成系统边界。

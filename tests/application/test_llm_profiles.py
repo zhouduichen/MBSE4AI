@@ -95,3 +95,29 @@ def test_ollama_remote_profile_can_be_tested_without_api_key(tmp_path: Path, mon
     result = service.test(payload, tester=lambda config: {"provider": config["provider"]})
 
     assert result == {"provider": "ollama"}
+
+
+def test_llm_profile_preserves_local_generation_controls(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("rflp_lite.application.llm_profiles._keyring", lambda: None)
+    service = LLMProfileService(tmp_path / "config")
+
+    saved = service.save({
+        "id": "ollama-controls",
+        "kind": "local",
+        "provider": "ollama",
+        "base_url": "http://127.0.0.1:11434/v1",
+        "model": "qwen3.5:9b-q8_0",
+        "local_context_tokens": 8192,
+        "local_max_tokens": 2048,
+        "temperature": 0,
+        "seed": 42,
+        "structured_output_mode": "json_schema",
+    })
+
+    assert saved["context_window"] == 8192
+    assert saved["max_output_tokens"] == 2048
+    assert saved["local_context_tokens"] == 8192
+    assert saved["local_max_tokens"] == 2048
+    assert saved["temperature"] == 0.0
+    assert saved["seed"] == 42
+    assert saved["structured_output_mode"] == "json_schema"

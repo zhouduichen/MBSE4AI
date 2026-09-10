@@ -3,16 +3,23 @@ from __future__ import annotations
 import json
 from urllib import error, request
 from urllib.parse import urlparse
+from typing import Mapping
 
-from rflp_lite.domain.errors import AdapterFailure
+from rflp_lite.domain.errors import AdapterFailure, TransportFailure
 
 
 class _CompletionText(str):
     """Text response carrying the provider's completion stop reason."""
 
-    def __new__(cls, value: str, done_reason: str = ""):
+    def __new__(
+        cls,
+        value: str,
+        done_reason: str = "",
+        usage: Mapping[str, object] | None = None,
+    ):
         result = str.__new__(cls, value)
         result.done_reason = done_reason
+        result.usage = dict(usage or {})
         return result
 
 
@@ -71,6 +78,23 @@ def _done_reason(envelope: object) -> str:
     return ""
 
 
+def _usage(envelope: object) -> Mapping[str, object]:
+    if not isinstance(envelope, dict):
+        return {}
+    value = envelope.get("usage")
+    if isinstance(value, dict):
+        return {str(key): item for key, item in value.items()}
+    native_keys = (
+        "prompt_eval_count", "eval_count", "total_duration",
+        "load_duration", "prompt_eval_duration", "eval_duration",
+    )
+    return {
+        key: envelope[key]
+        for key in native_keys
+        if key in envelope
+    }
+
+
 def _provider_error_message(value: object) -> str:
     if isinstance(value, str):
         try:
@@ -108,19 +132,36 @@ def _native_ollama_endpoint(base_url: object) -> str:
 def _bounded_max_tokens(
     config: dict[str, object], max_tokens: int | None
 ) -> int | None:
-    """Apply a local profile cap without increasing the caller's budget."""
+    """Apply a profile cap without increasing the caller's request budget."""
 
-    if str(config.get("kind", "")).casefold() != "local":
-        return max_tokens
+    configured = config.get("max_output_tokens", config.get("local_max_tokens", 0))
     try:
-        local_cap = int(config.get("local_max_tokens", 0))
+        cap = int(configured or 0)
     except (TypeError, ValueError):
-        return max_tokens
-    if local_cap <= 0:
+        cap = 0
+    if cap <= 0:
         return max_tokens
     if max_tokens is None:
-        return local_cap
-    return min(max_tokens, local_cap)
+        return cap
+    return min(max_tokens, cap)
+
+
+def _sampling_value(config: dict[str, object], name: str, default: float) -> float:
+    try:
+        value = float(config.get(name, default))
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0 else default
+
+
+def _seed_value(config: dict[str, object]) -> int | None:
+    try:
+        value = config.get("seed")
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *, max_tokens: int | None = None) -> str:
@@ -132,16 +173,21 @@ def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *
             "messages": messages,
             "stream": False,
             "think": False,
-            "options": {"temperature": 0},
+            "options": {"temperature": _sampling_value(config, "temperature", 0.0)},
         }
         if max_tokens is not None:
             body["options"]["num_predict"] = max_tokens  # type: ignore[index]
         try:
-            local_context_tokens = int(config.get("local_context_tokens", 0))
+            local_context_tokens = int(
+                config.get("context_window", config.get("local_context_tokens", 0)) or 0
+            )
         except (TypeError, ValueError):
             local_context_tokens = 0
         if local_context_tokens > 0:
             body["options"]["num_ctx"] = local_context_tokens  # type: ignore[index]
+        seed = _seed_value(config)
+        if seed is not None:
+            body["options"]["seed"] = seed  # type: ignore[index]
         response_format = config.get("response_format")
         schema = config.get("json_schema")
         if isinstance(schema, dict):
@@ -153,11 +199,14 @@ def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *
     else:
         body = {
             "model": config["model"],
-            "temperature": 0,
+            "temperature": _sampling_value(config, "temperature", 0.0),
             "messages": messages,
         }
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
+        seed = _seed_value(config)
+        if seed is not None:
+            body["seed"] = seed
         response_format = config.get("response_format")
         if isinstance(response_format, dict):
             body["response_format"] = response_format
@@ -192,12 +241,26 @@ def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             detail = ""
         suffix = f": {detail}" if detail else ""
-        raise AdapterFailure(f"LLM 请求失败: HTTP {exc.code}{suffix}") from exc
+        raise TransportFailure(
+            f"LLM 请求失败: HTTP {exc.code}{suffix}",
+            code="http_error",
+            provider_id=str(config.get("provider", "")),
+            model_id=str(config.get("model", "")),
+        ) from exc
     except (error.URLError, TimeoutError, OSError) as exc:
-        raise AdapterFailure(f"LLM 请求失败: {type(exc).__name__}") from exc
+        raise TransportFailure(
+            f"LLM 请求失败: {type(exc).__name__}",
+            code="network_error",
+            provider_id=str(config.get("provider", "")),
+            model_id=str(config.get("model", "")),
+        ) from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise AdapterFailure("LLM 返回不是有效 JSON") from exc
-    return _CompletionText(_message_content(envelope), _done_reason(envelope))
+    return _CompletionText(
+        _message_content(envelope),
+        _done_reason(envelope),
+        _usage(envelope),
+    )
 
 
 def test_connection(config: dict[str, object]) -> dict[str, object]:

@@ -60,6 +60,40 @@ def test_adapter_parses_json_and_records_hashes():
     assert calls[0][2] == 1200
 
 
+def test_adapter_preserves_finish_reason_and_usage():
+    class CompletedText(str):
+        done_reason = "stop"
+        usage = {"prompt_tokens": 4, "completion_tokens": 3}
+
+    result = OpenAICompatibleModel(
+        {"model": "local"},
+        complete=lambda *_args, **_kwargs: CompletedText('{"items": []}'),
+    ).complete_json(request())
+
+    assert result.finish_reason == "stop"
+    assert result.usage == {"prompt_tokens": 4, "completion_tokens": 3}
+
+
+def test_adapter_reports_final_finish_reason_and_usage_after_repair():
+    class InitialText(str):
+        done_reason = "length"
+        usage = {"completion_tokens": 1200}
+
+    class RepairedText(str):
+        done_reason = "stop"
+        usage = {"completion_tokens": 5}
+
+    answers = iter((InitialText('{"items": ['), RepairedText('{"items": []}')))
+    result = OpenAICompatibleModel(
+        {"kind": "local", "model": "qwen"},
+        complete=lambda *_args, **_kwargs: next(answers),
+    ).complete_json(request())
+
+    assert result.repaired is True
+    assert result.finish_reason == "stop"
+    assert result.usage == {"completion_tokens": 5}
+
+
 def test_adapter_adds_simplified_chinese_instruction_to_initial_prompt():
     calls = []
 
@@ -161,6 +195,44 @@ def test_ollama_receives_task_proposal_schema_as_format():
     ).complete_json(proposal)
 
     assert captured["config"]["json_schema"]["required"] == proposal.response_schema["required"]
+
+
+def test_structured_output_mode_none_disables_native_provider_constraint():
+    captured = {}
+
+    def complete(config, _messages, *, max_tokens=None):
+        captured["config"] = config
+        return '{"items": []}'
+
+    OpenAICompatibleModel(
+        {
+            "kind": "local",
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3.5:9b",
+            "structured_output_mode": "none",
+        },
+        complete=complete,
+    ).complete_json(request())
+
+    assert "json_schema" not in captured["config"]
+
+
+def test_openai_compatible_receives_structured_response_format():
+    captured = {}
+    proposal = request()
+
+    def complete(config, _messages, *, max_tokens=None):
+        captured["config"] = config
+        return '{"items": []}'
+
+    OpenAICompatibleModel(
+        {"model": "remote", "structured_output_mode": "json_schema"},
+        complete=complete,
+    ).complete_json(proposal)
+
+    assert captured["config"]["response_format"]["type"] == "json_schema"
+    assert captured["config"]["response_format"]["json_schema"]["schema"] == proposal.response_schema
 
 
 def test_ollama_transport_schema_removes_only_grammar_incompatible_length_limit():

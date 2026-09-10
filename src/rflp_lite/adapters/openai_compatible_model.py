@@ -12,7 +12,7 @@ from rflp_lite.adapters.llm_client import (
     chat_completion,
 )
 from rflp_lite.domain.canonical import canonical_hash
-from rflp_lite.domain.errors import AdapterFailure, StructuredOutputFailure
+from rflp_lite.domain.errors import AdapterFailure, StructuredOutputFailure, TransportFailure
 from rflp_lite.ports.generative_model import (
     GenerationRequest,
     GenerationResponse,
@@ -130,7 +130,13 @@ class OpenAICompatibleModel:
         if str(getattr(raw, "done_reason", "")).casefold() not in {"length", "max_tokens"}:
             return max_tokens
         try:
-            local_cap = int(self._config.get("local_max_tokens", 0))
+            local_cap = int(
+                self._config.get(
+                    "max_output_tokens",
+                    self._config.get("local_max_tokens", 0),
+                )
+                or 0
+            )
         except (TypeError, ValueError):
             local_cap = 0
         expanded = max_tokens * 2
@@ -184,19 +190,41 @@ class OpenAICompatibleModel:
             },
         ]
         call_config = dict(self._config)
-        if str(call_config.get("kind", "")).casefold() == "local":
-            call_config["json_schema"] = (
-                _ollama_transport_schema(request.response_schema)
-                if native_ollama
-                else request.response_schema
+        structured_output_mode = str(
+            call_config.get("structured_output_mode", "json_schema")
+        ).casefold()
+        if native_ollama:
+            if structured_output_mode != "none":
+                call_config["json_schema"] = (
+                    _ollama_transport_schema(request.response_schema)
+                )
+        elif str(call_config.get("kind", "")).casefold() == "local":
+            call_config["json_schema"] = request.response_schema
+        elif str(call_config.get("structured_output_mode", "json_schema")).casefold() != "none":
+            call_config.setdefault(
+                "response_format",
+                {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": request.lens_id.replace("-", "_"),
+                        "strict": True,
+                        "schema": request.response_schema,
+                    },
+                },
             )
         try:
             raw = self._complete(call_config, messages, max_tokens=max_tokens)
         except Exception as exc:
             if isinstance(exc, AdapterFailure):
                 raise
-            raise AdapterFailure("LLM completion failed") from exc
+            raise TransportFailure(
+                "LLM completion failed",
+                code="completion_failed",
+                provider_id=str(self._config.get("id", self._config.get("provider", ""))),
+                model_id=str(self._config.get("model", "")),
+            ) from exc
         repaired = False
+        final_raw = raw
         try:
             self._ensure_complete(raw)
             payload = self._parse_and_validate(raw, request.response_schema)
@@ -212,6 +240,7 @@ class OpenAICompatibleModel:
                 payload = self._parse_and_validate(
                     repaired_raw, request.response_schema
                 )
+                final_raw = repaired_raw
             except _InvalidStructuredResponse as exc:
                 raise StructuredOutputFailure(
                     _REPAIR_FAILURE,
@@ -222,17 +251,32 @@ class OpenAICompatibleModel:
                     retry_count=1,
                     provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
                     model_id=str(self._config.get("model", "")),
+                    finish_reason=str(getattr(repaired_raw, "done_reason", "")),
+                    usage=getattr(repaired_raw, "usage", {}),
                 ) from exc
-            except Exception as exc:
-                raise StructuredOutputFailure(
-                    _REPAIR_FAILURE,
-                    code="structural_retry_failed",
+            except TransportFailure as exc:
+                raise TransportFailure(
+                    str(exc),
+                    code=exc.code,
+                    provider_id=exc.provider_id or str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    model_id=exc.model_id or str(self._config.get("model", "")),
                     raw_response=str(raw or ""),
                     initial_raw_response=str(raw or ""),
                     schema_hash=canonical_hash(request.response_schema),
                     retry_count=1,
+                ) from exc
+            except Exception as exc:
+                if isinstance(exc, AdapterFailure):
+                    raise
+                raise TransportFailure(
+                    _REPAIR_FAILURE,
                     provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
                     model_id=str(self._config.get("model", "")),
+                    code="structural_retry_transport",
+                    raw_response=str(raw or ""),
+                    initial_raw_response=str(raw or ""),
+                    schema_hash=canonical_hash(request.response_schema),
+                    retry_count=1,
                 ) from exc
         return GenerationResponse(
             lens_id=request.lens_id,
@@ -244,4 +288,6 @@ class OpenAICompatibleModel:
             model_id=str(self._config.get("model", "")),
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),
             status="completed",
+            finish_reason=str(getattr(final_raw, "done_reason", "")),
+            usage=getattr(final_raw, "usage", {}),
         )

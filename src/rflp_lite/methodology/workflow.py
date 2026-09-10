@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from rflp_lite.application.closure_service import ClosureService
 from rflp_lite.domain.canonical import canonical_hash
-from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.errors import ContractViolation, WorkflowInvariantError
 from rflp_lite.domain.model import Patch
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.completion import evaluate_completion
@@ -24,6 +24,13 @@ from rflp_lite.methodology.repair_strategies import LLMRepairStrategy, RuleFallb
 from rflp_lite.methodology.tasks import task_catalog, task_spec_hash, tasks_for_phase
 from rflp_lite.repository.port import Run, RunRepository, Step
 from rflp_lite.retrieval.evidence import RetrievalEngine
+
+
+_NON_SEMANTIC_FAILURE_STAGES = frozenset({
+    FailureStage.STRUCTURAL,
+    FailureStage.COMPILER,
+    FailureStage.TRANSPORT,
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,14 +76,19 @@ class LifecycleOrchestrator:
             phase_results.append({"phase": phase.value, "status": phase_summary.status.value, "completed_tasks": list(phase_summary.completed_tasks), "diagnostics": list(phase_summary.diagnostics)})
             completed.extend(phase_summary.completed_tasks)
             diagnostics.extend(phase_summary.diagnostics)
-            if phase_summary.failure_stage in {FailureStage.STRUCTURAL, FailureStage.COMPILER}:
+            if phase_summary.failure_stage in _NON_SEMANTIC_FAILURE_STAGES:
                 diagnostics.append(f"{phase.value}: {phase_summary.failure_stage.value} failure; semantic repair skipped")
+                self.runner._block_pending_steps(
+                    project_id,
+                    identity.run_id,
+                    f"blocked by {phase.value} {phase_summary.failure_stage.value} failure",
+                )
                 self.runner._update_run_status(identity.run_id, RunStatus.DEGRADED, tuple(diagnostics))
                 completed_phases = {item["phase"] for item in phase_results}
                 for pending in self.phases:
                     if pending.value not in completed_phases:
-                        phase_results.append({"phase": pending.value, "status": "pending", "completed_tasks": [], "diagnostics": []})
-                phase_results.append({"phase": Phase.CLOSURE.value, "status": "blocked", "completed_tasks": [], "diagnostics": ["Structural/compiler failure must be resolved before Closure"]})
+                        phase_results.append({"phase": pending.value, "status": StepStatus.BLOCKED.value, "completed_tasks": [], "diagnostics": [f"Blocked by {phase_summary.failure_stage.value} failure"]})
+                phase_results.append({"phase": Phase.CLOSURE.value, "status": "blocked", "completed_tasks": [], "diagnostics": [f"{phase_summary.failure_stage.value} failure must be resolved before Closure"]})
                 return RunSummary(
                     identity.run_id, project_id, phase, RunStatus.DEGRADED,
                     tuple(dict.fromkeys(completed)), tuple(diagnostics), "", False,
@@ -197,15 +209,35 @@ class WorkflowRunner:
             if task.id in completed_before and (rerun_task_ids is None or task.id not in rerun_task_ids):
                 continue
             current = self.model_repository.load_graph(project_id)
-            context = self.context_builder.build(current, task)
-            request = self.executor.request(task, context, self.methodology_version)
+            context = self.context_builder.build(
+                current,
+                task,
+                token_budget=self._context_budget(),
+                output_reserve=self._output_budget() if self._configured_output_budget() else None,
+                prompt_reserve=256,
+            )
+            request = self.executor.request(
+                task,
+                context,
+                self.methodology_version,
+                token_budget=self._output_budget(),
+            )
             prior_attempt = next((step.attempt for step in (existing.steps if existing else ()) if step.task_id == task.id), 0)
             started = time.time()
             context_hash = canonical_hash(context)
             self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.RUNNING.value, prior_attempt + 1, context_hash, None, (), "", self._provider_id(), self._model_id(), task.prompt_template_id, context_hash, started, 0.0, request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
             try:
-                response = self.executor.execute(task, context, self.methodology_version)
+                response = self.executor.execute(
+                    task,
+                    context,
+                    self.methodology_version,
+                    token_budget=self._output_budget(),
+                )
                 patch_id = None
+                if response.patch is not None and response.status is not StepStatus.COMPLETED:
+                    raise WorkflowInvariantError(
+                        "non-completed response cannot carry a committable patch"
+                    )
                 if response.status is StepStatus.COMPLETED:
                     self.executor.validate_response(project_id, task, current, context, response)
                 if response.patch is not None:
@@ -215,9 +247,15 @@ class WorkflowRunner:
                     if patch_trace is not None:
                         patch_trace(patch_id, provider_id=response.provider_id or self._provider_id(), model_id=response.model_id or self._model_id())
                     self._record_audit(project_id, "task.patch", {"run_id": identity.run_id, "task_id": task.id, "patch_id": patch_id, "revision": revision.sequence, "input_hash": response.input_hash, "output_hash": response.output_hash})
-                if response.failure_stage in {FailureStage.STRUCTURAL, FailureStage.COMPILER}:
+                if response.failure_stage in _NON_SEMANTIC_FAILURE_STAGES:
                     diagnostics.extend(response.diagnostics)
-                    self.run_repository.update_step(Step(identity.run_id, task.id, response.status.value, prior_attempt + 1, response.input_hash or context_hash, patch_id, response.diagnostics, response.output_hash, response.provider_id or self._provider_id(), response.model_id or self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
+                    self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.FAILED.value, prior_attempt + 1, response.input_hash or context_hash, patch_id, response.diagnostics, response.output_hash, response.provider_id or self._provider_id(), response.model_id or self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
+                    self._block_pending_steps(
+                        project_id,
+                        identity.run_id,
+                        f"blocked by {task.id} {response.failure_stage.value} failure",
+                        after_task_id=task.id,
+                    )
                     self._update_run_status(identity.run_id, RunStatus.DEGRADED, tuple(diagnostics))
                     return RunSummary(identity.run_id, project_id, phase, RunStatus.DEGRADED, tuple(sorted(completed)), tuple(diagnostics), failure_stage=response.failure_stage)
                 completion = evaluate_completion(task, self.model_repository.load_graph(project_id), response)
@@ -259,6 +297,41 @@ class WorkflowRunner:
             if claimer is None or claimer(project_id, identity.run_id, lease, time.time()):
                 self._leases[identity.run_id] = lease
         return identity
+
+    def _block_pending_steps(
+        self,
+        project_id: str,
+        run_id: str,
+        reason: str,
+        *,
+        after_task_id: str | None = None,
+    ) -> None:
+        stored = self.run_repository.load_run(project_id, run_id)
+        if stored is None:
+            return
+        task_order = [
+            task.id
+            for phase in self.orchestrator.phases
+            for task in tasks_for_phase(phase)
+        ]
+        start = task_order.index(after_task_id) + 1 if after_task_id in task_order else 0
+        pending_ids = set(task_order[start:])
+        now = time.time()
+        for step in stored.steps:
+            if step.task_id not in pending_ids or step.status in {
+                StepStatus.COMPLETED.value,
+                StepStatus.FAILED.value,
+                StepStatus.BLOCKED.value,
+            }:
+                continue
+            self.run_repository.update_step(
+                replace(
+                    step,
+                    status=StepStatus.BLOCKED.value,
+                    diagnostics=(reason,),
+                    completed_at=now,
+                )
+            )
 
     def resume(self, project_id: str, run_id: str) -> RunSummary:
         stored = self.run_repository.load_run(project_id, run_id)
@@ -367,6 +440,23 @@ class WorkflowRunner:
 
     def _provider_id(self) -> str:
         return str(getattr(self.runtime_selection, "provider_id", "offline"))
+
+    def _context_budget(self) -> int:
+        value = getattr(self.runtime_selection, "context_window", None)
+        try:
+            return max(512, int(value)) if value is not None else 2000
+        except (TypeError, ValueError):
+            return 2000
+
+    def _configured_output_budget(self) -> bool:
+        return getattr(self.runtime_selection, "max_output_tokens", None) is not None
+
+    def _output_budget(self) -> int:
+        value = getattr(self.runtime_selection, "max_output_tokens", None)
+        try:
+            return max(1, int(value)) if value is not None else 2000
+        except (TypeError, ValueError):
+            return 2000
 
     def _model_id(self) -> str:
         return str(getattr(self.runtime_selection, "model_id", "rule-runtime"))

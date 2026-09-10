@@ -48,6 +48,11 @@ PRESETS: dict[str, dict[str, object]] = {
         "protocol": _PROTOCOL,
         "base_url": "http://127.0.0.1:11434/v1",
         "model": "llama3.2",
+        "context_window": 8192,
+        "max_output_tokens": 2048,
+        "temperature": 0.0,
+        "seed": 42,
+        "structured_output_mode": "json_schema",
     },
     "lmstudio": {
         "label": "LM Studio",
@@ -141,6 +146,52 @@ def _provider(payload: Mapping[str, object]) -> str:
     return "openai-compatible"
 
 
+def _optional_int(
+    payload: Mapping[str, object],
+    names: tuple[str, ...],
+    *,
+    minimum: int,
+    maximum: int,
+    label: str,
+) -> int | None:
+    value: object = None
+    present = False
+    for name in names:
+        if name in payload and payload[name] is not None and payload[name] != "":
+            value = payload[name]
+            present = True
+            break
+    if not present:
+        return None
+    try:
+        result = int(value)
+    except (TypeError, ValueError) as exc:
+        raise InvariantViolation(f"{label} 必须是整数") from exc
+    if not minimum <= result <= maximum:
+        raise InvariantViolation(f"{label}范围必须是 {minimum} 到 {maximum}")
+    return result
+
+
+def _optional_float(
+    payload: Mapping[str, object],
+    name: str,
+    *,
+    minimum: float,
+    maximum: float,
+    label: str,
+) -> float:
+    value = payload.get(name, 0.0)
+    if value is None or value == "":
+        return 0.0
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise InvariantViolation(f"{label} 必须是数字") from exc
+    if not minimum <= result <= maximum:
+        raise InvariantViolation(f"{label}范围必须是 {minimum} 到 {maximum}")
+    return result
+
+
 def normalize_profile(payload: object) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise InvariantViolation("LLM 档案必须是对象")
@@ -163,6 +214,21 @@ def normalize_profile(payload: object) -> dict[str, object]:
         raise InvariantViolation("LLM 超时必须是整数") from exc
     if not 1 <= timeout <= 300:
         raise InvariantViolation("LLM 超时范围必须是 1 到 300 秒")
+    context_window = _optional_int(
+        payload, ("context_window", "local_context_tokens"),
+        minimum=512, maximum=1_000_000, label="LLM context window",
+    )
+    max_output_tokens = _optional_int(
+        payload, ("max_output_tokens", "local_max_tokens"),
+        minimum=1, maximum=1_000_000, label="LLM max output tokens",
+    )
+    seed = _optional_int(payload, ("seed",), minimum=0, maximum=2**63 - 1, label="LLM seed")
+    temperature = _optional_float(
+        payload, "temperature", minimum=0.0, maximum=2.0, label="LLM temperature",
+    )
+    structured_output_mode = str(payload.get("structured_output_mode", "json_schema")).strip().lower()
+    if structured_output_mode not in {"json_schema", "json_object", "json", "none"}:
+        raise InvariantViolation("LLM structured output mode 无效")
     return {
         "id": profile_id,
         "label": label[:120],
@@ -173,6 +239,14 @@ def normalize_profile(payload: object) -> dict[str, object]:
         "model": model[:200],
         "timeout_seconds": timeout,
         "enabled": bool(payload.get("enabled", True)),
+        "context_window": context_window,
+        "max_output_tokens": max_output_tokens,
+        # Preserve the legacy names consumed by existing local adapters.
+        "local_context_tokens": context_window,
+        "local_max_tokens": max_output_tokens,
+        "temperature": temperature,
+        "seed": seed,
+        "structured_output_mode": structured_output_mode,
     }
 
 

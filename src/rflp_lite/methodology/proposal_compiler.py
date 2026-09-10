@@ -15,7 +15,7 @@ from rflp_lite.methodology.policy import PatchPolicy
 
 @dataclass(frozen=True, slots=True)
 class ProposalEntity:
-    ref: str
+    local_ref: str
     kind: EntityKind
     name: str
     payload: Mapping[str, object]
@@ -23,6 +23,12 @@ class ProposalEntity:
     source_ids: tuple[str, ...] = ()
     evidence_ids: tuple[str, ...] = ()
     lifecycle_ids: tuple[str, ...] = ()
+
+    @property
+    def ref(self) -> str:
+        """Compatibility for internal callers; the wire field is local_ref."""
+
+        return self.local_ref
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,9 +71,9 @@ def proposal_schema(
     entity_schema: dict[str, object] = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["ref", "kind", "name", "payload"],
+        "required": ["local_ref", "name", "payload"],
         "properties": {
-            "ref": {"type": "string", "minLength": 1},
+            "local_ref": {"type": "string", "minLength": 1},
             "kind": {"enum": kind_values},
             "name": {"type": "string", "minLength": 1},
             "payload": {"type": "object"},
@@ -77,16 +83,12 @@ def proposal_schema(
             "lifecycle_ids": {"type": "array", "items": {"type": "string"}},
         },
     }
-    payload_conditions = [
-        {
-            "if": {"properties": {"kind": {"const": kind}}},
-            "then": {"properties": {"payload": dict(schema)}},
-        }
-        for kind, schema in payload_schemas.items()
-        if kind in kind_values
-    ]
-    if payload_conditions:
-        entity_schema["allOf"] = payload_conditions
+    if len(kind_values) > 1:
+        entity_schema["required"].append("kind")
+    if len(kind_values) == 1:
+        payload_schema = payload_schemas.get(kind_values[0])
+        if isinstance(payload_schema, Mapping):
+            entity_schema["properties"]["payload"] = dict(payload_schema)
     relation_schema = {
         "type": "object",
         "additionalProperties": False,
@@ -113,6 +115,27 @@ def proposal_schema(
         "required": ["entity_id"],
         "properties": {"entity_id": {"type": "string", "minLength": 1}},
     }
+    field_schemas = {
+        "name": {"type": "string"},
+        "status": {"type": "string"},
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "payload": {"type": "object"},
+        "lifecycle_ids": {"type": "array", "items": {"type": "string"}},
+        "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    }
+    field_patch_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "minProperties": 1,
+        "properties": {
+            field: field_schemas.get(
+                field,
+                {"type": ["string", "number", "boolean", "array", "object", "null"]},
+            )
+            for field in sorted(policy.writable_fields)
+        },
+    }
+    update_schema["properties"]["field_patch"] = field_patch_schema
     return {
         "type": "object",
         "additionalProperties": False,
@@ -219,15 +242,25 @@ def parse_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, obj
     _validate_schema(payload, request)
     entities: list[ProposalEntity] = []
     refs: set[str] = set()
-    allowed_kinds = {EntityKind(str(value)) for value in request.output_contract.get("output_kinds", ())}
+    try:
+        allowed_kinds = {
+            EntityKind(str(value))
+            for value in request.output_contract.get("output_kinds", ())
+        }
+    except ValueError as exc:
+        raise ContractViolation("task proposal output kind contract is invalid") from exc
     policy = _effective_policy(request, allowed_kinds)
     for raw in _arrays(payload, "entities"):
-        ref = _string(raw.get("ref"), "entities.ref")
-        if ref in refs:
-            raise ContractViolation(f"duplicate task proposal ref: {ref}")
-        refs.add(ref)
+        local_ref = _string(raw.get("local_ref"), "entities.local_ref")
+        if local_ref in refs:
+            raise ContractViolation(f"duplicate task proposal local_ref: {local_ref}")
+        refs.add(local_ref)
         try:
-            kind = EntityKind(_string(raw.get("kind"), "entities.kind"))
+            raw_kind = raw.get("kind")
+            if raw_kind is None and len(allowed_kinds) == 1:
+                kind = next(iter(allowed_kinds))
+            else:
+                kind = EntityKind(_string(raw_kind, "entities.kind"))
         except ValueError as exc:
             raise ContractViolation("task proposal entity kind is invalid") from exc
         if kind not in allowed_kinds or kind not in policy.writable_kinds:
@@ -243,7 +276,7 @@ def parse_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, obj
             if not 0.0 <= confidence <= 1.0:
                 raise ContractViolation("task proposal confidence must be between 0 and 1")
         entities.append(ProposalEntity(
-            ref=ref,
+            local_ref=local_ref,
             kind=kind,
             name=_string(raw.get("name"), "entities.name"),
             payload=entity_payload,
@@ -277,9 +310,7 @@ def parse_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, obj
         ProposalDeprecation(_string(raw.get("entity_id"), "deprecations.entity_id"))
         for raw in _arrays(payload, "deprecations")
     )
-    reason = str(payload.get("reason") or request.task_id).strip()[:300]
-    if not reason:
-        raise ContractViolation("task proposal reason is required")
+    reason = _string(payload.get("reason"), "reason")[:300]
     return TaskProposal(tuple(entities), tuple(relations), tuple(updates), deprecations, reason)
 
 
@@ -308,7 +339,13 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
     """Validate one TaskProposal and compile it into a canonical Patch."""
 
     proposal = parse_task_proposal(request, payload)
-    allowed_kinds = {EntityKind(str(value)) for value in request.output_contract.get("output_kinds", ())}
+    try:
+        allowed_kinds = {
+            EntityKind(str(value))
+            for value in request.output_contract.get("output_kinds", ())
+        }
+    except ValueError as exc:
+        raise ContractViolation("task proposal output kind contract is invalid") from exc
     policy = _effective_policy(request, allowed_kinds)
     context_entities = {item.id: item for item in request.context_bundle.entities}
     operations = []
@@ -327,7 +364,7 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
             lifecycle_ids=item.lifecycle_ids,
             revision=request.context_bundle.revision,
         )
-        ref_to_id[item.ref] = entity.id
+        ref_to_id[item.local_ref] = entity.id
         output_ids.add(entity.id)
         operations.append(AddEntity(entity))
     for item in proposal.relations:

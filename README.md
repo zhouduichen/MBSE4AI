@@ -1,6 +1,6 @@
 # AI4MBSE Harness
 
-AI4MBSE Harness 产品版本为 `0.1.0`，方法论协议版本为 `v2.0`。它是一个本地优先、可复现、可审计的 MBSE 方法论执行器。核心链路为：
+AI4MBSE Harness 产品版本为 `0.2.0`，方法论协议版本为 `v2.1`。它是一个本地优先、可复现、可审计的 MBSE 方法论执行器。核心链路为：
 
 ```text
 Project → Documents / Evidence → Operational → Functional
@@ -53,6 +53,8 @@ model-profile list|save|activate
 页面收敛为 Projects、Analysis、MBSE Model、Evidence & Issues、Settings；API 资源以 `/projects` 为根，提供项目、分析运行、模型、实体 CAS 编辑、证据、Issue、Repair 和 Export。
 
 未配置模型时页面会明确显示 `Offline Rule Mode`；配置并激活 Profile 后，每次新分析都会记录实际使用的 profile/provider/model。服务默认只监听 `127.0.0.1`，适用于单用户本地工作区。
+
+当前 LLM 验收边界：原生 Ollama 的 3 Task × 20 live probe 已完成。最终结果为 60 次 provider success，58/60 通过 JSON/schema/Proposal compile/domain validation；2 次 structural retry 未恢复，因此只确认 Structured Output Boundary 的初始验收线，不宣称 23-task full workflow 已验收。结果见 [`contract-conformance-1789049206566817000.json`](docs/superpowers/artifacts/pr09/contract-conformance-1789049206566817000.json)。
 
 ## 开发与验收
 

@@ -474,7 +474,7 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
     def update_run(self, run_id: str, status: str, diagnostics: tuple[str, ...] = ()) -> None:
         with self._transaction():
             self._connection.execute(
-                "UPDATE runs SET status = ?, diagnostics = ?, completed_at = CASE WHEN ? IN ('completed', 'failed', 'degraded', 'cancelled') THEN ? ELSE completed_at END WHERE id = ?",
+                "UPDATE runs SET status = ?, diagnostics = ?, completed_at = CASE WHEN ? IN ('completed', 'failed', 'degraded', 'blocked', 'cancelled') THEN ? ELSE completed_at END WHERE id = ?",
                 (status, _json(diagnostics), status, time.time(), run_id),
             )
 

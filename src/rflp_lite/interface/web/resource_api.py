@@ -23,7 +23,7 @@ from rflp_lite.application.projections.requirements import build_requirement_det
 from rflp_lite.application.projections.rflp import build_rflp_view
 from rflp_lite.application.projections.traceability import build_traceability_view
 from rflp_lite.diagrams.engineering.rflp import render_rflp_svg
-from rflp_lite.methodology.contracts import Phase
+from rflp_lite.methodology.contracts import FailureStage, Phase
 from rflp_lite.methodology.gates import global_gate
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
 from rflp_lite.retrieval.planner import KnowledgeGap
@@ -39,6 +39,13 @@ from rflp_lite.interface.web.resource_pages import (
 
 
 resource_api = APIRouter(tags=["AI4MBSE Harness"])
+_NON_SEMANTIC_FAILURE_VALUES = frozenset(
+    stage.value for stage in (
+        FailureStage.STRUCTURAL,
+        FailureStage.COMPILER,
+        FailureStage.TRANSPORT,
+    )
+)
 
 
 def _services(request: Request):
@@ -63,6 +70,9 @@ def _run_payload(summary) -> Mapping[str, object]:
         "completed_tasks": list(data.get("completed_tasks", getattr(summary, "completed_tasks", ()))),
         "diagnostics": list(data.get("diagnostics", getattr(summary, "diagnostics", ()))),
     }
+    failure_stage = data.get("failure_stage", getattr(summary, "failure_stage", None))
+    if failure_stage:
+        payload["failure_stage"] = _value(failure_stage)
     for key in ("phase_results", "gate_results", "closure", "current_task", "repair", "runtime"):
         if key in data:
             payload[key] = data[key]
@@ -147,8 +157,20 @@ def _pipeline_fallback(analysis, project_id: str, *, requested_run_id: str | Non
     gate_results: list[Mapping[str, object]] = []
     diagnostics: list[str] = []
     all_passed = True
+    blocked_reason = ""
     for phase in (Phase.OPERATIONAL, Phase.FUNCTIONAL, Phase.LOGICAL_PHYSICAL, Phase.ASSURANCE):
         phase_run_id = f"{pipeline_id}-{phase.value}" if force_run else None
+        if blocked_reason:
+            phase_payload = {
+                "run_id": phase_run_id or "",
+                "project_id": project_id,
+                "phase": phase.value,
+                "status": "blocked",
+                "completed_tasks": [],
+                "diagnostics": [blocked_reason],
+            }
+            phase_results.append(phase_payload)
+            continue
         try:
             summary = _call_run(analysis, project_id, phase, phase_run_id, force_run=force_run)
             phase_payload = _run_payload(summary)
@@ -164,6 +186,11 @@ def _pipeline_fallback(analysis, project_id: str, *, requested_run_id: str | Non
         phase_payload["phase"] = phase.value
         phase_results.append(phase_payload)
         diagnostics.extend(str(item) for item in phase_payload.get("diagnostics", ()))
+        failure_stage = str(phase_payload.get("failure_stage", ""))
+        if failure_stage in _NON_SEMANTIC_FAILURE_VALUES:
+            all_passed = False
+            blocked_reason = f"Blocked by {phase.value} {failure_stage} failure"
+            continue
         try:
             gate = _gate_payload(analysis.gate(project_id, phase), fallback_phase=phase)
         except Exception as exc:
@@ -227,6 +254,11 @@ def _orchestrator_payload(analysis, project_id: str, result, *, force_run: bool)
     phase_order = [phase.value for phase, _label in ((Phase.OPERATIONAL, ""), (Phase.FUNCTIONAL, ""), (Phase.LOGICAL_PHYSICAL, ""), (Phase.ASSURANCE, ""), (Phase.CLOSURE, ""))]
     result_phase = str(payload.get("phase", Phase.OPERATIONAL.value))
     result_status = str(payload.get("status", "degraded"))
+    failure_stage = str(payload.get("failure_stage", ""))
+    dependency_blocked = (
+        result_status not in {"completed", "complete"}
+        and failure_stage in _NON_SEMANTIC_FAILURE_VALUES
+    )
     try:
         result_index = phase_order.index(result_phase)
     except ValueError:
@@ -234,9 +266,9 @@ def _orchestrator_payload(analysis, project_id: str, result, *, force_run: bool)
     phase_results = [
         {
             "phase": phase,
-            "status": "completed" if index < result_index and result_status == "completed" else result_status if index == result_index else "pending",
+            "status": "completed" if index < result_index and result_status == "completed" else result_status if index == result_index else "blocked" if dependency_blocked else "pending",
             "completed_tasks": list(payload.get("completed_tasks", ())) if index == result_index else [],
-            "diagnostics": list(payload.get("diagnostics", ())) if index == result_index else [],
+            "diagnostics": list(payload.get("diagnostics", ())) if index == result_index else [f"Blocked by {failure_stage} failure"] if dependency_blocked and index > result_index else [],
         }
         for index, phase in enumerate(phase_order)
     ]

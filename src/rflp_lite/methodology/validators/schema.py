@@ -15,6 +15,10 @@ def validate(context: ValidationContext) -> None:
         raise MethodologyValidationError("schema_invalid", "task response patch is not a Patch")
     if response.patch is None:
         return
+    if response.status.value != "completed":
+        raise MethodologyValidationError(
+            "schema_invalid", "non-completed response cannot carry a committable patch"
+        )
     if not isinstance(response.patch.operations, tuple):
         raise MethodologyValidationError("schema_invalid", "patch operations must be a tuple")
     if len(response.patch.operations) > 32:

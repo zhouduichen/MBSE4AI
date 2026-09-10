@@ -27,6 +27,15 @@ class StructuralFailureRuntime:
         )
 
 
+class InvalidPatchResponseRuntime:
+    def execute(self, request):
+        entity = make_entity(EntityKind.SYSTEM, "不应提交")
+        return TaskExecutionResponse(
+            StepStatus.DEGRADED,
+            patch=Patch.create(request.context_bundle.project_id, request.task_id, (AddEntity(entity),), "invalid", request.context_bundle.revision),
+        )
+
+
 def test_runner_persists_steps_and_completes_offline(tmp_path):
     repository = SQLiteModelRepository(tmp_path / "model.db")
     repository.ensure_project("p1")
@@ -82,3 +91,31 @@ def test_structural_failure_stops_lifecycle_before_gate_repair(tmp_path):
     assert stored.status == RunStatus.DEGRADED.value
     assert all(step.repair_round == 0 for step in stored.steps)
     assert "semantic repair skipped" in " ".join(summary.diagnostics)
+
+
+def test_non_completed_patch_is_rejected_before_repository_append(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    runner = WorkflowRunner(repository, repository, InvalidPatchResponseRuntime())
+
+    summary = runner.run("p1", Phase.OPERATIONAL, force_run=True)
+
+    assert summary.status is RunStatus.DEGRADED
+    assert repository.load_graph("p1").revision == 0
+    stored = repository.load_run("p1", summary.run_id)
+    assert stored is not None
+    assert any("non-completed response" in item for item in stored.diagnostics)
+
+
+def test_structural_failure_marks_remaining_tasks_blocked(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    runner = WorkflowRunner(repository, repository, StructuralFailureRuntime())
+
+    summary = runner.run("p1", Phase.OPERATIONAL, force_run=True)
+    stored = repository.load_run("p1", summary.run_id)
+
+    assert stored is not None
+    statuses = {step.task_id: step.status for step in stored.steps}
+    assert statuses["system_definition"] == "failed"
+    assert statuses["stakeholder_analysis"] == "blocked"

@@ -34,6 +34,7 @@ def test_analysis_page_shows_full_harness_workflow(tmp_path: Path) -> None:
         "定向修复",
         "封版归档",
         "离线规则模式",
+        "失败层",
     ):
         assert label in response.text
 

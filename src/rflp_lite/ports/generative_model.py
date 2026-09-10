@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Mapping, Protocol
 
 
 SIMPLIFIED_CHINESE_OUTPUT_INSTRUCTION = (
@@ -40,6 +40,8 @@ class GenerationResponse:
     template_version: str = "v1"
     duration_ms: int = 0
     status: str = "completed"
+    finish_reason: str = ""
+    usage: Mapping[str, object] = field(default_factory=dict)
 
 
 class GenerativeModel(Protocol):

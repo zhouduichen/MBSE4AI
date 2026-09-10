@@ -23,8 +23,22 @@ class ContextBuilder:
         knowledge_gap: KnowledgeGap | None = None,
         root_entity_ids: tuple[str, ...] = (),
         token_budget: int = 2000,
+        output_reserve: int | None = None,
+        prompt_reserve: int = 0,
     ) -> ContextBundle:
-        planned = self.planner.plan(graph, task, root_entity_ids=root_entity_ids, token_budget=token_budget)
+        total_budget = max(0, int(token_budget))
+        if output_reserve is None:
+            output_reserve = max(128, min(1024, total_budget // 4))
+        available_context = max(
+            0,
+            total_budget - max(0, int(output_reserve)) - max(0, int(prompt_reserve)),
+        )
+        planned = self.planner.plan(
+            graph,
+            task,
+            root_entity_ids=root_entity_ids,
+            token_budget=available_context,
+        )
         context = ContextBundle(graph.project_id, task.id, graph.revision, planned.entities, planned.relations, (), planned.token_estimate)
         if self.retrieval_engine is None or not task.context_query.include_evidence:
             return context
@@ -46,7 +60,16 @@ class ContextBuilder:
             }
             for candidate in result.candidates
         )
+        remaining = max(0, available_context - planned.token_estimate)
+        bounded_evidence: list[dict[str, object]] = []
+        for item in evidence:
+            estimate = self.planner.estimator.estimate(item)
+            if estimate > remaining:
+                continue
+            bounded_evidence.append(item)
+            remaining -= estimate
         return ContextBundle(
             context.project_id, context.task_id, context.revision, context.entities,
-            context.relations, evidence, context.token_estimate + sum(self.planner.estimator.estimate(item) for item in evidence),
+            context.relations, tuple(bounded_evidence),
+            context.token_estimate + sum(self.planner.estimator.estimate(item) for item in bounded_evidence),
         )

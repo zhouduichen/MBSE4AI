@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Mapping
 
 from rflp_lite.domain.canonical import canonical_hash
@@ -33,10 +34,11 @@ class StructuredModelRuntime:
             GenerationRequest(
                 request.task_id,
                 (
-                request.prompt_text
+                    request.prompt_text
                     + "\n\n"
                     "仅返回 TaskProposal JSON 对象，必须包含 entities、relations、updates、deprecations、reason；"
-                    "不要返回 operations、Patch ID、revision、status 或 producer；不要解释。"
+                    "除非任务明确要求修改或弃用既有实体，否则 updates 和 deprecations 必须为空数组；"
+                    "不要返回 operations、Patch ID、revision、status、producer 或 kind/value/path 更新 DSL；不要解释。"
                 ),
                 payload,
                 contract,
@@ -46,57 +48,51 @@ class StructuredModelRuntime:
         try:
             patch = compile_task_proposal(request, response.payload)
         except ContractViolation as exc:
-            raise ProposalCompileFailure(str(exc)) from exc
+            raise ProposalCompileFailure(
+                str(exc),
+                raw_response=json.dumps(response.payload, ensure_ascii=False, sort_keys=True),
+                schema_hash=canonical_hash(contract),
+                provider_id=response.provider_id,
+                model_id=response.model_id,
+                finish_reason=response.finish_reason,
+                usage=response.usage,
+            ) from exc
+        diagnostics = [
+            f"provider={response.provider_id}",
+            f"output_hash={response.output_hash}",
+        ]
+        if response.finish_reason:
+            diagnostics.append(f"finish_reason={response.finish_reason}")
+        if response.usage:
+            diagnostics.append(
+                "usage=" + json.dumps(response.usage, ensure_ascii=False, sort_keys=True)
+            )
         return TaskExecutionResponse(
             StepStatus.COMPLETED,
             patch=patch,
-            diagnostics=(f"provider={response.provider_id}", f"output_hash={response.output_hash}"),
+            diagnostics=tuple(diagnostics),
             repaired=response.repaired,
             input_hash=response.input_hash,
             output_hash=response.output_hash,
             provider_id=response.provider_id,
             model_id=response.model_id,
+            finish_reason=response.finish_reason,
+            usage=response.usage,
         )
 
 
 def _output_schema(contract: Mapping[str, object]) -> dict[str, object]:
-    """Use a real JSON Schema while keeping TaskSpec contracts serializable."""
+    """Extract the canonical TaskProposal JSON Schema from a TaskSpec contract."""
 
     schema = contract.get("schema")
     if isinstance(schema, Mapping):
         return dict(schema)
     if contract.get("type") == "object" and isinstance(contract.get("properties"), Mapping):
-        return {key: value for key, value in contract.items() if key in {"type", "additionalProperties", "required", "properties", "allOf"}}
-    output_kinds = contract.get("output_kinds", ())
-    kind_values = [str(value) for value in output_kinds]
-    # This mirrors methodology.tasks.output_contract without making the
-    # runtime import a TaskSpec or a provider-specific schema registry.
-    operation = {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["op"],
-        "properties": {
-            "op": {"enum": ["ADD", "UPDATE", "RELATE", "DEPRECATE"]},
-            "kind": {"enum": kind_values},
-            "name": {"type": "string", "minLength": 1},
-            "entity_id": {"type": "string"},
-            "source_id": {"type": "string"},
-            "target_id": {"type": "string"},
-            "predicate": {"type": "string"},
-            "payload": {"type": "object"},
-            "field_patch": {"type": "object"},
-            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-            "source_ids": {"type": "array", "items": {"type": "string"}},
-            "lifecycle_ids": {"type": "array", "items": {"type": "string"}},
-            "evidence_ids": {"type": "array", "items": {"type": "string"}},
-        },
-    }
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["operations"],
-        "properties": {
-            "operations": {"type": "array", "items": operation, "maxItems": 32},
-            "reason": {"type": "string", "maxLength": 300},
-        },
-    }
+        proposal_fields = {"entities", "relations", "updates", "deprecations", "reason"}
+        if proposal_fields <= set(contract["properties"]):
+            return {
+                key: value
+                for key, value in contract.items()
+                if key in {"type", "additionalProperties", "required", "properties"}
+            }
+    raise ContractViolation("TaskProposal schema is required; Patch operations are not accepted")

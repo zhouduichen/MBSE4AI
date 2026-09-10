@@ -43,6 +43,14 @@ def test_semantically_different_tasks_have_different_content_hashes():
     assert "logical" in logical.text
 
 
+def test_stakeholder_requirement_prompt_keeps_traceability_out_of_payload():
+    prompt = PromptRegistry().resolve("operational.stakeholder_requirements")
+
+    assert "payload" in prompt.text
+    assert "concern_ids" in prompt.text
+    assert "canonical entity id" in prompt.text
+
+
 def test_registered_template_text_change_changes_prompt_hash():
     first = PromptRegistry({"custom": "first"}).resolve("custom")
     second = PromptRegistry({"custom": "second"}).resolve("custom")

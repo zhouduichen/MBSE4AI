@@ -210,6 +210,38 @@ def test_native_ollama_sends_explicit_context_budget(monkeypatch):
     assert captured["body"]["options"]["num_ctx"] == 8192
 
 
+def test_native_ollama_uses_profile_sampling_controls_and_usage(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(call, timeout):
+        captured["body"] = json.loads(call.data.decode())
+        return _Response({
+            "message": {"content": '{"items": []}'},
+            "done_reason": "stop",
+            "prompt_eval_count": 12,
+            "eval_count": 7,
+        })
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    content = llm_client.chat_completion(
+        {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3.5:9b",
+            "context_window": 8192,
+            "temperature": 0.2,
+            "seed": 42,
+        },
+        [{"role": "user", "content": "json"}],
+    )
+
+    assert content == '{"items": []}'
+    assert captured["body"]["options"]["temperature"] == 0.2
+    assert captured["body"]["options"]["seed"] == 42
+    assert content.done_reason == "stop"
+    assert content.usage == {"prompt_eval_count": 12, "eval_count": 7}
+
+
 def test_native_ollama_uses_supplied_json_schema(monkeypatch):
     captured = {}
 

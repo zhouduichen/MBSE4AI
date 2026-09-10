@@ -23,6 +23,7 @@ class RunStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     DEGRADED = "degraded"
+    BLOCKED = "blocked"
     FAILED = "failed"
     COMPLETED = "completed"
     REPAIRING = "repairing"
@@ -33,6 +34,7 @@ class StepStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     DEGRADED = "degraded"
+    BLOCKED = "blocked"
     FAILED = "failed"
     COMPLETED = "completed"
 
@@ -41,6 +43,7 @@ class FailureStage(StrEnum):
     STRUCTURAL = "structural"
     COMPILER = "compiler"
     SEMANTIC = "semantic"
+    TRANSPORT = "transport"
 
 
 class FailureAction(StrEnum):
@@ -140,6 +143,8 @@ class TaskExecutionResponse:
     provider_id: str = ""
     model_id: str = ""
     failure_stage: FailureStage | None = None
+    finish_reason: str = ""
+    usage: Mapping[str, object] = field(default_factory=dict)
 
 
 class TaskRuntime(Protocol):
