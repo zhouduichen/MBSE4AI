@@ -1,7 +1,7 @@
 import pytest
 
 from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
-from rflp_lite.domain.errors import AdapterFailure
+from rflp_lite.domain.errors import AdapterFailure, StructuredOutputFailure
 from rflp_lite.ports.generative_model import (
     GenerationRequest,
     SIMPLIFIED_CHINESE_OUTPUT_INSTRUCTION,
@@ -132,6 +132,37 @@ def test_adapter_passes_request_schema_to_local_completion():
     assert captured["config"]["json_schema"] == request().response_schema
 
 
+def test_ollama_receives_task_proposal_schema_as_format():
+    captured = {}
+    proposal = GenerationRequest(
+        lens_id="task",
+        system_prompt="只返回 TaskProposal",
+        user_payload={},
+        response_schema={
+            "type": "object",
+            "required": ["entities", "relations", "updates", "deprecations", "reason"],
+            "properties": {
+                "entities": {"type": "array"},
+                "relations": {"type": "array"},
+                "updates": {"type": "array"},
+                "deprecations": {"type": "array"},
+                "reason": {"type": "string"},
+            },
+        },
+    )
+
+    def complete(config, _messages, *, max_tokens=None):
+        captured["config"] = config
+        return '{"entities": [], "relations": [], "updates": [], "deprecations": [], "reason": "无变化"}'
+
+    OpenAICompatibleModel(
+        {"kind": "local", "provider": "ollama", "model": "qwen3.5:9b-q8_0"},
+        complete=complete,
+    ).complete_json(proposal)
+
+    assert captured["config"]["json_schema"]["required"] == proposal.response_schema["required"]
+
+
 def test_ollama_transport_schema_removes_only_grammar_incompatible_length_limit():
     captured = {}
 
@@ -172,6 +203,24 @@ def test_adapter_fails_after_one_invalid_json_repair():
     model = OpenAICompatibleModel({"model": "local"}, complete=lambda *_args, **_kwargs: "not-json")
     with pytest.raises(AdapterFailure, match="JSON"):
         model.complete_json(request())
+
+
+def test_invalid_structured_output_exposes_raw_response_and_one_retry():
+    calls = []
+
+    def complete(_config, _messages, *, max_tokens=None):
+        calls.append(max_tokens)
+        return "not-json" if len(calls) == 1 else "still-not-json"
+
+    with pytest.raises(StructuredOutputFailure) as error:
+        OpenAICompatibleModel({"kind": "local", "model": "qwen"}, complete=complete).complete_json(request())
+
+    assert calls == [1200, 1200]
+    assert error.value.stage == "structural"
+    assert error.value.code == "json_decode"
+    assert error.value.raw_response == "still-not-json"
+    assert error.value.retry_count == 1
+    assert error.value.schema_hash
 
 
 @pytest.mark.parametrize(

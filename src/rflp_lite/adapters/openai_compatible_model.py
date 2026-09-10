@@ -12,7 +12,7 @@ from rflp_lite.adapters.llm_client import (
     chat_completion,
 )
 from rflp_lite.domain.canonical import canonical_hash
-from rflp_lite.domain.errors import AdapterFailure
+from rflp_lite.domain.errors import AdapterFailure, StructuredOutputFailure
 from rflp_lite.ports.generative_model import (
     GenerationRequest,
     GenerationResponse,
@@ -25,6 +25,10 @@ _REPAIR_FAILURE = "LLM response is not valid JSON after one repair"
 
 class _InvalidStructuredResponse(ValueError):
     """The provider returned JSON that cannot be accepted for this request."""
+
+    def __init__(self, message: str, *, code: str = "schema_validation") -> None:
+        self.code = code
+        super().__init__(message)
 
 
 def _ollama_transport_schema(value: object) -> object:
@@ -67,11 +71,11 @@ class OpenAICompatibleModel:
     def _parse_json(raw: object) -> object:
         text = str(raw or "").strip()
         if not text:
-            raise _InvalidStructuredResponse("empty content")
+            raise _InvalidStructuredResponse("empty content", code="json_decode")
         if text.startswith("```"):
             lines = text.splitlines()
             if len(lines) < 3 or not lines[-1].strip().startswith("```"):
-                raise _InvalidStructuredResponse("unclosed JSON fence")
+                raise _InvalidStructuredResponse("unclosed JSON fence", code="json_decode")
             text = "\n".join(lines[1:-1]).strip()
             if text.casefold().startswith("json"):
                 text = text[4:].lstrip()
@@ -80,11 +84,11 @@ class OpenAICompatibleModel:
         except (TypeError, json.JSONDecodeError) as exc:
             start, end = text.find("{"), text.rfind("}")
             if start < 0 or end <= start:
-                raise _InvalidStructuredResponse("no complete JSON object") from exc
+                raise _InvalidStructuredResponse("no complete JSON object", code="json_decode") from exc
             try:
                 value = json.loads(text[start : end + 1])
             except (TypeError, json.JSONDecodeError) as boundary_exc:
-                raise _InvalidStructuredResponse("invalid JSON object") from boundary_exc
+                raise _InvalidStructuredResponse("invalid JSON object", code="json_decode") from boundary_exc
         return value
 
     @classmethod
@@ -102,7 +106,7 @@ class OpenAICompatibleModel:
             if isinstance(properties, dict) and set(properties) == {"items"} and required == ["items"]:
                 payload = {"items": payload}
         if not isinstance(payload, dict):
-            raise _InvalidStructuredResponse("response must be an object")
+            raise _InvalidStructuredResponse("response must be an object", code="schema_validation")
         try:
             import jsonschema
         except ImportError as exc:
@@ -110,7 +114,7 @@ class OpenAICompatibleModel:
         try:
             jsonschema.validate(instance=payload, schema=response_schema)
         except jsonschema.ValidationError as exc:
-            raise _InvalidStructuredResponse("response does not match schema") from exc
+            raise _InvalidStructuredResponse("response does not match schema", code="schema_validation") from exc
         except jsonschema.SchemaError as exc:
             raise AdapterFailure("LLM response schema is invalid") from exc
         return payload
@@ -118,7 +122,7 @@ class OpenAICompatibleModel:
     @staticmethod
     def _ensure_complete(raw: object) -> None:
         if str(getattr(raw, "done_reason", "")).casefold() in {"length", "max_tokens"}:
-            raise _InvalidStructuredResponse("provider output was truncated")
+            raise _InvalidStructuredResponse("provider output was truncated", code="truncated")
 
     def _repair_budget(self, max_tokens: int | None, raw: object) -> int | None:
         if max_tokens is None:
@@ -149,7 +153,7 @@ class OpenAICompatibleModel:
                 "role": "system",
                 "content": add_simplified_chinese_instruction(
                     f"重新生成完整的 JSON 分析结果，最多返回 {max_items} 项；"
-                    "保留有效内容，修复结构，不要解释，也不要用空数组规避任务。"
+                    "保留有效内容，修复 TaskProposal 结构，不要解释，也不要用空数组规避任务。"
                 ),
             },
             {
@@ -207,6 +211,16 @@ class OpenAICompatibleModel:
                 payload = self._parse_and_validate(
                     repaired_raw, request.response_schema
                 )
+            except _InvalidStructuredResponse as exc:
+                raise StructuredOutputFailure(
+                    _REPAIR_FAILURE,
+                    code=exc.code,
+                    raw_response=str(repaired_raw or ""),
+                    schema_hash=canonical_hash(request.response_schema),
+                    retry_count=1,
+                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    model_id=str(self._config.get("model", "")),
+                ) from exc
             except Exception as exc:
                 raise AdapterFailure(_REPAIR_FAILURE) from exc
         return GenerationResponse(
