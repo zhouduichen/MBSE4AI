@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import Mapping
 
 from rflp_lite.domain.canonical import canonical_hash
-from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.errors import ContractViolation, ProposalCompileFailure
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
-from rflp_lite.methodology.patches import patch_from_response
+from rflp_lite.methodology.proposal_compiler import compile_task_proposal
 from rflp_lite.ports.generative_model import GenerationRequest, GenerativeModel
 
 
@@ -33,9 +33,10 @@ class StructuredModelRuntime:
             GenerationRequest(
                 request.task_id,
                 (
-                    request.prompt_text
+                request.prompt_text
                     + "\n\n"
-                    "仅返回 operations/reason JSON 对象；不要解释，不要输出未授权类型或关系。"
+                    "仅返回 TaskProposal JSON 对象，必须包含 entities、relations、updates、deprecations、reason；"
+                    "不要返回 operations、Patch ID、revision、status 或 producer；不要解释。"
                 ),
                 payload,
                 contract,
@@ -43,9 +44,9 @@ class StructuredModelRuntime:
             )
         )
         try:
-            patch = patch_from_response(request, response.payload)
-        except (TypeError, ValueError, KeyError) as exc:
-            raise ContractViolation(f"task output cannot become a Patch: {exc}") from exc
+            patch = compile_task_proposal(request, response.payload)
+        except ContractViolation as exc:
+            raise ProposalCompileFailure(str(exc)) from exc
         return TaskExecutionResponse(
             StepStatus.COMPLETED,
             patch=patch,

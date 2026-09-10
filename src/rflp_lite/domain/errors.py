@@ -18,6 +18,39 @@ class AdapterFailure(RflpError):
     """Raised when an adapter fails at a controlled boundary."""
 
 
+class StructuredOutputFailure(AdapterFailure):
+    """Raised when a model response cannot cross the structural JSON boundary."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "structured_output",
+        raw_response: str = "",
+        schema_hash: str = "",
+        retry_count: int = 0,
+        provider_id: str = "",
+        model_id: str = "",
+    ) -> None:
+        self.stage = "structural"
+        self.code = str(code)
+        self.raw_response = str(raw_response)[:12000]
+        self.schema_hash = str(schema_hash)
+        self.retry_count = int(retry_count)
+        self.provider_id = str(provider_id)
+        self.model_id = str(model_id)
+        super().__init__(message)
+
+
+class ProposalCompileFailure(ContractViolation):
+    """Raised when a valid semantic proposal cannot become a domain Patch."""
+
+    def __init__(self, message: str, *, code: str = "proposal_compile") -> None:
+        self.stage = "compiler"
+        self.code = str(code)
+        super().__init__(message)
+
+
 class ConcurrentModificationError(RflpError):
     """Raised when a Workbench write observes a stale revision."""
 

@@ -12,7 +12,11 @@ class CapturingModel:
 
     def complete_json(self, request):
         self.requests.append(request)
-        return GenerationResponse(request.lens_id, {"operations": []}, "input", "output", False)
+        return GenerationResponse(
+            request.lens_id,
+            {"entities": [], "relations": [], "updates": [], "deprecations": [], "reason": "无变化"},
+            "input", "output", False,
+        )
 
 
 def test_structured_runtime_sends_task_specific_prompt_to_model():
@@ -24,4 +28,6 @@ def test_structured_runtime_sends_task_specific_prompt_to_model():
     StructuredModelRuntime(model).execute(request)
 
     assert request.prompt_text in model.requests[0].system_prompt
-    assert "operations/reason" in model.requests[0].system_prompt
+    assert all(item in model.requests[0].system_prompt for item in (
+        "entities", "relations", "updates", "deprecations", "reason",
+    ))

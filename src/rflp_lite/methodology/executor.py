@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 from rflp_lite.domain.canonical import canonical_hash
-from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.errors import ContractViolation, ProposalCompileFailure, StructuredOutputFailure
 from rflp_lite.domain.model import Patch
 from rflp_lite.methodology.contracts import (
-    ContextBundle, StepStatus, TaskExecutionRequest, TaskExecutionResponse, TaskRuntime, TaskSpec,
+    ContextBundle, FailureStage, StepStatus, TaskExecutionRequest, TaskExecutionResponse, TaskRuntime, TaskSpec,
 )
 from rflp_lite.methodology.registries import PromptRegistry, RetryPolicy, SchemaRegistry, ValidatorRegistry
 from rflp_lite.methodology.tasks import output_contract
@@ -96,8 +97,26 @@ class TaskExecutor:
                         diagnostics=tuple(diagnostics) + tuple(response.diagnostics),
                     )
                 diagnostics.extend(response.diagnostics or (f"attempt={attempt}: runtime returned {response.status.value}",))
+                if response.failure_stage in {FailureStage.STRUCTURAL, FailureStage.COMPILER}:
+                    return replace(
+                        response,
+                        input_hash=response.input_hash or input_hash,
+                        output_hash=response.output_hash or canonical_hash(response.patch),
+                        diagnostics=tuple(diagnostics),
+                    )
             except Exception as exc:
-                diagnostics.append(f"attempt={attempt}: {exc}")
+                stage = _failure_stage(exc)
+                diagnostics.append(_diagnostic(exc, attempt))
+                if stage in {FailureStage.STRUCTURAL, FailureStage.COMPILER}:
+                    return TaskExecutionResponse(
+                        StepStatus.DEGRADED,
+                        diagnostics=tuple(diagnostics),
+                        input_hash=input_hash,
+                        output_hash=canonical_hash(diagnostics),
+                        provider_id=str(getattr(exc, "provider_id", "")),
+                        model_id=str(getattr(exc, "model_id", "")),
+                        failure_stage=stage,
+                    )
         return TaskExecutionResponse(
             StepStatus.DEGRADED,
             diagnostics=tuple(diagnostics) or ("task execution failed",),
@@ -123,3 +142,32 @@ def _require_mapping(value: object) -> None:
         return
     if not isinstance(value, dict):
         raise ContractViolation("task result is not serializable")
+
+
+def _failure_stage(exc: Exception) -> FailureStage | None:
+    if isinstance(exc, StructuredOutputFailure):
+        return FailureStage.STRUCTURAL
+    if isinstance(exc, ProposalCompileFailure):
+        return FailureStage.COMPILER
+    return None
+
+
+def _diagnostic(exc: Exception, attempt: int) -> str:
+    payload: dict[str, object] = {
+        "attempt": attempt,
+        "message": str(exc),
+    }
+    if isinstance(exc, (StructuredOutputFailure, ProposalCompileFailure)):
+        payload.update({
+            "stage": exc.stage,
+            "code": exc.code,
+        })
+    if isinstance(exc, StructuredOutputFailure):
+        payload.update({
+            "raw_response": exc.raw_response,
+            "schema_hash": exc.schema_hash,
+            "retry_count": exc.retry_count,
+            "provider_id": exc.provider_id,
+            "model_id": exc.model_id,
+        })
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)

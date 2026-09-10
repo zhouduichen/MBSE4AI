@@ -37,6 +37,12 @@ class StepStatus(StrEnum):
     COMPLETED = "completed"
 
 
+class FailureStage(StrEnum):
+    STRUCTURAL = "structural"
+    COMPILER = "compiler"
+    SEMANTIC = "semantic"
+
+
 class FailureAction(StrEnum):
     RETRY = "retry"
     REPAIR = "repair"
@@ -133,6 +139,7 @@ class TaskExecutionResponse:
     output_hash: str = ""
     provider_id: str = ""
     model_id: str = ""
+    failure_stage: FailureStage | None = None
 
 
 class TaskRuntime(Protocol):
