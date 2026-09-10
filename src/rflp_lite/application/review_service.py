@@ -103,6 +103,16 @@ class ReviewService:
         }
         selected = task_sets.get(entity.kind.value, ("global_cross_analysis", "verification_validation"))
         request_id = f"reanalysis-{uuid4().hex[:16]}"
-        payload = {"request_id": request_id, "entity_id": entity_id, "trigger_revision": graph.revision, "selected_tasks": list(selected), "reason": "local impact routing from review action", "status": "queued"}
+        payload = {
+            "request_id": request_id,
+            "entity_id": entity_id,
+            "trigger_revision": graph.revision,
+            "selected_tasks": list(selected),
+            "reason": "local impact routing from review action",
+            "status": "requested",
+            "execution_status": "pending_execution",
+            "execution_status_label": "已创建重新分析请求，尚未执行",
+            "lifecycle": ["requested", "pending_execution", "running", "completed", "failed", "cancelled"],
+        }
         self.repository.record_audit(project_id, "review.reanalysis.requested", payload)
         return payload

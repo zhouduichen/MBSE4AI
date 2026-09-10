@@ -7,20 +7,21 @@
 
 ## 2. Harden the visible review flow
 
-- [ ] Make uploaded JSON fixtures use the existing deterministic fixture ingestion path and advertise `.json` in Analysis.
-- [ ] Add an editable requirement statement control backed by the existing guarded `edit` action.
-- [ ] Make Re-analyze feedback explicitly distinguish request creation from execution, including `Pending Execution`.
-- [ ] Add focused regression tests for uploaded fixtures, edit behavior, and re-analysis state.
+- [x] Make uploaded JSON fixtures use the existing deterministic fixture ingestion path and advertise `.json` in Analysis.
+- [x] Add a read-only Documents page for uploaded project inputs and link it into the review navigation.
+- [x] Add an editable requirement statement control backed by the existing guarded `edit` action.
+- [x] Make Re-analyze feedback explicitly distinguish request creation from execution, including `Pending Execution`.
+- [x] Add focused regression tests for uploaded fixtures, edit behavior, and re-analysis state.
 
 ## 3. Run the real browser acceptance
 
-- [ ] Create/use an isolated complete campus-delivery-robot acceptance project.
-- [ ] Walk `Documents → Analysis → Requirements → Traceability → RFLP → Assurance → History` in a desktop viewport.
-- [ ] Exercise empty state, missing trace, gate fail, long text, evidence links, Accept/Reject/Edit/Lock refresh, and Revision Diff.
-- [ ] Save screenshots and write `UI_ACCEPTANCE_REPORT.md` with route-by-route observations.
+- [x] Create/use an isolated complete campus-delivery-robot acceptance project.
+- [x] Walk `Documents → Analysis → Requirements → Traceability → RFLP → Assurance → History` in a desktop viewport.
+- [x] Exercise empty state, missing trace, gate fail, long text, evidence links, Accept/Reject/Edit/Lock refresh, and Revision Diff.
+- [x] Save screenshots and write `UI_ACCEPTANCE_REPORT.md` with route-by-route observations.
 
 ## 4. Verify and hand off
 
-- [ ] Run focused tests, the full suite, lint/import checks, compile checks, and architecture metrics.
-- [ ] Confirm unrelated benchmark working-tree changes remain unstaged.
+- [x] Run focused tests, the full suite, lint/import checks, compile checks, and architecture metrics.
+- [x] Confirm unrelated benchmark working-tree changes remain unstaged.
 - [ ] Commit only PR08.1 code, acceptance artifacts, and its plan/spec; do not push or merge without an explicit request.

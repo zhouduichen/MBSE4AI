@@ -125,6 +125,9 @@ code { font-family: var(--mono); font-size: .9em; }
 .inline-form input { width: 100%; height: 34px; margin-top: 5px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); }
 .intake-form textarea { width: 100%; margin-top: 7px; padding: 10px 12px; resize: vertical; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text); background: var(--panel); line-height: 1.55; }
 .intake-form input[type="file"] { height: auto; padding: 8px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); }
+.edit-form { margin: 0 0 18px; padding: 13px 14px; border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); background: var(--panel-tint); }
+.edit-form .field { margin-bottom: 8px; }
+.edit-form textarea { display: block; width: 100%; margin-top: 6px; padding: 9px 10px; resize: vertical; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text); background: var(--panel); line-height: 1.55; }
 .pack-selection { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel-tint); }
 .pack-selection strong { color: var(--ink); font-size: 12px; }
 .pack-selection small { color: var(--faint); font-size: 10px; line-height: 1.5; }

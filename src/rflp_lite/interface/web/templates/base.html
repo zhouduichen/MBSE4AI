@@ -20,6 +20,7 @@
         <p class="nav-label">工作区</p>
         <a class="nav-item {% if active == 'projects' %}active{% endif %}" href="/ui/projects">项目</a>
         {% if project_id %}
+        <a class="nav-item {% if active == 'documents' %}active{% endif %}" href="/ui/projects/{{ project_id }}/documents">文档输入</a>
         <a class="nav-item {% if active == 'analysis' %}active{% endif %}" href="/ui/projects/{{ project_id }}/analysis">分析工作台</a>
         <a class="nav-item {% if active == 'requirements' %}active{% endif %}" href="/ui/projects/{{ project_id }}/requirements">需求工作台</a>
         <a class="nav-item {% if active == 'traceability' %}active{% endif %}" href="/ui/projects/{{ project_id }}/traceability">追溯矩阵</a>

@@ -20,6 +20,8 @@ This increment does not introduce a new workflow engine, agent system, persisten
 
 Keep the uploaded file in the project `inputs/` directory. When the uploaded file is a valid MBSE fixture JSON, route it through the existing `seed_fixture` use case; otherwise preserve the current document-parser path. Add `.json` to the visible Analysis input hint so the browser control and backend behavior agree.
 
+Expose the project `inputs/` directory through a small read-only Documents page. It lists the locally uploaded artifacts and links back to Analysis; it does not add document persistence or a second execution path.
+
 ### Requirement review semantics
 
 Keep the existing guarded review endpoints and revision checks. Add a compact statement editor to the requirement detail page and submit it to the existing `edit` endpoint. After successful Accept, Reject, Edit, Lock, or Unlock, reload the page so the rendered status is the post-action state.

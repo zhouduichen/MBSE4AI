@@ -148,6 +148,16 @@ class ProjectService:
             raise ContractViolation("uploaded document is empty")
         destination = self.path(project_id) / "inputs" / safe_name
         destination.parent.mkdir(parents=True, exist_ok=True)
+
+        if destination.suffix.casefold() == ".json":
+            try:
+                fixture = json.loads(content.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ContractViolation("JSON document cannot be read") from exc
+            if isinstance(fixture, dict) and {"system", "stakeholders"} <= set(fixture):
+                destination.write_bytes(content)
+                return self.seed_fixture(project_id, fixture, source_path=destination)
+
         destination.write_bytes(content)
         return self._save_parsed_document(project_id, safe_name, content)
 

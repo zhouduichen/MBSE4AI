@@ -30,3 +30,17 @@ def test_requirements_workbench_routes_render_and_filter(tmp_path):
     assert detail.status_code == 200
     assert detail.json()["trace_path"][0] == requirement_id
     assert client.get("/ui/projects/p1/requirements").status_code == 200
+
+
+def test_documents_page_lists_uploaded_project_inputs(tmp_path):
+    app = create_app(tmp_path / "workspaces")
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    result = client.post("/projects/p1/documents", files={"file": ("requirements.txt", b"The system shall stop safely.", "text/plain")})
+    assert result.status_code == 200
+
+    page = client.get("/ui/projects/p1/documents")
+
+    assert page.status_code == 200
+    assert "requirements.txt" in page.text
+    assert "打开 Analysis" in page.text

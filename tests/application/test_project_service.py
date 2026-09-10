@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -79,6 +80,23 @@ def test_uploaded_text_document_is_saved_and_counts_as_analysis_input(tmp_path: 
 
     assert result["region_count"] == 1
     assert (project.path / "inputs" / "requirements.txt").read_text(encoding="utf-8") == "系统应支持人工接管\n"
+    assert service.has_analysis_input("p1") is True
+
+
+def test_uploaded_json_fixture_seeds_the_reviewable_graph(tmp_path: Path) -> None:
+    root = tmp_path / "workspaces"
+    project = create_managed_workspace(root, "p1")
+    service = _service(root)
+    fixture = {
+        "system": "Campus delivery robot",
+        "stakeholders": ["Operations team"],
+        "requirements": [{"id": "REQ-1", "statement": "The robot shall stop safely."}],
+    }
+
+    result = service.ingest_uploaded("p1", "campus.json", json.dumps(fixture).encode())
+
+    assert result["entity_count"] == 3
+    assert (project.path / "inputs" / "campus.json").exists()
     assert service.has_analysis_input("p1") is True
 
 

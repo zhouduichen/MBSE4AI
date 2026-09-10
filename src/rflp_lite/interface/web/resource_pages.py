@@ -893,6 +893,24 @@ def analysis_page(request: Request, project_id: str):
     return templates.TemplateResponse(request=request, name="analysis.html", context={**view, "analysis": view, "active": "analysis"})
 
 
+@resource_pages.get("/ui/projects/{project_id}/documents", name="documents_page")
+def documents_page(request: Request, project_id: str):
+    services = _v2(request)
+    project = services.projects.summary(project_id)
+    input_root = services.projects.path(project_id) / "inputs"
+    documents = []
+    if input_root.is_dir():
+        for path in sorted((item for item in input_root.iterdir() if item.is_file()), key=lambda item: item.name.casefold()):
+            size = path.stat().st_size
+            documents.append({
+                "name": path.name,
+                "kind": path.suffix.removeprefix(".").upper() or "FILE",
+                "size_label": f"{size} B",
+                "relative_path": str(path.relative_to(services.projects.path(project_id))),
+            })
+    return templates.TemplateResponse(request=request, name="documents.html", context={"project": project, "project_id": project_id, "documents": documents, "active": "documents"})
+
+
 @resource_pages.get("/ui/projects/{project_id}/model", name="model_page")
 def model_page(request: Request, project_id: str):
     services = _v2(request)
