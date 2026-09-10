@@ -188,6 +188,29 @@ def test_ollama_transport_schema_removes_only_grammar_incompatible_length_limit(
     )
 
 
+def test_ollama_structural_repair_does_not_duplicate_schema_in_prompt():
+    calls = []
+    answers = iter(("not-json", '{"items":[]}'))
+
+    def complete(config, messages, *, max_tokens=None):
+        calls.append((config, messages))
+        return next(answers)
+
+    model = OpenAICompatibleModel(
+        {
+            "kind": "local",
+            "provider": "ollama",
+            "base_url": "http://100.88.143.10:11434/v1",
+            "model": "qwen3.5:9b-q8_0",
+        },
+        complete=complete,
+    )
+    model.complete_json(request())
+
+    repair_payload = __import__("json").loads(calls[1][1][1]["content"])
+    assert "response_schema" not in repair_payload
+
+
 def test_adapter_parses_fenced_json_from_reasoning_fallback():
     model = OpenAICompatibleModel(
         {"model": "local"},
@@ -219,6 +242,7 @@ def test_invalid_structured_output_exposes_raw_response_and_one_retry():
     assert error.value.stage == "structural"
     assert error.value.code == "json_decode"
     assert error.value.raw_response == "still-not-json"
+    assert error.value.initial_raw_response == "not-json"
     assert error.value.retry_count == 1
     assert error.value.schema_hash
 

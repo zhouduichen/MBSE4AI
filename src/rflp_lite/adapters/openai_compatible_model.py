@@ -138,16 +138,17 @@ class OpenAICompatibleModel:
 
     @staticmethod
     def _repair_messages(
-        request: GenerationRequest, raw: object
+        request: GenerationRequest, raw: object, *, include_schema: bool = True
     ) -> list[dict[str, str]]:
         max_items = request.user_payload.get("max_items")
         if not isinstance(max_items, int) or max_items < 1:
             max_items = 8
         envelope = {
             "input": request.user_payload,
-            "response_schema": request.response_schema,
             "invalid_response": str(raw or "")[:6000],
         }
+        if include_schema:
+            envelope["response_schema"] = request.response_schema
         return [
             {
                 "role": "system",
@@ -204,7 +205,7 @@ class OpenAICompatibleModel:
             try:
                 repaired_raw = self._complete(
                     call_config,
-                    self._repair_messages(request, raw),
+                    self._repair_messages(request, raw, include_schema=not native_ollama),
                     max_tokens=self._repair_budget(max_tokens, raw),
                 )
                 self._ensure_complete(repaired_raw)
@@ -216,13 +217,23 @@ class OpenAICompatibleModel:
                     _REPAIR_FAILURE,
                     code=exc.code,
                     raw_response=str(repaired_raw or ""),
+                    initial_raw_response=str(raw or ""),
                     schema_hash=canonical_hash(request.response_schema),
                     retry_count=1,
                     provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
                     model_id=str(self._config.get("model", "")),
                 ) from exc
             except Exception as exc:
-                raise AdapterFailure(_REPAIR_FAILURE) from exc
+                raise StructuredOutputFailure(
+                    _REPAIR_FAILURE,
+                    code="structural_retry_failed",
+                    raw_response=str(raw or ""),
+                    initial_raw_response=str(raw or ""),
+                    schema_hash=canonical_hash(request.response_schema),
+                    retry_count=1,
+                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    model_id=str(self._config.get("model", "")),
+                ) from exc
         return GenerationResponse(
             lens_id=request.lens_id,
             payload=payload,

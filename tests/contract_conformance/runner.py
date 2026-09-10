@@ -48,6 +48,7 @@ class SampleResult:
     compiled: bool = False
     domain_valid: bool = False
     structural_retries: int = 0
+    duration_ms: int = 0
     diagnostics: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
@@ -215,42 +216,65 @@ def run_conformance(repetitions: int = 20, live: bool = False) -> dict[str, obje
     if tuple(selected) != TASK_IDS:
         raise RuntimeError("conformance task catalog does not contain the required three tasks")
     samples: list[SampleResult] = []
-    for iteration in range(1, repetitions + 1):
-        for task_id in TASK_IDS:
-            task = selected[task_id]
-            context = context_builder.build(graph, task)
-            response = executor.execute(task, context, "v2.1", retry_policy=RetryPolicy(1))
-            sample = _sample_from_response(executor, task, graph, context, response)
-            samples.append(SampleResult(
-                task_id=sample.task_id,
-                iteration=iteration,
-                json_parsed=sample.json_parsed,
-                schema_passed=sample.schema_passed,
-                compiled=sample.compiled,
-                domain_valid=sample.domain_valid,
-                structural_retries=sample.structural_retries,
-                diagnostics=sample.diagnostics,
-            ))
-    result: dict[str, object] = {
-        "benchmark": "pr09-contract-conformance",
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "repetitions": repetitions,
-        "tasks": list(TASK_IDS),
-        "sample_count": len(samples),
-        **metadata,
-        "schema_hashes": {
-            task_id: _schema_hash(executor.request(selected[task_id], context_builder.build(graph, selected[task_id]), "v2.1").output_contract)
-            for task_id in TASK_IDS
-        },
-        "metrics": summarize(samples),
-        "samples": [sample.as_dict() for sample in samples],
-    }
     output_root = Path(os.getenv("PR09_ARTIFACT_ROOT", "docs/superpowers/artifacts/pr09")).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
-    output_path = output_root / f"contract-conformance-{int(time.time())}.json"
-    output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    result["result_path"] = str(output_path)
-    return result
+    output_path = output_root / f"contract-conformance-{time.time_ns()}.json"
+    created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    schema_hashes = {
+        task_id: _schema_hash(executor.request(selected[task_id], context_builder.build(graph, selected[task_id]), "v2.1").output_contract)
+        for task_id in TASK_IDS
+    }
+
+    def write_report(status: str) -> dict[str, object]:
+        result: dict[str, object] = {
+            "benchmark": "pr09-contract-conformance",
+            "status": status,
+            "created_at": created_at,
+            "repetitions": repetitions,
+            "tasks": list(TASK_IDS),
+            "sample_count": len(samples),
+            **metadata,
+            "schema_hashes": schema_hashes,
+            "metrics": summarize(samples),
+            "samples": [sample.as_dict() for sample in samples],
+            "result_path": str(output_path),
+        }
+        output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return result
+
+    write_report("running")
+    try:
+        for iteration in range(1, repetitions + 1):
+            for task_id in TASK_IDS:
+                task = selected[task_id]
+                context = context_builder.build(graph, task)
+                sample_number = len(samples) + 1
+                print(f"[PR09] start {sample_number}/{repetitions * len(TASK_IDS)} {task.id}", flush=True)
+                started = time.monotonic()
+                response = executor.execute(task, context, "v2.1", retry_policy=RetryPolicy(1))
+                sample = _sample_from_response(executor, task, graph, context, response)
+                samples.append(SampleResult(
+                    task_id=sample.task_id,
+                    iteration=iteration,
+                    json_parsed=sample.json_parsed,
+                    schema_passed=sample.schema_passed,
+                    compiled=sample.compiled,
+                    domain_valid=sample.domain_valid,
+                    structural_retries=sample.structural_retries,
+                    duration_ms=max(sample.duration_ms, int((time.monotonic() - started) * 1000)),
+                    diagnostics=sample.diagnostics,
+                ))
+                write_report("running")
+                print(
+                    f"[PR09] done {sample_number}/{repetitions * len(TASK_IDS)} {task.id} "
+                    f"parse={sample.json_parsed} schema={sample.schema_passed} "
+                    f"compile={sample.compiled} duration_ms={samples[-1].duration_ms}",
+                    flush=True,
+                )
+    except KeyboardInterrupt:
+        write_report("interrupted")
+        raise
+    return write_report("completed")
 
 
 def main() -> int:

@@ -27,6 +27,7 @@ class StructuredOutputFailure(AdapterFailure):
         *,
         code: str = "structured_output",
         raw_response: str = "",
+        initial_raw_response: str = "",
         schema_hash: str = "",
         retry_count: int = 0,
         provider_id: str = "",
@@ -35,6 +36,7 @@ class StructuredOutputFailure(AdapterFailure):
         self.stage = "structural"
         self.code = str(code)
         self.raw_response = str(raw_response)[:12000]
+        self.initial_raw_response = str(initial_raw_response)[:12000]
         self.schema_hash = str(schema_hash)
         self.retry_count = int(retry_count)
         self.provider_id = str(provider_id)

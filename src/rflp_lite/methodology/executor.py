@@ -165,6 +165,7 @@ def _diagnostic(exc: Exception, attempt: int) -> str:
     if isinstance(exc, StructuredOutputFailure):
         payload.update({
             "raw_response": exc.raw_response,
+            "initial_raw_response": exc.initial_raw_response,
             "schema_hash": exc.schema_hash,
             "retry_count": exc.retry_count,
             "provider_id": exc.provider_id,
