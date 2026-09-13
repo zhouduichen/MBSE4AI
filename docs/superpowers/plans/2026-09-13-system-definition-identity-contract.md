@@ -148,3 +148,16 @@ probe passed 10/10:
 
 The next gate is the three-task chain. The 23-task lifecycle and MBSE semantic
 benchmark remain pending.
+
+## Follow-up Chain Result — 2026-09-13
+
+The contextual three-task chain was run five times at the same `4000` token
+budget. `system_definition` passed 5/5 and `stakeholder_analysis` passed 5/5.
+`stakeholder_requirements` reached valid JSON and compilation in all five runs,
+but domain validation rejected the same relation each time:
+`supportedBy (requirement -> stakeholder)`. No patch was committed for that
+task, and each run ended degraded after two successful upstream patches.
+
+This is a separate `stakeholder_requirements` relation-contract issue. The
+23-task lifecycle and MBSE semantic benchmark remain pending until that next
+contract is reviewed.
