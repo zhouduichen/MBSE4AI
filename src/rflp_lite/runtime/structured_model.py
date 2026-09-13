@@ -36,6 +36,9 @@ class StructuredModelRuntime:
                 ],
             },
             "evidence": list(request.evidence_bundle),
+            "controller_decisions": [
+                dict(item) for item in request.context_bundle.controller_decisions
+            ],
             "context_hash": canonical_hash(request.context_bundle),
         }
         contract = _output_schema(request.output_contract)

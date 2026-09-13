@@ -114,6 +114,7 @@ class ContextBundle:
     relations: tuple[object, ...] = ()
     evidence: tuple[Mapping[str, object], ...] = ()
     token_estimate: int = 0
+    controller_decisions: tuple[Mapping[str, object], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

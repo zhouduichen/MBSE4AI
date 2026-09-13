@@ -14,10 +14,12 @@ class ScriptedModel:
     def __init__(self):
         self.calls = []
         self.relation_contexts = []
+        self.controller_decisions = []
 
     def complete_json(self, request):
         self.calls.append(request.lens_id)
         self.relation_contexts.append(request.user_payload["context"]["relations"])
+        self.controller_decisions.append(request.user_payload["controller_decisions"])
         entities = request.user_payload["context"]["entities"]
         by_kind = {}
         for item in entities:
@@ -244,6 +246,38 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
     ]
     assert any(model_relation["predicate"] == "satisfiedBy" for model_relation in relation_context)
     assert {"id", "source_id", "predicate", "target_id", "evidence_ids"} <= set(relation_context[0])
+
+
+def test_controller_decision_is_passed_to_downstream_structured_runtime(tmp_path: Path):
+    model = ScriptedModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+    )
+    services.projects.create("robot")
+    generated = services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+    requirement_id = next(
+        item.id for item in services.model("robot").graph("robot").entities
+        if item.kind is EntityKind.REQUIREMENT
+    )
+    decision = {
+        "action_id": "controller-action-test",
+        "option_id": "trade-option-test",
+        "option": "更换物理候选或计算架构",
+        "task_id": "allocation_tradeoff",
+    }
+
+    result = services.generation("robot").reanalyze(
+        "robot",
+        requirement_id,
+        expected_revision=generated.revision,
+        controller_decision=decision,
+    )
+
+    assert result["controller_decision"] == decision
+    assert any(decision in context for context in model.controller_decisions)
 
 
 def test_semantic_invalid_output_stays_candidate_and_creates_review_issue(tmp_path: Path):

@@ -259,6 +259,7 @@ class ModelGenerationService:
         *,
         run_id: str | None = None,
         expected_revision: int | None = None,
+        controller_decision: Mapping[str, object] | None = None,
     ) -> Mapping[str, object]:
         graph = self.repository.load_graph(project_id)
         if expected_revision is not None and int(expected_revision) != graph.revision:
@@ -281,7 +282,14 @@ class ModelGenerationService:
         warnings: list[str] = []
         for stage in stages:
             current = self.repository.load_graph(project_id)
-            execution = self._execute_stage(project_id, effective_run_id, stage, current, ())
+            execution = self._execute_stage(
+                project_id,
+                effective_run_id,
+                stage,
+                current,
+                (),
+                controller_decision=controller_decision,
+            )
             if execution.result is None:
                 failed = self._finish_failed(
                     project_id,
@@ -296,6 +304,7 @@ class ModelGenerationService:
                     graph.revision,
                     stages,
                     execution_status="failed",
+                    controller_decision=controller_decision,
                 )
             stage_results.append(execution.result)
             warnings.extend(execution.warnings)
@@ -348,6 +357,7 @@ class ModelGenerationService:
             graph.revision,
             stages,
             execution_status="completed",
+            controller_decision=controller_decision,
         )
 
     def controller_plan(
@@ -431,6 +441,7 @@ class ModelGenerationService:
                 project_id,
                 target_id,
                 expected_revision=graph.revision,
+                controller_decision=decision,
             )
             return {
                 "execution_status": "completed",
@@ -460,9 +471,16 @@ class ModelGenerationService:
         stage,
         graph,
         document_ids: tuple[str, ...],
+        *,
+        controller_decision: Mapping[str, object] | None = None,
     ) -> _StageExecution:
         task = stage_task(stage.stage)
-        context = self._context(graph, task.id, document_ids)
+        context = self._context(
+            graph,
+            task.id,
+            document_ids,
+            controller_decision=controller_decision,
+        )
         started = time.time()
         context_hash = canonical_hash(context)
         self.repository.update_step(
@@ -654,7 +672,14 @@ class ModelGenerationService:
             raise InputRequired("document input contains no readable requirement text")
         raise InputRequired("requirement_text or an existing requirement is required")
 
-    def _context(self, graph, task_id: str, document_ids: tuple[str, ...]) -> ContextBundle:
+    def _context(
+        self,
+        graph,
+        task_id: str,
+        document_ids: tuple[str, ...],
+        *,
+        controller_decision: Mapping[str, object] | None = None,
+    ) -> ContextBundle:
         evidence = tuple(self.repository.list_evidence(graph.project_id))
         if document_ids:
             selected = set(document_ids)
@@ -672,6 +697,8 @@ class ModelGenerationService:
             ),
             graph.relations,
             evidence,
+            0,
+            (dict(controller_decision),) if controller_decision else (),
         )
 
     def _ensure_run(
@@ -895,7 +922,15 @@ def _controller_target(graph, entity_ids: tuple[str, ...], task_id: str) -> str 
     return entities[0].id if entities else None
 
 
-def _reanalysis_payload(result: GenerateModelResult, entity_id: str, trigger_revision: int, stages, *, execution_status: str):
+def _reanalysis_payload(
+    result: GenerateModelResult,
+    entity_id: str,
+    trigger_revision: int,
+    stages,
+    *,
+    execution_status: str,
+    controller_decision: Mapping[str, object] | None = None,
+):
     payload = dict(result.as_dict())
     payload.update({
         "entity_id": entity_id,
@@ -904,6 +939,8 @@ def _reanalysis_payload(result: GenerateModelResult, entity_id: str, trigger_rev
         "execution_status": execution_status,
         "execution_status_label": "重新分析已完成" if execution_status == "completed" else "重新分析失败",
     })
+    if controller_decision:
+        payload["controller_decision"] = dict(controller_decision)
     return payload
 
 

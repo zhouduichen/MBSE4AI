@@ -110,6 +110,7 @@ def test_controller_trade_study_decision_runs_only_affected_downstream_stages(tm
     assert payload["reanalysis"]["selected_stages"] == [
         "physical", "verification_validation"
     ]
+    assert payload["reanalysis"]["controller_decision"]["option_id"] == option["id"]
 
 
 def test_sysml_import_api_round_trips_into_fresh_project(tmp_path: Path):
