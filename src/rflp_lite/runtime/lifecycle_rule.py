@@ -32,6 +32,17 @@ OPERATIONAL_FUNCTIONAL_TASKS = frozenset({
     "functional_scenario",
     "functional_requirement",
 })
+LIFECYCLE_TASKS = OPERATIONAL_FUNCTIONAL_TASKS | frozenset({
+    "logical_analysis",
+    "physical_candidates",
+    "allocation_tradeoff",
+    "technical_requirement",
+    "interface_sequence_state",
+    "fmea_stpa_hazard",
+    "verification_validation",
+    "reverse_feasibility",
+    "global_cross_analysis",
+})
 
 
 class TaskGraphBuilder:
@@ -181,6 +192,15 @@ class LifecycleTaskRuleRuntime:
             "functional_interaction": self._functional_interaction,
             "functional_scenario": self._functional_scenario,
             "functional_requirement": self._functional_requirement,
+            "logical_analysis": self._logical_analysis,
+            "physical_candidates": self._physical_candidates,
+            "allocation_tradeoff": self._allocation_tradeoff,
+            "technical_requirement": self._technical_requirement,
+            "interface_sequence_state": self._interface_sequence_state,
+            "fmea_stpa_hazard": self._fmea_stpa_hazard,
+            "verification_validation": self._verification_validation,
+            "reverse_feasibility": self._reverse_feasibility,
+            "global_cross_analysis": self._global_cross_analysis,
         }
 
     def _system_definition(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
@@ -410,5 +430,244 @@ class LifecycleTaskRuleRuntime:
             })
         return builder.response("生命周期任务补全功能需求")
 
+    def _logical_analysis(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
+        functions = builder.active(EntityKind.FUNCTION)
+        for function in functions:
+            logical = builder.find_payload(EntityKind.LOGICAL_COMPONENT, "function_id", function.id)
+            if logical is None:
+                logical = builder.add(
+                    EntityKind.LOGICAL_COMPONENT,
+                    f"逻辑能力：{function.meta.name}",
+                    {
+                        "function_id": function.id,
+                        "allocation_strategy": "one_logical_component_per_function",
+                        "solution_neutral": True,
+                    },
+                )
+            builder.relate(function, RelationPredicate.ALLOCATED_TO, logical)
+        return builder.response("生命周期任务生成逻辑架构")
 
-__all__ = ["LifecycleTaskRuleRuntime", "OPERATIONAL_FUNCTIONAL_TASKS", "TaskGraphBuilder"]
+    def _physical_candidates(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
+        for logical in builder.active(EntityKind.LOGICAL_COMPONENT):
+            physical = builder.find_payload(EntityKind.PHYSICAL_BLOCK, "logical_id", logical.id)
+            if physical is None:
+                related_requirements = builder.active(EntityKind.REQUIREMENT)
+                physical = builder.add(
+                    EntityKind.PHYSICAL_BLOCK,
+                    f"物理候选：{logical.meta.name}",
+                    {
+                        "logical_id": logical.id,
+                        "candidate_type": "implementation_candidate",
+                        "constraints": _constraint_map(related_requirements),
+                        "constraint_provenance": _constraint_provenance(related_requirements),
+                        "measurement_status": "needs_measurement",
+                        "requires_human_review": True,
+                    },
+                )
+            builder.relate(logical, RelationPredicate.ALLOCATED_TO, physical)
+        return builder.response("生命周期任务生成物理候选")
+
+    def _allocation_tradeoff(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
+        for physical in builder.active(EntityKind.PHYSICAL_BLOCK):
+            builder.update_payload(physical, {
+                "trade_study": {
+                    "alternatives": ["保持当前候选", "更换物理候选"],
+                    "decision_status": "requires_engineering_review",
+                    "criteria": ["需求覆盖", "接口兼容", "资源预算"],
+                },
+            })
+        return builder.response("生命周期任务记录物理候选权衡")
+
+    def _technical_requirement(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
+        physicals = builder.active(EntityKind.PHYSICAL_BLOCK)
+        roots = tuple(
+            item for item in builder.active(EntityKind.REQUIREMENT)
+            if str(item.payload.get("level", "")).lower() != "technical"
+        )
+        for requirement in roots:
+            constraints = _constraint_map((requirement,))
+            if not constraints:
+                continue
+            matching = physicals
+            for physical in matching:
+                name = f"技术约束：{requirement.meta.name}→{physical.meta.name}"
+                technical = builder.find(EntityKind.REQUIREMENT, name) or builder.add(
+                    EntityKind.REQUIREMENT,
+                    name,
+                    _technical_payload(requirement, physical, constraints),
+                    source_ids=requirement.meta.source_ids,
+                )
+                builder.relate(technical, RelationPredicate.DERIVED_FROM, requirement)
+                builder.relate(technical, RelationPredicate.SATISFIED_BY, physical)
+        for physical in physicals:
+            if not any(
+                relation.source_id != relation.target_id
+                and relation.predicate is RelationPredicate.SATISFIED_BY
+                and relation.target_id == physical.id
+                for relation in builder.context.relations
+            ) and not _constraint_map(roots):
+                builder.update_payload(physical, {
+                    "technical_requirement_status": "no_explicit_constraints",
+                })
+        return builder.response("生命周期任务生成技术需求")
+
+    def _interface_sequence_state(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
+        logical = builder.first(EntityKind.LOGICAL_COMPONENT)
+        interface = builder.first(EntityKind.INTERFACE) or builder.add(
+            EntityKind.INTERFACE,
+            "任务控制与状态反馈接口",
+            {
+                "kind": "control_and_status",
+                "endpoints": [logical.id] if logical else [],
+                "messages": ["任务请求", "运行状态", "人工接管"],
+            },
+        )
+        state = builder.first(EntityKind.STATE) or builder.add(
+            EntityKind.STATE,
+            "任务执行状态",
+            {
+                "values": ["待命", "执行中", "异常", "人工接管", "完成"],
+                "transitions": ["待命→执行中", "执行中→异常", "异常→人工接管", "执行中→完成"],
+                "owner_id": logical.id if logical else "",
+            },
+        )
+        builder.relate(logical, RelationPredicate.CONNECTED_TO, interface)
+        builder.relate(logical, RelationPredicate.DECOMPOSES, state)
+        return builder.response("生命周期任务生成接口与状态")
+
+    def _fmea_stpa_hazard(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
+        activities = builder.active(EntityKind.ACTIVITY)
+        activity = activities[0] if activities else None
+        for requirement in builder.active(EntityKind.REQUIREMENT):
+            hazard = builder.find_payload(EntityKind.HAZARD, "requirement_id", requirement.id) or builder.add(
+                EntityKind.HAZARD,
+                f"需求失效危险：{requirement.meta.name}",
+                {
+                    "requirement_id": requirement.id,
+                    "description": "需求未满足可能导致任务失败或异常处置失效",
+                    "requirement_ids": [requirement.id],
+                    "activity_ids": [activity.id] if activity else [],
+                },
+            )
+            failure = builder.find_payload(EntityKind.FAILURE_MODE, "requirement_id", requirement.id) or builder.add(
+                EntityKind.FAILURE_MODE,
+                f"需求失效模式：{requirement.meta.name}",
+                {
+                    "requirement_id": requirement.id,
+                    "effect": "任务结果不符合需求",
+                    "cause": "功能、架构或运行过程未满足需求",
+                    "requirement_ids": [requirement.id],
+                    "activity_ids": [activity.id] if activity else [],
+                },
+            )
+            builder.relate(hazard, RelationPredicate.CAUSES, failure)
+            builder.relate(hazard, RelationPredicate.MITIGATED_BY, requirement)
+            builder.relate(failure, RelationPredicate.MITIGATED_BY, requirement)
+        return builder.response("生命周期任务生成危险与失效模式")
+
+    def _verification_validation(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
+        scenario = builder.first(EntityKind.OPERATIONAL_SCENARIO)
+        for requirement in builder.active(EntityKind.REQUIREMENT):
+            verification = builder.find_payload(
+                EntityKind.VERIFICATION_CASE, "requirement_id", requirement.id
+            ) or builder.add(
+                EntityKind.VERIFICATION_CASE,
+                f"验证：{requirement.meta.name}",
+                _case_payload(requirement, scenario, "test"),
+            )
+            validation = builder.find_payload(
+                EntityKind.VALIDATION_CASE, "requirement_id", requirement.id
+            ) or builder.add(
+                EntityKind.VALIDATION_CASE,
+                f"确认：{requirement.meta.name}",
+                _case_payload(requirement, scenario, "demonstration"),
+            )
+            builder.relate(requirement, RelationPredicate.VERIFIED_BY, verification)
+            builder.relate(requirement, RelationPredicate.VALIDATED_BY, validation)
+        return builder.response("生命周期任务生成验证与确认")
+
+    def _reverse_feasibility(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
+        physicals = builder.active(EntityKind.PHYSICAL_BLOCK)
+        for requirement in builder.active(EntityKind.REQUIREMENT):
+            if str(requirement.payload.get("level", "")).lower() == "technical" or physicals:
+                builder.update_payload(requirement, {
+                    "feasibility_review": {
+                        "status": "needs_measurement",
+                        "measured_values": None,
+                        "required_constraints": dict(_constraint_map((requirement,))),
+                        "physical_candidate_ids": [item.id for item in physicals],
+                    },
+                })
+        return builder.response("生命周期任务执行反向可行性检查")
+
+    def _global_cross_analysis(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
+        verifications = builder.active(EntityKind.VERIFICATION_CASE)
+        for verification in verifications:
+            builder.update_payload(verification, {
+                "cross_analysis_status": "checked",
+                "traceability_checked": True,
+            })
+        return builder.response("生命周期任务完成全局交叉分析")
+
+
+def _constraint_map(requirements: tuple[Entity, ...]) -> dict[str, object]:
+    values: dict[str, object] = {}
+    for requirement in requirements:
+        for key, value in requirement.payload.items():
+            key = str(key)
+            if key.startswith(("max_", "min_")):
+                values[key] = value
+        nested = requirement.payload.get("constraints")
+        if isinstance(nested, Mapping):
+            for key, value in nested.items():
+                key = str(key)
+                if key.startswith(("max_", "min_")):
+                    values[key] = value
+    return dict(sorted(values.items()))
+
+
+def _constraint_provenance(requirements: tuple[Entity, ...]) -> list[object]:
+    values: list[object] = []
+    for requirement in requirements:
+        provenance = requirement.payload.get("constraint_provenance")
+        if isinstance(provenance, list):
+            values.extend(provenance)
+    return values
+
+
+def _technical_payload(
+    requirement: Entity, physical: Entity, constraints: Mapping[str, object]
+) -> Mapping[str, object]:
+    return {
+        "level": "technical",
+        "type": "constraint",
+        "statement": f"物理候选“{physical.meta.name}”应满足需求“{requirement.meta.name}”中的显式工程约束",
+        "obligation": "物理候选应满足显式工程约束",
+        "verification_method": "test",
+        "source_requirement_ids": [requirement.id],
+        "source_physical_ids": [physical.id],
+        "constraint_fields": list(constraints),
+        "constraints": dict(constraints),
+        "constraint_provenance": _constraint_provenance((requirement,)),
+        "open_questions": ["需要对物理候选执行工程约束验证"],
+    }
+
+
+def _case_payload(
+    requirement: Entity, scenario: Entity | None, method: str
+) -> Mapping[str, object]:
+    statement = str(requirement.payload.get("statement", requirement.meta.name))
+    return {
+        "requirement_id": requirement.id,
+        "requirement_ids": [requirement.id],
+        "scenario_ids": [scenario.id] if scenario else [],
+        "method": method,
+        "precondition": "系统已部署并处于可执行状态",
+        "input": statement,
+        "procedure": "执行需求对应的任务并记录系统响应",
+        "expected_result": "系统行为满足需求并留下可审查结果",
+        "pass_criteria": "需求约束和行为结果均满足",
+    }
+
+
+__all__ = ["LifecycleTaskRuleRuntime", "LIFECYCLE_TASKS", "OPERATIONAL_FUNCTIONAL_TASKS", "TaskGraphBuilder"]

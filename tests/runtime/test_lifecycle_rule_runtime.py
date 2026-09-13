@@ -52,3 +52,24 @@ def test_operational_and_functional_tasks_create_typed_objects(tmp_path: Path):
         EntityKind.FUNCTIONAL_FLOW,
         EntityKind.FUNCTIONAL_SCENARIO,
     } <= _active_kinds(repository)
+
+
+def test_remaining_tasks_create_logical_physical_and_assurance_objects(tmp_path: Path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    RequirementInputService(repository, "p1").ensure_text_requirements(
+        "系统功耗不超过 50 W 且续航不少于 10 h"
+    )
+
+    _run_tasks(repository, tuple(task.id for task in task_catalog()))
+
+    assert {
+        EntityKind.LOGICAL_COMPONENT,
+        EntityKind.INTERFACE,
+        EntityKind.STATE,
+        EntityKind.PHYSICAL_BLOCK,
+        EntityKind.HAZARD,
+        EntityKind.FAILURE_MODE,
+        EntityKind.VERIFICATION_CASE,
+        EntityKind.VALIDATION_CASE,
+    } <= _active_kinds(repository)

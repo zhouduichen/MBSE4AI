@@ -112,7 +112,7 @@ def task_catalog() -> tuple[TaskSpec, ...]:
         _task("logical_analysis", Phase.LOGICAL_PHYSICAL, {EntityKind.FUNCTION, EntityKind.FUNCTIONAL_FLOW, EntityKind.REQUIREMENT}, {EntityKind.LOGICAL_COMPONENT}),
         _task("physical_candidates", Phase.LOGICAL_PHYSICAL, {EntityKind.LOGICAL_COMPONENT, EntityKind.REQUIREMENT, EntityKind.EVIDENCE}, {EntityKind.PHYSICAL_BLOCK}),
         _task("allocation_tradeoff", Phase.LOGICAL_PHYSICAL, {EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK}, {EntityKind.PHYSICAL_BLOCK}),
-        _task("technical_requirement", Phase.LOGICAL_PHYSICAL, {EntityKind.FUNCTION, EntityKind.PHYSICAL_BLOCK, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
+        _task("technical_requirement", Phase.LOGICAL_PHYSICAL, {EntityKind.FUNCTION, EntityKind.PHYSICAL_BLOCK, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT, EntityKind.PHYSICAL_BLOCK}),
         _task("interface_sequence_state", Phase.ASSURANCE, {EntityKind.FUNCTION, EntityKind.LOGICAL_COMPONENT, EntityKind.INTERFACE, EntityKind.STATE}, {EntityKind.INTERFACE, EntityKind.STATE}),
         _task("fmea_stpa_hazard", Phase.ASSURANCE, {EntityKind.HAZARD, EntityKind.FAILURE_MODE, EntityKind.REQUIREMENT}, {EntityKind.HAZARD, EntityKind.FAILURE_MODE}),
         _task("verification_validation", Phase.ASSURANCE, {EntityKind.REQUIREMENT, EntityKind.OPERATIONAL_SCENARIO, EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}, {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}),

@@ -9,7 +9,7 @@ from rflp_lite.domain.model import AddEntity, Deprecate, Patch, Relate, UpdateEn
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
 from rflp_lite.runtime.lifecycle_rule import (
-    OPERATIONAL_FUNCTIONAL_TASKS,
+    LIFECYCLE_TASKS,
     LifecycleTaskRuleRuntime,
 )
 
@@ -59,7 +59,7 @@ class RuleRuntime:
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         if request.task_id.startswith("vertical."):
             return VerticalRuleRuntime().execute(request)
-        if request.task_id in OPERATIONAL_FUNCTIONAL_TASKS:
+        if request.task_id in LIFECYCLE_TASKS:
             return _LIFECYCLE_RUNTIME.execute(request)
         if request.task_id == "verification_validation":
             return self._verification_validation(request)
