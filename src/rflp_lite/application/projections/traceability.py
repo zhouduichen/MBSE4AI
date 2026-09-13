@@ -18,6 +18,7 @@ class TraceabilityRowView:
     logical_components: tuple[str, ...]
     physical_blocks: tuple[str, ...]
     verification_cases: tuple[str, ...]
+    validation_cases: tuple[str, ...]
     gaps: tuple[str, ...]
     coverage_percent: float
     status: str
@@ -31,8 +32,8 @@ def build_traceability_view(graph: ModelGraph, issues: tuple[Mapping[str, object
     matrix = []
     for requirement in sorted((item for item in graph.entities if item.kind is EntityKind.REQUIREMENT), key=lambda item: item.id):
         status, gaps, trace = requirement_trace_status(graph, requirement)
-        coverage = sum(bool(trace[key]) for key in ("functions", "logical", "physical", "verification")) / 4 * 100
-        row = TraceabilityRowView(requirement.id, requirement.meta.name, trace["functions"], trace["logical"], trace["physical"], trace["verification"], gaps, coverage, status)
+        coverage = sum(bool(trace[key]) for key in ("functions", "logical", "physical", "verification", "validation")) / 5 * 100
+        row = TraceabilityRowView(requirement.id, requirement.meta.name, trace["functions"], trace["logical"], trace["physical"], trace["verification"], trace["validation"], gaps, coverage, status)
         rows.append(row.as_dict())
         matrix.extend({"requirement_id": requirement.id, "requirement_name": requirement.meta.name, "function_id": function_id, "present": True, "predicate": "satisfiedBy"} for function_id in trace["functions"])
         if not trace["functions"]:

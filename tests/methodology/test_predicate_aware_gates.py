@@ -19,7 +19,8 @@ def test_wrong_predicate_cannot_pass_function_gate():
 def test_global_gate_requires_verified_by():
     requirement = make_entity(EntityKind.REQUIREMENT, "需求", {"obligation": "支持配送"}, status=EntityStatus.ACCEPTED)
     verification = make_entity(EntityKind.VERIFICATION_CASE, "验证", {"method": "test", "pass_criteria": "通过"})
-    graph = ModelGraph("p1", (requirement, verification), (Relation("r1", requirement.id, RelationPredicate.SUPPORTED_BY, verification.id),))
+    validation = make_entity(EntityKind.VALIDATION_CASE, "确认", {"method": "demonstration", "pass_criteria": "通过"})
+    graph = ModelGraph("p1", (requirement, verification, validation), (Relation("r1", requirement.id, RelationPredicate.SUPPORTED_BY, verification.id), Relation("r2", requirement.id, RelationPredicate.VALIDATED_BY, validation.id)))
 
     result = global_gate(graph)
 

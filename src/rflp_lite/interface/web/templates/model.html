@@ -7,7 +7,7 @@
 </div>
 
 <section class="panel trace-panel">
-  <div class="panel-head"><div><h2>需求 → 功能 → 逻辑 → 物理 → 验证</h2><p>点击节点查看对应的实体资源；缺失链路会作为追踪问题保留。</p></div><span class="count-badge">{{ trace.paths|length }} 条链路</span></div>
+  <div class="panel-head"><div><h2>需求 → 功能 → 逻辑 → 物理 → 验证 / 确认</h2><p>点击节点查看对应的实体资源；验证与确认分别展示，缺失链路会作为追踪问题保留。</p></div><span class="count-badge">{{ trace.paths|length }} 条链路</span></div>
   <div class="trace-legend">
     {% for stage in trace.stage_labels %}<span><i>{{ loop.index }}</i>{{ stage }}</span>{% endfor %}
   </div>
@@ -20,6 +20,12 @@
       {% else %}<div class="trace-node trace-node-missing"><span>{{ trace.stage_labels[loop.index0] }}</span><strong>缺少链路</strong><small>质量门禁问题</small></div>{% endif %}
       {% if not loop.last %}<span class="trace-arrow" aria-hidden="true">→</span>{% endif %}
       {% endfor %}
+    </div>
+    <div class="trace-nodes trace-vv">
+      <span class="trace-arrow" aria-hidden="true">V&amp;V</span>
+      {% if path.verification %}<a id="entity-{{ path.verification.id }}-vv" class="trace-node" href="{{ path.verification.href }}"><span>{{ path.verification.stage_label }}</span><strong>{{ path.verification.name }}</strong><small>{{ path.verification.kind_label }} · {{ path.verification.status_label }}</small></a>{% else %}<div class="trace-node trace-node-missing"><span>验证</span><strong>缺少链路</strong><small>质量门禁问题</small></div>{% endif %}
+      <span class="trace-arrow" aria-hidden="true">＋</span>
+      {% if path.validation %}<a id="entity-{{ path.validation.id }}-vv" class="trace-node" href="{{ path.validation.href }}"><span>{{ path.validation.stage_label }}</span><strong>{{ path.validation.name }}</strong><small>{{ path.validation.kind_label }} · {{ path.validation.status_label }}</small></a>{% else %}<div class="trace-node trace-node-missing"><span>确认</span><strong>缺少链路</strong><small>质量门禁问题</small></div>{% endif %}
     </div>
   </article>
   {% else %}<div class="mini-empty">暂无需求实体可供追踪。</div>{% endfor %}

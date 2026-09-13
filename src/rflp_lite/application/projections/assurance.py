@@ -1,4 +1,4 @@
-"""Verification, safety, FMEA, gate, and repair projections."""
+"""Verification, validation, safety, FMEA, gate, and repair projections."""
 
 from __future__ import annotations
 
@@ -44,12 +44,31 @@ def _gate(graph: ModelGraph, phase: Phase, issues: tuple[Mapping[str, object], .
 def build_assurance_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> Mapping[str, object]:
     issue_index = issues_by_entity(issues)
     verification = {item.id: item for item in graph.entities if item.kind is EntityKind.VERIFICATION_CASE}
+    validation = {item.id: item for item in graph.entities if item.kind is EntityKind.VALIDATION_CASE}
     vv_rows = []
     for requirement in sorted((item for item in graph.entities if item.kind is EntityKind.REQUIREMENT), key=lambda item: item.id):
-        cases = [relation.target_id for relation in graph.relations if relation.source_id == requirement.id and relation.target_id in verification and relation.predicate.value == "verifiedBy"]
-        for case_id in sorted(cases) or [None]:
-            case = verification.get(case_id) if case_id else None
-            vv_rows.append({"requirement_id": requirement.id, "requirement": requirement.meta.name, "method": case.payload.get("method", "") if case else "", "verification_case_id": case_id, "verification_case": case.meta.name if case else "", "pass_criteria": case.payload.get("pass_criteria", "") if case else "", "status": "PASS" if case and case.payload.get("method") and case.payload.get("pass_criteria") else "MISSING_VERIFICATION", "issues": list(issue_index.get(requirement.id, ()))})
+        for kind, cases_by_id, predicate, code, label in (
+            ("verification", verification, "verifiedBy", "MISSING_VERIFICATION", "验证"),
+            ("validation", validation, "validatedBy", "MISSING_VALIDATION", "确认"),
+        ):
+            cases = [relation.target_id for relation in graph.relations if relation.source_id == requirement.id and relation.target_id in cases_by_id and relation.predicate.value == predicate]
+            for case_id in sorted(cases) or [None]:
+                case = cases_by_id.get(case_id) if case_id else None
+                vv_rows.append({
+                    "requirement_id": requirement.id,
+                    "requirement": requirement.meta.name,
+                    "case_type": kind,
+                    "case_type_label": label,
+                    "case_id": case_id,
+                    "method": case.payload.get("method", "") if case else "",
+                    "verification_case_id": case_id if kind == "verification" else None,
+                    "validation_case_id": case_id if kind == "validation" else None,
+                    "verification_case": case.meta.name if kind == "verification" and case else "",
+                    "validation_case": case.meta.name if kind == "validation" and case else "",
+                    "pass_criteria": case.payload.get("pass_criteria", "") if case else "",
+                    "status": "PASS" if case and case.payload.get("method") and case.payload.get("pass_criteria") else code,
+                    "issues": list(issue_index.get(requirement.id, ())),
+                })
     hazards = []
     for hazard in sorted((item for item in graph.entities if item.kind is EntityKind.HAZARD), key=lambda item: item.id):
         hazards.append({**entity_card(hazard, issue_count=len(issue_index.get(hazard.id, ()))), "causes": [relation.source_id for relation in graph.relations if relation.target_id == hazard.id and relation.predicate.value == "causes"], "mitigations": [relation.target_id for relation in graph.relations if relation.source_id == hazard.id and relation.predicate.value == "mitigatedBy"], "verification": [relation.target_id for relation in graph.relations if relation.source_id == hazard.id and relation.predicate.value in {"mitigatedBy", "verifiedBy"}]})

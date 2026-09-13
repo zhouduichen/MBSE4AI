@@ -9,7 +9,9 @@ from typing import Iterable, Mapping
 from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.domain.relations import RelationPredicate
-from rflp_lite.methodology.trace_rules import F_TO_L, L_TO_P, R_TO_F, R_TO_V, targets
+from rflp_lite.methodology.trace_rules import (
+    F_TO_L, L_TO_P, R_TO_F, R_TO_V, R_TO_VALIDATION, targets,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +105,14 @@ def trace_targets(graph: ModelGraph, requirement_id: str) -> dict[str, tuple[str
     logical = tuple(sorted({target for function_id in functions for target in targets(graph, function_id, F_TO_L)}))
     physical = tuple(sorted({target for logical_id in logical for target in targets(graph, logical_id, L_TO_P)}))
     verification = targets(graph, requirement_id, R_TO_V)
-    return {"functions": functions, "logical": logical, "physical": physical, "verification": verification}
+    validation = targets(graph, requirement_id, R_TO_VALIDATION)
+    return {
+        "functions": functions,
+        "logical": logical,
+        "physical": physical,
+        "verification": verification,
+        "validation": validation,
+    }
 
 
 def trace_invalid_predicates(graph: ModelGraph, requirement_id: str) -> tuple[str, ...]:
@@ -113,6 +122,7 @@ def trace_invalid_predicates(graph: ModelGraph, requirement_id: str) -> tuple[st
         (EntityKind.FUNCTION, EntityKind.LOGICAL_COMPONENT),
         (EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK),
         (EntityKind.REQUIREMENT, EntityKind.VERIFICATION_CASE),
+        (EntityKind.REQUIREMENT, EntityKind.VALIDATION_CASE),
     }
     invalid: list[str] = []
     for relation in graph.relations:
@@ -129,6 +139,7 @@ def trace_invalid_predicates(graph: ModelGraph, requirement_id: str) -> tuple[st
             (EntityKind.FUNCTION, EntityKind.LOGICAL_COMPONENT): F_TO_L,
             (EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK): L_TO_P,
             (EntityKind.REQUIREMENT, EntityKind.VERIFICATION_CASE): R_TO_V,
+            (EntityKind.REQUIREMENT, EntityKind.VALIDATION_CASE): R_TO_VALIDATION,
         }[(source.kind, target.kind)]
         if relation.predicate not in expected.allowed_predicates:
             invalid.append(relation.id)
@@ -142,8 +153,8 @@ def requirement_trace_status(graph: ModelGraph, requirement: Entity) -> tuple[st
         return "REJECTED", ("rejected",), trace
     if invalid:
         return "INVALID_PREDICATE", ("invalid_predicate",), trace
-    gaps = tuple(stage for stage, values in (("function", trace["functions"]), ("logical", trace["logical"]), ("physical", trace["physical"]), ("verification", trace["verification"])) if not values)
-    gap_codes = {"function": "MISSING_FUNCTION", "logical": "MISSING_LOGICAL", "physical": "MISSING_PHYSICAL", "verification": "MISSING_VERIFICATION"}
+    gaps = tuple(stage for stage, values in (("function", trace["functions"]), ("logical", trace["logical"]), ("physical", trace["physical"]), ("verification", trace["verification"]), ("validation", trace["validation"])) if not values)
+    gap_codes = {"function": "MISSING_FUNCTION", "logical": "MISSING_LOGICAL", "physical": "MISSING_PHYSICAL", "verification": "MISSING_VERIFICATION", "validation": "MISSING_VALIDATION"}
     status = "PASS" if not gaps else gap_codes[gaps[0]] if len(gaps) == 1 else "BLOCKED"
     return status, gaps, trace
 

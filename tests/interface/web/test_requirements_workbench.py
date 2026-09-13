@@ -17,8 +17,9 @@ def _client_with_fixture(tmp_path, runtime=None):
     logical = make_entity(EntityKind.LOGICAL_COMPONENT, "Energy controller")
     physical = make_entity(EntityKind.PHYSICAL_BLOCK, "Battery pack")
     verification = make_entity(EntityKind.VERIFICATION_CASE, "Endurance test", {"method": "test", "pass_criteria": ">=8h"})
-    relations = (Relate(requirement.id, RelationPredicate.SATISFIED_BY, function.id), Relate(function.id, RelationPredicate.ALLOCATED_TO, logical.id), Relate(logical.id, RelationPredicate.ALLOCATED_TO, physical.id), Relate(requirement.id, RelationPredicate.VERIFIED_BY, verification.id))
-    patch = Patch.create("p1", "fixture", (AddEntity(requirement), AddEntity(function), AddEntity(logical), AddEntity(physical), AddEntity(verification), *relations), "fixture", 0)
+    validation = make_entity(EntityKind.VALIDATION_CASE, "Operational confirmation", {"method": "demonstration", "pass_criteria": "operator confirms"})
+    relations = (Relate(requirement.id, RelationPredicate.SATISFIED_BY, function.id), Relate(function.id, RelationPredicate.ALLOCATED_TO, logical.id), Relate(logical.id, RelationPredicate.ALLOCATED_TO, physical.id), Relate(requirement.id, RelationPredicate.VERIFIED_BY, verification.id), Relate(requirement.id, RelationPredicate.VALIDATED_BY, validation.id))
+    patch = Patch.create("p1", "fixture", (AddEntity(requirement), AddEntity(function), AddEntity(logical), AddEntity(physical), AddEntity(verification), AddEntity(validation), *relations), "fixture", 0)
     app.state.container.v2.repository("p1").append_patch("p1", patch, 0)
     return client, requirement.id
 

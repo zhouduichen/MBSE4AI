@@ -492,7 +492,7 @@ class WorkflowRunner:
             for route in task.failure_routes:
                 if route.issue_code == code and route.target_task_id:
                     return route.target_task_id
-        return {"missing_stakeholder": "stakeholder_analysis", "missing_lifecycle": "lifecycle_analysis", "missing_scenario": "scenario_exploration", "missing_use_case": "use_case_analysis", "missing_requirement": "stakeholder_requirements", "missing_function": "function_identification", "broken_requirement_function_trace": "function_identification", "incomplete_rflp_chain": "logical_analysis", "broken_requirement_rflp_trace": "logical_analysis", "missing_verification": "verification_validation", "broken_requirement_verification_trace": "verification_validation"}.get(code, "")
+        return {"missing_stakeholder": "stakeholder_analysis", "missing_lifecycle": "lifecycle_analysis", "missing_scenario": "scenario_exploration", "missing_use_case": "use_case_analysis", "missing_requirement": "stakeholder_requirements", "missing_function": "function_identification", "broken_requirement_function_trace": "function_identification", "incomplete_rflp_chain": "logical_analysis", "broken_requirement_rflp_trace": "logical_analysis", "missing_verification": "verification_validation", "broken_requirement_verification_trace": "verification_validation", "missing_validation": "verification_validation", "broken_requirement_validation_trace": "verification_validation"}.get(code, "")
 
     def _gate_payload(self, result: GateResult, phase: Phase) -> dict[str, object]:
         return {"gate_id": result.gate_id, "phase": phase.value, "passed": result.passed, "issues": [asdict(gap) for gap in result.issues], "checks": list(result.checks)}

@@ -35,6 +35,8 @@ def _task(
         routes.extend((
             FailureRoute("missing_verification", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
             FailureRoute("broken_requirement_verification_trace", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
+            FailureRoute("missing_validation", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
+            FailureRoute("broken_requirement_validation_trace", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
         ))
     return TaskSpec(
         task_id,

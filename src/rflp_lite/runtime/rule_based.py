@@ -47,6 +47,10 @@ class RuleRuntime:
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         if request.task_id.startswith("vertical."):
             return VerticalRuleRuntime().execute(request)
+        if request.task_id == "verification_validation":
+            return self._verification_validation(request)
+        if request.task_id == "global_cross_analysis" and _first(request.context_bundle, EntityKind.VALIDATION_CASE) is not None:
+            return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:assurance-already-covered",))
         kind = _PRIMARY_OUTPUT.get(request.task_id)
         if kind is None or kind.value not in {str(value) for value in request.output_contract.get("output_kinds", ())}:
             return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:no-op",))
@@ -111,6 +115,41 @@ class RuleRuntime:
                 for item in context.entities if item.kind is EntityKind.STAKEHOLDER
             )
         patch = Patch.create(context.project_id, request.task_id, tuple(operations), f"离线规则生成 {kind.value} 候选", context.revision)
+        return TaskExecutionResponse(StepStatus.COMPLETED, patch=patch, diagnostics=("offline:rule-runtime",))
+
+    def _verification_validation(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
+        context = request.context_bundle
+        requirements = [item for item in context.entities if item.kind is EntityKind.REQUIREMENT]
+        existing = {(item.kind, item.meta.name): item for item in context.entities}
+        operations: list[object] = []
+        cases = {}
+        for kind, name, predicate, method in (
+            (EntityKind.VERIFICATION_CASE, "verification_validation 验证候选", RelationPredicate.VERIFIED_BY, "review"),
+            (EntityKind.VALIDATION_CASE, "verification_validation 确认候选", RelationPredicate.VALIDATED_BY, "demonstration"),
+        ):
+            case = existing.get((kind, name))
+            if case is None:
+                case = make_entity(
+                    kind,
+                    name,
+                    {"task_id": request.task_id, "method": method, "pass_criteria": "待确认的通过准则", "requires_human_review": True},
+                    status=EntityStatus.CANDIDATE,
+                    producer=Producer.RULE,
+                    confidence=0.5,
+                    revision=context.revision,
+                )
+                operations.append(AddEntity(case))
+            cases[kind] = (case, predicate)
+        relation_keys = {(item.source_id, item.predicate, item.target_id) for item in context.relations}
+        for requirement in requirements:
+            for case, predicate in cases.values():
+                key = (requirement.id, predicate, case.id)
+                if key not in relation_keys:
+                    operations.append(Relate(requirement.id, predicate, case.id))
+                    relation_keys.add(key)
+        if not operations:
+            return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:idempotent",))
+        patch = Patch.create(context.project_id, request.task_id, tuple(operations), "离线规则生成验证与确认候选", context.revision)
         return TaskExecutionResponse(StepStatus.COMPLETED, patch=patch, diagnostics=("offline:rule-runtime",))
 
 

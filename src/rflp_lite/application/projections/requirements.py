@@ -27,6 +27,7 @@ class RequirementRowView:
     source_count: int
     evidence_count: int
     verification_count: int
+    validation_count: int
     function_count: int
     logical_count: int
     physical_count: int
@@ -51,6 +52,7 @@ class RequirementDetailView:
     logical_components: tuple[Mapping[str, object], ...]
     physical_blocks: tuple[Mapping[str, object], ...]
     verification_cases: tuple[Mapping[str, object], ...]
+    validation_cases: tuple[Mapping[str, object], ...]
     hazards: tuple[Mapping[str, object], ...]
     issues: tuple[Mapping[str, object], ...]
     trace_path: tuple[str, ...]
@@ -80,6 +82,7 @@ def _row(graph: ModelGraph, entity: Entity, issues: Mapping[str, tuple[Mapping[s
         len(entity.meta.source_ids),
         len(set(entity.meta.evidence_ids) | relation_evidence),
         len(trace["verification"]),
+        len(trace["validation"]),
         len(trace["functions"]),
         len(trace["logical"]),
         len(trace["physical"]),
@@ -123,12 +126,13 @@ def build_requirement_detail(graph: ModelGraph, entity_id: str, *, issues: tuple
     logical = tuple(card for card in cards if card["kind"] == EntityKind.LOGICAL_COMPONENT.value)
     physical = tuple(card for card in cards if card["kind"] == EntityKind.PHYSICAL_BLOCK.value)
     verification = tuple(card for card in cards if card["kind"] == EntityKind.VERIFICATION_CASE.value)
+    validation = tuple(card for card in cards if card["kind"] == EntityKind.VALIDATION_CASE.value)
     hazards = tuple(entity_card(item, issue_count=len(issue_index.get(item.id, ()))) for item in graph.entities if item.kind in {EntityKind.HAZARD, EntityKind.FAILURE_MODE} and any(relation.source_id == item.id and relation.target_id == entity.id and relation.predicate.value == "mitigatedBy" for relation in graph.relations))
     detail = RequirementDetailView(
         entity.as_dict(), statement(entity), dict(entity.payload), sources, tuple(evidence_views),
         related_cards(graph, entity.id, outgoing=False, issues=issue_index),
         related_cards(graph, entity.id, outgoing=True, issues=issue_index),
-        functions, logical, physical, verification, hazards,
+        functions, logical, physical, verification, validation, hazards,
         tuple(issue_index.get(entity.id, ())),
         tuple((entity.id,) + trace_values["functions"][:1] + trace_values["logical"][:1] + trace_values["physical"][:1]),
         graph.revision,

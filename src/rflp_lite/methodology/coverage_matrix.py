@@ -94,6 +94,8 @@ def build_requirement_coverage(graph: ModelGraph) -> CoverageMatrix:
             gaps.append("physical")
         if not verification:
             gaps.append("verification")
+        if not validation:
+            gaps.append("validation")
         if not _evidence_coverage(graph, requirement_id):
             gaps.append("evidence")
         rows.append(RequirementCoverageRow(
@@ -118,6 +120,7 @@ def build_requirement_coverage(graph: ModelGraph) -> CoverageMatrix:
         "r_to_f_to_l_coverage": count(lambda row: bool(row.logical_components)) / total if total else 1.0,
         "r_to_f_to_l_to_p_coverage": count(lambda row: bool(row.physical_blocks)) / total if total else 1.0,
         "r_to_v_coverage": count(lambda row: bool(row.verification_cases)) / total if total else 1.0,
+        "r_to_validation_coverage": count(lambda row: bool(row.validation_cases)) / total if total else 1.0,
         "evidence_coverage": count(lambda row: row.evidence) / total if total else 1.0,
         "verification_pass_criteria_coverage": _verification_pass_criteria_coverage(graph),
         "orphan_entity_count": orphan_entities,

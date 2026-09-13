@@ -63,9 +63,11 @@ class RuleFallbackRepairStrategy:
             "missing_scenario": "scenario", "missing_use_case": "scenario",
             "missing_requirement": "requirement", "missing_function": "function",
             "missing_verification": "verification", "incomplete_rflp_chain": "architecture",
+            "missing_validation": "validation",
             "broken_requirement_rflp_trace": "architecture",
             "broken_requirement_function_trace": "function",
             "broken_requirement_verification_trace": "verification",
+            "broken_requirement_validation_trace": "validation",
         }.get(context.issue_code, "evidence")
         gap = CoverageGap(context.issue_code, fallback_root, context.root_entity_ids)
         plan = plan_repair(CoverageReport((gap,)), revision=graph.revision)

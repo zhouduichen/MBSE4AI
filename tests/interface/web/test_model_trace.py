@@ -17,6 +17,7 @@ def test_model_trace_returns_clickable_rflp_verification_path(tmp_path: Path) ->
     logical = make_entity(EntityKind.LOGICAL_COMPONENT, "Energy controller")
     physical = make_entity(EntityKind.PHYSICAL_BLOCK, "Battery pack")
     verification = make_entity(EntityKind.VERIFICATION_CASE, "Battery endurance test")
+    validation = make_entity(EntityKind.VALIDATION_CASE, "Operator confirmation")
     graph = repository.load_graph("p1")
     operations = (
         AddEntity(requirement),
@@ -24,10 +25,12 @@ def test_model_trace_returns_clickable_rflp_verification_path(tmp_path: Path) ->
         AddEntity(logical),
         AddEntity(physical),
         AddEntity(verification),
+        AddEntity(validation),
         Relate(requirement.id, RelationPredicate.SATISFIED_BY, function.id),
         Relate(function.id, RelationPredicate.ALLOCATED_TO, logical.id),
         Relate(logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
         Relate(requirement.id, RelationPredicate.VERIFIED_BY, verification.id),
+        Relate(requirement.id, RelationPredicate.VALIDATED_BY, validation.id),
     )
     repository.append_patch("p1", Patch.create("p1", "test.trace", operations, "seed trace", graph.revision), graph.revision)
 
@@ -44,6 +47,7 @@ def test_model_trace_returns_clickable_rflp_verification_path(tmp_path: Path) ->
     ]
     path = payload["paths"][0]
     assert path["complete"] is True
+    assert path["validation"]["id"] == validation.id
     assert [node["stage"] for node in path["nodes"]] == payload["stages"]
     assert path["nodes"][0]["href"].endswith(f"#entity-{requirement.id}")
 
@@ -56,3 +60,4 @@ def test_model_trace_returns_clickable_rflp_verification_path(tmp_path: Path) ->
     assert page.status_code == 200
     assert "需求 → 功能 → 逻辑 → 物理 → 验证" in page.text
     assert "Battery endurance test" in page.text
+    assert "Operator confirmation" in page.text

@@ -20,6 +20,8 @@ _ROOT_CAUSES = {
     "broken_requirement_rflp_trace": "missing_relation_or_allocation",
     "missing_verification": "missing_entity",
     "broken_requirement_verification_trace": "missing_relation_or_verification",
+    "missing_validation": "missing_entity",
+    "broken_requirement_validation_trace": "missing_relation_or_validation",
     "reference_missing": "invalid_relation", "relation_endpoint_invalid": "invalid_relation",
     "semantic_invalid": "invalid_entity_payload", "evidence_missing": "missing_evidence_reference",
     "patch_policy_violation": "invalid_entity_payload",
@@ -85,6 +87,8 @@ def plan(context: RepairContext) -> RepairTask:
         kinds, predicates, target, limit = frozenset({EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK}), frozenset({RelationPredicate.ALLOCATED_TO, RelationPredicate.REALIZED_BY}), "logical_analysis", 4
     elif code in {"missing_verification", "broken_requirement_verification_trace"}:
         kinds, predicates, target, limit = frozenset({EntityKind.VERIFICATION_CASE}), frozenset({RelationPredicate.VERIFIED_BY}), "verification_validation", 3
+    elif code in {"missing_validation", "broken_requirement_validation_trace"}:
+        kinds, predicates, target, limit = frozenset({EntityKind.VALIDATION_CASE}), frozenset({RelationPredicate.VALIDATED_BY}), "verification_validation", 3
     elif code == "missing_stakeholder":
         kinds, predicates, target, limit = frozenset({EntityKind.STAKEHOLDER}), frozenset(), "stakeholder_analysis", 2
     elif code == "missing_lifecycle":

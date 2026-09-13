@@ -9,7 +9,7 @@ from rflp_lite.domain.model import ModelGraph
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
 from rflp_lite.methodology.coverage import CoverageGap, CoverageReport, evaluate
-from rflp_lite.methodology.trace_rules import F_TO_L, L_TO_P, R_TO_F, R_TO_V
+from rflp_lite.methodology.trace_rules import F_TO_L, L_TO_P, R_TO_F, R_TO_V, R_TO_VALIDATION
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +88,8 @@ def global_gate(graph: ModelGraph) -> GateResult:
     checks: list[dict[str, object]] = []
     if not _has(graph, EntityKind.VERIFICATION_CASE):
         issues.append(CoverageGap("missing_verification", "verification"))
+    if not _has(graph, EntityKind.VALIDATION_CASE):
+        issues.append(CoverageGap("missing_validation", "validation"))
     matrix = build_requirement_coverage(graph)
     for row in matrix.rows:
         linked = bool(row.verification_cases)
@@ -100,6 +102,16 @@ def global_gate(graph: ModelGraph) -> GateResult:
         })
         if not linked:
             issues.append(CoverageGap("broken_requirement_verification_trace", "verification", (row.requirement_id,)))
+        validation_linked = bool(row.validation_cases)
+        checks.append({
+            "id": f"requirement-validation:{row.requirement_id}",
+            "passed": validation_linked,
+            "path": list((row.requirement_id, *row.validation_cases[:1])) if validation_linked else [row.requirement_id],
+            "missing_stage": "validation" if not validation_linked else None,
+            "expected_predicates": [item.value for item in sorted(R_TO_VALIDATION.allowed_predicates, key=lambda item: item.value)],
+        })
+        if not validation_linked:
+            issues.append(CoverageGap("broken_requirement_validation_trace", "validation", (row.requirement_id,)))
     return GateResult("Global-Gate", not issues, tuple(issues), Phase.ASSURANCE if issues else None, tuple(checks))
 
 

@@ -137,6 +137,8 @@ _ISSUE_LABELS = {
     "broken_requirement_rflp_trace": "需求到 RFLP 的链路断裂",
     "missing_verification": "缺少验证用例",
     "broken_requirement_verification_trace": "需求到验证的链路断裂",
+    "missing_validation": "缺少确认用例",
+    "broken_requirement_validation_trace": "需求到确认的链路断裂",
 }
 _ROOT_CAUSE_LABELS = {
     "stakeholder": "利益相关方",
@@ -146,6 +148,7 @@ _ROOT_CAUSE_LABELS = {
     "function": "功能",
     "architecture": "逻辑/物理架构",
     "verification": "验证与确认",
+    "validation": "验证与确认",
     "evidence": "证据",
 }
 _ANALYSIS_MODULES = (
@@ -172,6 +175,7 @@ _TRACE_STAGE_LABELS = {
     "Logical": "逻辑",
     "Physical": "物理",
     "Verification": "验证",
+    "Validation": "确认",
 }
 _ROOT_CAUSES = {
     "missing_stakeholder": "stakeholder",
@@ -185,6 +189,8 @@ _ROOT_CAUSES = {
     "broken_requirement_rflp_trace": "architecture",
     "missing_verification": "verification",
     "broken_requirement_verification_trace": "verification",
+    "missing_validation": "validation",
+    "broken_requirement_validation_trace": "validation",
 }
 _SUGGESTED_TASKS = {
     "stakeholder": "stakeholder_analysis",
@@ -194,6 +200,7 @@ _SUGGESTED_TASKS = {
     "function": "function_identification",
     "architecture": "logical_analysis",
     "verification": "verification_validation",
+    "validation": "verification_validation",
 }
 
 
@@ -968,6 +975,8 @@ def build_trace_view(request: Request, project_id: str) -> dict[str, object]:
         ids.append(physical_path[-1] if physical_path else None)
         verification_path = _kind_path(graph, adjacency_tuple, requirement.id, EntityKind.VERIFICATION_CASE)
         ids.append(verification_path[-1] if verification_path else None)
+        validation_path = _kind_path(graph, adjacency_tuple, requirement.id, EntityKind.VALIDATION_CASE)
+        validation_node = _trace_node(project_id, index[validation_path[-1]], "Validation") if validation_path else None
         nodes: list[dict[str, object] | None] = []
         missing: list[str] = []
         for entity_id, (_kind, stage) in zip(ids, _TRACE_STAGES):
@@ -982,11 +991,22 @@ def build_trace_view(request: Request, project_id: str) -> dict[str, object]:
                     "severity": "warning",
                     "severity_label": "警告",
                 })
+        if validation_node is None:
+            missing.append("Validation")
+            issues.append({
+                "code": "missing_trace_validation",
+                "message": f"{requirement.meta.name}暂无Validation链路",
+                "entity_ids": [requirement.id],
+                "severity": "warning",
+                "severity_label": "警告",
+            })
         path: dict[str, object] = {
             "path_id": f"trace-{canonical_hash((project_id, requirement.id))[:12]}",
             "complete": not missing,
             "missing": missing,
             "nodes": nodes,
+            "validation": validation_node,
+            "vv_complete": bool(nodes[-1] and validation_node),
         }
         for node, (_kind, stage) in zip(nodes, _TRACE_STAGES):
             path[stage.casefold()] = node
@@ -997,6 +1017,8 @@ def build_trace_view(request: Request, project_id: str) -> dict[str, object]:
         "graph_hash": graph.snapshot_hash,
         "stages": [stage for _kind, stage in _TRACE_STAGES],
         "stage_labels": [_TRACE_STAGE_LABELS[label] for _kind, label in _TRACE_STAGES],
+        "vv_stages": ["Verification", "Validation"],
+        "vv_stage_labels": [_TRACE_STAGE_LABELS[label] for label in ("Verification", "Validation")],
         "paths": paths,
         "issues": issues,
     }
