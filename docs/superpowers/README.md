@@ -16,6 +16,7 @@
 - [统一工程交付包实施计划](plans/2026-09-13-unified-engineering-deliverable.md)
 - [已有 SysML 模型输入设计](specs/2026-09-13-existing-sysml-intake-design.md)
 - [已有 SysML 模型输入实施计划](plans/2026-09-13-existing-sysml-intake.md)
+- [已有模型作为分析种子设计](specs/2026-09-13-existing-model-seed-continuation-design.md)
 
 ## Superseded
 
