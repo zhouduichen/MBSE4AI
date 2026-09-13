@@ -189,6 +189,32 @@ def test_stakeholder_requirement_derived_from_concern_compiles():
     assert patch.operations[1].predicate is RelationPredicate.DERIVED_FROM
 
 
+def test_stakeholder_requirement_reuses_existing_requirement_for_trace():
+    task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
+    requirement = make_entity(EntityKind.REQUIREMENT, "已有需求")
+    concern = make_entity(EntityKind.CONCERN, "安全")
+    context = ContextBundle("p1", task.id, 3, (requirement, concern))
+    request = TaskExecutionRequest(
+        task.id, "v2.1", context, (), output_contract(task), 100,
+        patch_policy=task.patch_policy,
+    )
+    payload = _proposal(
+        entities=[],
+        relations=[{
+            "source_ref": requirement.id,
+            "predicate": RelationPredicate.DERIVED_FROM.value,
+            "target_ref": concern.id,
+            "evidence_ids": [],
+        }],
+    )
+
+    patch = compile_task_proposal(request, payload)
+
+    assert patch is not None
+    assert len(patch.operations) == 1
+    assert isinstance(patch.operations[0], Relate)
+
+
 def test_stakeholder_requirement_supported_by_is_rejected_before_patch_creation():
     task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
     stakeholder = make_entity(EntityKind.STAKEHOLDER, "用户")

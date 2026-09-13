@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 from dataclasses import replace
 
@@ -170,12 +171,12 @@ def _require_mapping(value: object) -> None:
 def _contextualize_contract(
     task: TaskSpec,
     context: ContextBundle,
-    contract: dict[str, object],
-) -> dict[str, object]:
+    contract: Mapping[str, object],
+) -> Mapping[str, object]:
     """Add state-dependent cardinality constraints to system_definition."""
 
     if task.id != "system_definition":
-        return contract
+        return _contextualize_stakeholder_requirements(task, context, contract)
     active_systems = tuple(
         entity for entity in context.entities
         if entity.kind is EntityKind.SYSTEM and entity.meta.status is not EntityStatus.DEPRECATED
@@ -207,6 +208,28 @@ def _contextualize_contract(
         "updates": updates_schema,
         "deprecations": deprecations_schema,
     })
+    return {**contract, "properties": properties}
+
+
+def _contextualize_stakeholder_requirements(
+    task: TaskSpec,
+    context: ContextBundle,
+    contract: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Prevent duplicate requirement creation when source requirements exist."""
+
+    if task.id != "stakeholder_requirements":
+        return contract
+    existing_requirements = tuple(
+        entity for entity in context.entities
+        if entity.kind is EntityKind.REQUIREMENT and entity.meta.status is not EntityStatus.DEPRECATED
+    )
+    if not existing_requirements:
+        return contract
+    properties = dict(contract["properties"])
+    entities_schema = dict(properties["entities"])
+    entities_schema["maxItems"] = 0
+    properties["entities"] = entities_schema
     return {**contract, "properties": properties}
 
 
