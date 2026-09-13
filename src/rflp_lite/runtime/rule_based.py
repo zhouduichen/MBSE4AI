@@ -309,6 +309,14 @@ class VerticalRuleRuntime:
 
     def _verification_validation(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         builder = _VerticalPatchBuilder(request)
+        activities = _context_entities(request.context_bundle, EntityKind.ACTIVITY)
+        branch_names = [
+            branch
+            for activity in activities
+            for branch in activity.payload.get("branches", ())
+            if str(branch).strip()
+        ]
+        activity_ids = [item.id for item in activities]
         for requirement in _requirements(request):
             verification = builder.add(EntityKind.VERIFICATION_CASE, f"验证：{requirement.meta.name[:32]}", {
                 "method": "test",
@@ -316,22 +324,26 @@ class VerticalRuleRuntime:
                 "input": requirement.meta.name,
                 "procedure": "执行测试步骤并记录实际结果",
                 "expected_result": "实际结果满足需求目标",
-                "pass_criteria": f"测试结果满足：{requirement.meta.name}",
-                "evidence_ids": [],
-                "requirement_ids": [requirement.id],
-                "scenario_ids": [],
-            })
+                    "pass_criteria": f"测试结果满足：{requirement.meta.name}",
+                    "evidence_ids": [],
+                    "requirement_ids": [requirement.id],
+                    "scenario_ids": [],
+                    "activity_ids": activity_ids,
+                    "covered_branches": branch_names,
+                })
             validation = builder.add(EntityKind.VALIDATION_CASE, f"确认：{requirement.meta.name[:32]}", {
                 "method": "demonstration",
                 "precondition": "目标用户和典型场景可用",
                 "input": requirement.meta.name,
                 "procedure": "在典型场景执行并收集用户反馈",
                 "expected_result": "用户场景目标达成",
-                "pass_criteria": f"用户场景确认：{requirement.meta.name}",
-                "evidence_ids": [],
-                "requirement_ids": [requirement.id],
-                "scenario_ids": [],
-            })
+                    "pass_criteria": f"用户场景确认：{requirement.meta.name}",
+                    "evidence_ids": [],
+                    "requirement_ids": [requirement.id],
+                    "scenario_ids": [],
+                    "activity_ids": activity_ids,
+                    "covered_branches": branch_names,
+                })
             builder.relate(requirement, RelationPredicate.VERIFIED_BY, verification)
             builder.relate(requirement, RelationPredicate.VALIDATED_BY, validation)
         return builder.response()

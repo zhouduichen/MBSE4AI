@@ -334,6 +334,9 @@ class MethodologyEngine:
             }
             for component in components
         ]
+        metrics["logical_trade_study"] = _logical_trade_study(
+            functions, components, component_functions
+        )
 
     def _analyze_physical(self, graph, index, findings, metrics) -> None:
         logicals = _active(index, EntityKind.LOGICAL_COMPONENT)
@@ -404,6 +407,23 @@ class MethodologyEngine:
             }
             for item in physicals
         ]
+        metrics["physical_resolution_options"] = [
+            {
+                "option": "降低计算或功耗需求",
+                "task": "constraint_propagation",
+                "impact": "可能影响功能性能需求",
+            },
+            {
+                "option": "更换物理候选或计算架构",
+                "task": "allocation_tradeoff",
+                "impact": "保持需求但重新分配实现",
+            },
+            {
+                "option": "调整需求约束或资源预算",
+                "task": "system_requirement_derivation",
+                "impact": "需要用户和利益相关者确认",
+            },
+        ] if conflicts else []
 
     def _analyze_vv(self, graph, index, findings, decisions, metrics) -> None:
         requirements = _active(index, EntityKind.REQUIREMENT)
@@ -415,6 +435,13 @@ class MethodologyEngine:
         structured_validation = 0
         verification_evidence = 0
         validation_evidence = 0
+        activities = _active(index, EntityKind.ACTIVITY)
+        branch_names = tuple(
+            branch
+            for activity in activities
+            for branch in _branches(activity)
+        )
+        covered_branches = set()
         for requirement in requirements:
             verification_cases = tuple(
                 index[item] for item in verifications.get(requirement.id, ())
@@ -429,6 +456,7 @@ class MethodologyEngine:
             if verification_cases:
                 structured_verification += any(_complete_vv_case(item) for item in verification_cases)
                 verification_evidence += any(_has_evidence(item) for item in verification_cases)
+                covered_branches.update(_case_branches(verification_cases))
                 self._vv_findings("verification", verification_cases, findings)
             else:
                 findings.append(MethodologyFinding(
@@ -439,6 +467,7 @@ class MethodologyEngine:
             if validation_cases:
                 structured_validation += any(_complete_vv_case(item) for item in validation_cases)
                 validation_evidence += any(_has_evidence(item) for item in validation_cases)
+                covered_branches.update(_case_branches(validation_cases))
                 self._vv_findings("validation", validation_cases, findings)
             else:
                 findings.append(MethodologyFinding(
@@ -454,6 +483,17 @@ class MethodologyEngine:
         metrics["structured_validation_coverage"] = _ratio(structured_validation, len(requirements))
         metrics["verification_evidence_coverage"] = _ratio(verification_evidence, len(requirements))
         metrics["validation_evidence_coverage"] = _ratio(validation_evidence, len(requirements))
+        metrics["activity_branch_coverage"] = (
+            _ratio(len(set(branch_names) & covered_branches), len(set(branch_names)))
+            if branch_names else 1.0
+        )
+        if branch_names and set(branch_names) - covered_branches:
+            findings.append(MethodologyFinding(
+                "activity_branch_uncovered", "warning", "assurance",
+                tuple(item.id for item in activities),
+                "Activity 的决策、失败或边界分支没有映射到 V&V 场景。",
+                ("verification_validation", "global_cross_analysis"),
+            ))
         metrics["end_to_end_vv_coverage"] = _ratio(
             sum(bool(verifications.get(item.id)) and bool(validations.get(item.id)) for item in requirements),
             len(requirements),
@@ -564,6 +604,31 @@ def _logical_decisions(component: Entity, function_ids: tuple[str, ...]):
     )
 
 
+def _logical_trade_study(functions, components, component_functions):
+    function_ids = [item.id for item in functions]
+    current_ids = [item.id for item in components]
+    return [
+        {
+            "alternative": "current_dependency_partition",
+            "component_ids": current_ids,
+            "function_ids": function_ids,
+            "rationale": "保留当前按依赖、共享状态和时序形成的边界",
+        },
+        {
+            "alternative": "one_component_per_function",
+            "component_ids": [],
+            "function_ids": function_ids,
+            "rationale": "隔离职责最强，但可能增加接口和耦合",
+        },
+        {
+            "alternative": "shared_coordinator",
+            "component_ids": current_ids[:1],
+            "function_ids": function_ids,
+            "rationale": "共享状态简单，但需要验证单点负载和安全隔离",
+        },
+    ] if functions else []
+
+
 def _count_interface_crossings(graph, index, function_to_components) -> int:
     exchanges = _relation_targets(graph, index, RelationPredicate.EXCHANGES_WITH)
     count = 0
@@ -660,6 +725,25 @@ def _complete_vv_case(case: Entity) -> bool:
 
 def _has_evidence(case: Entity) -> bool:
     return not _missing_value(case.payload.get("evidence_ids"))
+
+
+def _branches(activity: Entity) -> tuple[str, ...]:
+    values = []
+    for key in ("branches", "failure_branches", "boundary_branches", "alternatives"):
+        value = activity.payload.get(key)
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            values.extend(str(item) for item in value if str(item).strip())
+    return tuple(dict.fromkeys(values))
+
+
+def _case_branches(cases) -> tuple[str, ...]:
+    values = []
+    for case in cases:
+        for key in ("covered_branches", "branch_ids"):
+            value = case.payload.get(key)
+            if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+                values.extend(str(item) for item in value if str(item).strip())
+    return tuple(dict.fromkeys(values))
 
 
 def _missing_value(value: object) -> bool:

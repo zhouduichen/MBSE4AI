@@ -28,6 +28,7 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
     assert result.methodology.metrics["structured_verification_coverage"] == 1.0
     assert result.methodology.metrics["structured_validation_coverage"] == 1.0
     assert result.methodology.metrics["verification_evidence_coverage"] == 0.0
+    assert result.methodology.metrics["activity_branch_coverage"] == 1.0
     assert result.methodology.metrics["physical_feasibility"] == "needs_measurement"
     assert any(
         finding.code == "physical_measurement_required"
