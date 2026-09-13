@@ -273,3 +273,23 @@ def test_traceability_requires_both_verification_and_validation():
     assert validated.end_to_end_complete_count == 0
     assert complete.end_to_end_complete_count == 1
     assert complete.complete_count == complete.end_to_end_complete_count
+
+
+def test_reanalysis_runs_only_from_changed_entity_stage_downstream(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+    graph = services.model("robot").graph("robot")
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+
+    result = services.generation("robot").reanalyze("robot", function.id)
+
+    assert result["execution_status"] == "completed"
+    assert result["selected_stages"] == [
+        "functional", "logical", "physical", "verification_validation"
+    ]
+    assert function.id in result["methodology"]["impacted_entity_ids"]
+    assert result["methodology"]["recommended_tasks"]
+    assert len(result["stage_results"]) == 4

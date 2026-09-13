@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
-from rflp_lite.domain.errors import ContractViolation, InputRequired, MethodologyValidationError
+from rflp_lite.domain.errors import ConflictError, ContractViolation, InputRequired, MethodologyValidationError
 from rflp_lite.domain.model import AddEntity, Patch, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import (
@@ -241,6 +241,97 @@ class ModelGenerationService:
             methodology,
         )
 
+    def reanalyze(
+        self,
+        project_id: str,
+        entity_id: str,
+        *,
+        run_id: str | None = None,
+        expected_revision: int | None = None,
+    ) -> Mapping[str, object]:
+        graph = self.repository.load_graph(project_id)
+        if expected_revision is not None and int(expected_revision) != graph.revision:
+            raise ConflictError(
+                f"stale re-analysis request: expected {expected_revision}, current {graph.revision}"
+            )
+        entity = graph.entity_index.get(entity_id)
+        if entity is None:
+            raise ContractViolation(f"entity not found: {entity_id}")
+        stages = _reanalysis_stages(entity.kind)
+        effective_run_id = run_id or f"reanalysis-{uuid4().hex[:16]}"
+        self._ensure_run(
+            effective_run_id,
+            project_id,
+            graph,
+            stages=stages,
+            phase="vertical_reanalysis",
+        )
+        stage_results: list[StageResult] = []
+        warnings: list[str] = []
+        for stage in stages:
+            current = self.repository.load_graph(project_id)
+            execution = self._execute_stage(project_id, effective_run_id, stage, current, ())
+            if execution.result is None:
+                failed = self._finish_failed(
+                    project_id,
+                    effective_run_id,
+                    stage_results,
+                    stage.stage,
+                    execution.diagnostics,
+                )
+                return _reanalysis_payload(
+                    failed,
+                    entity_id,
+                    graph.revision,
+                    stages,
+                    execution_status="failed",
+                )
+            stage_results.append(execution.result)
+            warnings.extend(execution.warnings)
+        final_graph = self.repository.load_graph(project_id)
+        traceability = build_traceability_summary(final_graph)
+        methodology = self.methodology_engine.analyze(
+            final_graph,
+            changed_entity_ids=(entity_id,),
+        )
+        warnings.extend(
+            f"{finding.stage}: {finding.code}: {finding.message}"
+            for finding in methodology.findings
+            if finding.severity == "error"
+        )
+        if not traceability.complete_count:
+            warnings.append("没有形成完整的 R→F→L→P→V&V 追溯链")
+        status = "completed" if not warnings else "completed_with_warnings"
+        self.repository.update_run(effective_run_id, RunStatus.COMPLETED.value, tuple(warnings))
+        self._audit(project_id, "model_generation.completed", {
+            "run_id": effective_run_id,
+            "status": status,
+            "revision": final_graph.revision,
+            "traceability": traceability.as_dict(),
+        })
+        self._audit(project_id, "model_generation.methodology_analyzed", {
+            "run_id": effective_run_id,
+            **methodology.as_dict(),
+        })
+        result = GenerateModelResult(
+            effective_run_id,
+            project_id,
+            status,
+            final_graph.revision,
+            tuple(stage_results),
+            traceability,
+            tuple(dict.fromkeys(warnings)),
+            _sysml_text(final_graph),
+            methodology,
+        )
+        return _reanalysis_payload(
+            result,
+            entity_id,
+            graph.revision,
+            stages,
+            execution_status="completed",
+        )
+
     def _execute_stage(
         self,
         project_id: str,
@@ -462,18 +553,27 @@ class ModelGenerationService:
             evidence,
         )
 
-    def _ensure_run(self, run_id: str, project_id: str, graph) -> None:
+    def _ensure_run(
+        self,
+        run_id: str,
+        project_id: str,
+        graph,
+        *,
+        stages=None,
+        phase: str = "vertical_generation",
+    ) -> None:
         existing = self.repository.load_run(project_id, run_id)
         if existing is not None:
             return
-        tasks = tuple(stage_task(item.stage) for item in vertical_stage_specs())
+        selected_stages = tuple(stages or (item for item in vertical_stage_specs()))
+        tasks = tuple(stage_task(item.stage) for item in selected_stages)
         task_hash = canonical_hash(tuple(task_spec_hash(item) for item in tasks))
         prompt_hash = canonical_hash(tuple(item.prompt_template_id for item in tasks))
         self.repository.create_run(
             Run(
                 run_id,
                 project_id,
-                "vertical_generation",
+                phase,
                 RunStatus.RUNNING.value,
                 0,
                 self.methodology_version,
@@ -586,6 +686,48 @@ class ModelGenerationService:
         recorder = getattr(self.repository, "record_audit", None)
         if recorder is not None:
             recorder(project_id, kind, payload)
+
+
+_REANALYSIS_START = {
+    EntityKind.SYSTEM: 0,
+    EntityKind.STAKEHOLDER: 0,
+    EntityKind.CONCERN: 0,
+    EntityKind.LIFECYCLE_STAGE: 0,
+    EntityKind.SCENARIO_HYPOTHESIS: 0,
+    EntityKind.USE_CASE: 0,
+    EntityKind.OPERATIONAL_SCENARIO: 0,
+    EntityKind.ACTIVITY: 0,
+    EntityKind.REQUIREMENT: 0,
+    EntityKind.FUNCTION: 1,
+    EntityKind.FUNCTIONAL_FLOW: 1,
+    EntityKind.FUNCTIONAL_SCENARIO: 1,
+    EntityKind.LOGICAL_COMPONENT: 2,
+    EntityKind.INTERFACE: 2,
+    EntityKind.STATE: 2,
+    EntityKind.PHYSICAL_BLOCK: 3,
+    EntityKind.HAZARD: 4,
+    EntityKind.FAILURE_MODE: 4,
+    EntityKind.VERIFICATION_CASE: 4,
+    EntityKind.VALIDATION_CASE: 4,
+    EntityKind.EVIDENCE: 4,
+}
+
+
+def _reanalysis_stages(kind: EntityKind):
+    start = _REANALYSIS_START.get(kind, 0)
+    return tuple(vertical_stage_specs())[start:]
+
+
+def _reanalysis_payload(result: GenerateModelResult, entity_id: str, trigger_revision: int, stages, *, execution_status: str):
+    payload = dict(result.as_dict())
+    payload.update({
+        "entity_id": entity_id,
+        "trigger_revision": trigger_revision,
+        "selected_stages": [stage.stage.value for stage in stages],
+        "execution_status": execution_status,
+        "execution_status_label": "重新分析已完成" if execution_status == "completed" else "重新分析失败",
+    })
+    return payload
 
 
 def _promote_generated_entities(patch: Patch, *, validated: bool = True) -> Patch:

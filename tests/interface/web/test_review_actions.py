@@ -1,4 +1,5 @@
 from tests.interface.web.test_requirements_workbench import _client_with_fixture
+from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 
 def test_review_actions_create_revision_audit_and_protect_locked_entity(tmp_path):
@@ -32,6 +33,21 @@ def test_reanalysis_reports_request_without_claiming_execution(tmp_path):
     assert "function_identification" in request["impact"]["recommended_tasks"]
 
 
+def test_reanalysis_execute_endpoint_runs_affected_stages(tmp_path):
+    client, requirement_id = _client_with_fixture(tmp_path, runtime=VerticalRuleRuntime())
+
+    response = client.post(
+        f"/projects/p1/entities/{requirement_id}/reanalyze/execute",
+        json={"expected_revision": 1},
+    )
+
+    assert response.status_code == 200
+    result = response.json()["reanalysis"]
+    assert result["execution_status"] == "completed"
+    assert result["selected_stages"][0] == "requirements"
+    assert result["selected_stages"][-1] == "verification_validation"
+
+
 def test_requirement_detail_can_edit_statement_through_review_ui_contract(tmp_path):
     client, requirement_id = _client_with_fixture(tmp_path)
 
@@ -47,6 +63,7 @@ def test_requirement_detail_can_edit_statement_through_review_ui_contract(tmp_pa
     assert page.status_code == 200
     assert "保存编辑" in page.text
     assert "创建重新分析请求" in page.text
+    assert "执行重新分析" in page.text
 
 
 def test_accepted_requirement_detail_exposes_reject_and_lock(tmp_path):

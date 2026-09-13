@@ -821,6 +821,21 @@ async def request_entity_reanalysis(request: Request, project_id: str, entity_id
         return _error(exc)
 
 
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/reanalyze/execute")
+async def execute_entity_reanalysis(request: Request, project_id: str, entity_id: str):
+    try:
+        payload = await _json_object(request)
+        expected = _expected_revision(payload)
+        result = _services(request).generation(project_id).reanalyze(
+            project_id,
+            entity_id,
+            expected_revision=expected,
+        )
+        return {"status": "ok", "reanalysis": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.get("/projects/{project_id}/views/{view_id}")
 def get_view(request: Request, project_id: str, view_id: str):
     try:

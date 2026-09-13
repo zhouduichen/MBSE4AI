@@ -6,8 +6,10 @@ from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.interface.web.app import create_app
 
 
-def _client_with_fixture(tmp_path):
+def _client_with_fixture(tmp_path, runtime=None):
     app = create_app(tmp_path / "workspaces")
+    if runtime is not None:
+        app.state.container.v2._runtime_override = runtime
     client = TestClient(app)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
     requirement = make_entity(EntityKind.REQUIREMENT, "Battery shall last 8 hours", {"statement": "Battery shall last 8 hours"})
