@@ -87,7 +87,7 @@
     <div class="metric-row"><article><span>Logical allocation</span><strong>{{ latest_run.methodology.metrics.logical_allocation_coverage }}</strong></article><article><span>Physical feasibility</span><strong>{{ latest_run.methodology.metrics.physical_feasibility }}</strong></article><article><span>V&amp;V Coverage</span><strong>{{ latest_run.methodology.metrics.end_to_end_vv_coverage }}</strong></article></div>
     {% if latest_run.methodology.findings %}<div class="compact-list">{% for finding in latest_run.methodology.findings %}<article><span class="status-badge {% if finding.severity == 'error' %}failed{% else %}candidate{% endif %}">{{ finding.code }}</span><span><strong>{{ finding.stage }}</strong><small>{{ finding.message }}</small></span></article>{% endfor %}</div>{% endif %}
     {% if latest_run.methodology.recommended_tasks %}<div class="callout info"><strong>Next Tasks</strong>：{{ latest_run.methodology.recommended_tasks|join('、') }}</div>{% endif %}
-    {% if latest_run.controller %}<div class="module-subsection controller-panel"><div class="panel-head"><div><h3>Systems Engineering Controller</h3><p>根据当前模型缺口选择下一步动作；Trade Study 在用户决策前不会改写模型。</p></div><span class="status-badge {% if latest_run.controller.status == 'complete' %}accepted{% else %}candidate{% endif %}">{{ latest_run.controller.status }}</span></div>
+    {% if latest_run.controller %}<div class="module-subsection controller-panel"><div class="panel-head"><div><h3>Systems Engineering Controller</h3><p>根据当前模型缺口选择下一步动作；Trade Study 在用户决策前不会改写模型。</p><button class="button compact primary" id="controller-iterate" type="button">自动推进安全动作</button></div><span class="status-badge {% if latest_run.controller.status == 'complete' %}accepted{% else %}candidate{% endif %}">{{ latest_run.controller.status }}</span></div>
       {% if latest_run.controller.actions %}<div class="compact-list">{% for action in latest_run.controller.actions %}<article class="controller-action"><span><span class="status-badge {% if action.priority == 'P0' %}failed{% else %}candidate{% endif %}">{{ action.kind }}</span><strong>{{ action.task_id }}</strong><small>{{ action.reason }}</small></span>{% if action.kind == 'trade_study' %}<span class="controller-options">{% for option in action.options %}<button class="button compact controller-execute" type="button" data-action-id="{{ action.id }}" data-option-id="{{ option.id }}">{{ option.option }}</button>{% endfor %}</span>{% else %}<button class="button compact controller-execute" type="button" data-action-id="{{ action.id }}">执行</button>{% endif %}</article>{% endfor %}</div>{% else %}<div class="mini-empty">当前没有待处理控制动作</div>{% endif %}
       <pre id="controller-result" class="analysis-result" hidden></pre>
     </div>{% endif %}
@@ -295,6 +295,27 @@
       if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
     } catch (error) { repairOutput.textContent = "请求失败：" + error; repairOutput.classList.add("warning"); }
   }));
+  document.getElementById("controller-iterate")?.addEventListener("click", async () => {
+    const output = document.getElementById("controller-result");
+    output.hidden = false;
+    output.textContent = "Controller 正在自动推进安全动作…";
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/controller/iterate`, {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({max_iterations: 3, expected_revision: {{ current_revision|tojson }}}),
+      });
+      const payload = await response.json();
+      output.textContent = JSON.stringify(payload, null, 2);
+      output.classList.toggle("warning", payload.status !== "ok");
+      if (payload.status === "ok" && payload.controller && payload.controller.revision !== {{ current_revision|tojson }}) {
+        window.setTimeout(() => window.location.reload(), 300);
+      }
+    } catch (error) {
+      output.textContent = "请求失败：" + error;
+      output.classList.add("warning");
+    }
+  });
   document.querySelectorAll(".controller-execute").forEach((button) => button.addEventListener("click", async () => {
     const controllerOutput = document.getElementById("controller-result");
     controllerOutput.hidden = false;
