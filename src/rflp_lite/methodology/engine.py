@@ -14,7 +14,7 @@ from rflp_lite.domain.relations import RelationPredicate
 _INACTIVE = frozenset({EntityStatus.REJECTED, EntityStatus.DEPRECATED})
 _PHYSICAL_FIELDS = (
     "mass_kg", "power_w", "compute", "memory_mb", "latency_ms",
-    "bandwidth_mbps", "cost", "thermal", "reliability", "availability",
+    "bandwidth_mbps", "cost", "thermal", "reliability", "availability", "endurance_h",
 )
 _OPERATIONAL_KINDS = (
     EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.CONCERN,

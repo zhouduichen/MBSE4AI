@@ -625,6 +625,7 @@ def _system_payload(seed: str) -> Mapping[str, object]:
 
 def _physical_payload(logical, requirements=()) -> Mapping[str, object]:
     propagated_constraints = {}
+    propagated_constraint_provenance = []
     for requirement in requirements:
         for key, value in requirement.payload.items():
             if str(key).startswith(("max_", "min_")):
@@ -633,11 +634,17 @@ def _physical_payload(logical, requirements=()) -> Mapping[str, object]:
             container = requirement.payload.get(container_key)
             if isinstance(container, Mapping):
                 propagated_constraints.update({str(key): value for key, value in container.items()})
+        provenance = requirement.payload.get("constraint_provenance")
+        if isinstance(provenance, list):
+            propagated_constraint_provenance.extend(
+                item for item in provenance if isinstance(item, Mapping)
+            )
     return {
         "candidate_type": "可部署执行单元",
         "solution_class": "领域适配实现",
         "source_requirement_ids": sorted(item.id for item in requirements),
         "propagated_constraints": dict(sorted(propagated_constraints.items())),
+        "propagated_constraint_provenance": propagated_constraint_provenance,
         "mass_kg": None,
         "power_w": None,
         "compute": "待基准测试",
@@ -648,6 +655,7 @@ def _physical_payload(logical, requirements=()) -> Mapping[str, object]:
         "thermal": "待热设计评估",
         "reliability": "待可靠性试验",
         "availability": "待运行数据确认",
+        "endurance_h": None,
         "swap_c": {
             "mass_kg": None,
             "power_w": None,

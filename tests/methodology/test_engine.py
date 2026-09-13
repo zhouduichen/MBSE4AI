@@ -4,10 +4,19 @@ from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.engine import MethodologyEngine
 
 
-def _graph(*, power_w: float | None = 40, max_power_w: float | None = None, complete_vv: bool = False) -> ModelGraph:
+def _graph(
+    *,
+    power_w: float | None = 40,
+    max_power_w: float | None = None,
+    endurance_h: float | None = None,
+    min_endurance_h: float | None = None,
+    complete_vv: bool = False,
+) -> ModelGraph:
     requirement_payload = {"statement": "系统应在任务期间保持可用"}
     if max_power_w is not None:
         requirement_payload["constraints"] = {"max_power_w": max_power_w}
+    if min_endurance_h is not None:
+        requirement_payload.setdefault("constraints", {})["min_endurance_h"] = min_endurance_h
     requirement = make_entity(EntityKind.REQUIREMENT, "任务可用性", requirement_payload)
     function = make_entity(
         EntityKind.FUNCTION,
@@ -43,6 +52,7 @@ def _graph(*, power_w: float | None = 40, max_power_w: float | None = None, comp
             "thermal": "可控",
             "reliability": "待试验",
             "availability": "待运行数据",
+            "endurance_h": endurance_h,
             "swap_c": {"mass_kg": 1.0, "power_w": power_w, "cost": 1000},
             "feasibility": {"status": "candidate"},
         },
@@ -119,6 +129,16 @@ def test_physical_analysis_distinguishes_conflict_from_unknown_measurement():
     assert conflict.metrics["physical_feasibility"] == "infeasible"
     assert any(item.code == "physical_measurement_required" for item in unknown.findings)
     assert unknown.metrics["physical_feasibility"] == "needs_measurement"
+
+
+def test_physical_analysis_checks_endurance_constraint():
+    report = MethodologyEngine().analyze(_graph(endurance_h=8, min_endurance_h=10))
+
+    assert any(
+        item.code == "physical_constraint_conflict" and "endurance_h" in item.message
+        for item in report.findings
+    )
+    assert report.metrics["physical_feasibility"] == "infeasible"
 
 
 def test_vv_analysis_requires_structured_verification_and_validation():

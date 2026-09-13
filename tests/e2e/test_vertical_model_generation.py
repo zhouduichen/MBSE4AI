@@ -143,3 +143,22 @@ def test_physical_architecture_propagates_structured_requirement_constraints(tmp
 
     assert physical.payload["source_requirement_ids"] == [requirement_id]
     assert physical.payload["propagated_constraints"] == {"max_power_w": 50}
+
+
+def test_natural_language_constraints_reach_physical_candidate(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+
+    services.generation("robot").generate(
+        "robot", requirement_text="系统功耗不超过 50 W 且续航不少于 10 h"
+    )
+    graph = services.model("robot").graph("robot")
+    physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
+
+    assert physical.payload["propagated_constraints"] == {
+        "max_power_w": 50.0,
+        "min_endurance_h": 10.0,
+    }
+    assert physical.payload["source_requirement_ids"]
+    assert physical.payload["endurance_h"] is None
+    assert physical.payload["propagated_constraint_provenance"]
