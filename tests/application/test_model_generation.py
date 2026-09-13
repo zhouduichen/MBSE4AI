@@ -1,12 +1,16 @@
 from pathlib import Path
 
+import pytest
+
 from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
-from rflp_lite.domain.model import ModelGraph, Relation
+from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.model import ModelGraph, Patch, Relation, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.application.model_generation import build_traceability_summary
 from rflp_lite.application.model_generation import ModelGenerationService
 from rflp_lite.application.tool_layer import ToolResult
+from rflp_lite.methodology.contracts import StepStatus, TaskExecutionResponse
 from rflp_lite.ports.generative_model import GenerationResponse
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
@@ -119,6 +123,27 @@ class IncompleteOperationalModel(ScriptedModel):
                 if item["source_ref"] in keep and item["target_ref"] in keep
             ]
         return response
+
+
+class LockedTriggerUpdateRuntime(VerticalRuleRuntime):
+    def __init__(self):
+        self.mutate_locked_trigger = False
+
+    def execute(self, request):
+        if self.mutate_locked_trigger and request.task_id == "vertical.logical":
+            function = next(
+                item for item in request.context_bundle.entities
+                if item.kind is EntityKind.FUNCTION
+            )
+            patch = Patch.create(
+                request.context_bundle.project_id,
+                request.task_id,
+                (UpdateEntity(function.id, {"payload": {"tampered": True}}),),
+                "测试尝试修改锁定实体",
+                request.context_bundle.revision,
+            )
+            return TaskExecutionResponse(StepStatus.COMPLETED, patch=patch)
+        return super().execute(request)
 
 
 class _ControllerEvidenceTool:
@@ -449,3 +474,83 @@ def test_continue_generation_runs_only_downstream_and_preserves_trigger(tmp_path
     assert after.meta.name == before.meta.name
     assert after.payload == before.payload
     assert after.meta.updated_revision == before.meta.updated_revision
+
+
+def test_candidate_cannot_continue_until_user_accepts_it(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+    graph = services.model("robot").graph("robot")
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+    edited = services.review("robot").edit_entity(
+        "robot",
+        function.id,
+        name="人工修改后的功能",
+        expected_revision=graph.revision,
+    )
+
+    with pytest.raises(ContractViolation, match="accepted or locked"):
+        services.generation("robot").continue_generation(
+            "robot", function.id, expected_revision=edited.revision["sequence"]
+        )
+
+
+def test_locked_trigger_is_read_only_during_continuation(tmp_path: Path):
+    runtime = LockedTriggerUpdateRuntime()
+    services = build_v2_services(tmp_path / "workspaces", runtime=runtime)
+    services.projects.create("robot")
+    services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+    graph = services.model("robot").graph("robot")
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+    accepted = services.review("robot").accept_entity(
+        "robot", function.id, expected_revision=graph.revision
+    )
+    locked = services.review("robot").lock_entity(
+        "robot", function.id, expected_revision=accepted.revision["sequence"]
+    )
+    before_graph = services.model("robot").graph("robot")
+    before = before_graph.entity_index[function.id]
+    runtime.mutate_locked_trigger = True
+
+    result = services.generation("robot").continue_generation(
+        "robot", function.id, expected_revision=locked.revision["sequence"]
+    )
+
+    assert result["execution_status"] == "failed"
+    after_graph = services.model("robot").graph("robot")
+    after = after_graph.entity_index[function.id]
+    assert after_graph.revision == before_graph.revision
+    assert after.id == before.id
+    assert after.meta.status is before.meta.status
+    assert after.payload == before.payload
+    run = services.repository("robot").load_run("robot", result["run_id"])
+    assert run is not None
+    assert run.status == "failed"
+
+
+def test_vv_continuation_has_no_downstream_work_and_no_revision(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+    graph = services.model("robot").graph("robot")
+    validation = next(
+        item for item in graph.entities if item.kind is EntityKind.VALIDATION_CASE
+    )
+    accepted = services.review("robot").accept_entity(
+        "robot", validation.id, expected_revision=graph.revision
+    )
+
+    result = services.generation("robot").continue_generation(
+        "robot", validation.id, expected_revision=accepted.revision["sequence"]
+    )
+
+    assert result["execution_status"] == "no_downstream_work"
+    assert result["run_id"] is None
+    assert result["revision"] == accepted.revision["sequence"]
+    assert services.model("robot").graph("robot").revision == result["revision"]

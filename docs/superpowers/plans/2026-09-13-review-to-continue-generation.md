@@ -32,7 +32,7 @@
 - Consumes: `VerticalStage`, `VerticalStageSpec`, `EntityKind`, `MethodologyEngine`, existing `_execute_stage` and `_reanalysis_payload` behavior.
 - Produces: `vertical_stage_index_for_kind(kind: EntityKind) -> int`, `downstream_vertical_stages(kind: EntityKind) -> tuple[VerticalStageSpec, ...]`, and `ModelGenerationService.continue_generation(project_id: str, entity_id: str, *, expected_revision: int | None = None, controller_decision: Mapping[str, object] | None = None) -> Mapping[str, object]`.
 
-- [ ] **Step 1: Write failing routing and service tests**
+- [x] **Step 1: Write failing routing and service tests**
 
 Add these assertions to the existing tests:
 
@@ -46,7 +46,7 @@ def test_downstream_routing_skips_the_confirmed_stage():
 
 For the application path, generate an offline model, accept its Function, call `continue_generation`, and assert `selected_stages` starts at `logical`, the trigger ID/status/name/payload/updated revision are unchanged, and the returned `run_id` is different from the original generation run.
 
-- [ ] **Step 2: Run the focused tests and verify failure**
+- [x] **Step 2: Run the focused tests and verify failure**
 
 Run:
 
@@ -56,7 +56,7 @@ Run:
 
 Expected: FAIL because downstream routing and `continue_generation` do not exist.
 
-- [ ] **Step 3: Implement canonical routing**
+- [x] **Step 3: Implement canonical routing**
 
 In `vertical_generation.py`, define the product-stage index once:
 
@@ -95,7 +95,7 @@ def downstream_vertical_stages(kind: EntityKind) -> tuple[VerticalStageSpec, ...
 
 Use this mapping for the existing reanalysis start lookup as well, so continuation and reanalysis cannot drift.
 
-- [ ] **Step 4: Implement continuation with existing stage execution**
+- [x] **Step 4: Implement continuation with existing stage execution**
 
 Add `continue_generation` to `ModelGenerationService` with this behavior:
 
@@ -115,7 +115,7 @@ When `stages` is empty, return a payload with `execution_status="no_downstream_w
 
 Before appending a generated patch, retain the existing `TaskExecutor.validate_response` identity check. It must reject `UpdateEntity` operations targeting a locked or `user_modified` entity; relation additions that merely reference a locked trigger remain allowed. Record `model_generation.continuation.completed` with trigger ID, selected stages, revision and traceability.
 
-- [ ] **Step 5: Run focused tests and commit**
+- [x] **Step 5: Run focused tests and commit**
 
 Run:
 
@@ -144,7 +144,7 @@ git commit -m "feat: continue model generation after review"
 - Consumes: `ModelGenerationService.continue_generation` and `POST /projects/{project_id}/entities/{entity_id}/continue`.
 - Produces: a JSON `continuation` payload and a visible `继续生成下游` action on cards for Requirements/Functional/Logical/Physical entities.
 
-- [ ] **Step 1: Write failing API/page tests**
+- [x] **Step 1: Write failing API/page tests**
 
 Add tests that generate a model through the API, accept a Function, call:
 
@@ -159,7 +159,7 @@ assert response.json()["continuation"]["selected_stages"][0] == "logical"
 
 Add a page assertion for `继续生成下游` and `data-review-action="continue"`; assert the accepted Requirement detail page also exposes `data-action="continue"`, while a V&V-only fixture does not render that action.
 
-- [ ] **Step 2: Run the focused interface tests and verify failure**
+- [x] **Step 2: Run the focused interface tests and verify failure**
 
 Run:
 
@@ -169,7 +169,7 @@ Run:
 
 Expected: FAIL because the route and button do not exist.
 
-- [ ] **Step 3: Add the API endpoint**
+- [x] **Step 3: Add the API endpoint**
 
 Place the endpoint beside the existing entity review endpoints:
 
@@ -190,11 +190,11 @@ async def continue_entity_generation(request: Request, project_id: str, entity_i
 
 The route must return the existing error mapping, including 409 for stale revision/locked write conflicts, and must not call the old request-only reanalysis endpoint.
 
-- [ ] **Step 4: Add the workbench action**
+- [x] **Step 4: Add the workbench action**
 
 In `model_workbench.py`, expose `can_continue` when the card kind is in the first four product layers and the status is `accepted` or `locked`; expose `continue_label` as `继续生成下游` or `基于锁定实体继续生成`. Render a button only when `can_continue` is true. Extend the workbench script to POST `/continue` with the page revision, display API errors in the existing feedback area, and reload only after `status == "ok"`. Add the same explicit action to `requirement-detail.html`, because Requirements remain a separate user-facing workbench; its existing request-only and execute-reanalysis actions remain unchanged.
 
-- [ ] **Step 5: Run interface tests and commit**
+- [x] **Step 5: Run interface tests and commit**
 
 Run:
 
@@ -223,11 +223,11 @@ git commit -m "feat: expose downstream continuation in model workbench"
 - Consumes: continuation service/API, identity validator, existing SysML/traceability assertions.
 - Produces: regression evidence for accepted/candidate/locked/V&V semantics and user-facing documentation of the explicit iteration loop.
 
-- [ ] **Step 1: Add the lock and no-downstream regressions**
+- [x] **Step 1: Add the lock and no-downstream regressions**
 
 Use a scripted continuation runtime that returns an `UpdateEntity` for the locked trigger during `vertical.logical`; assert continuation returns `execution_status="failed"`, the graph snapshot and trigger payload are unchanged, and the continuation Run is marked failed. Also assert a candidate trigger returns HTTP 422/contract failure until accepted, and a ValidationCase returns `no_downstream_work` with unchanged graph revision.
 
-- [ ] **Step 2: Update product documentation**
+- [x] **Step 2: Update product documentation**
 
 Add the explicit loop to the Web and product-path sections:
 
@@ -237,7 +237,7 @@ Review 实体 → 接受/锁定 → 继续生成下游 → 重新计算 Trace/Me
 
 Document that locked entities are read-only anchors and that V&V is the terminal stage for continuation.
 
-- [ ] **Step 3: Run the complete verification matrix**
+- [x] **Step 3: Run the complete verification matrix**
 
 Run:
 
@@ -252,7 +252,7 @@ git diff --check
 
 Expected: all tests pass, architecture metrics remain within budget, import-linter reports 0 broken contracts, and diff check is clean.
 
-- [ ] **Step 4: Commit and push the product slice**
+- [x] **Step 4: Commit and push the product slice**
 
 ```bash
 git add tests/application/test_model_generation.py tests/interface/web/test_model_workbench.py README.md docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md

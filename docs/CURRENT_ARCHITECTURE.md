@@ -37,12 +37,14 @@ AI 或规则 Runtime 只返回结构化 TaskExecutionResponse。WorkflowRunner �
 
 模型页提供分层 ModelGraph 工作台，按 System Definition、Functional、Logical、Physical 和 V&V 展示真实实体及其来源、证据、关系和问题计数。实体可在页面内编辑、接受、拒绝、锁定、解锁或请求重新分析；编辑保留实体稳定 ID，通过新的 CAS Revision 记录用户来源，并让锁定实体拒绝后续修改。Requirements 保持独立的需求工作台，避免把需求编辑与下游分层投影混在一起。
 
+Review 后的显式“继续生成下游”调用 `ModelGenerationService.continue_generation`，按实体所属层路由到下一个 VerticalStage，使用独立的 `vertical_continuation` Run。接受的实体不会被重复改写；锁定实体可作为只读上下文参与 Logical、Physical 或 V&V 推理。续行结束后重新计算 Traceability、Methodology 和 Controller，V&V 是终止层。
+
 ## 对外资源
 
 | 资源 | 入口 |
 |---|---|
 | 项目 / 文档 | `POST /projects`、`POST /projects/{id}/documents` |
-| 分析运行 | `POST /projects/{id}/analysis`（默认五阶段生成；`mode=pipeline/phase` 为兼容入口）、`GET /projects/{id}/controller`、`POST /projects/{id}/controller/execute`（Controller 动作/Trade Study）、`POST /projects/{id}/entities/{entity_id}/reanalyze/execute`（定向重分析）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
+| 分析运行 | `POST /projects/{id}/analysis`（默认五阶段生成；`mode=pipeline/phase` 为兼容入口）、`GET /projects/{id}/controller`、`POST /projects/{id}/controller/execute`（Controller 动作/Trade Study）、`POST /projects/{id}/entities/{entity_id}/reanalyze/execute`（定向重分析）、`POST /projects/{id}/entities/{entity_id}/continue`（Review 后从下一层继续生成）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
 | 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities` |
 | 人工编辑 | `PATCH /projects/{id}/entities/{entity_id}` |
 | 视图 / 导出 | `GET /projects/{id}/views/{view_id}`、`POST /projects/{id}/export`、`POST /projects/{id}/sysml/import` |

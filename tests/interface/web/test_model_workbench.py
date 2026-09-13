@@ -95,3 +95,39 @@ def test_model_workbench_exposes_continue_action_after_function_acceptance(tmp_p
     assert page.status_code == 200
     assert "继续生成下游" in page.text
     assert 'data-review-action="continue"' in page.text
+
+
+def test_candidate_continue_is_rejected_until_acceptance(tmp_path):
+    client, _ = _client_with_fixture(tmp_path, runtime=VerticalRuleRuntime())
+    model = client.get("/projects/p1/model").json()
+    function = next(item for item in model["entities"] if item["kind"] == "function")
+
+    edited = client.post(
+        f"/projects/p1/entities/{function['id']}/edit",
+        json={"expected_revision": model["revision"], "name": "人工修改功能"},
+    )
+    assert edited.status_code == 200
+    revision = edited.json()["revision"]["sequence"]
+    blocked = client.post(
+        f"/projects/p1/entities/{function['id']}/continue",
+        json={"expected_revision": revision},
+    )
+
+    assert blocked.status_code == 422
+    assert "accepted or locked" in blocked.json()["message"]
+
+
+def test_vv_cards_do_not_expose_downstream_continue_action(tmp_path):
+    client, _ = _client_with_fixture(tmp_path)
+    model = client.get("/projects/p1/model").json()
+    validation = next(item for item in model["entities"] if item["kind"] == "validation_case")
+    accepted = client.post(
+        f"/projects/p1/entities/{validation['id']}/accept",
+        json={"expected_revision": model["revision"]},
+    )
+    assert accepted.status_code == 200
+
+    page = client.get("/ui/projects/p1/model")
+
+    assert page.status_code == 200
+    assert 'data-review-action="continue"' not in page.text
