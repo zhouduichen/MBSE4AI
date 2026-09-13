@@ -20,6 +20,7 @@ _DECLARATION_KIND: dict[EntityKind, str] = {
     EntityKind.FUNCTION: "action",
     EntityKind.FUNCTIONAL_FLOW: "interface",
     EntityKind.INTERFACE: "interface",
+    EntityKind.STATE: "state",
     EntityKind.VERIFICATION_CASE: "verification",
     EntityKind.VALIDATION_CASE: "validation",
 }

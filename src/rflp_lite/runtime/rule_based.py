@@ -204,6 +204,12 @@ class VerticalRuleRuntime:
         stakeholder = _context_first(builder.context, EntityKind.STAKEHOLDER) or builder.add(
             EntityKind.STAKEHOLDER, "系统使用者", {"role": "使用与验收"}
         )
+        concern = _context_first(builder.context, EntityKind.CONCERN) or builder.add(
+            EntityKind.CONCERN, "任务可靠性与运营可用性", {
+                "topic": "在正常、异常和人工接管场景下完成可追踪任务",
+                "stakeholder_ids": [stakeholder.id],
+            }
+        )
         scenario = _context_first(builder.context, EntityKind.OPERATIONAL_SCENARIO) or builder.add(
             EntityKind.OPERATIONAL_SCENARIO, "典型运行场景", {
                 "actor_ids": [stakeholder.id],
@@ -240,6 +246,7 @@ class VerticalRuleRuntime:
                 "branches": ["人工接管", "任务失败后重试"],
             }
         )
+        builder.relate(stakeholder, RelationPredicate.HAS_CONCERN, concern)
         builder.relate(system, RelationPredicate.DECOMPOSES, stakeholder)
         builder.relate(stakeholder, RelationPredicate.PARTICIPATES_IN, scenario)
         builder.relate(stakeholder, RelationPredicate.DERIVED_FROM, hypothesis)
@@ -288,12 +295,21 @@ class VerticalRuleRuntime:
             "interfaces": [],
             "architecture_rationale": "共享任务状态和交互流适合由一个逻辑协同边界承载",
         })
+        state = builder.add(EntityKind.STATE, "配送任务状态", {
+            "values": ["待受理", "执行中", "人工接管", "完成", "失败"],
+            "transitions": [
+                "待受理->执行中", "执行中->人工接管", "执行中->完成",
+                "执行中->失败", "失败->执行中",
+            ],
+            "owner_id": logical.id,
+        })
         interface = builder.add(EntityKind.INTERFACE, "配送任务交互接口", {
             "protocol": "logical-message",
             "exchanges": ["task_request", "task_status", "handover"],
             "connected_component_ids": [logical.id],
         })
         builder.relate(logical, RelationPredicate.CONNECTED_TO, interface)
+        builder.relate(logical, RelationPredicate.DECOMPOSES, state)
         for function in functions:
             builder.relate(function, RelationPredicate.ALLOCATED_TO, logical)
             builder.relate(function, RelationPredicate.EXCHANGES_WITH, interface)
@@ -344,8 +360,24 @@ class VerticalRuleRuntime:
                     "activity_ids": activity_ids,
                     "covered_branches": branch_names,
                 })
+            hazard = builder.add(EntityKind.HAZARD, f"风险：{requirement.meta.name[:28]}", {
+                "description": "异常分支、资源异常或人工接管不当导致任务目标未达成",
+                "requirement_ids": [requirement.id],
+                "activity_ids": activity_ids,
+                "branches": branch_names,
+            })
+            failure_mode = builder.add(EntityKind.FAILURE_MODE, f"失效模式：{requirement.meta.name[:28]}", {
+                "effect": "需求未满足或任务结果不可追踪",
+                "cause": "执行条件、资源或交互异常",
+                "requirement_ids": [requirement.id],
+                "activity_ids": activity_ids,
+            })
             builder.relate(requirement, RelationPredicate.VERIFIED_BY, verification)
             builder.relate(requirement, RelationPredicate.VALIDATED_BY, validation)
+            builder.relate(hazard, RelationPredicate.DERIVED_FROM, requirement)
+            builder.relate(hazard, RelationPredicate.CAUSES, failure_mode)
+            builder.relate(hazard, RelationPredicate.MITIGATED_BY, verification)
+            builder.relate(failure_mode, RelationPredicate.MITIGATED_BY, verification)
         return builder.response()
 
 

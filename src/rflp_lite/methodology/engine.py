@@ -17,7 +17,8 @@ _PHYSICAL_FIELDS = (
     "bandwidth_mbps", "cost", "thermal", "reliability", "availability",
 )
 _OPERATIONAL_KINDS = (
-    EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE,
+    EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.CONCERN,
+    EntityKind.LIFECYCLE_STAGE,
     EntityKind.SCENARIO_HYPOTHESIS, EntityKind.USE_CASE,
     EntityKind.OPERATIONAL_SCENARIO, EntityKind.ACTIVITY, EntityKind.REQUIREMENT,
 )
@@ -34,6 +35,9 @@ _TASK_ORDER = (
     "reverse_feasibility", "global_cross_analysis",
 )
 _TASKS_BY_KIND = {
+    EntityKind.CONCERN: (
+        "stakeholder_analysis", "system_requirement_derivation",
+    ),
     EntityKind.REQUIREMENT: (
         "system_requirement_derivation", "function_identification", "logical_analysis",
         "physical_candidates", "verification_validation",
@@ -46,12 +50,21 @@ _TASKS_BY_KIND = {
         "logical_analysis", "dependency_clustering", "architecture_evaluation",
         "physical_candidates", "verification_validation",
     ),
+    EntityKind.STATE: (
+        "interface_sequence_state", "logical_analysis", "verification_validation",
+    ),
     EntityKind.PHYSICAL_BLOCK: (
         "physical_candidates", "constraint_propagation", "feasibility_selection",
         "verification_validation",
     ),
     EntityKind.VERIFICATION_CASE: ("verification_validation", "global_cross_analysis"),
     EntityKind.VALIDATION_CASE: ("verification_validation", "global_cross_analysis"),
+    EntityKind.HAZARD: (
+        "fmea_stpa_hazard", "verification_validation", "global_cross_analysis",
+    ),
+    EntityKind.FAILURE_MODE: (
+        "fmea_stpa_hazard", "reverse_feasibility", "global_cross_analysis",
+    ),
 }
 _KIND_STAGES = {
     EntityKind.SYSTEM: "requirements",
@@ -167,6 +180,7 @@ class MethodologyEngine:
         actions = {
             EntityKind.SYSTEM: ("system_definition",),
             EntityKind.STAKEHOLDER: ("stakeholder_analysis",),
+            EntityKind.CONCERN: ("stakeholder_analysis",),
             EntityKind.LIFECYCLE_STAGE: ("lifecycle_analysis",),
             EntityKind.SCENARIO_HYPOTHESIS: ("scenario_exploration",),
             EntityKind.USE_CASE: ("use_case_analysis",),
@@ -289,6 +303,9 @@ class MethodologyEngine:
         assigned = {item.id for item in functions if function_to_components[item.id]}
         metrics["logical_function_count"] = len(functions)
         metrics["logical_component_count"] = len(components)
+        states = _active(index, EntityKind.STATE)
+        metrics["logical_state_count"] = len(states)
+        metrics["logical_state_model_coverage"] = 1.0 if states else 0.0
         metrics["logical_allocation_coverage"] = _ratio(len(assigned), len(functions))
         metrics["logical_partition_count"] = len(components)
         if functions and not components:
@@ -305,6 +322,13 @@ class MethodologyEngine:
                     f"功能“{function.meta.name}”没有分配到逻辑组件。",
                     ("logical_analysis", "dependency_clustering"),
                 ))
+        if components and not states:
+            findings.append(MethodologyFinding(
+                "logical_state_model_missing", "warning", "logical",
+                tuple(item.id for item in components),
+                "逻辑架构没有显式 State 模型，无法表达关键状态转换和异常分支。",
+                ("interface_sequence_state", "logical_analysis"),
+            ))
         component_functions = {
             component.id: tuple(
                 function.id for function in functions
@@ -427,8 +451,12 @@ class MethodologyEngine:
 
     def _analyze_vv(self, graph, index, findings, decisions, metrics) -> None:
         requirements = _active(index, EntityKind.REQUIREMENT)
+        hazards = _active(index, EntityKind.HAZARD)
+        failure_modes = _active(index, EntityKind.FAILURE_MODE)
         verifications = _relation_targets(graph, index, RelationPredicate.VERIFIED_BY)
         validations = _relation_targets(graph, index, RelationPredicate.VALIDATED_BY)
+        derived_from = _relation_targets(graph, index, RelationPredicate.DERIVED_FROM)
+        mitigations = _relation_targets(graph, index, RelationPredicate.MITIGATED_BY)
         verification_count = 0
         validation_count = 0
         structured_verification = 0
@@ -442,6 +470,53 @@ class MethodologyEngine:
             for branch in _branches(activity)
         )
         covered_branches = set()
+        hazard_requirement_ids = _requirement_ids_for_risks(
+            hazards, requirements, index, derived_from
+        )
+        failure_requirement_ids = _requirement_ids_for_risks(
+            failure_modes, requirements, index, derived_from
+        )
+        risk_requirement_ids = {
+            requirement_id for requirement_id in hazard_requirement_ids | failure_requirement_ids
+        }
+        metrics["hazard_count"] = len(hazards)
+        metrics["failure_mode_count"] = len(failure_modes)
+        metrics["hazard_requirement_coverage"] = _ratio(
+            len(hazard_requirement_ids), len(requirements)
+        )
+        metrics["failure_mode_requirement_coverage"] = _ratio(
+            len(failure_requirement_ids), len(requirements)
+        )
+        metrics["hazard_failure_mode_coverage"] = _ratio(
+            len(risk_requirement_ids), len(requirements)
+        )
+        for requirement in requirements:
+            if requirement.id not in hazard_requirement_ids:
+                findings.append(MethodologyFinding(
+                    "hazard_analysis_missing", "warning", "assurance", (requirement.id,),
+                    f"需求“{requirement.meta.name}”没有关联 Hazard 分析。",
+                    ("fmea_stpa_hazard",),
+                ))
+            if requirement.id not in failure_requirement_ids:
+                findings.append(MethodologyFinding(
+                    "failure_mode_missing", "warning", "assurance", (requirement.id,),
+                    f"需求“{requirement.meta.name}”没有关联 FailureMode 分析。",
+                    ("fmea_stpa_hazard", "reverse_feasibility"),
+                ))
+        for risk in (*hazards, *failure_modes):
+            if not any(
+                index[target_id].kind in {
+                    EntityKind.REQUIREMENT,
+                    EntityKind.FUNCTION,
+                    EntityKind.VERIFICATION_CASE,
+                }
+                for target_id in mitigations.get(risk.id, ())
+            ):
+                findings.append(MethodologyFinding(
+                    "risk_without_mitigation", "warning", "assurance", (risk.id,),
+                    f"风险对象“{risk.meta.name}”没有关联需求、功能或 VerificationCase 缓解措施。",
+                    ("fmea_stpa_hazard", "verification_validation"),
+                ))
         for requirement in requirements:
             verification_cases = tuple(
                 index[item] for item in verifications.get(requirement.id, ())
@@ -721,6 +796,22 @@ def _constraints(requirement: Entity):
 
 def _complete_vv_case(case: Entity) -> bool:
     return all(not _missing_value(case.payload.get(field)) for field in _VV_PLAN_FIELDS)
+
+
+def _requirement_ids_for_risks(risks, requirements, index, derived_from) -> set[str]:
+    requirement_ids = {item.id for item in requirements}
+    covered = set()
+    for risk in risks:
+        payload_ids = risk.payload.get("requirement_ids", ())
+        if isinstance(payload_ids, Sequence) and not isinstance(payload_ids, (str, bytes)):
+            covered.update(
+                str(item) for item in payload_ids if str(item) in requirement_ids
+            )
+        covered.update(
+            target_id for target_id in derived_from.get(risk.id, ())
+            if target_id in requirement_ids
+        )
+    return covered
 
 
 def _has_evidence(case: Entity) -> bool:

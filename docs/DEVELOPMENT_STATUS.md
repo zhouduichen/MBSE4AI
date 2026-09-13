@@ -25,13 +25,14 @@
 | Golden E2E | 校园无人配送机器人 fixture 可导入并跑完整阶段；失败与锁定保护可验证 |
 | 默认产品纵向生成 | 自然语言或已解析文档 → Requirements → Functional → Logical → Physical → V&V；五阶段写入同一 ModelGraph，并返回阶段结果、追溯摘要和 SysML 文本 |
 | LLM 五阶段接入 | 每个纵向阶段通过现有 StructuredModelRuntime 的 TaskProposal → Compiler → Patch 边界执行；测试覆盖五次真实 stage lens 调用 |
-| SysML v2 子集往返 | 导出实际 `part/requirement/action/interface/verification/validation` 声明及关系元数据；可重新读入新项目并继续编辑 |
+| SysML v2 子集往返 | 导出实际 `part/requirement/action/interface/state/verification/validation` 声明及关系元数据；Concern、Hazard、FailureMode 使用可编辑的通用 part 声明并保留类型元数据；可重新读入新项目并继续编辑 |
 | 产品验收指标 | 以 R→F→L→P→V&V 完整追溯、SysML 往返和 ModelGraph 编辑为主，不再以 23-task 重复运行次数作为主进度指标 |
 | 语义质量口径 | `semantic_invalid` 输出只保存为 candidate、创建 review Issue，不再通过移除 semantic validator 的方式写成 validated |
 | 追溯质量口径 | 分开报告 RFLP、Verification、Validation 和端到端闭环；Verification 或 Validation 单独存在均不算端到端完成 |
 | 内部推理记录 | 五阶段保留 23-task/架构分析映射，并以 bounded decision records 表达 clustering、constraint propagation、feasibility selection 等决策 |
 | Methodology Engine v1 | 对 ModelGraph 实现 Logical 分区质量、Physical 约束冲突/待测量、Verification/Validation 结构完整度和四跳变更影响分析，并接入生成、Review 与 Web 工作台 |
 | 定向重新分析 Controller | Review 请求支持影响路径和下一步 task 路由；执行入口按修改实体从受影响阶段向下重跑，并保留独立 Run、Patch、Revision 与 audit |
+| MBSE 对象纵向覆盖 | 默认五阶段显式生成 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase；方法学报告分别检查风险覆盖、缓解关系、V&V 计划字段和执行证据 |
 
 ## 历史 Harness 验收边界
 

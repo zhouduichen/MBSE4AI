@@ -19,7 +19,7 @@ adapters → ports + domain
 ```
 
 - `domain/`：Typed Entity、Relation、ModelGraph、Patch、Requirement 和稳定 ID；不依赖外层。
-- `methodology/`：五个产品级 `VerticalStage` 合约和阶段 Prompt；纯 ModelGraph `MethodologyEngine` 负责 Logical 分区信号、Physical 约束/可行性、V&V 结构完整度和四跳 Impact Analysis；23 个细粒度 TaskSpec、四个 Phase、Context/Retrieval、Schema/Validator/Retry、PatchPolicy、谓词感知 Gate/Coverage Matrix、局部 Repair 和 LifecycleOrchestrator 保留为兼容/调试能力。
+- `methodology/`：五个产品级 `VerticalStage` 合约和阶段 Prompt；纯 ModelGraph `MethodologyEngine` 负责 Logical 分区/State 信号、Physical 约束/可行性、V&V 计划与证据分层、Hazard/FailureMode 覆盖和四跳 Impact Analysis；23 个细粒度 TaskSpec、四个 Phase、Context/Retrieval、Schema/Validator/Retry、PatchPolicy、谓词感知 Gate/Coverage Matrix、局部 Repair 和 LifecycleOrchestrator 保留为兼容/调试能力。
 - `application/`：Project、ModelGeneration、Analysis、Model、Evidence、Render、Settings 服务；`ModelGenerationService` 负责五阶段纵向编排和追溯摘要。
 - `repository/`：SQLite ModelRepository v2，保存 Graph、Evidence、Run、Step、Patch、Revision、Issue、Closure 和 FTS，并提供 lease/heartbeat。
 - `runtime/`：RuntimeFactory、结构化模型端口、OpenAI-compatible 适配和离线 RuleRuntime；每次运行动态解析 active profile。
@@ -33,7 +33,7 @@ AI 或规则 Runtime 只返回结构化 TaskExecutionResponse。WorkflowRunner �
 
 每次运行拥有稳定 `run_id`、methodology/task spec/prompt version、profile/provider/model、input/context/output hash、步骤状态和诊断。纵向生成运行按 Requirements → Functional → Logical → Physical → V&V 顺序提交阶段 Patch，并计算每条 Requirement 的 RFLP、Verification、Validation 和端到端追溯。生成的 LLM 实体只有通过语义校验才进入可编辑的 `validated` 状态；语义失败实体保留为 `candidate`，写入 `semantic_invalid` Issue，人工可通过既有 Review/Edit/Lock 入口接管。每个阶段还返回有界的 decision records，记录内部方法论步骤、结论和依据实体。旧 WorkflowRunner 的 Gate、Repair、Closure 状态机不驱动默认产品路径。
 
-五阶段完成后，`MethodologyEngine` 只读当前 ModelGraph 并输出 findings、metrics、decisions、impact paths 和 recommended tasks；生成结果与 `review.reanalysis.requested` audit 共用同一报告格式。未知的物理 SWaP-C 值会被标记为 `needs_measurement`，约束冲突会被标记为 `physical_constraint_conflict`，不会直接提升为可行。它是 Controller 的确定性反馈层：Review API 可以只创建请求，也可以通过 `/entities/{entity_id}/reanalyze/execute` 按实体类型选择最早受影响阶段并向下重跑，继续复用当前 LLM/规则 Runtime、CAS、Run/Revision 和 Patch 审计。
+五阶段完成后，`MethodologyEngine` 只读当前 ModelGraph 并输出 findings、metrics、decisions、impact paths 和 recommended tasks；生成结果与 `review.reanalysis.requested` audit 共用同一报告格式。默认链在 R/F/L/P/V&V 中分别落下 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase 等可编辑对象；V&V 计划字段与执行 evidence 分开统计。未知的物理 SWaP-C 值会被标记为 `needs_measurement`，约束冲突会被标记为 `physical_constraint_conflict`，不会直接提升为可行。它是 Controller 的确定性反馈层：Review API 可以只创建请求，也可以通过 `/entities/{entity_id}/reanalyze/execute` 按实体类型选择最早受影响阶段并向下重跑，继续复用当前 LLM/规则 Runtime、CAS、Run/Revision 和 Patch 审计。
 
 ## 对外资源
 

@@ -30,6 +30,7 @@ def test_requirements_stage_requires_operational_model_kinds_and_internal_steps(
     assert requirements.required_kinds == frozenset({
         EntityKind.SYSTEM,
         EntityKind.STAKEHOLDER,
+        EntityKind.CONCERN,
         EntityKind.LIFECYCLE_STAGE,
         EntityKind.SCENARIO_HYPOTHESIS,
         EntityKind.USE_CASE,
@@ -39,6 +40,16 @@ def test_requirements_stage_requires_operational_model_kinds_and_internal_steps(
     })
     assert "lifecycle_analysis" in requirements.reasoning_tasks
     assert "activity_analysis" in requirements.reasoning_tasks
+
+
+def test_logical_and_assurance_stages_require_state_and_risk_objects():
+    specs = {item.stage: item for item in vertical_stage_specs()}
+
+    assert EntityKind.STATE in specs[VerticalStage.LOGICAL].required_kinds
+    assert EntityKind.STATE in specs[VerticalStage.LOGICAL].output_kinds
+    assert {EntityKind.HAZARD, EntityKind.FAILURE_MODE} <= specs[
+        VerticalStage.VERIFICATION_VALIDATION
+    ].required_kinds
 
 
 def test_vertical_prompt_resources_resolve_and_include_review_metadata():

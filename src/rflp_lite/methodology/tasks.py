@@ -195,6 +195,21 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
                 "rationale": {"type": "string"}, "source": {"type": "string"},
             },
         },
+        EntityKind.CONCERN.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "topic": {"type": "string", "minLength": 1},
+                "stakeholder_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        EntityKind.STATE.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "values": {"type": "array", "items": {"type": "string"}},
+                "transitions": {"type": "array", "items": {"type": "string"}},
+                "owner_id": {"type": "string"},
+            },
+        },
         EntityKind.OPERATIONAL_SCENARIO.value: {
             "type": "object", "additionalProperties": False,
             "properties": {
@@ -211,9 +226,50 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
             "type": "object", "additionalProperties": False,
             "properties": {
                 "method": {"type": "string", "minLength": 1},
+                "precondition": {"type": "string", "minLength": 1},
+                "input": {"type": "string", "minLength": 1},
+                "procedure": {"type": "string", "minLength": 1},
+                "expected_result": {"type": "string", "minLength": 1},
                 "pass_criteria": {"type": "string", "minLength": 1},
                 "requirement_ids": {"type": "array", "items": {"type": "string"}},
                 "scenario_ids": {"type": "array", "items": {"type": "string"}},
+                "activity_ids": {"type": "array", "items": {"type": "string"}},
+                "covered_branches": {"type": "array", "items": {"type": "string"}},
+                "evidence_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        EntityKind.VALIDATION_CASE.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "method": {"type": "string", "minLength": 1},
+                "precondition": {"type": "string", "minLength": 1},
+                "input": {"type": "string", "minLength": 1},
+                "procedure": {"type": "string", "minLength": 1},
+                "expected_result": {"type": "string", "minLength": 1},
+                "pass_criteria": {"type": "string", "minLength": 1},
+                "requirement_ids": {"type": "array", "items": {"type": "string"}},
+                "scenario_ids": {"type": "array", "items": {"type": "string"}},
+                "activity_ids": {"type": "array", "items": {"type": "string"}},
+                "covered_branches": {"type": "array", "items": {"type": "string"}},
+                "evidence_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        EntityKind.HAZARD.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "description": {"type": "string", "minLength": 1},
+                "requirement_ids": {"type": "array", "items": {"type": "string"}},
+                "activity_ids": {"type": "array", "items": {"type": "string"}},
+                "branches": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        EntityKind.FAILURE_MODE.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "effect": {"type": "string", "minLength": 1},
+                "cause": {"type": "string", "minLength": 1},
+                "requirement_ids": {"type": "array", "items": {"type": "string"}},
+                "activity_ids": {"type": "array", "items": {"type": "string"}},
             },
         },
         EntityKind.PHYSICAL_BLOCK.value: {

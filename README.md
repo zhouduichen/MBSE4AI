@@ -7,7 +7,7 @@ AI4MBSE Harness 产品版本为 `0.2.0`，方法论协议版本为 `v2.1`。它�
                → Typed ModelGraph → SysML v2 subset / 可编辑模型
 ```
 
-ModelGraph 是模型唯一真源。纵向生成器按五个阶段调用结构化 Runtime，将每一阶段的局部 Patch 写入图并保留完整追溯链；SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。原有 23-task 生命周期仍保留为调试和兼容入口，不是默认产品路径。
+ModelGraph 是模型唯一真源。纵向生成器按五个阶段调用结构化 Runtime，将每一阶段的局部 Patch 写入图并保留完整追溯链；默认链还会显式生成 Concern、State、Hazard 和 FailureMode，不把它们藏在阶段 payload 中。SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。原有 23-task 生命周期仍保留为调试和兼容入口，不是默认产品路径。
 
 ## 安装
 
@@ -72,7 +72,7 @@ model-profile list|save|activate
 
 当前产品验收重点已经转为一次真实的五阶段纵向链：`自然语言/文档 → R → F → L → P → V&V → ModelGraph → SysML`。追溯结果分开显示 RFLP、Verification、Validation 和端到端闭环；只有两类 V&V 都存在才算端到端完成。未配置模型时使用离线规则 Runtime 验证产品闭环；配置并激活 OpenAI-compatible Profile 后，`analyze generate` 会对五个阶段分别调用结构化 LLM Runtime，并记录 profile/provider/model、Prompt、上下文、Patch 和追溯摘要。语义校验失败的 LLM 输出只保留为 `candidate` 并进入 review，不计入完成度。既有 Ollama 3 Task × 20 conformance artifact 仍只代表结构化边界，不等同于完整产品链验收。
 
-纵向链完成后由 Methodology Engine 对 ModelGraph 做确定性工程分析：逻辑层报告分配覆盖、分区和内聚/耦合信号；物理层传播约束并区分冲突与待测量；V&V 分开报告 Verification、Validation 和结构化字段完整度；Review 重新分析请求沿图返回影响实体、阶段、路径和下一步内部任务。引擎只读模型，不替代 LLM Controller，也不把未知工程数据误报为可行。
+纵向链完成后由 Methodology Engine 对 ModelGraph 做确定性工程分析：逻辑层报告分配覆盖、State 模型、分区和内聚/耦合信号；物理层传播约束并区分冲突与待测量；V&V 分开报告 Verification、Validation、Hazard/FailureMode 覆盖、计划字段完整度和执行证据。计划字段和 evidence 始终分层，空 evidence 不会伪装成已执行。Review 重新分析请求沿图返回影响实体、阶段、路径和下一步内部任务。引擎只读模型，不替代 LLM Controller，也不把未知工程数据误报为可行。
 
 在实体 Review 后，用户可以先创建影响分析请求，也可以执行定向重新分析：编辑 Requirement 会从 Requirements 向下重跑，编辑 Function 从 Functional 向下重跑，Logical/Physical/V&V 编辑只重跑受影响的后续阶段。每次重分析仍写入独立 Run、Patch、Revision 和 audit，不覆盖锁定实体。
 

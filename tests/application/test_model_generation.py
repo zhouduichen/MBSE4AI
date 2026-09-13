@@ -32,11 +32,13 @@ class ScriptedModel:
         if request.lens_id == "vertical.requirements":
             entity("system", "system", "校园配送系统", {"mission": "完成校园配送", "system_boundary": {"inside": ["配送服务"], "outside": ["校园环境"]}, "objectives": ["按时完成任务"], "environment_assumptions": ["道路可通行"], "exclusions": [], "open_questions": []})
             entity("stakeholder", "stakeholder", "配送运营人员", {"role": "任务运营"})
+            entity("concern", "concern", "任务可靠性与运营可用性", {"topic": "异常场景下任务仍可追踪"})
             entity("lifecycle", "lifecycle_stage", "设计—运行生命周期", {"stage": "operation", "sequence": ["设计", "部署", "运行", "维护"]})
             entity("hypothesis", "scenario_hypothesis", "典型配送场景假设", {"category": "normal", "trigger": "提交配送任务", "outcome": "完成任务"})
             entity("use_case", "use_case", "执行一次配送任务", {"primary_actor": "配送运营人员", "goal": "完成可追踪配送"})
             entity("scenario", "operational_scenario", "典型配送场景", {"actor_ids": ["stakeholder"], "steps": ["提交任务", "完成配送"], "exchanges": [], "internal_component_ids": []})
             entity("activity", "activity", "受理并完成配送活动", {"steps": ["受理", "执行", "反馈"], "branches": ["人工接管"]})
+            relation("stakeholder", "hasConcern", "concern")
             relation("system", "decomposes", "stakeholder")
             relation("stakeholder", "participatesIn", "scenario")
             relation("stakeholder", "derivedFrom", "hypothesis")
@@ -56,20 +58,28 @@ class ScriptedModel:
             functions = by_kind.get("function", [])
             entity("logical", "logical_component", "配送控制组件", {"responsibility": "协调配送功能", "interfaces": []})
             entity("interface", "interface", "配送服务接口", {"protocol": "logical-message", "exchanges": ["request", "response"]})
+            entity("state", "state", "配送任务状态", {"values": ["待受理", "执行中", "人工接管", "完成", "失败"], "transitions": ["待受理->执行中", "执行中->完成"]})
             if functions:
                 relation(functions[0]["id"], "allocatedTo", "logical")
                 relation(functions[0]["id"], "exchangesWith", "interface")
+            relation("logical", "decomposes", "state")
         elif request.lens_id == "vertical.physical":
             entity("physical", "physical_block", "配送执行单元", {"candidate_type": "可部署执行单元", "constraints": ["满足逻辑职责"], "rationale": "承载配送控制"})
             logical = by_kind.get("logical_component", [])
             if logical:
                 relation(logical[0]["id"], "allocatedTo", "physical")
         elif request.lens_id == "vertical.verification_validation":
-            entity("verification", "verification_case", "验证配送需求", {"method": "test", "pass_criteria": "测试满足需求", "requirement_ids": [requirements[0]["id"]] if requirements else [], "scenario_ids": []})
-            entity("validation", "validation_case", "确认配送体验", {"method": "demonstration", "pass_criteria": "用户场景满足需求", "requirement_ids": [requirements[0]["id"]] if requirements else [], "scenario_ids": []})
+            entity("verification", "verification_case", "验证配送需求", {"method": "test", "precondition": "系统处于可测试初始状态", "input": "配送任务", "procedure": "执行测试步骤并记录实际结果", "expected_result": "实际结果满足需求目标", "pass_criteria": "测试结果满足需求", "requirement_ids": [requirements[0]["id"]] if requirements else [], "scenario_ids": [], "activity_ids": [], "covered_branches": ["人工接管"], "evidence_ids": []})
+            entity("validation", "validation_case", "确认配送体验", {"method": "demonstration", "precondition": "目标用户和典型场景可用", "input": "配送任务", "procedure": "在典型场景执行并收集用户反馈", "expected_result": "用户场景目标达成", "pass_criteria": "用户场景确认通过", "requirement_ids": [requirements[0]["id"]] if requirements else [], "scenario_ids": [], "activity_ids": [], "covered_branches": ["人工接管"], "evidence_ids": []})
+            entity("hazard", "hazard", "风险：配送任务失败", {"description": "异常分支导致任务目标未达成", "requirement_ids": [requirements[0]["id"]] if requirements else [], "branches": ["人工接管"]})
+            entity("failure", "failure_mode", "失效模式：任务未完成", {"effect": "需求未满足", "cause": "执行条件异常", "requirement_ids": [requirements[0]["id"]] if requirements else []})
             if requirements:
                 relation(requirements[0]["id"], "verifiedBy", "verification")
                 relation(requirements[0]["id"], "validatedBy", "validation")
+                relation("hazard", "derivedFrom", requirements[0]["id"])
+            relation("hazard", "causes", "failure")
+            relation("hazard", "mitigatedBy", "verification")
+            relation("failure", "mitigatedBy", "verification")
         payload["assumptions"] = ["脚本模型用于测试结构化边界"]
         payload["open_questions"] = []
         payload["decision_records"] = [{
@@ -150,6 +160,8 @@ def test_generation_creates_real_rflp_and_vv_objects_from_one_requirement(tmp_pa
         EntityKind.FUNCTION,
         EntityKind.LOGICAL_COMPONENT,
         EntityKind.PHYSICAL_BLOCK,
+        EntityKind.HAZARD,
+        EntityKind.FAILURE_MODE,
         EntityKind.VERIFICATION_CASE,
         EntityKind.VALIDATION_CASE,
     } <= {item.kind for item in graph.entities}

@@ -34,13 +34,22 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
         finding.code == "physical_measurement_required"
         for finding in result.methodology.findings
     )
-    assert {EntityKind.FUNCTION, EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK} <= {
+    assert {
+        EntityKind.CONCERN,
+        EntityKind.STATE,
+        EntityKind.HAZARD,
+        EntityKind.FAILURE_MODE,
+        EntityKind.FUNCTION,
+        EntityKind.LOGICAL_COMPONENT,
+        EntityKind.PHYSICAL_BLOCK,
+    } <= {
         entity.kind for entity in graph.entities
     }
     assert graph.revision >= 6
     assert all("候选" not in entity.meta.name and "待确认" not in entity.meta.name for entity in graph.entities)
 
     exported = graph_to_sysml(graph)
+    assert "state def" in exported
     restored = sysml_to_graph(exported, "robot")
     assert {item.id for item in restored.entities} == {item.id for item in graph.entities}
     assert {(item.source_id, item.predicate, item.target_id) for item in restored.relations} == {
