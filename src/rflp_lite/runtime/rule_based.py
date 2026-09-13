@@ -383,35 +383,61 @@ class VerticalRuleRuntime:
     def _logical(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         builder = _VerticalPatchBuilder(request)
         functions = _context_entities(request.context_bundle, EntityKind.FUNCTION)
-        logical = builder.add(EntityKind.LOGICAL_COMPONENT, "配送协同逻辑架构", {
-            "responsibility": "协调配送功能与共享任务状态",
-            "partition_basis": "根据功能流、共享状态和时序依赖进行聚类",
-            "dependencies": [item.id for item in functions],
-            "shared_state": ["配送任务状态", "人工接管状态"],
-            "timing_constraints": ["任务状态更新必须可排序"],
-            "safety_isolation": ["人工接管路径与自动执行路径隔离"],
-            "cohesion": "high",
-            "coupling": "controlled",
-            "interfaces": [],
-            "architecture_rationale": "共享任务状态和交互流适合由一个逻辑协同边界承载",
-        })
+        groups = _partition_functions(functions)
+        logical_components = []
+        for group in groups:
+            label = _partition_label(group)
+            name = "配送协同逻辑架构" if len(groups) == 1 and len(group) == 1 else f"{label}逻辑组件"
+            shared_state = _union_payload_values(group, "shared_state") or ["配送任务状态"]
+            timing_constraints = _union_payload_values(group, "timing_constraints") or ["任务状态更新必须可排序"]
+            logical_components.append(
+                builder.add(EntityKind.LOGICAL_COMPONENT, name, {
+                    "responsibility": "；".join(
+                        str(item.payload.get("behavior") or item.meta.name)
+                        for item in group
+                    ),
+                    "partition_basis": (
+                        f"按 {label} 的功能职责形成独立分区"
+                        if len(group) == 1
+                        else f"按 {label} 共享状态和功能依赖形成分区"
+                    ),
+                    "dependencies": [item.id for item in group],
+                    "shared_state": shared_state,
+                    "timing_constraints": timing_constraints,
+                    "safety_isolation": ["人工接管路径与自动执行路径隔离"],
+                    "cohesion": "high",
+                    "coupling": "controlled" if len(group) == 1 else "high",
+                    "interfaces": [],
+                    "architecture_rationale": (
+                        "单一功能职责保持边界清晰"
+                        if len(group) == 1
+                        else "共享状态使功能保持在同一逻辑边界，但需要评审耦合"
+                    ),
+                })
+            )
+        if not logical_components:
+            return builder.response()
         state = builder.add(EntityKind.STATE, "配送任务状态", {
             "values": ["待受理", "执行中", "人工接管", "完成", "失败"],
             "transitions": [
                 "待受理->执行中", "执行中->人工接管", "执行中->完成",
                 "执行中->失败", "失败->执行中",
             ],
-            "owner_id": logical.id,
+            "owner_id": logical_components[0].id,
+            "owner_ids": [item.id for item in logical_components],
         })
         interface = builder.add(EntityKind.INTERFACE, "配送任务交互接口", {
             "protocol": "logical-message",
             "exchanges": ["task_request", "task_status", "handover"],
-            "connected_component_ids": [logical.id],
+            "connected_component_ids": [item.id for item in logical_components],
         })
-        builder.relate(logical, RelationPredicate.CONNECTED_TO, interface)
-        builder.relate(logical, RelationPredicate.DECOMPOSES, state)
+        for logical in logical_components:
+            builder.relate(logical, RelationPredicate.CONNECTED_TO, interface)
+            builder.relate(logical, RelationPredicate.DECOMPOSES, state)
+        for group, logical in zip(groups, logical_components):
+            for function in group:
+                builder.relate(function, RelationPredicate.ALLOCATED_TO, logical)
         for function in functions:
-            builder.relate(function, RelationPredicate.ALLOCATED_TO, logical)
             builder.relate(function, RelationPredicate.EXCHANGES_WITH, interface)
         return builder.response()
 
@@ -419,7 +445,26 @@ class VerticalRuleRuntime:
         builder = _VerticalPatchBuilder(request)
         logical_components = _context_entities(request.context_bundle, EntityKind.LOGICAL_COMPONENT)
         for logical in logical_components:
-            physical = builder.add(EntityKind.PHYSICAL_BLOCK, "配送协同执行平台", _physical_payload(logical))
+            functions = tuple(
+                item for item in _context_entities(request.context_bundle, EntityKind.FUNCTION)
+                if any(
+                    relation.source_id == item.id
+                    and relation.predicate is RelationPredicate.ALLOCATED_TO
+                    and relation.target_id == logical.id
+                    for relation in request.context_bundle.relations
+                )
+            )
+            requirements = _requirements_for_functions(request.context_bundle, functions)
+            name = (
+                "配送协同执行平台"
+                if len(logical_components) == 1
+                else f"{logical.meta.name}执行平台"
+            )
+            physical = builder.add(
+                EntityKind.PHYSICAL_BLOCK,
+                name,
+                _physical_payload(logical, requirements),
+            )
             builder.relate(logical, RelationPredicate.ALLOCATED_TO, physical)
         return builder.response()
 
@@ -481,6 +526,69 @@ class VerticalRuleRuntime:
         return builder.response()
 
 
+def _partition_functions(functions):
+    groups = {}
+    for function in functions:
+        payload = function.payload
+        explicit = str(
+            payload.get("logical_partition") or payload.get("partition_key") or ""
+        ).strip()
+        shared = payload.get("shared_state")
+        shared_values = (
+            tuple(sorted(str(item).strip() for item in shared if str(item).strip()))
+            if isinstance(shared, (list, tuple))
+            else ()
+        )
+        key = (
+            ("explicit", explicit)
+            if explicit
+            else ("shared", shared_values)
+            if shared_values
+            else ("function", function.id)
+        )
+        groups.setdefault(key, []).append(function)
+    return tuple(tuple(group) for group in groups.values())
+
+
+def _partition_label(group):
+    first = group[0]
+    payload = first.payload
+    explicit = str(
+        payload.get("logical_partition") or payload.get("partition_key") or ""
+    ).strip()
+    if explicit:
+        return explicit
+    shared = payload.get("shared_state")
+    if isinstance(shared, (list, tuple)):
+        values = tuple(str(item).strip() for item in shared if str(item).strip())
+        if values:
+            return "共享状态：" + "、".join(values)
+    return first.meta.name[:32]
+
+
+def _union_payload_values(entities, key):
+    values = []
+    for entity in entities:
+        raw = entity.payload.get(key)
+        if isinstance(raw, (list, tuple)):
+            values.extend(str(item).strip() for item in raw if str(item).strip())
+    return list(dict.fromkeys(values))
+
+
+def _requirements_for_functions(context, functions):
+    function_ids = {item.id for item in functions}
+    requirement_ids = {
+        relation.source_id
+        for relation in context.relations
+        if relation.predicate is RelationPredicate.SATISFIED_BY
+        and relation.target_id in function_ids
+    }
+    return tuple(
+        item for item in context.entities
+        if item.kind is EntityKind.REQUIREMENT and item.id in requirement_ids
+    )
+
+
 def _context_first(context, kind: EntityKind):
     return next((item for item in context.entities if item.kind is kind), None)
 
@@ -515,10 +623,21 @@ def _system_payload(seed: str) -> Mapping[str, object]:
     }
 
 
-def _physical_payload(logical) -> Mapping[str, object]:
+def _physical_payload(logical, requirements=()) -> Mapping[str, object]:
+    propagated_constraints = {}
+    for requirement in requirements:
+        for key, value in requirement.payload.items():
+            if str(key).startswith(("max_", "min_")):
+                propagated_constraints[str(key)] = value
+        for container_key in ("constraints", "limits"):
+            container = requirement.payload.get(container_key)
+            if isinstance(container, Mapping):
+                propagated_constraints.update({str(key): value for key, value in container.items()})
     return {
         "candidate_type": "可部署执行单元",
         "solution_class": "领域适配实现",
+        "source_requirement_ids": sorted(item.id for item in requirements),
+        "propagated_constraints": dict(sorted(propagated_constraints.items())),
         "mass_kg": None,
         "power_w": None,
         "compute": "待基准测试",
