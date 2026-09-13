@@ -248,6 +248,26 @@ def test_generation_creates_real_rflp_and_vv_objects_from_one_requirement(tmp_pa
     )
 
 
+def test_natural_language_generation_stores_constraint_provenance(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+
+    services.generation("robot").generate(
+        "robot", requirement_text="系统功耗不超过 50 W 且续航不少于 10 h"
+    )
+    requirement = next(
+        item
+        for item in services.model("robot").graph("robot").entities
+        if item.kind is EntityKind.REQUIREMENT
+    )
+
+    assert requirement.payload["constraints"] == {
+        "max_power_w": 50.0,
+        "min_endurance_h": 10.0,
+    }
+    assert len(requirement.payload["constraint_provenance"]) == 2
+
+
 def test_generation_is_recorded_as_one_five_stage_run(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("robot")

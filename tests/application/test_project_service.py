@@ -65,6 +65,16 @@ def test_add_requirement_creates_user_candidate_and_counts_as_analysis_input(tmp
     assert service.has_analysis_input("p1") is True
 
 
+def test_manual_requirement_entry_stores_structured_constraints(tmp_path: Path) -> None:
+    root = tmp_path / "workspaces"
+    create_managed_workspace(root, "p1")
+
+    result = _service(root).add_requirement("p1", "系统功耗不超过 2 kW")
+
+    assert result["requirement"]["payload"]["constraints"] == {"max_power_w": 2000.0}
+    assert result["requirement"]["payload"]["constraint_provenance"][0]["unit"] == "kW"
+
+
 def test_add_requirement_rejects_blank_text(tmp_path: Path) -> None:
     root = tmp_path / "workspaces"
     create_managed_workspace(root, "p1")

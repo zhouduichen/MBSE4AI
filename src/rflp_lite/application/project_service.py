@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 from typing import Callable
 
+from rflp_lite.application.requirement_intake import extract_requirement_constraints
 from rflp_lite.application.workspaces import (
     WorkspaceRef,
     create_managed_workspace,
@@ -90,15 +91,17 @@ class ProjectService:
             raise ContractViolation("requirement text is required")
         repository = self.repository(project_id)
         graph = repository.load_graph(project_id)
+        payload = {
+            "statement": clean,
+            "source": "user_input",
+            "requires_human_review": True,
+            "verification_method": "review",
+        }
+        payload.update(extract_requirement_constraints(clean))
         entity = make_entity(
             EntityKind.REQUIREMENT,
             clean,
-            {
-                "statement": clean,
-                "source": "user_input",
-                "requires_human_review": True,
-                "verification_method": "review",
-            },
+            payload,
             status=EntityStatus.CANDIDATE,
             producer=Producer.USER,
             confidence=1.0,

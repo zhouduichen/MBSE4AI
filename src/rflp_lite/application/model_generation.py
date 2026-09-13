@@ -30,7 +30,10 @@ from rflp_lite.methodology.vertical_generation import (
     vertical_stage_specs,
 )
 from rflp_lite.application.tool_layer import EngineeringToolLayer
-from rflp_lite.application.requirement_intake import split_requirement_statements
+from rflp_lite.application.requirement_intake import (
+    extract_requirement_constraints,
+    split_requirement_statements,
+)
 from rflp_lite.repository.port import ModelRepository, Run, Step
 
 
@@ -939,19 +942,21 @@ class ModelGenerationService:
                     None,
                 )
                 if existing is None:
+                    payload = {
+                        "statement": statement,
+                        "source": "user_input",
+                        "level": "system",
+                        "type": "functional",
+                        "obligation": "系统应",
+                        "verification_method": "test",
+                    }
+                    payload.update(extract_requirement_constraints(statement))
                     operations.append(
                         AddEntity(
                             make_entity(
                                 EntityKind.REQUIREMENT,
                                 statement,
-                                {
-                                    "statement": statement,
-                                    "source": "user_input",
-                                    "level": "system",
-                                    "type": "functional",
-                                    "obligation": "系统应",
-                                    "verification_method": "test",
-                                },
+                                payload,
                                 status=EntityStatus.CANDIDATE,
                                 producer=Producer.USER,
                                 confidence=1.0,
