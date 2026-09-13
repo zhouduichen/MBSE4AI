@@ -183,6 +183,21 @@ def test_analysis_api_supports_pipeline_and_force_run(tmp_path: Path) -> None:
     assert refreshed["global_gate"]["gate_id"] == "Global-Gate"
 
 
+def test_pipeline_analysis_accepts_natural_language_input(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "workspaces")
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    response = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "pipeline", "requirement_text": "系统应支持人工接管"},
+    )
+
+    assert response.status_code == 200
+    graph = app.state.container.v2.repository("p1").load_graph("p1")
+    assert any(item.payload.get("statement") == "系统应支持人工接管" for item in graph.entities)
+
+
 def test_single_phase_analysis_keeps_legacy_shape(tmp_path: Path) -> None:
     app = create_app(tmp_path / "workspaces")
     app.state.container.v2.settings.profiles.config_dir = tmp_path / "config"

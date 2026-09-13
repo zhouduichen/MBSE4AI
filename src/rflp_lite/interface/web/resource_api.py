@@ -506,8 +506,11 @@ async def run_analysis(request: Request, project_id: str):
         force_run = bool(payload.get("force_run", False))
         requested_run_id = str(payload.get("run_id", "")).strip() or None
         requirement_text = str(payload.get("requirement_text", "")).strip() or None
+        document_ids = tuple(
+            str(item) for item in payload.get("document_ids", ()) if str(item).strip()
+        )
         if not _services(request).projects.has_analysis_input(project_id) and not (
-            mode in {"generate", "vertical"} and requirement_text
+            mode in {"generate", "vertical", "pipeline"} and (requirement_text or document_ids)
         ):
             raise InputRequired("submit a requirement or ingest a document before analysis")
         if force_run and requested_run_id is None:
@@ -517,7 +520,7 @@ async def run_analysis(request: Request, project_id: str):
             result = generation.generate(
                 project_id,
                 requirement_text=requirement_text,
-                document_ids=tuple(str(item) for item in payload.get("document_ids", ()) if str(item).strip()),
+                document_ids=document_ids,
                 run_id=requested_run_id,
                 force_new=force_run,
             )
@@ -528,6 +531,11 @@ async def run_analysis(request: Request, project_id: str):
         else:
             analysis = _analysis_service(request, project_id)
         if mode == "pipeline":
+            input_service = _services(request).requirements_input(project_id)
+            if requirement_text:
+                input_service.ensure_text_requirements(requirement_text)
+            elif document_ids:
+                input_service.ensure_document_requirements(document_ids)
             run = _invoke_pipeline(analysis, project_id, run_id=requested_run_id, force_run=force_run)
         elif mode not in {"generate", "vertical"}:
             phase = Phase(str(payload.get("phase", Phase.OPERATIONAL.value)))

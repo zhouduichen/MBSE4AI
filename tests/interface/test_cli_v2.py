@@ -48,3 +48,27 @@ def test_cli_generate_export_and_import_sysml(tmp_path: Path, monkeypatch, capsy
     assert imported["status"] == "ok"
     assert imported["entity_count"] >= 7
     assert imported["relation_count"] >= 5
+
+
+def test_cli_run_accepts_natural_language_input(tmp_path: Path, monkeypatch, capsys):
+    workspace_root = tmp_path / "workspaces"
+
+    def services_factory(root, *, config_dir=None):
+        return build_v2_services(root, runtime=VerticalRuleRuntime(), config_dir=config_dir)
+
+    monkeypatch.setattr(cli_v2, "build_v2_services", services_factory)
+    root_args = ["--workspace-root", str(workspace_root)]
+
+    assert cli_v2.main([*root_args, "project", "create", "robot"]) == 0
+    capsys.readouterr()
+    assert cli_v2.main([
+        *root_args,
+        "analyze",
+        "run",
+        "robot",
+        "--text",
+        "系统应支持人工接管",
+    ]) == 0
+    json.loads(capsys.readouterr().out)
+    graph = build_v2_services(workspace_root, runtime=VerticalRuleRuntime()).repository("robot").load_graph("robot")
+    assert any(item.payload.get("statement") == "系统应支持人工接管" for item in graph.entities)

@@ -13,6 +13,7 @@ from rflp_lite.application.evidence_service import EvidenceService
 from rflp_lite.application.model_service import ModelService
 from rflp_lite.application.model_generation import ModelGenerationService
 from rflp_lite.application.project_service import ProjectService
+from rflp_lite.application.requirement_input import RequirementInputService
 from rflp_lite.application.render_service import RenderService
 from rflp_lite.application.review_service import ReviewService
 from rflp_lite.application.settings_service import SettingsService
@@ -86,6 +87,9 @@ class V2Services:
             selection.runtime,
             runtime_selection=selection,
         )
+
+    def requirements_input(self, project_id: str) -> RequirementInputService:
+        return RequirementInputService(self.repository(project_id), project_id)
 
     def evidence(self, project_id: str) -> EvidenceService:
         return EvidenceService(self.repository(project_id))

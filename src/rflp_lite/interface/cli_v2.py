@@ -35,6 +35,9 @@ def _parser() -> argparse.ArgumentParser:
     run = analyze_commands.add_parser("run", help="运行完整生命周期或单个阶段")
     run.add_argument("project_id", help="项目标识")
     run.add_argument("--phase", choices=[phase.value for phase in Phase if phase is not Phase.CLOSURE], default=None, help="仅运行单阶段；省略则执行完整生命周期")
+    run.add_argument("--text", default="", help="将自然语言需求作为完整生命周期输入")
+    run.add_argument("--input", type=Path, default=None, help="包含自然语言需求的 UTF-8 文件")
+    run.add_argument("--force-new", action="store_true", help="强制创建新的运行")
     generate = analyze_commands.add_parser("generate", help="从自然语言生成完整 MBSE 模型")
     generate.add_argument("project_id", help="项目标识")
     generate.add_argument("--text", default="", help="自然语言需求文本")
@@ -85,7 +88,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(canonical_json({"status": "ok", "document": services.projects.ingest(args.project_id, args.path)}))
         return 0
     if args.command == "analyze" and args.analyze_command == "run":
-        result = services.analysis(args.project_id).run(args.project_id, Phase(args.phase) if args.phase else None)
+        text = str(args.text or "")
+        if args.input is not None:
+            if text:
+                raise ContractViolation("--text and --input cannot be used together")
+            text = args.input.read_text(encoding="utf-8")
+        if text.strip():
+            services.requirements_input(args.project_id).ensure_text_requirements(text)
+        result = services.analysis(args.project_id).run(
+            args.project_id,
+            Phase(args.phase) if args.phase else None,
+            force_new=args.force_new,
+        )
         print(canonical_json({"status": "ok", "run": {"run_id": result.run_id, "phase": result.phase.value, "status": result.status.value, "completed_tasks": result.completed_tasks, "diagnostics": result.diagnostics}}))
         return 0
     if args.command == "analyze" and args.analyze_command == "generate":
