@@ -16,6 +16,11 @@ _PHYSICAL_FIELDS = (
     "mass_kg", "power_w", "compute", "memory_mb", "latency_ms",
     "bandwidth_mbps", "cost", "thermal", "reliability", "availability",
 )
+_OPERATIONAL_KINDS = (
+    EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE,
+    EntityKind.SCENARIO_HYPOTHESIS, EntityKind.USE_CASE,
+    EntityKind.OPERATIONAL_SCENARIO, EntityKind.ACTIVITY, EntityKind.REQUIREMENT,
+)
 _VV_PLAN_FIELDS = (
     "method", "precondition", "input", "procedure", "expected_result",
     "pass_criteria",
@@ -128,6 +133,8 @@ class MethodologyEngine:
         findings: list[MethodologyFinding] = []
         decisions: list[Mapping[str, object]] = []
         metrics = {}
+        self._analyze_operational(graph, index, findings, decisions, metrics)
+        self._analyze_functional(graph, index, findings, decisions, metrics)
         self._analyze_logical(graph, index, findings, decisions, metrics)
         self._analyze_physical(graph, index, findings, metrics)
         self._analyze_vv(graph, index, findings, decisions, metrics)
@@ -149,6 +156,124 @@ class MethodologyEngine:
             recommended_tasks,
             impact[3],
         )
+
+    def _analyze_operational(self, graph, index, findings, decisions, metrics) -> None:
+        present = {
+            kind: _active(index, kind)
+            for kind in _OPERATIONAL_KINDS
+        }
+        present_count = sum(bool(items) for items in present.values())
+        metrics["operational_context_coverage"] = _ratio(present_count, len(_OPERATIONAL_KINDS))
+        actions = {
+            EntityKind.SYSTEM: ("system_definition",),
+            EntityKind.STAKEHOLDER: ("stakeholder_analysis",),
+            EntityKind.LIFECYCLE_STAGE: ("lifecycle_analysis",),
+            EntityKind.SCENARIO_HYPOTHESIS: ("scenario_exploration",),
+            EntityKind.USE_CASE: ("use_case_analysis",),
+            EntityKind.OPERATIONAL_SCENARIO: ("operational_scenario",),
+            EntityKind.ACTIVITY: ("activity_analysis",),
+            EntityKind.REQUIREMENT: ("system_requirement_derivation",),
+        }
+        for kind, items in present.items():
+            metrics[f"operational_{kind.value}_count"] = len(items)
+            if not items:
+                findings.append(MethodologyFinding(
+                    f"operational_{kind.value}_missing", "warning", "requirements", (),
+                    f"Operational Analysis 缺少 {kind.value} 实体。",
+                    actions[kind],
+                ))
+        relations = _relation_targets(graph, index, RelationPredicate.PARTICIPATES_IN)
+        if present[EntityKind.STAKEHOLDER] and present[EntityKind.OPERATIONAL_SCENARIO]:
+            if not any(
+                target.kind is EntityKind.OPERATIONAL_SCENARIO
+                for stakeholder in present[EntityKind.STAKEHOLDER]
+                for target_id in relations.get(stakeholder.id, ())
+                for target in (index[target_id],)
+            ):
+                findings.append(MethodologyFinding(
+                    "operational_scenario_without_actor", "warning", "requirements",
+                    tuple(item.id for item in present[EntityKind.OPERATIONAL_SCENARIO]),
+                    "Operational Scenario 没有明确的 Stakeholder 参与关系。",
+                    ("stakeholder_analysis", "operational_scenario"),
+                ))
+        activity_lifecycles = _relation_targets(graph, index, RelationPredicate.OCCURS_IN)
+        for activity in present[EntityKind.ACTIVITY]:
+            if not any(
+                index[target_id].kind is EntityKind.LIFECYCLE_STAGE
+                for target_id in activity_lifecycles.get(activity.id, ())
+            ):
+                findings.append(MethodologyFinding(
+                    "activity_without_lifecycle", "warning", "requirements", (activity.id,),
+                    f"Activity“{activity.meta.name}”没有生命周期归属。",
+                    ("lifecycle_analysis", "activity_analysis"),
+                ))
+        decisions.extend((
+            {
+                "step": "operational_context_check",
+                "decision": "检查系统、利益相关者、生命周期、场景、用例、活动和需求是否形成上下文",
+                "basis": [item.id for items in present.values() for item in items],
+            },
+            {
+                "step": "system_requirement_derivation",
+                "decision": "保留从运行活动推导系统需求的可追踪入口",
+                "basis": [item.id for item in present[EntityKind.REQUIREMENT]],
+            },
+        ))
+
+    def _analyze_functional(self, graph, index, findings, decisions, metrics) -> None:
+        requirements = _active(index, EntityKind.REQUIREMENT)
+        functions = _active(index, EntityKind.FUNCTION)
+        flows = _active(index, EntityKind.FUNCTIONAL_FLOW)
+        scenarios = _active(index, EntityKind.FUNCTIONAL_SCENARIO)
+        satisfied = _relation_targets(graph, index, RelationPredicate.SATISFIED_BY)
+        requirement_functions = {
+            requirement.id: tuple(
+                target for target in satisfied.get(requirement.id, ())
+                if index[target].kind is EntityKind.FUNCTION
+            )
+            for requirement in requirements
+        }
+        function_flows = _relation_targets(graph, index, RelationPredicate.EXCHANGES_WITH)
+        function_scenarios = _relation_targets(graph, index, RelationPredicate.DERIVED_FROM)
+        covered_requirements = sum(bool(targets) for targets in requirement_functions.values())
+        covered_functions = sum(bool(
+            [target for target in function_flows.get(function.id, ()) if index[target].kind is EntityKind.FUNCTIONAL_FLOW]
+        ) for function in functions)
+        scenario_functions = sum(bool(
+            [target for target in function_scenarios.get(function.id, ()) if index[target].kind is EntityKind.FUNCTIONAL_SCENARIO]
+        ) for function in functions)
+        metrics["functional_requirement_coverage"] = _ratio(covered_requirements, len(requirements))
+        metrics["functional_flow_coverage"] = _ratio(covered_functions, len(functions))
+        metrics["functional_scenario_coverage"] = _ratio(scenario_functions, len(functions))
+        metrics["functional_function_count"] = len(functions)
+        metrics["functional_flow_count"] = len(flows)
+        metrics["functional_scenario_count"] = len(scenarios)
+        for requirement, targets in requirement_functions.items():
+            if not targets:
+                findings.append(MethodologyFinding(
+                    "functional_requirement_uncovered", "warning", "functional", (requirement,),
+                    "系统需求没有对应的 Function 覆盖。",
+                    ("function_identification", "functional_decomposition"),
+                ))
+        for function in functions:
+            if not any(index[target].kind is EntityKind.FUNCTIONAL_FLOW for target in function_flows.get(function.id, ())):
+                findings.append(MethodologyFinding(
+                    "functional_flow_missing", "warning", "functional", (function.id,),
+                    f"功能“{function.meta.name}”没有功能流交互。",
+                    ("functional_interaction",),
+                ))
+        decisions.extend((
+            {
+                "step": "function_identification",
+                "decision": "检查每条系统需求是否映射到系统行为",
+                "basis": [item.id for item in requirements],
+            },
+            {
+                "step": "functional_interaction",
+                "decision": "检查功能之间是否通过功能流表达交互",
+                "basis": [item.id for item in flows],
+            },
+        ))
 
     def _analyze_logical(self, graph, index, findings, decisions, metrics) -> None:
         functions = _active(index, EntityKind.FUNCTION)

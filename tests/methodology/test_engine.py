@@ -101,6 +101,16 @@ def test_logical_analysis_reports_partition_quality_and_allocation():
     assert not any(item.code == "logical_function_unallocated" for item in report.findings)
 
 
+def test_operational_and_functional_analysis_reports_missing_context():
+    report = MethodologyEngine().analyze(_graph())
+
+    assert report.metrics["operational_context_coverage"] < 1.0
+    assert any(item.code == "operational_activity_missing" for item in report.findings)
+    assert report.metrics["functional_requirement_coverage"] == 1.0
+    assert report.metrics["functional_flow_coverage"] == 0.0
+    assert any(item.code == "functional_flow_missing" for item in report.findings)
+
+
 def test_physical_analysis_distinguishes_conflict_from_unknown_measurement():
     conflict = MethodologyEngine().analyze(_graph(power_w=80, max_power_w=50))
     unknown = MethodologyEngine().analyze(_graph(power_w=None, max_power_w=50))
