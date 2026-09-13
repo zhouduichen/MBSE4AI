@@ -7,7 +7,7 @@ from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.domain.model import AddEntity, ModelGraph, Patch, Relate, UpdateEntity, apply_patch
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import ContextBundle, TaskExecutionRequest
-from rflp_lite.methodology.proposal_compiler import compile_task_proposal, proposal_schema
+from rflp_lite.methodology.proposal_compiler import compile_task_proposal, parse_task_proposal, proposal_schema
 from rflp_lite.methodology.tasks import output_contract, task_catalog
 
 
@@ -85,6 +85,16 @@ def _system_proposal(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def test_task_proposal_preserves_stage_review_metadata():
+    proposal = parse_task_proposal(_request(), _proposal(
+        assumptions=["配送区域已经定义"],
+        open_questions=["是否需要人工接管"],
+    ))
+
+    assert proposal.assumptions == ("配送区域已经定义",)
+    assert proposal.open_questions == ("是否需要人工接管",)
 
 
 def test_system_definition_contract_describes_system_payload_and_cardinality():

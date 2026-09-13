@@ -57,6 +57,8 @@ class TaskProposal:
     updates: tuple[ProposalUpdate, ...]
     deprecations: tuple[ProposalDeprecation, ...]
     reason: str
+    assumptions: tuple[str, ...] = ()
+    open_questions: tuple[str, ...] = ()
 
 
 def proposal_schema(
@@ -152,6 +154,8 @@ def proposal_schema(
             "updates": {"type": "array", "items": update_schema, "maxItems": 32},
             "deprecations": {"type": "array", "items": deprecation_schema, "maxItems": 32},
             "reason": {"type": "string", "maxLength": 300},
+            "assumptions": {"type": "array", "items": {"type": "string"}, "maxItems": 16},
+            "open_questions": {"type": "array", "items": {"type": "string"}, "maxItems": 16},
         },
         "schema_id": schema_id,
         "output_kinds": kind_values,
@@ -317,7 +321,11 @@ def parse_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, obj
         for raw in _arrays(payload, "deprecations")
     )
     reason = _string(payload.get("reason"), "reason")[:300]
-    return TaskProposal(tuple(entities), tuple(relations), tuple(updates), deprecations, reason)
+    return TaskProposal(
+        tuple(entities), tuple(relations), tuple(updates), deprecations, reason,
+        _strings(payload.get("assumptions"), "assumptions"),
+        _strings(payload.get("open_questions"), "open_questions"),
+    )
 
 
 def _resolve_ref(

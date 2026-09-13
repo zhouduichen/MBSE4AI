@@ -147,6 +147,8 @@ class TaskExecutionResponse:
     failure_stage: FailureStage | None = None
     finish_reason: str = ""
     usage: Mapping[str, object] = field(default_factory=dict)
+    assumptions: tuple[str, ...] = ()
+    open_questions: tuple[str, ...] = ()
 
 
 class TaskRuntime(Protocol):

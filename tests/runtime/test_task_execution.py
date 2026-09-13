@@ -56,6 +56,23 @@ def test_runtime_turns_allowed_output_into_patch():
     assert result.patch.operations[0].entity.kind is EntityKind.REQUIREMENT
 
 
+def test_runtime_returns_stage_review_metadata():
+    model = FakeModel({
+        "entities": [], "relations": [], "updates": [], "deprecations": [],
+        "reason": "补充阶段假设",
+        "assumptions": ["校园网络可用"],
+        "open_questions": ["是否允许夜间配送"],
+    })
+    runtime = StructuredModelRuntime(model)
+    task = task_catalog()[1]
+    context = ContextBundle("p1", task.id, 3, (make_entity(EntityKind.SYSTEM, "系统"),))
+
+    result = runtime.execute(TaskExecutor(model).request(task, context, "v2.0"))
+
+    assert result.assumptions == ("校园网络可用",)
+    assert result.open_questions == ("是否允许夜间配送",)
+
+
 def test_rule_runtime_enriches_existing_system_instead_of_adding_one():
     task = task_catalog()[0]
     system = make_entity(EntityKind.SYSTEM, "系统")

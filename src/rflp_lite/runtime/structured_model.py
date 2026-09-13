@@ -8,7 +8,7 @@ from typing import Mapping
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.errors import ContractViolation, ProposalCompileFailure
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
-from rflp_lite.methodology.proposal_compiler import compile_task_proposal
+from rflp_lite.methodology.proposal_compiler import compile_task_proposal, parse_task_proposal
 from rflp_lite.ports.generative_model import GenerationRequest, GenerativeModel
 
 
@@ -48,6 +48,7 @@ class StructuredModelRuntime:
             )
         )
         try:
+            proposal = parse_task_proposal(request, response.payload)
             patch = compile_task_proposal(request, response.payload)
         except ContractViolation as exc:
             raise ProposalCompileFailure(
@@ -80,6 +81,8 @@ class StructuredModelRuntime:
             model_id=response.model_id,
             finish_reason=response.finish_reason,
             usage=response.usage,
+            assumptions=proposal.assumptions,
+            open_questions=proposal.open_questions,
         )
 
 
