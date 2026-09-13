@@ -1,3 +1,4 @@
+from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.executor import TaskExecutor
@@ -26,3 +27,35 @@ def test_prompt_hash_is_content_hash_not_template_id():
 
     assert request.prompt_hash == canonical_hash(request.prompt_text)
     assert request.prompt_hash != canonical_hash(task.prompt_template_id)
+
+
+def test_system_definition_schema_requires_update_for_existing_system():
+    task = next(item for item in task_catalog() if item.id == "system_definition")
+    system = make_entity(EntityKind.SYSTEM, "系统")
+    request = TaskExecutor(lambda request: None).request(
+        task,
+        ContextBuilder().build(ModelGraph("p1", (system,)), task),
+        "v2.1",
+    )
+
+    properties = request.output_contract["properties"]
+    assert properties["entities"]["maxItems"] == 0
+    assert properties["updates"]["minItems"] == 1
+    assert properties["updates"]["maxItems"] == 1
+    update = properties["updates"]["items"]
+    assert update["properties"]["entity_id"] == {"const": system.id}
+    assert update["properties"]["field_patch"]["required"] == ["payload"]
+    assert properties["deprecations"]["maxItems"] == 0
+
+
+def test_system_definition_schema_requires_one_entity_without_existing_system():
+    task = next(item for item in task_catalog() if item.id == "system_definition")
+    request = TaskExecutor(lambda request: None).request(
+        task, ContextBuilder().build(ModelGraph("p1"), task), "v2.1"
+    )
+
+    properties = request.output_contract["properties"]
+    assert properties["entities"]["minItems"] == 1
+    assert properties["entities"]["maxItems"] == 1
+    assert properties["updates"]["maxItems"] == 0
+    assert properties["deprecations"]["maxItems"] == 0

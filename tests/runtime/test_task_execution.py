@@ -27,7 +27,7 @@ class FakeModel:
 def test_runtime_adapts_task_context_to_generation_request():
     model = FakeModel()
     runtime = StructuredModelRuntime(model)
-    task = task_catalog()[0]
+    task = task_catalog()[1]
     context = ContextBundle("p1", task.id, 3, (make_entity(EntityKind.SYSTEM, "系统"),))
 
     request = TaskExecutor(model).request(task, context, "v2.0")

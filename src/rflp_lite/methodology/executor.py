@@ -13,6 +13,7 @@ from rflp_lite.domain.errors import (
     StructuredOutputFailure,
     TransportFailure,
 )
+from rflp_lite.domain.entities import EntityKind, EntityStatus
 from rflp_lite.domain.model import Patch
 from rflp_lite.methodology.contracts import (
     ContextBundle, FailureStage, StepStatus, TaskExecutionRequest, TaskExecutionResponse, TaskRuntime, TaskSpec,
@@ -45,6 +46,7 @@ class TaskExecutor:
         token_budget: int = 2000,
     ) -> TaskExecutionRequest:
         contract = output_contract(task)
+        contract = _contextualize_contract(task, context, contract)
         self.schemas.register(task.output_schema_id, contract)
         prompt = self.prompts.resolve(task.prompt_template_id)
         contract = {
@@ -163,6 +165,49 @@ def _require_mapping(value: object) -> None:
         return
     if not isinstance(value, dict):
         raise ContractViolation("task result is not serializable")
+
+
+def _contextualize_contract(
+    task: TaskSpec,
+    context: ContextBundle,
+    contract: dict[str, object],
+) -> dict[str, object]:
+    """Add state-dependent cardinality constraints to system_definition."""
+
+    if task.id != "system_definition":
+        return contract
+    active_systems = tuple(
+        entity for entity in context.entities
+        if entity.kind is EntityKind.SYSTEM and entity.meta.status is not EntityStatus.DEPRECATED
+    )
+    properties = dict(contract["properties"])
+    entities_schema = dict(properties["entities"])
+    updates_schema = dict(properties["updates"])
+    deprecations_schema = dict(properties["deprecations"])
+    if len(active_systems) == 1:
+        entities_schema["maxItems"] = 0
+        updates_schema.update({"minItems": 1, "maxItems": 1})
+        update_item = dict(updates_schema["items"])
+        update_properties = dict(update_item["properties"])
+        update_properties["entity_id"] = {"const": active_systems[0].id}
+        field_patch = dict(update_properties["field_patch"])
+        field_patch["required"] = ["payload"]
+        update_properties["field_patch"] = field_patch
+        update_item["properties"] = update_properties
+        updates_schema["items"] = update_item
+    elif not active_systems:
+        entities_schema.update({"minItems": 1, "maxItems": 1})
+        updates_schema["maxItems"] = 0
+    else:
+        entities_schema["maxItems"] = 0
+        updates_schema["maxItems"] = 0
+    deprecations_schema["maxItems"] = 0
+    properties.update({
+        "entities": entities_schema,
+        "updates": updates_schema,
+        "deprecations": deprecations_schema,
+    })
+    return {**contract, "properties": properties}
 
 
 def _failure_stage(exc: Exception) -> FailureStage | None:

@@ -21,7 +21,7 @@ class CapturingModel:
 
 def test_structured_runtime_sends_task_specific_prompt_to_model():
     model = CapturingModel()
-    task = task_catalog()[0]
+    task = task_catalog()[1]
     context = ContextBuilder().build(ModelGraph("p1"), task)
     request = TaskExecutor(model).request(task, context, "v2.1")
 
