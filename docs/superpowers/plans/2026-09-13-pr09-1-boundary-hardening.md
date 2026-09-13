@@ -78,7 +78,7 @@ def test_partial_payload_update_rejects_invalid_final_payload():
         entities=[],
         updates=[{
             "entity_id": entity_id,
-            "field_patch": {"payload": {"source": ""}},
+            "field_patch": {"payload": {"source": 42}},
         }],
     )
 
