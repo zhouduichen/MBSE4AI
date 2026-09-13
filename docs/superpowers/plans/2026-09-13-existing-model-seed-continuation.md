@@ -32,7 +32,7 @@
 - Consumes: `ModelGraph.entities`, `EntityStatus.DEPRECATED`, `ProjectService.has_analysis_input`, and the existing `/projects/{project_id}/analysis` endpoint.
 - Produces: `ModelGraph.has_active_entities -> bool`; project and generation input gates use it before falling back to document evidence.
 
-- [ ] **Step 1: Write failing application and API tests**
+- [x] **Step 1: Write failing application and API tests**
 
 ```python
 def test_active_partial_model_counts_as_analysis_input(tmp_path: Path) -> None:
@@ -76,13 +76,13 @@ def test_deprecated_only_model_is_not_analysis_input(tmp_path: Path) -> None:
 
 Add the required imports from `rflp_lite.domain.entities` and `rflp_lite.domain.model` to the test module. Add an API test that uploads a SysML file containing only one Function to a fresh project and posts `{"mode": "generate"}` without requirement text; it must receive HTTP 200 and a `run` payload rather than the existing `InputRequired` error.
 
-- [ ] **Step 2: Run the focused tests and verify the current gate fails**
+- [x] **Step 2: Run the focused tests and verify the current gate fails**
 
 Run: `./.venv/bin/pytest tests/application/test_project_service.py::test_active_partial_model_counts_as_analysis_input tests/application/test_project_service.py::test_deprecated_only_model_is_not_analysis_input tests/interface/web/test_resource_api.py -q`
 
 Expected: the new active-model application test fails because `ModelGraph` has no active-entity predicate, and the partial-model API test returns 422 before generation.
 
-- [ ] **Step 3: Add the domain predicate and reuse it in both application gates**
+- [x] **Step 3: Add the domain predicate and reuse it in both application gates**
 
 ```python
 # src/rflp_lite/domain/model.py
@@ -93,13 +93,13 @@ def has_active_entities(self) -> bool:
 
 Update `ProjectService.has_analysis_input` to return `True` when `graph.has_active_entities` is true, then retain its document fallback. Update `ModelGenerationService._ensure_input` so that after explicit text/document extraction, an existing active graph returns without raising `InputRequired`; only an empty graph with no readable document raises the current error.
 
-- [ ] **Step 4: Run the focused tests and verify they pass**
+- [x] **Step 4: Run the focused tests and verify they pass**
 
 Run: `./.venv/bin/pytest tests/application/test_project_service.py tests/interface/web/test_resource_api.py -q`
 
 Expected: PASS, including empty-project rejection, document input, natural-language generation, and partial-model generation.
 
-- [ ] **Step 5: Commit the input-gate change**
+- [x] **Step 5: Commit the input-gate change**
 
 ```bash
 git add src/rflp_lite/domain/model.py src/rflp_lite/application/project_service.py src/rflp_lite/application/model_generation.py tests/application/test_project_service.py tests/interface/web/test_resource_api.py
@@ -117,7 +117,7 @@ git commit -m "feat: accept active model graphs as analysis input"
 - Consumes: `ProjectService.has_analysis_input` from `build_analysis_view` and `/projects/{project_id}/sysml/import/upload`.
 - Produces: enabled Web generation controls after a partial SysML import, with copy that names importing a model as a valid input.
 
-- [ ] **Step 1: Write the failing Web assertion**
+- [x] **Step 1: Write the failing Web assertion**
 
 ```python
 def test_analysis_page_enables_generation_after_partial_sysml_import(tmp_path: Path) -> None:
@@ -140,23 +140,23 @@ def test_analysis_page_enables_generation_after_partial_sysml_import(tmp_path: P
 
 Add the necessary `ModelGraph`, `EntityKind`, `make_entity`, and `graph_to_sysml` imports to the test module.
 
-- [ ] **Step 2: Run the page test and verify it fails**
+- [x] **Step 2: Run the page test and verify it fails**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_analysis_workflow.py::test_analysis_page_enables_generation_after_partial_sysml_import -q`
 
 Expected: FAIL because the current disabled title/copy only describes requirement and document inputs.
 
-- [ ] **Step 3: Update the input copy and disabled hint**
+- [x] **Step 3: Update the input copy and disabled hint**
 
 Change the intake description to mention “提交需求、上传文档或导入已有模型”. Change the disabled generation and phase-button title to `请先提交需求、上传文档或导入已有模型`. Add the visible hint `导入模型也可以作为分析输入` near the SysML upload control; do not expose Task/Patch/CAS internals.
 
-- [ ] **Step 4: Run all Web input and generation tests**
+- [x] **Step 4: Run all Web input and generation tests**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_analysis_workflow.py tests/interface/web/test_sysml_intake.py tests/interface/web/test_vertical_generation_api.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the Web state change**
+- [x] **Step 5: Commit the Web state change**
 
 ```bash
 git add src/rflp_lite/interface/web/templates/analysis.html tests/interface/web/test_analysis_workflow.py tests/interface/web/test_sysml_intake.py
@@ -175,21 +175,21 @@ git commit -m "feat: enable analysis from partial model imports"
 - Consumes: the active-model input predicate and Web behavior from Tasks 1–2.
 - Produces: documented partial-model continuation semantics and a verified pushed branch.
 
-- [ ] **Step 1: Document the accepted input semantics**
+- [x] **Step 1: Document the accepted input semantics**
 
 Add that any active existing ModelGraph, including a partial imported SysML model, can enter Analysis; state that missing layers remain visible as warnings/review findings.
 
-- [ ] **Step 2: Mark this plan complete and scan it for placeholders**
+- [x] **Step 2: Mark this plan complete and scan it for placeholders**
 
 Change every completed checkbox to `[x]`. Run:
 
 ```bash
-rg -n "TODO|TBD|FIXME|Similar to Task|add appropriate" docs/superpowers/plans/2026-09-13-existing-model-seed-continuation.md
+rg -n 'TODO|TBD|FIXME|Similar to Task|add appropriate' docs/superpowers/plans/2026-09-13-existing-model-seed-continuation.md | rg -v 'rg -n'
 ```
 
 Expected: no output.
 
-- [ ] **Step 3: Run complete verification**
+- [x] **Step 3: Run complete verification**
 
 Run:
 
@@ -205,7 +205,7 @@ git diff --check
 
 Expected: every command exits 0; no architecture budget regresses.
 
-- [ ] **Step 4: Commit and push**
+- [x] **Step 4: Commit and push**
 
 ```bash
 git add README.md docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md docs/superpowers/plans/2026-09-13-existing-model-seed-continuation.md
