@@ -8,6 +8,7 @@ from typing import Mapping
 from rflp_lite.adapters.document_intelligence import LocalDocumentParser
 from rflp_lite.adapters.llm_client import test_connection as test_llm_connection
 from rflp_lite.application.analysis_service import AnalysisService
+from rflp_lite.application.deliverables import EngineeringDeliverableService
 from rflp_lite.application.evidence_service import EvidenceService
 from rflp_lite.application.model_service import ModelService
 from rflp_lite.application.model_generation import ModelGenerationService
@@ -94,6 +95,9 @@ class V2Services:
 
     def render(self, project_id: str) -> RenderService:
         return RenderService(self.model(project_id))
+
+    def deliverables(self, project_id: str) -> EngineeringDeliverableService:
+        return EngineeringDeliverableService(self.model(project_id))
 
     def review(self, project_id: str) -> ReviewService:
         return ReviewService(self.model(project_id))
