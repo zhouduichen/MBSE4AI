@@ -1,0 +1,54 @@
+from pathlib import Path
+
+from rflp_lite.application.requirement_input import RequirementInputService
+from rflp_lite.domain.entities import EntityKind, EntityStatus
+from rflp_lite.methodology.contracts import ContextBundle
+from rflp_lite.methodology.executor import TaskExecutor
+from rflp_lite.methodology.tasks import task_catalog
+from rflp_lite.repository.sqlite import SQLiteModelRepository
+from rflp_lite.runtime.rule_based import RuleRuntime
+
+
+def _run_tasks(repository: SQLiteModelRepository, task_ids: tuple[str, ...]) -> None:
+    executor = TaskExecutor(RuleRuntime())
+    for task in task_catalog():
+        if task.id not in task_ids:
+            continue
+        graph = repository.load_graph("p1")
+        context = ContextBundle("p1", task.id, graph.revision, graph.entities, graph.relations)
+        response = executor.execute(task, context, token_budget=2000)
+        assert response.patch is not None, task.id
+        repository.append_patch("p1", response.patch, graph.revision)
+
+
+def _active_kinds(repository: SQLiteModelRepository) -> set[EntityKind]:
+    return {
+        item.kind
+        for item in repository.load_graph("p1").entities
+        if item.meta.status is not EntityStatus.DEPRECATED
+    }
+
+
+def test_operational_and_functional_tasks_create_typed_objects(tmp_path: Path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    RequirementInputService(repository, "p1").ensure_text_requirements(
+        "系统应支持自主配送并允许人工接管"
+    )
+
+    _run_tasks(repository, tuple(task.id for task in task_catalog()[:14]))
+
+    assert {
+        EntityKind.SYSTEM,
+        EntityKind.STAKEHOLDER,
+        EntityKind.CONCERN,
+        EntityKind.LIFECYCLE_STAGE,
+        EntityKind.SCENARIO_HYPOTHESIS,
+        EntityKind.USE_CASE,
+        EntityKind.OPERATIONAL_SCENARIO,
+        EntityKind.ACTIVITY,
+        EntityKind.REQUIREMENT,
+        EntityKind.FUNCTION,
+        EntityKind.FUNCTIONAL_FLOW,
+        EntityKind.FUNCTIONAL_SCENARIO,
+    } <= _active_kinds(repository)

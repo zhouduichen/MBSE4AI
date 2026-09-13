@@ -8,6 +8,10 @@ from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_e
 from rflp_lite.domain.model import AddEntity, Deprecate, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
+from rflp_lite.runtime.lifecycle_rule import (
+    OPERATIONAL_FUNCTIONAL_TASKS,
+    LifecycleTaskRuleRuntime,
+)
 
 
 _PRIMARY_OUTPUT: dict[str, EntityKind] = {
@@ -42,6 +46,7 @@ _PHYSICAL_VARIANTS = frozenset({
     "更换物理候选或计算架构", "降低计算或功耗需求",
     "调整需求约束或资源预算", "增加电池质量或资源预算",
 })
+_LIFECYCLE_RUNTIME = LifecycleTaskRuleRuntime()
 
 
 def _first(context, kind: EntityKind):
@@ -54,6 +59,8 @@ class RuleRuntime:
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         if request.task_id.startswith("vertical."):
             return VerticalRuleRuntime().execute(request)
+        if request.task_id in OPERATIONAL_FUNCTIONAL_TASKS:
+            return _LIFECYCLE_RUNTIME.execute(request)
         if request.task_id == "verification_validation":
             return self._verification_validation(request)
         if request.task_id == "global_cross_analysis":
