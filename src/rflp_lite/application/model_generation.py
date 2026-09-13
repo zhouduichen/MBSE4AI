@@ -535,7 +535,7 @@ class ModelGenerationService:
             )
         iteration_id = f"controller-iteration-{uuid4().hex[:16]}"
         start_revision = initial_graph.revision
-        records: list[dict[str, object]] = []
+        records: list[Mapping[str, object]] = []
         seen: set[tuple[str, int]] = set()
         terminal_status = "max_iterations"
         self._audit(project_id, "controller.iteration.started", {
