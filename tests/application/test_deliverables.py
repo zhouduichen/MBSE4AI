@@ -85,6 +85,7 @@ def test_build_contains_all_required_artifacts(tmp_path: Path):
     assert package["revision"] == package["artifacts"]["traceability"]["content"]["revision"]
     assert package["snapshot_hash"] == package["artifacts"]["rflp"]["content"]["snapshot_hash"]
     assert package["artifacts"]["architecture_report"]["content"]["status"] == "BLOCKED"
+    assert package["artifacts"]["vv_plan"]["content"]["metrics"]["requirement_count"] == 1
 
 
 def test_incomplete_graph_is_reported_as_gap(tmp_path: Path):
