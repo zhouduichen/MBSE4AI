@@ -80,6 +80,8 @@ MBSE Model 页面还提供“导出完整交付包”：同一份 ModelGraph 快
 
 纵向链完成后由 Methodology Engine 对 ModelGraph 做确定性工程分析：逻辑层报告分配覆盖、State 模型、分区和内聚/耦合信号；物理层传播约束并区分冲突与待测量；V&V 分开报告 Verification、Validation、Hazard/FailureMode 覆盖、计划字段完整度和执行证据。计划字段和 evidence 始终分层，空 evidence 不会伪装成已执行。Systems Engineering Controller 将这些 findings 汇总为下一步动作：证据缺口先通过 Tool Layer 检索文档、历史项目和本地 FTS，检索到的证据落库后触发受影响阶段重分析；仍无结果时暂停等待用户。逻辑分区或物理约束需要权衡时展示候选方案，用户选择后触发受影响阶段的定向重分析。Review 和 Controller 都沿图返回影响实体、阶段、路径和审计记录，不绕过 CAS，也不替用户无审查地作工程决策。
 
+Trade Study 的用户选择现在会真正改变架构图：Logical 选择可生成“每功能一个组件”或“共享协调器”变体，保留旧组件并对未锁定旧组件做版本化弃用；Physical 选择“更换物理候选或计算架构”会新增可比较的替代候选。每个变体都保留 `architecture_decision` 来源，锁定或用户修改的实体不会被覆盖；替代候选不填充虚假的 SWaP-C 测量，原有约束、冲突和待验证问题继续可见。
+
 在实体 Review 后，用户可以先创建影响分析请求，也可以执行定向重新分析：编辑 Requirement 会从 Requirements 向下重跑，编辑 Function 从 Functional 向下重跑，Logical/Physical/V&V 编辑只重跑受影响的后续阶段。确认实体后还可以显式执行“继续生成下游”，从已确认层的下一个阶段运行到 V&V；锁定实体作为只读锚点参与推理，不会被修改。完整交互闭环是：`Review 实体 → 接受/锁定 → 继续生成下游 → 重新计算 Trace/Methodology → Review 新结果`。每次重分析或继续生成仍写入独立 Run、Patch、Revision 和 audit，不覆盖锁定实体。
 
 Controller 还提供有界的“自动推进安全动作”入口：它可以连续执行安全的局部重分析或证据检索，并在每轮重新计算 Traceability、Methodology 和下一步动作；遇到 Trade Study、缺少用户输入/证据、无进展或迭代预算耗尽时暂停。Trade Study 方案仍必须由用户明确选择，LLM 生成内容继续经过结构化 Runtime、Compiler、Validator 和 CAS。

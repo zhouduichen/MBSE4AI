@@ -30,7 +30,7 @@
 - Consumes: `ContextBundle.controller_decisions`, `TaskExecutionRequest`, `VerticalRuleRuntime.execute`.
 - Produces: tests for Logical repartition, shared coordinator, Physical alternative, lock protection and API-level decision flow.
 
-- [ ] **Step 1: Add the Logical decision request helper and failing tests**
+- [x] **Step 1: Add the Logical decision request helper and failing tests**
 
 Add this helper to `tests/runtime/test_vertical_rule_runtime.py`:
 
@@ -48,7 +48,7 @@ def _logical_request(entities, relations=(), decision=None):
 
 Add tests that create two Functions sharing `task_state`, an existing validated Logical Component, and `ALLOCATED_TO` relations; execute a decision with `option="one_component_per_function"`; apply the returned patch; and assert the old component is deprecated, two active components exist, and each has `architecture_variant` plus an `architecture_decision.option_id`. Add a second test with `option="shared_coordinator"` and assert one generated Logical Component has `architecture_variant="shared_coordinator"` and `coupling="high"`.
 
-- [ ] **Step 2: Add failing Physical, lock, and API assertions**
+- [x] **Step 2: Add failing Physical, lock, and API assertions**
 
 Add a Runtime test with a Requirement containing `constraints: {"max_power_w": 50}`, an existing Physical Block with `power_w: 80`, and a decision whose option is `更换物理候选或计算架构`. Assert that the returned patch contains a Physical Block with `candidate_variant="alternative"`, the same `propagated_constraints`, the same Requirement source ID, and the decision option ID.
 
@@ -64,7 +64,7 @@ assert any(
 )
 ```
 
-- [ ] **Step 3: Run the new tests and confirm they fail**
+- [x] **Step 3: Run the new tests and confirm they fail**
 
 ```bash
 ./.venv/bin/pytest tests/runtime/test_vertical_rule_runtime.py -q -k 'variant or trade or locked'
@@ -85,7 +85,7 @@ Expected: failures because the current Vertical Runtime ignores `controller_deci
 - Consumes: one `ContextBundle.controller_decisions` mapping.
 - Produces: Logical Patch operations with bounded decision provenance, active Function allocations, and lock-safe deprecations.
 
-- [ ] **Step 1: Add safe builder and decision helpers**
+- [x] **Step 1: Add safe builder and decision helpers**
 
 Import `Deprecate` and initialize `self.deprecated = set()` in `_VerticalPatchBuilder`. Add:
 
@@ -138,7 +138,7 @@ def _decision_payload(decision: Mapping[str, object]) -> Mapping[str, object]:
 
 Do not copy arbitrary controller fields into a graph payload.
 
-- [ ] **Step 2: Apply Logical partition decisions**
+- [x] **Step 2: Apply Logical partition decisions**
 
 At the start of `_logical`, choose groups as follows:
 
@@ -166,7 +166,7 @@ For a recognized variant, deprecate active existing Logical Components, Interfac
 
 Only include `blocked_by_locked_entity` when it is true. Set `coupling="high"` for `shared_coordinator`; preserve the current controlled/isolated behavior for `one_component_per_function`. Connect Functions, Logical Components, Interface, and State through the existing predicates. If the option is unknown or absent, preserve the current no-decision path exactly.
 
-- [ ] **Step 3: Run Runtime tests and lint**
+- [x] **Step 3: Run Runtime tests and lint**
 
 ```bash
 ./.venv/bin/pytest tests/runtime/test_vertical_rule_runtime.py -q -k 'variant or trade or locked'
@@ -175,7 +175,7 @@ Only include `blocked_by_locked_entity` when it is true. Set `coupling="high"` f
 
 Expected: all new tests pass and Ruff reports no issues.
 
-- [ ] **Step 4: Commit Logical iteration**
+- [x] **Step 4: Commit Logical iteration**
 
 ```bash
 git add src/rflp_lite/runtime/rule_based.py tests/runtime/test_vertical_rule_runtime.py
@@ -194,7 +194,7 @@ git commit -m "feat: apply logical trade study decisions"
 - Consumes: bounded decision helpers and `_physical_payload` Requirement propagation.
 - Produces: alternative Physical Blocks or lock-safe decision payload updates with constraints and provenance intact.
 
-- [ ] **Step 1: Generate an alternative Physical Block**
+- [x] **Step 1: Generate an alternative Physical Block**
 
 At the start of `_physical`, consume only options in `_PHYSICAL_VARIANTS`; ignore Logical options in this stage. For `更换物理候选或计算架构`, add one candidate per active Logical Component with a deterministic name ending in `替代候选` and merge these fields into `_physical_payload(logical, requirements)`:
 
@@ -208,11 +208,11 @@ At the start of `_physical`, consume only options in `_PHYSICAL_VARIANTS`; ignor
 
 Allocate the alternative to the Logical Component. Keep the old block and its relations for comparison; an old measured conflict must remain visible.
 
-- [ ] **Step 2: Record other Physical decisions safely**
+- [x] **Step 2: Record other Physical decisions safely**
 
 For the other three Physical options, update an unlocked, non-user-modified existing Physical Block with `architecture_decision` and an `open_questions` entry. Do not change `power_w`, `mass_kg`, `endurance_h`, propagated constraints, or Requirement payloads. When update is blocked by a lock or user modification, create an alternative candidate with `candidate_variant="alternative"` and `blocked_by_locked_entity=True`; it remains unmeasured.
 
-- [ ] **Step 3: Run Physical and regression tests**
+- [x] **Step 3: Run Physical and regression tests**
 
 ```bash
 ./.venv/bin/pytest tests/runtime/test_vertical_rule_runtime.py tests/application/test_model_generation.py tests/methodology/test_engine.py -q
@@ -221,7 +221,7 @@ For the other three Physical options, update an unlocked, non-user-modified exis
 
 Expected: all tests pass and existing physical conflict/measurement semantics remain unchanged.
 
-- [ ] **Step 4: Commit Physical iteration**
+- [x] **Step 4: Commit Physical iteration**
 
 ```bash
 git add src/rflp_lite/runtime/rule_based.py tests/runtime/test_vertical_rule_runtime.py
@@ -241,11 +241,11 @@ git commit -m "feat: generate physical trade study variants"
 - Consumes: existing `execute_controller_action`, `reanalyze`, `controller_decision`, and `/controller/execute` response.
 - Produces: evidence that a selected option changes ModelGraph while preserving active traceability and unresolved findings.
 
-- [ ] **Step 1: Add an application-level Logical decision test**
+- [x] **Step 1: Add an application-level Logical decision test**
 
 Generate a project, edit two Functions to share `shared_state`, obtain the Logical Trade Study action, select `one_component_per_function`, and assert an increased revision, a deprecated old Logical Component, active variant components, `controller_decision` in the reanalysis response, and a nonzero complete traceability count. Pass `expected_revision` on every write.
 
-- [ ] **Step 2: Extend the API Physical alternative test**
+- [x] **Step 2: Extend the API Physical alternative test**
 
 In `test_controller_trade_study_decision_runs_only_affected_downstream_stages`, choose the option labelled `更换物理候选或计算架构` and assert:
 
@@ -263,7 +263,7 @@ assert "physical_constraint_conflict" in {
 }
 ```
 
-- [ ] **Step 3: Run Controller/API/E2E tests**
+- [x] **Step 3: Run Controller/API/E2E tests**
 
 ```bash
 ./.venv/bin/pytest tests/application/test_model_generation.py tests/interface/web/test_vertical_generation_api.py tests/e2e/test_vertical_model_generation.py -q
@@ -271,7 +271,7 @@ assert "physical_constraint_conflict" in {
 
 Expected: all tests pass, including existing CAS, lock, Controller iteration and SysML round-trip tests.
 
-- [ ] **Step 4: Commit the end-to-end proof**
+- [x] **Step 4: Commit the end-to-end proof**
 
 ```bash
 git add tests/application/test_model_generation.py tests/interface/web/test_vertical_generation_api.py tests/e2e/test_vertical_model_generation.py
@@ -292,11 +292,11 @@ git commit -m "test: prove decision-driven architecture iteration"
 - Consumes: Runtime variants, Controller loop and API/E2E evidence.
 - Produces: documented user behavior and a GitHub-synchronized branch.
 
-- [ ] **Step 1: Document the actual iteration behavior**
+- [x] **Step 1: Document the actual iteration behavior**
 
 State that a user-selected Logical/Physical Trade Study flows through ContextBundle into local reanalysis; the result is a versioned architecture variant with decision provenance, while old candidates and unresolved measurement/conflict findings remain visible.
 
-- [ ] **Step 2: Mark this plan complete and scan it**
+- [x] **Step 2: Mark this plan complete and scan it**
 
 Change every checkbox in this plan to `[x]`, then run:
 
@@ -307,7 +307,7 @@ git diff --check
 
 Expected: no unchecked step and no placeholder output.
 
-- [ ] **Step 3: Run complete verification**
+- [x] **Step 3: Run complete verification**
 
 ```bash
 ./.venv/bin/pytest -q
@@ -321,7 +321,7 @@ git diff --check
 
 Expected: every command exits 0 and architecture metrics remain `dict_str_object_occurrences=115`, `functions_over_150_lines=0`, `module_cycles=0`, and `adapter_to_application_edges=0`.
 
-- [ ] **Step 4: Commit documentation and push**
+- [x] **Step 4: Commit documentation and push**
 
 ```bash
 git add README.md docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md docs/superpowers/plans/2026-09-13-decision-driven-architecture-iteration.md

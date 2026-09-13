@@ -37,6 +37,8 @@ AI 或规则 Runtime 只返回结构化 TaskExecutionResponse。WorkflowRunner �
 
 五阶段完成后，`MethodologyEngine` 只读当前 ModelGraph 并输出 findings、metrics、decisions、impact paths 和 recommended tasks；生成结果与 `review.reanalysis.requested` audit 共用同一报告格式。默认链在 R/F/L/P/V&V 中分别落下 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase 等可编辑对象；V&V 计划字段与执行 evidence 分开统计。未知的物理 SWaP-C 值会被标记为 `needs_measurement`，约束冲突会被标记为 `physical_constraint_conflict`，不会直接提升为可行。`SystemsEngineeringController` 将这些反馈收敛为有限的下一步动作：缺证据时暂停等待输入，物理冲突或未评审逻辑分区时提出 Trade Study 选项，并在用户选定后按影响实体调用定向重分析。选定的决策会进入后续 `ContextBundle`、context hash 和结构化 LLM 请求，保证它不只是审计文字而是下一轮推理的输入。它不绕过 Review/CAS，也不替用户无审查地改变工程决策。
 
+离线 `VerticalRuleRuntime` 会消费已确认的有限决策字段并把它们落实到 ModelGraph：Logical 的 `one_component_per_function` 和 `shared_coordinator` 生成带 `architecture_variant`/`architecture_decision` 的新组件、接口和状态，并只弃用未锁定且未被用户修改的旧层；Physical 的候选替换选项新增 `candidate_variant=alternative`，保留约束传播和 provenance。预算或需求类选项只记录决策和待确认问题，不修改实测值或 Requirement；锁定/用户修改的实体阻塞更新时生成未测量替代项。这样 Controller 选项会形成可比较、可追溯的版本，而不是只写入审计日志。
+
 模型页提供分层 ModelGraph 工作台，按 System Definition、Functional、Logical、Physical 和 V&V 展示真实实体及其来源、证据、关系和问题计数。实体可在页面内编辑、接受、拒绝、锁定、解锁或请求重新分析；编辑保留实体稳定 ID，通过新的 CAS Revision 记录用户来源，并让锁定实体拒绝后续修改。Requirements 保持独立的需求工作台，避免把需求编辑与下游分层投影混在一起。分析输入门禁以 ModelGraph 为准：任意非 `DEPRECATED` 实体即可作为已有模型种子，空图仍需要需求或可读文档；部分模型生成后的缺层和追溯缺口由 warnings/review findings 表达。
 
 Review 后的显式“继续生成下游”调用 `ModelGenerationService.continue_generation`，按实体所属层路由到下一个 VerticalStage，使用独立的 `vertical_continuation` Run。接受的实体不会被重复改写；锁定实体可作为只读上下文参与 Logical、Physical 或 V&V 推理。续行结束后重新计算 Traceability、Methodology 和 Controller，V&V 是终止层。
