@@ -176,7 +176,8 @@ def _contextualize_contract(
     """Add state-dependent cardinality constraints to system_definition."""
 
     if task.id != "system_definition":
-        return _contextualize_stakeholder_requirements(task, context, contract)
+        contract = _contextualize_stakeholder_requirements(task, context, contract)
+        return _contextualize_lifecycle_analysis(task, context, contract)
     active_systems = tuple(
         entity for entity in context.entities
         if entity.kind is EntityKind.SYSTEM and entity.meta.status is not EntityStatus.DEPRECATED
@@ -227,8 +228,53 @@ def _contextualize_stakeholder_requirements(
     if not existing_requirements:
         return contract
     properties = dict(contract["properties"])
+    source_concerns = tuple(
+        entity for entity in context.entities
+        if entity.kind is EntityKind.CONCERN
+        and entity.meta.status is not EntityStatus.DEPRECATED
+    )
+    source_stakeholders = tuple(
+        entity for entity in context.entities
+        if entity.kind is EntityKind.STAKEHOLDER
+        and entity.meta.status is not EntityStatus.DEPRECATED
+    )
+    # When concerns are present they may represent newly discovered needs that
+    # do not match imported requirements, so the model must retain the add path.
+    # Only the stakeholder fallback is forced to reuse existing requirements.
+    if not source_concerns:
+        entities_schema = dict(properties["entities"])
+        entities_schema["maxItems"] = 0
+        properties["entities"] = entities_schema
+    if source_concerns or source_stakeholders:
+        relations_schema = dict(properties["relations"])
+        relations_schema["minItems"] = 1
+        properties["relations"] = relations_schema
+    return {**contract, "properties": properties}
+
+
+def _contextualize_lifecycle_analysis(
+    task: TaskSpec,
+    context: ContextBundle,
+    contract: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Reuse imported lifecycle stages and reserve additions for transitions."""
+
+    if task.id != "lifecycle_analysis":
+        return contract
+    existing_stages = tuple(
+        entity for entity in context.entities
+        if entity.kind is EntityKind.LIFECYCLE_STAGE
+        and entity.meta.status is not EntityStatus.DEPRECATED
+    )
+    if not existing_stages:
+        return contract
+    properties = dict(contract["properties"])
     entities_schema = dict(properties["entities"])
-    entities_schema["maxItems"] = 0
+    entity_item = dict(entities_schema["items"])
+    entity_properties = dict(entity_item["properties"])
+    entity_properties["kind"] = {"const": EntityKind.LIFECYCLE_TRANSITION.value}
+    entity_item["properties"] = entity_properties
+    entities_schema["items"] = entity_item
     properties["entities"] = entities_schema
     return {**contract, "properties": properties}
 

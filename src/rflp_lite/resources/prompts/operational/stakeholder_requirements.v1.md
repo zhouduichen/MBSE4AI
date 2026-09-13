@@ -7,6 +7,9 @@
 # Inputs
 使用 stakeholder、concern、已有 requirement、用户输入和 evidence。
 
+# Existing Requirement Branch
+先检查上下文中的已有 Requirement：如果已经存在语义相同或可承载该来源链的 Requirement，必须复用其 canonical id，不得新增同名或同身份 Requirement；只通过 `relations` 补充来源关系。如果上下文没有可复用的 Requirement，才新增 Requirement。
+
 # MBSE Method
 一条需求表达一个主要义务；保留 stakeholder/concern 到 requirement 的来源链。
 
@@ -20,7 +23,7 @@
 Requirement 必须追溯到 stakeholder、concern 或 evidence；原始证据模糊时保持模糊并标记待确认。
 
 # Relation Rules
-只使用 `derivedFrom`，且关系方向固定为 Requirement → Concern。优先从 Concern 建立 `Requirement --derivedFrom--> Concern`；只有上下文没有 Concern、但有 Stakeholder 来源时，才建立 `Requirement --derivedFrom--> Stakeholder`。本 Task 禁止 `supportedBy`，也不要使用 satisfiedBy、verifiedBy 或其他关系。
+只使用 `derivedFrom`，且关系方向固定为 Requirement → Concern。优先从 Concern 建立 `Requirement --derivedFrom--> Concern`；只有上下文没有 Concern、但有 Stakeholder 来源时，才建立 `Requirement --derivedFrom--> Stakeholder`。本 Task 禁止 `supportedBy`，也不要使用 satisfiedBy、verifiedBy 或其他关系。关系 source_ref 必须使用既有 Requirement 的 canonical id 或本 Proposal 新增 Requirement 的唯一 local_ref。
 
 # Forbidden Behavior
 不得合并“并且/以及/同时”的多个义务，不得把设计方案写成 stakeholder requirement。

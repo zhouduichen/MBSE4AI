@@ -140,6 +140,34 @@ class _OfflineProposalModel:
                 "deprecations": [],
                 "reason": "创建 conformance system",
             }
+        elif request.lens_id == "stakeholder_requirements":
+            concern = next(
+                item
+                for item in request.user_payload["context"]["entities"]
+                if item["kind"] == EntityKind.CONCERN.value
+            )
+            payload = {
+                "entities": [{
+                    "local_ref": "new:requirement:1",
+                    "name": "conformance-stakeholder-requirement",
+                    "payload": {
+                        "level": "stakeholder",
+                        "type": "functional",
+                        "obligation": "系统应支持 conformance smoke",
+                        "verification_method": "review",
+                        "rationale": "来源于 conformance concern",
+                    },
+                }],
+                "relations": [{
+                    "source_ref": "new:requirement:1",
+                    "predicate": "derivedFrom",
+                    "target_ref": concern["id"],
+                    "evidence_ids": [],
+                }],
+                "updates": [],
+                "deprecations": [],
+                "reason": "创建 conformance stakeholder requirement",
+            }
         else:
             payload = {"entities": [], "relations": [], "updates": [], "deprecations": [], "reason": "无变化"}
         return GenerationResponse(

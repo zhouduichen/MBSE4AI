@@ -59,3 +59,59 @@ def test_system_definition_schema_requires_one_entity_without_existing_system():
     assert properties["entities"]["maxItems"] == 1
     assert properties["updates"]["maxItems"] == 0
     assert properties["deprecations"]["maxItems"] == 0
+
+
+def test_stakeholder_requirements_schema_reuses_existing_requirements():
+    task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
+    requirement = make_entity(EntityKind.REQUIREMENT, "已有需求")
+    stakeholder = make_entity(EntityKind.STAKEHOLDER, "已有利益相关者")
+    request = TaskExecutor(lambda request: None).request(
+        task,
+        ContextBuilder().build(ModelGraph("p1", (requirement, stakeholder)), task),
+        "v2.1",
+    )
+
+    properties = request.output_contract["properties"]
+    assert properties["entities"]["maxItems"] == 0
+    assert properties["relations"]["minItems"] == 1
+
+
+def test_stakeholder_requirements_allows_noop_without_source_entities():
+    task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
+    requirement = make_entity(EntityKind.REQUIREMENT, "已有需求")
+    request = TaskExecutor(lambda request: None).request(
+        task,
+        ContextBuilder().build(ModelGraph("p1", (requirement,)), task),
+        "v2.1",
+    )
+
+    assert request.output_contract["properties"]["entities"]["maxItems"] == 0
+    assert "minItems" not in request.output_contract["properties"]["relations"]
+
+
+def test_stakeholder_requirements_keeps_add_path_for_new_concerns():
+    task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
+    requirement = make_entity(EntityKind.REQUIREMENT, "已有需求")
+    concern = make_entity(EntityKind.CONCERN, "新发现的关注点")
+    request = TaskExecutor(lambda request: None).request(
+        task,
+        ContextBuilder().build(ModelGraph("p1", (requirement, concern)), task),
+        "v2.1",
+    )
+
+    properties = request.output_contract["properties"]
+    assert properties["entities"]["maxItems"] == 32
+    assert properties["relations"]["minItems"] == 1
+
+
+def test_lifecycle_analysis_reuses_existing_stages_for_new_transitions():
+    task = next(item for item in task_catalog() if item.id == "lifecycle_analysis")
+    stage = make_entity(EntityKind.LIFECYCLE_STAGE, "运行")
+    request = TaskExecutor(lambda request: None).request(
+        task,
+        ContextBuilder().build(ModelGraph("p1", (stage,)), task),
+        "v2.1",
+    )
+
+    entity_schema = request.output_contract["properties"]["entities"]["items"]
+    assert entity_schema["properties"]["kind"] == {"const": "lifecycle_transition"}

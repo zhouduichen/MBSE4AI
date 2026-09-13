@@ -7,6 +7,9 @@
 # Inputs
 使用系统、stakeholder、已有 lifecycle、用户输入和 evidence。
 
+# Existing Lifecycle Branch
+先检查上下文中的已有 `lifecycle_stage`：必须复用已有阶段的 canonical id，不得新增同名或同身份阶段。已有阶段足以覆盖需求时，只新增必要的 `lifecycle_transition`；只有上下文没有可复用阶段时，才新增阶段。
+
 # MBSE Method
 把 acquisition、deployment、operation、maintenance、upgrade、disposal 等阶段与 transition 分开建模。
 
