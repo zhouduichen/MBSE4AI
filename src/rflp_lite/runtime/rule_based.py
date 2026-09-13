@@ -43,6 +43,8 @@ class RuleRuntime:
     """Create reviewable candidates from context without inventing source facts."""
 
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
+        if request.task_id.startswith("vertical."):
+            return VerticalRuleRuntime().execute(request)
         kind = _PRIMARY_OUTPUT.get(request.task_id)
         if kind is None or kind.value not in {str(value) for value in request.output_contract.get("output_kinds", ())}:
             return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:no-op",))
@@ -108,3 +110,159 @@ class RuleRuntime:
             )
         patch = Patch.create(context.project_id, request.task_id, tuple(operations), f"离线规则生成 {kind.value} 候选", context.revision)
         return TaskExecutionResponse(StepStatus.COMPLETED, patch=patch, diagnostics=("offline:rule-runtime",))
+
+
+class VerticalRuleRuntime:
+    """Concrete offline generator used to exercise the product path.
+
+    This is intentionally not an acceptance substitute for a configured LLM.
+    It provides a complete, editable graph for local development without
+    creating the placeholder entities used by the legacy task runtime.
+    """
+
+    def execute(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
+        context = request.context_bundle
+        index = {item.id: item for item in context.entities}
+        operations: list[object] = []
+        added: dict[str, object] = {}
+        relation_keys = {
+            (item.source_id, item.predicate, item.target_id)
+            for item in context.relations
+        }
+
+        def find(kind: EntityKind, name: str):
+            return next(
+                (
+                    item for item in tuple(index.values()) + tuple(added.values())
+                    if item.kind is kind and item.meta.name == name
+                ),
+                None,
+            )
+
+        def add(kind: EntityKind, name: str, payload: dict[str, object]):
+            existing = find(kind, name)
+            if existing is not None:
+                return existing
+            entity = make_entity(
+                kind,
+                name,
+                payload,
+                status=EntityStatus.VALIDATED,
+                producer=Producer.RULE,
+                confidence=0.8,
+                revision=context.revision,
+            )
+            if entity.id not in index and entity.id not in added:
+                added[entity.id] = entity
+                operations.append(AddEntity(entity))
+            return entity
+
+        def relate(source, predicate: RelationPredicate, target):
+            if source is None or target is None:
+                return
+            key = (source.id, predicate, target.id)
+            if key in relation_keys:
+                return
+            relation_keys.add(key)
+            operations.append(Relate(source.id, predicate, target.id))
+
+        requirements = [
+            item for item in context.entities
+            if item.kind is EntityKind.REQUIREMENT
+            and item.meta.status is not EntityStatus.DEPRECATED
+        ]
+        if request.task_id == "vertical.requirements":
+            seed = requirements[0].meta.name if requirements else context.project_id
+            system = next((item for item in context.entities if item.kind is EntityKind.SYSTEM), None)
+            system = system or add(EntityKind.SYSTEM, f"{seed} 系统", {
+                "mission": f"完成{seed}",
+                "system_boundary": {"inside": ["核心服务能力"], "outside": ["运行环境"]},
+                "objectives": [f"满足{seed}"],
+                "environment_assumptions": ["运行环境可用"],
+                "exclusions": ["不预设具体厂商"] ,
+                "open_questions": [],
+            })
+            stakeholder = next((item for item in context.entities if item.kind is EntityKind.STAKEHOLDER), None)
+            stakeholder = stakeholder or add(EntityKind.STAKEHOLDER, "系统使用者", {"role": "使用与验收"})
+            scenario = next((item for item in context.entities if item.kind is EntityKind.OPERATIONAL_SCENARIO), None)
+            scenario = scenario or add(EntityKind.OPERATIONAL_SCENARIO, "典型运行场景", {
+                "actor_ids": [stakeholder.id],
+                "steps": ["提出任务", "系统执行任务", "反馈结果"],
+                "exchanges": [],
+                "internal_component_ids": [],
+            })
+            relate(system, RelationPredicate.DECOMPOSES, stakeholder)
+            relate(stakeholder, RelationPredicate.PARTICIPATES_IN, scenario)
+            for requirement in requirements:
+                relate(requirement, RelationPredicate.DERIVED_FROM, scenario)
+        elif request.task_id == "vertical.functional":
+            for requirement in requirements:
+                function = add(EntityKind.FUNCTION, f"执行：{requirement.meta.name[:36]}", {
+                    "behavior": f"实现{requirement.meta.name}",
+                    "inputs": [],
+                    "outputs": ["执行结果"],
+                })
+                relate(requirement, RelationPredicate.SATISFIED_BY, function)
+            functions = [item for item in tuple(index.values()) + tuple(added.values()) if item.kind is EntityKind.FUNCTION]
+            flow = add(EntityKind.FUNCTIONAL_FLOW, "任务信息交互流", {"direction": "双向", "content": "任务与结果"})
+            scenario = add(EntityKind.FUNCTIONAL_SCENARIO, "完成核心功能场景", {"function_ids": [item.id for item in functions], "steps": ["输入", "处理", "输出"]})
+            for function in functions:
+                relate(function, RelationPredicate.EXCHANGES_WITH, flow)
+                relate(function, RelationPredicate.DERIVED_FROM, scenario)
+        elif request.task_id == "vertical.logical":
+            functions = [item for item in context.entities if item.kind is EntityKind.FUNCTION]
+            for function in functions:
+                logical = add(EntityKind.LOGICAL_COMPONENT, f"逻辑服务：{function.meta.name[:30]}", {
+                    "responsibility": function.meta.name,
+                    "interfaces": [],
+                })
+                relate(function, RelationPredicate.ALLOCATED_TO, logical)
+                interface = add(EntityKind.INTERFACE, f"功能接口：{function.meta.name[:24]}", {
+                    "protocol": "logical-message",
+                    "exchanges": ["request", "response"],
+                })
+                relate(function, RelationPredicate.EXCHANGES_WITH, interface)
+                relate(logical, RelationPredicate.CONNECTED_TO, interface)
+        elif request.task_id == "vertical.physical":
+            logical_components = [item for item in context.entities if item.kind is EntityKind.LOGICAL_COMPONENT]
+            for logical in logical_components:
+                physical = add(EntityKind.PHYSICAL_BLOCK, f"物理实现：{logical.meta.name[:30]}", {
+                    "candidate_type": "可部署执行单元",
+                    "solution_class": "领域适配实现",
+                    "constraints": ["满足对应逻辑职责"],
+                    "rationale": f"承载{logical.meta.name}",
+                })
+                relate(logical, RelationPredicate.ALLOCATED_TO, physical)
+        elif request.task_id == "vertical.verification_validation":
+            for requirement in requirements:
+                verification = add(EntityKind.VERIFICATION_CASE, f"验证：{requirement.meta.name[:32]}", {
+                    "method": "test",
+                    "pass_criteria": f"测试结果满足：{requirement.meta.name}",
+                    "requirement_ids": [requirement.id],
+                    "scenario_ids": [],
+                })
+                validation = add(EntityKind.VALIDATION_CASE, f"确认：{requirement.meta.name[:32]}", {
+                    "method": "demonstration",
+                    "pass_criteria": f"用户场景确认：{requirement.meta.name}",
+                    "requirement_ids": [requirement.id],
+                    "scenario_ids": [],
+                })
+                relate(requirement, RelationPredicate.VERIFIED_BY, verification)
+                relate(requirement, RelationPredicate.VALIDATED_BY, validation)
+        else:
+            return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:vertical-no-op",))
+
+        if not operations:
+            return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:vertical-idempotent",))
+        patch = Patch.create(
+            context.project_id,
+            request.task_id,
+            tuple(operations),
+            f"离线纵向生成 {request.task_id}",
+            context.revision,
+        )
+        return TaskExecutionResponse(
+            StepStatus.COMPLETED,
+            patch=patch,
+            diagnostics=("offline:vertical-runtime",),
+        )

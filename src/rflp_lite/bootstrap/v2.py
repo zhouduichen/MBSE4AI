@@ -10,6 +10,7 @@ from rflp_lite.adapters.llm_client import test_connection as test_llm_connection
 from rflp_lite.application.analysis_service import AnalysisService
 from rflp_lite.application.evidence_service import EvidenceService
 from rflp_lite.application.model_service import ModelService
+from rflp_lite.application.model_generation import ModelGenerationService
 from rflp_lite.application.project_service import ProjectService
 from rflp_lite.application.render_service import RenderService
 from rflp_lite.application.review_service import ReviewService
@@ -71,6 +72,18 @@ class V2Services:
                 selection.runtime,
                 runtime_selection=selection,
             )
+        )
+
+    def generation(self, project_id: str) -> ModelGenerationService:
+        repository = self.repository(project_id)
+        selection = self.runtime_factory.select(
+            self.settings.active_config() or self._runtime_config,
+            runtime_override=self._runtime_override,
+        )
+        return ModelGenerationService(
+            repository,
+            selection.runtime,
+            runtime_selection=selection,
         )
 
     def evidence(self, project_id: str) -> EvidenceService:
