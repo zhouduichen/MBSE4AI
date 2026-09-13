@@ -149,7 +149,7 @@ def test_natural_language_constraints_reach_physical_candidate(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("robot")
 
-    services.generation("robot").generate(
+    result = services.generation("robot").generate(
         "robot", requirement_text="系统功耗不超过 50 W 且续航不少于 10 h"
     )
     graph = services.model("robot").graph("robot")
@@ -162,3 +162,48 @@ def test_natural_language_constraints_reach_physical_candidate(tmp_path: Path):
     assert physical.payload["source_requirement_ids"]
     assert physical.payload["endurance_h"] is None
     assert physical.payload["propagated_constraint_provenance"]
+
+    technical = [
+        item for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and item.payload.get("level") == "technical"
+    ]
+    assert len(technical) == 1
+    technical_requirement = technical[0]
+    assert technical_requirement.payload["constraint_fields"] == [
+        "max_power_w", "min_endurance_h",
+    ]
+    assert technical_requirement.payload["source_requirement_ids"]
+    assert technical_requirement.payload["source_physical_ids"] == [physical.id]
+    assert any(
+        relation.source_id == technical_requirement.id
+        and relation.predicate is RelationPredicate.DERIVED_FROM
+        and relation.target_id in technical_requirement.payload["source_requirement_ids"]
+        for relation in graph.relations
+    )
+    assert any(
+        relation.source_id == technical_requirement.id
+        and relation.predicate is RelationPredicate.SATISFIED_BY
+        and relation.target_id == physical.id
+        for relation in graph.relations
+    )
+    assert any(
+        relation.source_id == technical_requirement.id
+        and relation.predicate is RelationPredicate.VERIFIED_BY
+        for relation in graph.relations
+    )
+    assert any(
+        relation.source_id == technical_requirement.id
+        and relation.predicate is RelationPredicate.VALIDATED_BY
+        for relation in graph.relations
+    )
+    assert result.traceability.end_to_end_complete_count >= 2
+    assert not any(
+        finding.code == "functional_requirement_uncovered"
+        and technical_requirement.id in finding.entity_ids
+        for finding in result.methodology.findings
+    )
+
+    restored = sysml_to_graph(graph_to_sysml(graph), "robot")
+    restored_technical = restored.entity_index[technical_requirement.id]
+    assert restored_technical.payload == technical_requirement.payload

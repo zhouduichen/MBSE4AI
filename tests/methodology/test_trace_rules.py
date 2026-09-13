@@ -1,7 +1,9 @@
 from rflp_lite.domain.entities import EntityKind, EntityStatus, make_entity
 from rflp_lite.domain.model import ModelGraph, Relation
 from rflp_lite.domain.relations import RelationPredicate
-from rflp_lite.methodology.trace_rules import R_TO_F, R_TO_V, rflp_paths, targets
+from rflp_lite.methodology.trace_rules import (
+    R_TO_F, R_TO_V, requirement_lineage, rflp_paths, targets,
+)
 
 
 def _graph(predicate):
@@ -25,3 +27,21 @@ def test_verified_by_is_a_distinct_trace_rule():
     graph, requirement, _ = _graph(RelationPredicate.SATISFIED_BY)
 
     assert targets(graph, requirement.id, R_TO_V)
+
+
+def test_requirement_lineage_follows_derived_requirement_chain_to_root():
+    root = make_entity(EntityKind.REQUIREMENT, "系统需求")
+    technical = make_entity(EntityKind.REQUIREMENT, "技术需求", {"level": "technical"})
+    nested = make_entity(EntityKind.REQUIREMENT, "候选技术需求", {"level": "technical"})
+    graph = ModelGraph(
+        "p1",
+        (root, technical, nested),
+        (
+            Relation("technical-root", technical.id, RelationPredicate.DERIVED_FROM, root.id),
+            Relation("nested-technical", nested.id, RelationPredicate.DERIVED_FROM, technical.id),
+        ),
+    )
+
+    assert requirement_lineage(graph, root.id) == (root.id,)
+    assert requirement_lineage(graph, technical.id) == (root.id,)
+    assert requirement_lineage(graph, nested.id) == (root.id,)

@@ -18,6 +18,17 @@ def _logical_request(entities, relations=(), decision=None):
     )
 
 
+def _physical_request(entities, relations=(), decision=None):
+    context = ContextBundle(
+        "robot", "vertical.physical", 3, tuple(entities), tuple(relations),
+        controller_decisions=(decision,) if decision else (),
+    )
+    return TaskExecutionRequest(
+        "vertical.physical", "v2.1", context, (),
+        {"output_kinds": ["physical_block", "requirement"]}, 3000,
+    )
+
+
 def test_partition_functions_uses_explicit_key_and_falls_back_to_function_id():
     first = make_entity(EntityKind.FUNCTION, "规划", {"partition_key": "任务管理"})
     second = make_entity(EntityKind.FUNCTION, "执行", {"partition_key": "任务管理"})
@@ -305,5 +316,88 @@ def test_locked_logical_component_is_not_deprecated_when_variant_is_generated():
         hasattr(operation, "entity")
         and operation.entity.kind is EntityKind.LOGICAL_COMPONENT
         and operation.entity.payload.get("blocked_by_locked_entity") is True
+        for operation in response.patch.operations
+    )
+
+
+def test_physical_constraints_create_idempotent_technical_requirement():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "任务资源约束",
+        {
+            "constraints": {"max_power_w": 50, "min_endurance_h": 10},
+            "constraint_provenance": [{"field": "power_w", "source": "user_input"}],
+        },
+    )
+    function = make_entity(EntityKind.FUNCTION, "执行任务")
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "任务控制器")
+    relations = (
+        Relation("r-f", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+        Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+    )
+    graph = ModelGraph("robot", (requirement, function, logical), relations, revision=3)
+
+    first = VerticalRuleRuntime().execute(_physical_request(graph.entities, graph.relations))
+    first_graph = apply_patch(graph, first.patch)
+    technical = [
+        item for item in first_graph.entities
+        if item.kind is EntityKind.REQUIREMENT and item.payload.get("level") == "technical"
+    ]
+    second_request = _physical_request(
+        first_graph.entities,
+        first_graph.relations,
+    )
+    second = VerticalRuleRuntime().execute(second_request)
+
+    assert len(technical) == 1
+    assert technical[0].payload["constraints"] == {
+        "max_power_w": 50, "min_endurance_h": 10,
+    }
+    assert technical[0].payload["constraint_provenance"] == [
+        {"field": "power_w", "source": "user_input"},
+    ]
+    assert second.patch is None
+
+
+def test_physical_replacement_candidate_gets_its_own_technical_requirement():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "任务功耗约束",
+        {"constraints": {"max_power_w": 50}},
+    )
+    function = make_entity(EntityKind.FUNCTION, "执行任务")
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "任务控制器")
+    response = VerticalRuleRuntime().execute(_physical_request(
+        (requirement, function, logical),
+        (
+            Relation("r-f", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+            Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+        ),
+        {
+            "action_id": "a-physical",
+            "option_id": "replace",
+            "option": "更换物理候选或计算架构",
+            "task_id": "allocation_tradeoff",
+            "revision": 3,
+        },
+    ))
+    physical = next(
+        operation.entity for operation in response.patch.operations
+        if hasattr(operation, "entity") and operation.entity.kind is EntityKind.PHYSICAL_BLOCK
+    )
+    technical = next(
+        operation.entity for operation in response.patch.operations
+        if hasattr(operation, "entity")
+        and operation.entity.kind is EntityKind.REQUIREMENT
+        and operation.entity.payload.get("level") == "technical"
+    )
+
+    assert physical.payload["candidate_variant"] == "alternative"
+    assert technical.payload["source_physical_ids"] == [physical.id]
+    assert any(
+        hasattr(operation, "source_id")
+        and operation.source_id == technical.id
+        and operation.target_id == physical.id
+        and operation.predicate is RelationPredicate.SATISFIED_BY
         for operation in response.patch.operations
     )

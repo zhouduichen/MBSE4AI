@@ -179,3 +179,36 @@ def test_impact_analysis_walks_graph_and_routes_concrete_tasks():
         "verification_validation",
     } <= set(report.recommended_tasks)
     assert any(path[0] == requirement_id and len(path) >= 2 for path in report.impact_paths)
+
+
+def test_technical_requirements_are_vv_inputs_but_not_functional_inputs():
+    graph = _graph(complete_vv=True)
+    root = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
+    physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
+    technical = make_entity(
+        EntityKind.REQUIREMENT,
+        "物理功耗技术约束",
+        {"level": "technical", "constraints": {"max_power_w": 50}},
+    )
+    graph = ModelGraph(
+        graph.project_id,
+        (*graph.entities, technical),
+        (
+            *graph.relations,
+            Relation("technical-root", technical.id, RelationPredicate.DERIVED_FROM, root.id),
+            Relation("technical-physical", technical.id, RelationPredicate.SATISFIED_BY, physical.id),
+        ),
+        revision=graph.revision,
+    )
+
+    report = MethodologyEngine().analyze(graph)
+
+    assert report.metrics["functional_requirement_coverage"] == 1.0
+    assert not any(
+        item.code == "functional_requirement_uncovered" and technical.id in item.entity_ids
+        for item in report.findings
+    )
+    assert any(
+        item.code == "verification_missing" and technical.id in item.entity_ids
+        for item in report.findings
+    )

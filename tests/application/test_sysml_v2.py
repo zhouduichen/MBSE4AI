@@ -56,3 +56,44 @@ def test_sysml_reader_rejects_missing_relation_endpoint():
         assert "endpoint" in str(exc)
     else:
         raise AssertionError("missing relation endpoint must be rejected")
+
+
+def test_sysml_round_trip_preserves_technical_requirement_trace_metadata():
+    root = make_entity(EntityKind.REQUIREMENT, "系统功耗需求", {"statement": "功耗受限"})
+    technical = make_entity(
+        EntityKind.REQUIREMENT,
+        "执行单元功耗技术约束",
+        {
+            "level": "technical",
+            "type": "constraint",
+            "constraints": {"max_power_w": 50},
+            "source_requirement_ids": [root.id],
+            "source_physical_ids": ["physical-1"],
+        },
+    )
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "执行单元", {"power_w": None})
+    graph = ModelGraph(
+        "p1",
+        (root, technical, physical),
+        (
+            Relation("technical-root", technical.id, RelationPredicate.DERIVED_FROM, root.id),
+            Relation("technical-physical", technical.id, RelationPredicate.SATISFIED_BY, physical.id),
+        ),
+    )
+
+    restored = sysml_to_graph(graph_to_sysml(graph), "p1")
+
+    restored_technical = restored.entity_index[technical.id]
+    assert restored_technical.payload == technical.payload
+    assert any(
+        relation.source_id == technical.id
+        and relation.predicate is RelationPredicate.DERIVED_FROM
+        and relation.target_id == root.id
+        for relation in restored.relations
+    )
+    assert any(
+        relation.source_id == technical.id
+        and relation.predicate is RelationPredicate.SATISFIED_BY
+        and relation.target_id == physical.id
+        for relation in restored.relations
+    )

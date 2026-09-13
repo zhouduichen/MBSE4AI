@@ -40,6 +40,33 @@ def test_generate_mode_returns_stage_and_traceability_payload(tmp_path: Path):
     assert run["controller"]["next_action"]["kind"] == "collect_evidence"
 
 
+def test_generate_constraints_returns_technical_requirement_in_traceability_api(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    response = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统功耗不超过 50 W"},
+    )
+
+    assert response.status_code == 200
+    run = response.json()["run"]
+    technical = next(
+        item for item in client.get("/projects/p1/model").json()["entities"]
+        if item["kind"] == "requirement" and item["payload"].get("level") == "technical"
+    )
+    trace = client.get("/projects/p1/traceability")
+
+    assert run["traceability"]["end_to_end_complete_count"] >= 2
+    assert trace.status_code == 200
+    assert any(
+        row["requirement_id"] == technical["id"]
+        and row["status"] == "PASS"
+        and row["physical_blocks"]
+        for row in trace.json()["rows"]
+    )
+
+
 def test_controller_plan_and_execution_endpoint_expose_next_action(tmp_path: Path):
     client = _client(tmp_path)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200

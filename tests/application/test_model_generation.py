@@ -685,6 +685,37 @@ def test_traceability_requires_both_verification_and_validation():
     assert complete.complete_count == complete.end_to_end_complete_count
 
 
+def test_traceability_summary_closes_technical_requirement_from_root_to_physical():
+    graph = _trace_graph(verification=True, validation=True)
+    root = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
+    physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
+    technical = make_entity(
+        EntityKind.REQUIREMENT,
+        "计算单元功耗约束",
+        {"level": "technical", "constraints": {"max_power_w": 50}},
+        status=EntityStatus.VALIDATED,
+    )
+    verification = make_entity(EntityKind.VERIFICATION_CASE, "验证计算单元功耗", status=EntityStatus.VALIDATED)
+    validation = make_entity(EntityKind.VALIDATION_CASE, "确认计算单元功耗", status=EntityStatus.VALIDATED)
+    graph = ModelGraph(
+        graph.project_id,
+        (*graph.entities, technical, verification, validation),
+        (
+            *graph.relations,
+            Relation("technical-root", technical.id, RelationPredicate.DERIVED_FROM, root.id),
+            Relation("technical-physical", technical.id, RelationPredicate.SATISFIED_BY, physical.id),
+            Relation("technical-verification", technical.id, RelationPredicate.VERIFIED_BY, verification.id),
+            Relation("technical-validation", technical.id, RelationPredicate.VALIDATED_BY, validation.id),
+        ),
+        revision=graph.revision,
+    )
+
+    summary = build_traceability_summary(graph)
+
+    assert summary.end_to_end_complete_count == 2
+    assert any(path[0] == technical.id and physical.id in path for path in summary.paths)
+
+
 def test_reanalysis_runs_only_from_changed_entity_stage_downstream(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("robot")

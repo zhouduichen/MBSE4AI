@@ -3,7 +3,11 @@ from __future__ import annotations
 import io
 import zipfile
 
+from fastapi.testclient import TestClient
+
 from tests.interface.web.test_requirements_workbench import _client_with_fixture
+from rflp_lite.interface.web.app import create_app
+from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 
 def test_deliverables_api_returns_single_revision_package(tmp_path):
@@ -57,3 +61,29 @@ def test_downloaded_sysml_can_be_imported_and_edited(tmp_path):
     updated = client.get("/projects/p2/model").json()
     updated_entity = next(item for item in updated["entities"] if item["id"] == entity["id"])
     assert updated_entity["payload"]["review_note"] == "继续编辑"
+
+
+def test_deliverables_expose_generated_technical_requirement(tmp_path):
+    app = create_app(tmp_path / "workspaces")
+    app.state.container.v2._runtime_override = VerticalRuleRuntime()
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    generated = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统功耗不超过 50 W"},
+    )
+    assert generated.status_code == 200
+
+    package = client.get("/projects/p1/deliverables").json()["deliverable"]
+    model_entities = package["artifacts"]["model"]["content"]["entities"]
+    technical = next(
+        item for item in model_entities
+        if item["kind"] == "requirement" and item["payload"].get("level") == "technical"
+    )
+    trace_rows = package["artifacts"]["traceability"]["content"]["rows"]
+    vv_rows = package["artifacts"]["vv_plan"]["content"]["rows"]
+
+    assert technical["payload"]["constraints"] == {"max_power_w": 50.0}
+    assert any(row["requirement_id"] == technical["id"] and row["status"] == "PASS" for row in trace_rows)
+    assert {row["requirement_id"] for row in vv_rows if row["requirement_id"] == technical["id"]} == {technical["id"]}
