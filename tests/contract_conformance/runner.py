@@ -121,7 +121,27 @@ class _OfflineProposalModel:
     """Schema-shaped fake used for the non-live smoke command."""
 
     def complete_json(self, request):
-        payload = {"entities": [], "relations": [], "updates": [], "deprecations": [], "reason": "无变化"}
+        if request.lens_id == "system_definition":
+            payload = {
+                "entities": [{
+                    "local_ref": "new:system:1",
+                    "name": "conformance-system",
+                    "payload": {
+                        "mission": "完成 conformance smoke",
+                        "system_boundary": {"inside": [], "outside": []},
+                        "objectives": ["通过结构化契约检查"],
+                        "environment_assumptions": [],
+                        "exclusions": [],
+                        "open_questions": [],
+                    },
+                }],
+                "relations": [],
+                "updates": [],
+                "deprecations": [],
+                "reason": "创建 conformance system",
+            }
+        else:
+            payload = {"entities": [], "relations": [], "updates": [], "deprecations": [], "reason": "无变化"}
         return GenerationResponse(
             request.lens_id,
             payload,

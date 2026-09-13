@@ -29,7 +29,7 @@
 - Produces a `system_definition` output contract with a dedicated SYSTEM payload schema and `CompletionCondition(minimum_entities=1)`.
 - Keeps `TaskSpec.input_kinds` and `output_kinds` as `{EntityKind.SYSTEM}`.
 
-- [ ] **Step 1: Add tests for the dedicated SYSTEM schema and minimum cardinality.**
+- [x] **Step 1: Add tests for the dedicated SYSTEM schema and minimum cardinality.**
 
 ```python
 def test_system_definition_contract_describes_system_payload_and_cardinality():
@@ -46,21 +46,21 @@ def test_system_definition_contract_describes_system_payload_and_cardinality():
     assert contract["properties"]["updates"]["items"]["properties"]["field_patch"]["properties"]["payload"] == payload
 ```
 
-- [ ] **Step 2: Run the focused test and verify it fails before implementation.**
+- [x] **Step 2: Run the focused test and verify it fails before implementation.**
 
 Run: `pytest tests/methodology/test_proposal_compiler.py::test_system_definition_contract_describes_system_payload_and_cardinality -q`
 
 Expected: FAIL because SYSTEM has no dedicated payload schema and the completion condition has no minimum.
 
-- [ ] **Step 3: Implement the explicit SYSTEM schema and task completion condition.**
+- [x] **Step 3: Implement the explicit SYSTEM schema and task completion condition.**
 
 Add a local `system_payload_schema` in `output_contract()` with required fields `mission`, `system_boundary`, `objectives`, `environment_assumptions`, `exclusions`, and `open_questions`; use string arrays for list fields and an object with `inside`/`outside` string arrays for `system_boundary`. For `system_definition`, bind the update payload field to the same schema. Construct that TaskSpec with `CompletionCondition(frozenset({EntityKind.SYSTEM}), 1)`.
 
-- [ ] **Step 4: Update the task prompt with the existing-vs-missing SYSTEM branch.**
+- [x] **Step 4: Update the task prompt with the existing-vs-missing SYSTEM branch.**
 
 The prompt must require exactly one update to the existing canonical SYSTEM when one exists, exactly one new SYSTEM when none exists, and no second System-of-Interest. It must tell the model to put the required semantic content in the SYSTEM payload.
 
-- [ ] **Step 5: Run the focused contract tests.**
+- [x] **Step 5: Run the focused contract tests.**
 
 Run: `pytest tests/methodology/test_proposal_compiler.py tests/methodology/test_prompt_contracts.py -q`
 
@@ -80,25 +80,25 @@ Expected: PASS.
 - Produces `identity_conflict` for a `system_definition` add when an active SYSTEM already exists.
 - Keeps duplicate `local_ref` rejection in `parse_task_proposal()` and adds explicit global prompt guidance.
 
-- [ ] **Step 1: Add the failing duplicate-ref and existing/missing SYSTEM tests.**
+- [x] **Step 1: Add the failing duplicate-ref and existing/missing SYSTEM tests.**
 
 Cover an existing SYSTEM update, a missing SYSTEM add, duplicate `local_ref`, and a second SYSTEM identity conflict. Apply the valid existing-SYSTEM patch and assert revision increases by one while SYSTEM count remains one.
 
-- [ ] **Step 2: Run the focused tests and verify the new behavior fails.**
+- [x] **Step 2: Run the focused tests and verify the new behavior fails.**
 
 Run: `pytest tests/methodology/test_proposal_compiler.py tests/methodology/validators/test_identity_validator.py -q`
 
 Expected: the duplicate test may already pass; the identity-conflict test must fail because identity validation currently permits a second SYSTEM.
 
-- [ ] **Step 3: Add the task-scoped identity cardinality guard.**
+- [x] **Step 3: Add the task-scoped identity cardinality guard.**
 
 In `identity.validate()`, before iterating operations, collect active SYSTEM IDs. When `context.task.id == "system_definition"` and the patch contains `AddEntity` of kind SYSTEM while an active SYSTEM already exists, raise `MethodologyValidationError("identity_conflict", "system_definition cannot add a second active SYSTEM")`. Do not affect other tasks or update operations.
 
-- [ ] **Step 4: Add proposal-level `local_ref` guidance to the common runtime suffix.**
+- [x] **Step 4: Add proposal-level `local_ref` guidance to the common runtime suffix.**
 
 State that every proposal `entities[i].local_ref` must be unique, it is only a temporary proposal reference, and relations may reference only context canonical IDs or proposal-local refs.
 
-- [ ] **Step 5: Run all focused tests and lint.**
+- [x] **Step 5: Run all focused tests and lint.**
 
 Run: `pytest tests/methodology/test_proposal_compiler.py tests/methodology/validators/test_identity_validator.py tests/runtime/test_task_specific_prompts.py -q && ruff check src/rflp_lite/methodology/tasks.py src/rflp_lite/methodology/validators/identity.py src/rflp_lite/runtime/structured_model.py`
 
@@ -114,20 +114,37 @@ Expected: PASS and `All checks passed!`.
 - Uses the committed local runtime and the existing remote Ollama endpoint.
 - Records case, task status, finish reason, usage, compile/domain result, SYSTEM count, and revision delta.
 
-- [ ] **Step 1: Run the full methodology test slice.**
+- [x] **Step 1: Run the full methodology test slice.**
 
 Run: `pytest tests/methodology tests/runtime -q`
 
 Expected: PASS.
 
-- [ ] **Step 2: Run the live `system_definition × 10` probe at 4000 tokens.**
+- [x] **Step 2: Run the live `system_definition × 10` probe at 4000 tokens.**
 
 Use the same `qwen3.5:9b-q8_0` Ollama profile, fixture, temperature, seed, context, prompt version, and output budget as the previous 4000 matrix. Do not start the 23-task lifecycle yet.
 
-- [ ] **Step 3: Record acceptance metrics.**
+- [x] **Step 3: Record acceptance metrics.**
 
 Require `finish_reason=stop`, `duplicate_local_ref=0`, `identity_conflict=0` for valid single-SYSTEM cases, `compile >= 95%`, `domain validation >= 95%`, correct SYSTEM cardinality, and zero invalid repository writes. If a run fails, retain the raw diagnostic and classify it before changing code.
 
-- [ ] **Step 4: Update the artifact with the measured result and stop at the next gate.**
+- [x] **Step 4: Update the artifact with the measured result and stop at the next gate.**
 
 If stable, proceed next to the three-task chain `system_definition → stakeholder_analysis → stakeholder_requirements`; otherwise leave the 23-task lifecycle and semantic benchmark pending.
+
+## Measured Result — 2026-09-13
+
+The first probe showed 10/10 `identity_conflict` rejections despite valid
+structured output, confirming that prompt text alone did not constrain the
+existing-SYSTEM branch. A context-aware schema was then added. The second
+probe passed 10/10:
+
+- Provider calls: 10; transport failures: 0; `finish_reason=stop`: 10.
+- Compile pass: 10/10; domain validation pass: 10/10.
+- Duplicate `local_ref`: 0; identity conflicts: 0; semantic repair: 0.
+- Each run committed one update patch; active SYSTEM count stayed 1;
+  revision changed 1 → 2; entities stayed 16; relations stayed 28.
+- Output utilization: 15.375% average at `max_output_tokens=4000`.
+
+The next gate is the three-task chain. The 23-task lifecycle and MBSE semantic
+benchmark remain pending.
