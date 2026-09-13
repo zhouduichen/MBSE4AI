@@ -1,0 +1,121 @@
+{
+  "report": "PR09 real 23-task lifecycle stability",
+  "date": "2026-09-11",
+  "baseline": {
+    "commit": "7bf00c2f9ab2e31287a7539b08e2ad7ee25258e4",
+    "message": "feat(runtime): harden structured proposal execution boundary",
+    "harness_modified_during_runs": false
+  },
+  "provider": {
+    "readiness": "connected",
+    "provider": "Windows 5080 Ollama",
+    "provider_id": "ollama",
+    "runtime_provider_id": "windows-5080-ollama",
+    "model": "qwen3.5:9b-q8_0",
+    "base_url": "http://100.88.143.10:11434/v1"
+  },
+  "input": {
+    "fixture": "/Users/huangjiahao/Downloads/AI4MBSE/tests/e2e/fixtures/campus_delivery_robot.json",
+    "workspace_root": "/tmp/ai4mbse-pr09-lifecycle-20260911.2ZQa7T",
+    "independent_projects": ["run-a", "run-b", "run-c", "run-d", "run-e"],
+    "task_count_per_run": 23
+  },
+  "runs": [
+    {
+      "label": "A",
+      "project": "run-a",
+      "run_id": "run-633ecce9a9716e1e",
+      "run_status": "degraded",
+      "task_status": {"completed": 1, "degraded": 0, "failed": 1, "blocked": 21, "queued": 0, "running": 0},
+      "completed_tasks": ["stakeholder_analysis"],
+      "failure": {"task": "stakeholder_requirements", "stage": "structural", "code": "truncated", "finish_reason": "length", "retry_count": 1},
+      "domain_diagnostics": ["system_definition: identity_conflict"],
+      "repository": {"initial_revision": 1, "final_revision": 2, "initial_entities": 16, "final_entities": 21, "initial_relations": 28, "final_relations": 33, "run_patches": 1, "open_issues": 0}
+    },
+    {
+      "label": "B",
+      "project": "run-b",
+      "run_id": "run-f81ee0c54e2c2bb0",
+      "run_status": "degraded",
+      "task_status": {"completed": 2, "degraded": 0, "failed": 1, "blocked": 20, "queued": 0, "running": 0},
+      "completed_tasks": ["stakeholder_analysis", "stakeholder_requirements"],
+      "failure": {"task": "scenario_exploration", "stage": "structural", "code": "truncated", "finish_reason": "length", "retry_count": 1},
+      "domain_diagnostics": ["system_definition: identity_conflict", "lifecycle_analysis: identity_conflict"],
+      "repository": {"initial_revision": 1, "final_revision": 3, "initial_entities": 16, "final_entities": 25, "initial_relations": 28, "final_relations": 37, "run_patches": 2, "open_issues": 0}
+    },
+    {
+      "label": "C",
+      "project": "run-c",
+      "run_id": "run-09701b4f03f308d2",
+      "run_status": "degraded",
+      "task_status": {"completed": 2, "degraded": 0, "failed": 1, "blocked": 20, "queued": 0, "running": 0},
+      "completed_tasks": ["stakeholder_analysis", "stakeholder_requirements"],
+      "failure": {"task": "scenario_exploration", "stage": "structural", "code": "truncated", "finish_reason": "length", "retry_count": 1},
+      "domain_diagnostics": ["system_definition: identity_conflict", "lifecycle_analysis: identity_conflict"],
+      "repository": {"initial_revision": 1, "final_revision": 3, "initial_entities": 16, "final_entities": 27, "initial_relations": 28, "final_relations": 40, "run_patches": 2, "open_issues": 0}
+    },
+    {
+      "label": "D",
+      "project": "run-d",
+      "run_id": "run-d494772c584422b2",
+      "run_status": "degraded",
+      "task_status": {"completed": 2, "degraded": 0, "failed": 1, "blocked": 20, "queued": 0, "running": 0},
+      "completed_tasks": ["stakeholder_analysis", "stakeholder_requirements"],
+      "failure": {"task": "lifecycle_analysis", "stage": "structural", "code": "truncated", "finish_reason": "length", "retry_count": 1},
+      "domain_diagnostics": ["system_definition: identity_conflict"],
+      "repository": {"initial_revision": 1, "final_revision": 3, "initial_entities": 16, "final_entities": 29, "initial_relations": 28, "final_relations": 37, "run_patches": 2, "open_issues": 0}
+    },
+    {
+      "label": "E",
+      "project": "run-e",
+      "run_id": "run-e56699ca9868c464",
+      "run_status": "degraded",
+      "task_status": {"completed": 0, "degraded": 0, "failed": 1, "blocked": 22, "queued": 0, "running": 0},
+      "completed_tasks": [],
+      "failure": {"task": "system_definition", "stage": "compiler", "code": "proposal_compile", "finish_reason": "stop", "retry_count": 0, "message": "duplicate task proposal local_ref"},
+      "domain_diagnostics": [],
+      "repository": {"initial_revision": 1, "final_revision": 1, "initial_entities": 16, "final_entities": 16, "initial_relations": 28, "final_relations": 28, "run_patches": 0, "open_issues": 0}
+    }
+  ],
+  "aggregate": {
+    "task_status": {"total_tasks": 115, "completed": 7, "degraded": 0, "failed": 5, "blocked": 103, "queued": 0, "running": 0},
+    "run_status": {"degraded": 5, "completed": 0, "failed": 0},
+    "llm_funnel": {
+      "task_attempts_with_provider_response": 12,
+      "provider_calls_including_structural_retries": 16,
+      "provider_success": 16,
+      "transport_timeout_or_connection_failure": 0,
+      "structural_first_pass_valid": 8,
+      "structural_retry_attempted": 4,
+      "structural_retry_recovered": 0,
+      "structural_retry_exhausted": 4,
+      "compiler_failures": 1,
+      "semantic_rejection_with_repair_context": 0,
+      "semantic_repair_invoked": 0,
+      "semantic_repair_recovered": 0,
+      "semantic_repair_exhausted": 0,
+      "domain_identity_conflict_diagnostics": 6,
+      "terminal_response_latency_ms": {"samples": 12, "average": 27121.3, "min": 9818.6, "max": 42081.2}
+    },
+    "workflow_safety": {
+      "failed_tasks_with_output_patch": 0,
+      "blocked_tasks_with_output_patch": 0,
+      "invalid_repository_write_observed": 0,
+      "dependent_blocking_observed": true,
+      "semantic_repair_on_structural_or_compiler_failure": false,
+      "repository_revision_advance_matches_applied_run_patches": true
+    },
+    "repository": {
+      "initial_per_run": {"revision": 1, "entities": 16, "relations": 28},
+      "run_patches_total": 7,
+      "revision_advances_total": 7,
+      "open_issues_total": 0
+    }
+  },
+  "conclusion": {
+    "real_23_task_orchestration_safety": "PASS",
+    "real_23_task_semantic_execution": "NOT TESTED",
+    "real_llm_lifecycle_acceptance": "PENDING",
+    "next_action": "Keep PR09 baseline frozen; classify the observed failures as model/output capability and methodology execution evidence before considering any PR09.1 change."
+  }
+}

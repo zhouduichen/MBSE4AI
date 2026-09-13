@@ -47,8 +47,16 @@ def compute_metrics(case_results: list[Mapping[str, object]]) -> dict[str, objec
         metrics = dict(metrics) if isinstance(metrics, Mapping) else {}
         per_case[case_id] = metrics
     for key in keys:
-        values = [metrics.get(key) for metrics in per_case.values()]
+        if key == "known_conflict_detection":
+            values = [
+                metrics.get(key)
+                for result, metrics in zip(case_results, per_case.values())
+                if result.get("details", {}).get("consistency", {}).get("expected_conflicts")
+            ]
+        else:
+            values = [metrics.get(key) for metrics in per_case.values()]
         aggregate[key] = _numeric_values(values, missing=None if key == "derived_requirement_precision" else 0.0)
+    aggregate["iteration_signal"] = any(bool(metrics.get("iteration_signal")) for metrics in per_case.values())
     aggregate["per_case"] = per_case
     return aggregate
 
@@ -79,7 +87,7 @@ def compute_score(metrics: Mapping[str, object], case_results: list[Mapping[str,
     p0_conflicts = [
         item for result in case_results
         for item in result.get("details", {}).get("consistency", {}).get("findings", ())
-        if isinstance(item, Mapping) and str(item.get("test_id", "")) == "T9/T10"
+        if isinstance(item, Mapping) and str(item.get("test_id", "")) == "T10"
     ]
     if any(str(item.get("status", "")) != "PASS" for item in p0_conflicts):
         architecture_consistency = min(architecture_consistency, 0.0)
@@ -132,6 +140,8 @@ def compute_score(metrics: Mapping[str, object], case_results: list[Mapping[str,
     p0_passed = sum(1 for item in p0.values() if item)
     return {
         "score": score,
+        "current_capability_score": score,
+        "full_target_capability_score": 100.0,
         "category_scores": category_scores,
         "category_weights": weights,
         "p0": p0,
@@ -171,6 +181,20 @@ def _status_by_test(case_results: list[Mapping[str, object]]) -> dict[str, str]:
     return {key: "FAIL" if "FAIL" in statuses else "BLOCKED" if "BLOCKED" in statuses else "PASS" if statuses and all(status == "PASS" for status in statuses) else "NOT_IMPLEMENTED" for key, statuses in values.items()}
 
 
+def _top_unique_failures(failures: list[Mapping[str, object]], limit: int = 10) -> list[Mapping[str, object]]:
+    result: list[Mapping[str, object]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in failures:
+        key = (str(item.get("severity", "")), str(item.get("category", "")), str(item.get("root_cause", "")))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+        if len(result) >= limit:
+            break
+    return result
+
+
 def render_benchmark_report(summary: Mapping[str, object]) -> str:
     metrics = dict(summary.get("metrics", {}))
     score = dict(summary.get("score", {}))
@@ -181,9 +205,17 @@ def render_benchmark_report(summary: Mapping[str, object]) -> str:
         "",
         "## 1. Executive Summary",
         "",
+        f"Track: **{summary.get('track', 'harness')}**",
+        "",
+        f"Track status: **{summary.get('track_status', 'NOT_RUN')}**",
+        "",
         f"FINAL STATUS: **{score.get('final_status', 'REJECTED')}**",
         "",
         f"Score: **{score.get('score', 0)} / 100**",
+        "",
+        f"Current Capability Score: **{score.get('current_capability_score', score.get('score', 0))} / 100**",
+        "",
+        f"Full Target Capability Score: **{score.get('full_target_capability_score', 100.0)} / 100**",
         "",
         f"P0: **{score.get('p0_passed', 0)} / {score.get('p0_total', 0)} passed**",
         "",
@@ -193,6 +225,11 @@ def render_benchmark_report(summary: Mapping[str, object]) -> str:
         f"- branch: `{summary.get('branch', 'unknown')}`",
         f"- entrypoint: `{summary.get('entrypoint', 'unknown')}`",
         f"- runtime/provider: `{summary.get('runtime', 'offline-rule')}`",
+        f"- profile/provider/model: `{summary.get('model_profile', 'offline-rule')}` / `{summary.get('provider', 'offline')}` / `{summary.get('model', 'rule-runtime')}`",
+        f"- methodology version: `{summary.get('methodology_version', '')}`",
+        f"- prompt hash: `{summary.get('prompt_hash', '')}`",
+        f"- task spec hash: `{summary.get('task_spec_hash', '')}`",
+        f"- case/repeat: `{', '.join(str(item) for item in summary.get('cases', ()))}` / `{summary.get('repeats', '')}`",
         f"- test date: `{summary.get('test_date', '')}`",
         f"- configuration: `{summary.get('configuration', '')}`",
         "",
@@ -201,9 +238,9 @@ def render_benchmark_report(summary: Mapping[str, object]) -> str:
         "| Test | Result | Score | Critical Issues |",
         "| ---- | ------ | ----: | --------------- |",
     ]
-    for test_id in [f"T{index:02d}" for index in range(1, 21)]:
-        status = test_status.get(test_id, test_status.get("T9/T10" if test_id in {"T09", "T10"} else test_id, "NOT_IMPLEMENTED"))
-        lines.append(f"| {test_id} | {status} |  | {', '.join(item.get('category', '') for item in summary.get('failures', ()) if str(item.get('test_id', '')).startswith(test_id))} |")
+    for test_id in [f"T{index}" for index in range(1, 21)]:
+        status = test_status.get(test_id, "NOT_IMPLEMENTED")
+        lines.append(f"| {test_id} | {status} |  | {', '.join(item.get('category', '') for item in summary.get('failures', ()) if str(item.get('test_id', '')).split('/')[0] == test_id)} |")
     lines.extend(["", "## 4. Metrics", "", "| Metric | Observed | Target |", "| ------ | -------: | -----: |"])
     for key, target in TARGETS.items():
         observed = metrics.get(key)
@@ -218,15 +255,30 @@ def render_benchmark_report(summary: Mapping[str, object]) -> str:
             lines.append(f"- {'PASS' if passed else 'FAIL'}: {label}")
     lines.extend(["", "## 6. Traceability Analysis", "", str(summary.get("traceability_summary", "No traceability data.")), "", "## 7. Requirement Quality", "", str(summary.get("requirement_quality_summary", "No requirement quality data.")), "", "## 8. Cross-stage Consistency", "", str(summary.get("consistency_summary", "No cross-stage consistency data.")), "", "## 9. Fault Injection Result", "", str(summary.get("fault_injection_summary", "CASE-05 was not executed.")), "", "## 10. Iteration Test", "", str(summary.get("iteration_summary", "No iteration evidence.")), "", "## 11. Critical Problems", ""])
     failures = list(summary.get("failures", ()))
-    if failures:
-        for item in failures[:10]:
+    top_failures = _top_unique_failures(failures)
+    if top_failures:
+        for item in top_failures:
             lines.append(f"- [{item.get('severity', 'P3')}] {item.get('case_id', '')} {item.get('test_id', '')}: {item.get('root_cause', '')}")
     else:
         lines.append("None")
     lines.extend(["", "## 12. Recommended Fix Order", "", "| Priority | Problem | Reason | Affected Module | Suggested Fix | Expected Benefit |", "| -------- | ------- | ------ | --------------- | ------------- | --------------- |"])
-    for item in failures[:10]:
+    for item in top_failures:
         lines.append(f"| {item.get('severity', 'P3')} | {item.get('category', '')} | {item.get('root_cause', '')} | current workflow | {item.get('recommended_fix', '')} | restores measurable MBSE coverage |")
     lines.extend(["", "## 13. Final Acceptance Decision", "", f"**{score.get('final_status', 'REJECTED')}**", ""])
+    track_metrics = summary.get("track_metrics", {})
+    if isinstance(track_metrics, Mapping):
+        lines.extend(["", "## 14. Track-specific Metrics", "", "| Metric | Observed |", "| ------ | -------: |"])
+        for key, value in track_metrics.items():
+            if key == "per_case":
+                continue
+            lines.append(f"| {key} | {value} |")
+    bare = summary.get("bare_llm_baseline")
+    if isinstance(bare, Mapping):
+        lines.extend(["", "## 15. Bare LLM Baseline", "", "This baseline uses the same input and configured model without methodology workflow, gates, or repair.", "", "| Metric | Observed |", "| ------ | -------: |"])
+        bare_metrics = bare.get("metrics", {})
+        if isinstance(bare_metrics, Mapping):
+            for key, value in bare_metrics.items():
+                lines.append(f"| {key} | {value} |")
     return "\n".join(lines)
 
 
@@ -246,11 +298,14 @@ def render_traceability_report(summary: Mapping[str, object]) -> str:
                 "Verification": requirement_id in set(trace.get("complete_requirement_ids", ())) if isinstance(trace, Mapping) else False,
             }
             if requirement_id in complete_ids:
-                status = "Complete"; complete += 1
+                status = "Complete"
+                complete += 1
             elif any(values.values()):
-                status = "Partial"; partial += 1
+                status = "Partial"
+                partial += 1
             else:
-                status = "Broken"; broken += 1
+                status = "Broken"
+                broken += 1
             lines.append(f"| {result.get('case_id', '')} | {requirement_id} | {'PASS' if trace.get('upstream_traceability', 0) else 'FAIL'} | {'PASS' if trace.get('upstream_traceability', 0) else 'FAIL'} | {'PASS' if trace.get('use_case_traceability', 0) else 'FAIL'} | {'PASS' if trace.get('activity_traceability', 0) else 'FAIL'} | {'PASS' if values['Function'] else 'FAIL'} | {'PASS' if values['Logical'] else 'FAIL'} | {'PASS' if values['Physical'] else 'FAIL'} | {'PASS' if values['Verification'] else 'FAIL'} | {status} |")
     total = complete + partial + broken
     lines.extend(["", f"Complete Trace %: {complete / total:.3f}" if total else "Complete Trace %: 0.000", f"Partial Trace %: {partial / total:.3f}" if total else "Partial Trace %: 0.000", f"Broken Trace %: {broken / total:.3f}" if total else "Broken Trace %: 0.000", "Orphan %: see benchmark metrics."])
@@ -273,5 +328,13 @@ def write_reports(summary: Mapping[str, object], report_dir: Path) -> None:
     traceability = render_traceability_report(summary)
     (report_dir / "benchmark_report.md").write_text(benchmark, encoding="utf-8")
     (report_dir / "traceability_report.md").write_text(traceability, encoding="utf-8")
-    (report_dir / "metrics.json").write_text(canonical_json({"metrics": summary.get("metrics", {}), "score": summary.get("score", {})}) + "\n", encoding="utf-8")
+    (report_dir / "metrics.json").write_text(canonical_json({
+        "metadata": summary.get("metadata", {}),
+        "track": summary.get("track", "harness"),
+        "track_status": summary.get("track_status", "NOT_RUN"),
+        "metrics": summary.get("metrics", {}),
+        "track_metrics": summary.get("track_metrics", {}),
+        "bare_llm_baseline": summary.get("bare_llm_baseline", {}),
+        "score": summary.get("score", {}),
+    }) + "\n", encoding="utf-8")
     (report_dir / "failures.json").write_text(canonical_json(summary.get("failures", [])) + "\n", encoding="utf-8")
