@@ -2,6 +2,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from rflp_lite.application.sysml_v2 import graph_to_sysml
+from rflp_lite.domain.entities import EntityKind, make_entity
+from rflp_lite.domain.model import ModelGraph
 from rflp_lite.interface.web.app import create_app
 
 
@@ -61,7 +64,7 @@ def test_analysis_view_contains_chinese_module_cards(tmp_path: Path) -> None:
     assert "analysis-sidebar" in page.text
     assert 'id="requirement-input-form"' in page.text
     assert 'id="document-upload-form"' in page.text
-    assert 'title="请先提交需求或上传文档"' in page.text
+    assert 'title="请先提交需求、上传文档或导入已有模型"' in page.text
 
 
 def test_analysis_page_exposes_existing_sysml_upload(tmp_path: Path) -> None:
@@ -74,6 +77,30 @@ def test_analysis_page_exposes_existing_sysml_upload(tmp_path: Path) -> None:
     assert "已有 SysML 模型" in page.text
     assert ".sysml" in page.text
     assert "/sysml/import/upload" in page.text
+
+
+def test_analysis_page_enables_generation_after_partial_sysml_import(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "workspaces"))
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    source = graph_to_sysml(
+        ModelGraph(
+            "source",
+            (make_entity(EntityKind.FUNCTION, "已有配送功能"),),
+            (),
+            0,
+        )
+    )
+    imported = client.post(
+        "/projects/p1/sysml/import/upload",
+        files={"file": ("partial.sysml", source, "text/plain")},
+    )
+    assert imported.status_code == 200
+
+    page = client.get("/ui/projects/p1/analysis")
+
+    assert page.status_code == 200
+    assert 'data-mode="generate" disabled' not in page.text
+    assert "导入模型也可以作为分析输入" in page.text
 
 
 def test_analysis_cards_switch_detail_panels_without_navigation(tmp_path: Path) -> None:

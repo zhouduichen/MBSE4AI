@@ -20,7 +20,7 @@
 
 <section class="panel intake-panel">
   <div class="panel-head">
-    <div><h2>输入需求</h2><p>先提交一条需求或上传需求文档，再运行生命周期分析。</p></div>
+    <div><h2>输入需求或模型</h2><p>先提交需求、上传文档或导入已有模型，再运行生命周期分析。</p></div>
     <span class="status-badge {% if has_analysis_input %}accepted{% else %}candidate{% endif %}">{% if has_analysis_input %}已有输入{% else %}等待输入{% endif %}</span>
   </div>
   <div class="two-column workflow-columns">
@@ -42,7 +42,7 @@
     <label class="field" for="sysml-file">已有 SysML 模型
       <input id="sysml-file" type="file" accept=".sysml" required>
     </label>
-    <span class="form-hint">导入已有 SysML v2 子集模型，导入后可继续生成、编辑和导出。</span>
+    <span class="form-hint">导入已有 SysML v2 子集模型，导入模型也可以作为分析输入，并可继续生成、编辑和导出。</span>
     <button class="button" type="submit">导入已有 SysML 模型</button>
   </form>
   <pre id="intake-result" class="analysis-result" hidden></pre>
@@ -63,8 +63,8 @@
     {% endfor %}
   </div>
   <form id="analysis-form" class="workbench-actions">
-    <button class="button primary" type="submit" data-mode="generate"{% if not has_analysis_input %} disabled title="请先提交需求或上传文档"{% endif %}>生成完整 MBSE 模型</button>
-    {% for phase in phases if phase.phase != 'closure' %}<button class="button" type="button" data-phase="{{ phase.phase }}"{% if not has_analysis_input %} disabled title="请先提交需求或上传文档"{% endif %}>执行{{ phase.action_label }}</button>{% endfor %}
+    <button class="button primary" type="submit" data-mode="generate"{% if not has_analysis_input %} disabled title="请先提交需求、上传文档或导入已有模型"{% endif %}>生成完整 MBSE 模型</button>
+    {% for phase in phases if phase.phase != 'closure' %}<button class="button" type="button" data-phase="{{ phase.phase }}"{% if not has_analysis_input %} disabled title="请先提交需求、上传文档或导入已有模型"{% endif %}>执行{{ phase.action_label }}</button>{% endfor %}
     <label class="checkbox-control"><input id="force-run" type="checkbox"{% if not has_analysis_input %} disabled{% endif %}> 强制新运行</label>
     <span class="htmx-indicator" id="analysis-indicator"><span class="spinner"></span> 正在运行…</span>
   </form>
