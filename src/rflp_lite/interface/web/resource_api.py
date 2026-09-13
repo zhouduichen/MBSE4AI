@@ -977,6 +977,29 @@ async def export_model(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.get("/projects/{project_id}/deliverables")
+def get_deliverables(request: Request, project_id: str):
+    try:
+        package = _services(request).deliverables(project_id).build(project_id)
+        return {"status": "ok", "deliverable": package}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/deliverables/download")
+def download_deliverables(request: Request, project_id: str):
+    try:
+        content, media_type = _services(request).deliverables(project_id).export_zip(project_id)
+        filename = f"{project_id}-engineering-deliverables.zip"
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/sysml/import")
 async def import_sysml(request: Request, project_id: str):
     try:
