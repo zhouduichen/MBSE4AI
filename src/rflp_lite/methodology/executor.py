@@ -173,7 +173,7 @@ def _contextualize_contract(
     context: ContextBundle,
     contract: Mapping[str, object],
 ) -> Mapping[str, object]:
-    """Add state-dependent cardinality constraints to system_definition."""
+    """Add state-dependent constraints to contracts with identity branches."""
 
     if task.id != "system_definition":
         contract = _contextualize_stakeholder_requirements(task, context, contract)

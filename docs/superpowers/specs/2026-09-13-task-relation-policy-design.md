@@ -25,6 +25,12 @@ allowed for this task.
 Tasks without an explicit policy retain the existing full vocabulary until
 their method-specific matrices are reviewed.
 
+The staged prefix also exposed a separate identity branch: when fixture data
+already contains active `lifecycle_stage` entities, `lifecycle_analysis` must
+reuse those canonical IDs and reserve new entity output for
+`lifecycle_transition`. This is a contextual entity-kind constraint, not a
+Compiler rewrite or a general relation-policy expansion.
+
 ## Implementation Boundary
 
 The change is limited to TaskSpec construction, PatchPolicy propagation,
