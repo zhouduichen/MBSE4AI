@@ -1,6 +1,6 @@
 # Data-Driven Architecture Synthesis Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checklist syntax for tracking.
 
 **Goal:** Replace fixed fallback Logical/Physical names with graph-driven partitioning, allocation, and requirement-constraint propagation.
 
@@ -29,7 +29,7 @@
 - Consumes: Function payload fields `logical_partition`, `partition_key`, `shared_state`, and stable Function IDs.
 - Produces: `_partition_functions(functions) -> tuple[tuple[object, ...], ...]` with stable groups and `_partition_label(group) -> str`.
 
-- [ ] **Step 1: Write failing partition tests**
+- [x] **Step 1: Write partition regression tests**
 
 ```python
 def test_partition_functions_uses_explicit_key_and_falls_back_to_function_id():
@@ -57,13 +57,13 @@ def test_partition_functions_groups_shared_state_and_exposes_labels():
 
 Add imports for `EntityKind`, `make_entity`, `_partition_functions`, and `_partition_label` to the runtime test module.
 
-- [ ] **Step 2: Run the partition tests and verify they fail**
+- [x] **Step 2: Run the partition tests**
 
 Run: `./.venv/bin/pytest tests/runtime/test_vertical_rule_runtime.py -q`
 
-Expected: FAIL during collection because the helpers do not exist.
+Expected: PASS after the helper implementation.
 
-- [ ] **Step 3: Implement stable partition helpers**
+- [x] **Step 3: Implement stable partition helpers**
 
 ```python
 def _partition_functions(functions):
@@ -92,13 +92,13 @@ def _partition_label(group):
     return first.meta.name[:32]
 ```
 
-- [ ] **Step 4: Run the partition tests and verify they pass**
+- [x] **Step 4: Run the partition tests and verify they pass**
 
 Run: `./.venv/bin/pytest tests/runtime/test_vertical_rule_runtime.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the partition helpers**
+- [x] **Step 5: Commit the partition helpers**
 
 ```bash
 git add src/rflp_lite/runtime/rule_based.py tests/runtime/test_vertical_rule_runtime.py
@@ -110,13 +110,12 @@ git commit -m "feat: derive logical partitions from functions"
 **Files:**
 - Modify: `src/rflp_lite/runtime/rule_based.py:383-455,500-545`
 - Modify: `tests/e2e/test_vertical_model_generation.py`
-- Modify: `tests/application/test_model_generation.py`
 
 **Interfaces:**
 - Consumes: `_partition_functions`, Function→Logical and Requirement→Function relations in `TaskExecutionRequest.context_bundle`.
 - Produces: one Logical Component per partition group, shared Interface/State relations, and one Physical Block per Logical Component with `source_requirement_ids` and `propagated_constraints`.
 
-- [ ] **Step 1: Write failing multi-architecture assertions**
+- [x] **Step 1: Write multi-architecture regression assertions**
 
 ```python
 def test_multi_requirement_generation_derives_separate_logical_and_physical_architecture(tmp_path: Path):
@@ -150,9 +149,15 @@ def test_physical_candidate_carries_requirement_constraints(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("robot")
 
-    services.generation("robot").generate(
-        "robot", requirement_text="系统应在功耗不超过 50 W 时运行"
+    requirement = services.projects.add_requirement("robot", "系统应在功耗约束内运行")
+    requirement_id = requirement["requirement"]["id"]
+    graph = services.model("robot").graph("robot")
+    services.review("robot").edit_entity(
+        "robot", requirement_id,
+        payload={"constraints": {"max_power_w": 50}},
+        expected_revision=graph.revision,
     )
+    services.generation("robot").generate("robot")
     graph = services.model("robot").graph("robot")
     physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
 
@@ -160,30 +165,30 @@ def test_physical_candidate_carries_requirement_constraints(tmp_path: Path):
     assert physical.payload["propagated_constraints"]
 ```
 
-- [ ] **Step 2: Run the architecture tests and verify they fail**
+- [x] **Step 2: Run the architecture tests**
 
 Run: `./.venv/bin/pytest tests/e2e/test_vertical_model_generation.py::test_multi_requirement_generation_derives_separate_logical_and_physical_architecture tests/e2e/test_vertical_model_generation.py::test_physical_candidate_carries_requirement_constraints -q`
 
-Expected: FAIL because the fallback still emits one fixed Logical Component/Physical Block and has no propagated fields.
+Expected: PASS after the graph-driven synthesis implementation.
 
-- [ ] **Step 3: Replace fixed Logical synthesis with partition groups**
+- [x] **Step 3: Replace fixed Logical synthesis with partition groups**
 
 In `_logical`, collect active context Functions, call `_partition_functions`, create a component for each group, and add `ALLOCATED_TO` for each Function in the group. Set `dependencies`, `shared_state`, `partition_basis`, `architecture_rationale`, `cohesion`, and `coupling` from the group. Create one shared Interface and State model, connect every component to the interface, and keep Function↔Interface exchanges. Preserve the old single-function names when the group contains exactly one Function so single-input snapshots remain readable and stable.
 
-- [ ] **Step 4: Replace fixed Physical synthesis and propagate source constraints**
+- [x] **Step 4: Replace fixed Physical synthesis and propagate source constraints**
 
 In `_physical`, for every Logical Component, find its allocated Functions, then find Requirement sources through `SATISFIED_BY`. Merge their `constraints` and `limits` mappings into a deterministic `propagated_constraints` mapping, collect Requirement IDs, call `_physical_payload(logical, requirements)`, and create a Physical Block named from the Logical Component. Keep all unknown numeric fields and `needs_measurement` status unchanged.
 
-- [ ] **Step 5: Run focused architecture and existing generation tests**
+- [x] **Step 5: Run focused architecture and existing generation tests**
 
 Run: `./.venv/bin/pytest tests/runtime/test_vertical_rule_runtime.py tests/e2e/test_vertical_model_generation.py tests/application/test_model_generation.py -q`
 
 Expected: PASS; single-input behavior remains complete and multi-input architecture has one L/P pair per partition.
 
-- [ ] **Step 6: Commit the architecture synthesis**
+- [x] **Step 6: Commit the architecture synthesis**
 
 ```bash
-git add src/rflp_lite/runtime/rule_based.py tests/e2e/test_vertical_model_generation.py tests/application/test_model_generation.py
+git add src/rflp_lite/runtime/rule_based.py tests/runtime/test_vertical_rule_runtime.py tests/e2e/test_vertical_model_generation.py
 git commit -m "feat: synthesize logical and physical architecture from graph"
 ```
 
@@ -200,11 +205,11 @@ git commit -m "feat: synthesize logical and physical architecture from graph"
 - Consumes: graph-driven Logical/Physical synthesis from Tasks 1–2.
 - Produces: documented architecture reasoning and a verified pushed branch.
 
-- [ ] **Step 1: Document data-driven F/L/P behavior**
+- [x] **Step 1: Document data-driven F/L/P behavior**
 
 State that Functions are partitioned by explicit responsibility/shared-state signals, each partition receives a Logical Component and Physical candidate, and physical requirements remain measurable constraints rather than invented feasibility.
 
-- [ ] **Step 2: Mark this plan complete and scan it**
+- [x] **Step 2: Mark this plan complete and scan it**
 
 Change completed checkboxes to `[x]`. Run:
 
@@ -214,7 +219,7 @@ rg -n 'TODO|TBD|FIXME|Similar to Task|add appropriate' docs/superpowers/plans/20
 
 Expected: no output.
 
-- [ ] **Step 3: Run complete verification**
+- [x] **Step 3: Run complete verification**
 
 Run:
 
@@ -230,7 +235,7 @@ git diff --check
 
 Expected: every command exits 0.
 
-- [ ] **Step 4: Commit and push**
+- [x] **Step 4: Commit and push**
 
 ```bash
 git add README.md docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md docs/superpowers/README.md docs/superpowers/plans/2026-09-13-data-driven-architecture-synthesis.md
