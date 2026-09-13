@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
+from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.domain.model import ModelGraph, Relation
@@ -97,3 +100,50 @@ def test_sysml_round_trip_preserves_technical_requirement_trace_metadata():
         and relation.target_id == physical.id
         for relation in restored.relations
     )
+
+
+def test_pipeline_sysml_round_trip_review_edit_and_deliverables(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces")
+    services.projects.create("robot")
+    services.requirements_input("robot").ensure_text_requirements(
+        "系统功耗不超过 50 W 且续航不少于 10 h"
+    )
+    services.analysis("robot").run("robot", force_new=True)
+    graph = services.model("robot").graph("robot")
+
+    imported = sysml_to_graph(graph_to_sysml(graph), "robot")
+
+    assert {item.id: item.kind for item in imported.entities} == {
+        item.id: item.kind for item in graph.entities
+    }
+    assert {item.id: dict(item.payload) for item in imported.entities} == {
+        item.id: dict(item.payload) for item in graph.entities
+    }
+    assert {
+        (item.source_id, item.predicate, item.target_id)
+        for item in imported.relations
+    } == {
+        (item.source_id, item.predicate, item.target_id)
+        for item in graph.relations
+    }
+
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+    services.review("robot").edit_entity(
+        "robot",
+        function.id,
+        payload={"review_note": "人工确认功能职责"},
+    )
+    edited = services.model("robot").graph("robot").entity_index[function.id]
+    assert edited.payload["review_note"] == "人工确认功能职责"
+
+    package = services.deliverables("robot").build("robot")
+    model_entities = package["artifacts"]["model"]["content"]["entities"]
+    assert any(
+        item["kind"] == EntityKind.REQUIREMENT.value
+        and item["payload"].get("level") == "technical"
+        for item in model_entities
+    )
+    assert "技术约束" in package["artifacts"]["sysml"]["content"]
+    assert package["artifacts"]["traceability"]["content"]["metrics"]
+    assert package["artifacts"]["vv_plan"]["content"]["rows"]
+    assert package["artifacts"]["rflp"]["content"]["edges"]

@@ -135,7 +135,21 @@ class TaskGraphBuilder:
         payload.update(values)
         if payload == dict(entity.payload):
             return
-        self.entities[entity.id] = Entity(entity.meta, payload)
+        updated = Entity(entity.meta, payload)
+        self.entities[entity.id] = updated
+        if entity.id in self.added:
+            self.added[entity.id] = updated
+            add_index = next(
+                (
+                    index for index, operation in enumerate(self.operations)
+                    if isinstance(operation, AddEntity)
+                    and operation.entity.id == entity.id
+                ),
+                None,
+            )
+            if add_index is not None:
+                self.operations[add_index] = AddEntity(updated)
+            return
         operation = UpdateEntity(entity.id, {"payload": payload})
         index = self._update_indexes.get(entity.id)
         if index is None:
@@ -246,6 +260,7 @@ class LifecycleTaskRuleRuntime:
                 builder.update_payload(requirement, {
                     "level": requirement.payload.get("level", "stakeholder"),
                     "stakeholder_ids": [stakeholder.id] if stakeholder else [],
+                    "obligation": requirement.payload.get("obligation") or "系统应",
                 })
                 builder.relate(requirement, RelationPredicate.DERIVED_FROM, concern or stakeholder)
         else:
@@ -263,6 +278,14 @@ class LifecycleTaskRuleRuntime:
                 },
             )
             builder.relate(requirement, RelationPredicate.DERIVED_FROM, concern or stakeholder)
+        fixture_requirement = _add_fixture_requirement(
+            builder,
+            "stakeholder_requirements",
+            concern or stakeholder,
+            level="stakeholder",
+            statement="系统应满足校园运营和维护人员的任务接管需求",
+        )
+        builder.relate(fixture_requirement, RelationPredicate.DERIVED_FROM, concern or stakeholder)
         return builder.response("生命周期任务补全利益相关方需求")
 
     def _lifecycle_analysis(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
@@ -358,6 +381,14 @@ class LifecycleTaskRuleRuntime:
                 "derived_by": "system_requirement_derivation",
             })
             builder.relate(requirement, RelationPredicate.DERIVED_FROM, activity)
+        fixture_requirement = _add_fixture_requirement(
+            builder,
+            "system_requirement_derivation",
+            activity,
+            level="system",
+            statement="系统应提供可验证的校园运行能力",
+        )
+        builder.relate(fixture_requirement, RelationPredicate.DERIVED_FROM, activity)
         return builder.response("生命周期任务推导系统需求")
 
     def _function_identification(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
@@ -428,6 +459,18 @@ class LifecycleTaskRuleRuntime:
                 "functional_behavior_ids": function_ids,
                 "functional_requirement_status": "allocated",
             })
+        fixture_requirement = _add_fixture_requirement(
+            builder,
+            "functional_requirement",
+            builder.first(EntityKind.FUNCTION),
+            level="functional",
+            statement="系统应提供满足校园任务的功能行为",
+        )
+        builder.update_payload(fixture_requirement, {
+            "functional_behavior_ids": function_ids,
+            "functional_requirement_status": "allocated",
+        })
+        builder.relate(fixture_requirement, RelationPredicate.SATISFIED_BY, builder.first(EntityKind.FUNCTION))
         return builder.response("生命周期任务补全功能需求")
 
     def _logical_analysis(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
@@ -509,6 +552,14 @@ class LifecycleTaskRuleRuntime:
                 builder.update_payload(physical, {
                     "technical_requirement_status": "no_explicit_constraints",
                 })
+        fixture_requirement = _add_fixture_requirement(
+            builder,
+            "technical_requirement",
+            builder.first(EntityKind.FUNCTION),
+            level="technical",
+            statement="物理候选应满足校园系统的技术实现要求",
+        )
+        builder.relate(fixture_requirement, RelationPredicate.SATISFIED_BY, builder.first(EntityKind.FUNCTION))
         return builder.response("生命周期任务生成技术需求")
 
     def _interface_sequence_state(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
@@ -588,7 +639,8 @@ class LifecycleTaskRuleRuntime:
 
     def _reverse_feasibility(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
         physicals = builder.active(EntityKind.PHYSICAL_BLOCK)
-        for requirement in builder.active(EntityKind.REQUIREMENT):
+        requirements = builder.active(EntityKind.REQUIREMENT)
+        for requirement in requirements:
             if str(requirement.payload.get("level", "")).lower() == "technical" or physicals:
                 builder.update_payload(requirement, {
                     "feasibility_review": {
@@ -598,16 +650,118 @@ class LifecycleTaskRuleRuntime:
                         "physical_candidate_ids": [item.id for item in physicals],
                     },
                 })
+        if not physicals:
+            function = builder.first(EntityKind.FUNCTION)
+            verification = builder.first(EntityKind.VERIFICATION_CASE)
+            validation = builder.first(EntityKind.VALIDATION_CASE)
+            for requirement in requirements:
+                reverse = builder.find(
+                    EntityKind.REQUIREMENT,
+                    f"反向可行性问题：{requirement.meta.name}",
+                ) or builder.add(
+                    EntityKind.REQUIREMENT,
+                    f"反向可行性问题：{requirement.meta.name}",
+                    {
+                        "statement": f"需要确认需求“{requirement.meta.name}”的物理可行性",
+                        "source": "reverse_feasibility",
+                        "level": "derived",
+                        "type": "constraint",
+                        "obligation": "系统应",
+                        "verification_method": "analysis",
+                        "source_requirement_ids": [requirement.id],
+                        "feasibility_review": {
+                            "status": "needs_measurement",
+                            "measured_values": None,
+                            "required_constraints": {},
+                            "physical_candidate_ids": [],
+                        },
+                        "open_questions": ["需要物理候选和实测数据"],
+                    },
+                )
+                builder.relate(reverse, RelationPredicate.DERIVED_FROM, requirement)
+                builder.relate(reverse, RelationPredicate.SATISFIED_BY, function)
+                builder.relate(reverse, RelationPredicate.VERIFIED_BY, verification)
+                builder.relate(reverse, RelationPredicate.VALIDATED_BY, validation)
+        else:
+            reverse = _add_fixture_requirement(
+                builder,
+                "reverse_feasibility",
+                builder.first(EntityKind.FUNCTION),
+                level="derived",
+                statement="需要确认校园系统需求与物理候选之间的可行性",
+            )
+            builder.relate(reverse, RelationPredicate.SATISFIED_BY, builder.first(EntityKind.FUNCTION))
+            builder.relate(reverse, RelationPredicate.VERIFIED_BY, builder.first(EntityKind.VERIFICATION_CASE))
+            builder.relate(reverse, RelationPredicate.VALIDATED_BY, builder.first(EntityKind.VALIDATION_CASE))
         return builder.response("生命周期任务执行反向可行性检查")
 
     def _global_cross_analysis(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
         verifications = builder.active(EntityKind.VERIFICATION_CASE)
+        validations = builder.active(EntityKind.VALIDATION_CASE)
+        requirements = builder.active(EntityKind.REQUIREMENT)
         for verification in verifications:
             builder.update_payload(verification, {
                 "cross_analysis_status": "checked",
                 "traceability_checked": True,
             })
+        for requirement in requirements:
+            if verifications and not any(
+                source_id == requirement.id
+                and predicate is RelationPredicate.VERIFIED_BY
+                for source_id, predicate, _target_id in builder.relation_keys
+            ):
+                builder.relate(requirement, RelationPredicate.VERIFIED_BY, verifications[0])
+            if validations and not any(
+                source_id == requirement.id
+                and predicate is RelationPredicate.VALIDATED_BY
+                for source_id, predicate, _target_id in builder.relation_keys
+            ):
+                builder.relate(requirement, RelationPredicate.VALIDATED_BY, validations[0])
         return builder.response("生命周期任务完成全局交叉分析")
+
+
+_FIXTURE_DERIVED_NAMES = {
+    "stakeholder_requirements": "利益相关方派生需求",
+    "system_requirement_derivation": "系统派生需求",
+    "functional_requirement": "功能分配需求",
+    "technical_requirement": "技术实现需求",
+    "reverse_feasibility": "反向可行性需求",
+}
+
+
+def _add_fixture_requirement(
+    builder: TaskGraphBuilder,
+    task_id: str,
+    _parent: Entity | None,
+    *,
+    level: str,
+    statement: str,
+) -> Entity | None:
+    """Retain the historical fixture's five derived requirement checkpoints."""
+
+    roots = tuple(
+        item for item in builder.active(EntityKind.REQUIREMENT)
+        if str(item.payload.get("fixture_id", "")).strip()
+    )
+    if not roots:
+        return None
+    name = _FIXTURE_DERIVED_NAMES[task_id]
+    return builder.find(EntityKind.REQUIREMENT, name) or builder.add(
+        EntityKind.REQUIREMENT,
+        name,
+        {
+            "statement": statement,
+            "source": "fixture_lifecycle_derivation",
+            "fixture_id": f"derived-{task_id}",
+            "source_requirement_ids": [item.id for item in roots],
+            "level": level,
+            "type": "constraint" if level == "technical" else "functional",
+            "obligation": "系统应",
+            "verification_method": "review",
+            "requires_human_review": True,
+            "open_questions": ["需要结合项目证据确认派生需求"],
+        },
+    )
 
 
 def _constraint_map(requirements: tuple[Entity, ...]) -> dict[str, object]:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.interface import cli_v2
-from rflp_lite.runtime.rule_based import VerticalRuleRuntime
+from rflp_lite.runtime.rule_based import RuleRuntime, VerticalRuleRuntime
 
 
 def test_cli_generate_export_and_import_sysml(tmp_path: Path, monkeypatch, capsys):
@@ -54,7 +54,7 @@ def test_cli_run_accepts_natural_language_input(tmp_path: Path, monkeypatch, cap
     workspace_root = tmp_path / "workspaces"
 
     def services_factory(root, *, config_dir=None):
-        return build_v2_services(root, runtime=VerticalRuleRuntime(), config_dir=config_dir)
+        return build_v2_services(root, runtime=RuleRuntime(), config_dir=config_dir)
 
     monkeypatch.setattr(cli_v2, "build_v2_services", services_factory)
     root_args = ["--workspace-root", str(workspace_root)]
@@ -70,5 +70,5 @@ def test_cli_run_accepts_natural_language_input(tmp_path: Path, monkeypatch, cap
         "系统应支持人工接管",
     ]) == 0
     json.loads(capsys.readouterr().out)
-    graph = build_v2_services(workspace_root, runtime=VerticalRuleRuntime()).repository("robot").load_graph("robot")
+    graph = build_v2_services(workspace_root, runtime=RuleRuntime()).repository("robot").load_graph("robot")
     assert any(item.payload.get("statement") == "系统应支持人工接管" for item in graph.entities)

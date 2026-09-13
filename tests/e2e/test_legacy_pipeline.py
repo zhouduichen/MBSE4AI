@@ -4,6 +4,9 @@ from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import RunStatus
+from rflp_lite.methodology.tasks import task_catalog
+from rflp_lite.ports.generative_model import GenerationResponse
+from rflp_lite.runtime.structured_model import StructuredModelRuntime
 
 
 def test_pipeline_from_natural_language_creates_operational_and_functional_layers(
@@ -94,4 +97,287 @@ def test_pipeline_closes_logical_physical_and_assurance_layers(tmp_path: Path):
         relation.source_id == requirement.id
         and relation.predicate is RelationPredicate.VALIDATED_BY
         for relation in graph.relations
+    )
+
+
+class LifecycleModel:
+    """A deterministic model double that exercises the structured LLM boundary."""
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def complete_json(self, request):
+        self.calls.append(request.lens_id)
+        entities = request.user_payload["context"]["entities"]
+        by_kind: dict[str, list[dict[str, object]]] = {}
+        for item in entities:
+            by_kind.setdefault(str(item["kind"]), []).append(item)
+        proposal = {
+            "entities": [],
+            "relations": [],
+            "updates": [],
+            "deprecations": [],
+            "reason": request.lens_id,
+        }
+
+        def add(local_ref: str, kind: str, name: str, payload: dict[str, object]):
+            proposal["entities"].append({
+                "local_ref": local_ref,
+                "kind": kind,
+                "name": name,
+                "payload": payload,
+                "source_ids": [],
+                "evidence_ids": [],
+                "lifecycle_ids": [],
+            })
+
+        def relate(source_ref: str, predicate: str, target_ref: str):
+            proposal["relations"].append({
+                "source_ref": source_ref,
+                "predicate": predicate,
+                "target_ref": target_ref,
+                "evidence_ids": [],
+            })
+
+        def update(entity_id: str, payload: dict[str, object]):
+            proposal["updates"].append({
+                "entity_id": entity_id,
+                "field_patch": {"payload": payload},
+            })
+
+        def first(kind: str):
+            return by_kind.get(kind, [None])[0]
+
+        requirement = first("requirement")
+        system = first("system")
+        stakeholder = first("stakeholder")
+        concern = first("concern")
+        stage = first("lifecycle_stage")
+        scenario = first("scenario_hypothesis")
+        use_case = first("use_case")
+        operational = first("operational_scenario")
+        activity = first("activity")
+        function = first("function")
+        logical = first("logical_component")
+        physical = first("physical_block")
+
+        if request.lens_id == "system_definition":
+            if system:
+                update(system["id"], {"open_questions": []})
+            else:
+                add("system", "system", "脚本系统", {
+                    "mission": "完成输入需求定义的系统目标",
+                    "system_boundary": {"inside": ["系统能力"], "outside": ["运行环境"]},
+                    "objectives": ["形成可追溯模型"],
+                    "environment_assumptions": ["环境条件待确认"],
+                    "exclusions": [],
+                    "open_questions": [],
+                })
+        elif request.lens_id == "stakeholder_analysis":
+            add("stakeholder", "stakeholder", "操作者", {"role": "使用和验收系统"})
+            add("concern", "concern", "任务可控", {"topic": "任务完成和异常接管"})
+            relate("stakeholder", "hasConcern", "concern")
+        elif request.lens_id == "stakeholder_requirements":
+            if requirement and concern:
+                update(requirement["id"], {"level": "system", "rationale": "来自利益相关方关注点"})
+                relate(requirement["id"], "derivedFrom", concern["id"])
+        elif request.lens_id == "lifecycle_analysis":
+            add("stage", "lifecycle_stage", "运行生命周期", {
+                "stage": "operation",
+                "sequence": ["需求", "设计", "运行", "维护"],
+                "exit_criteria": "运行责任明确",
+            })
+            add("transition", "lifecycle_transition", "设计到运行", {
+                "from_stage": "设计", "to_stage": "运行", "trigger": "验收通过",
+            })
+            if system:
+                relate("stage", "derivedFrom", system["id"])
+            relate("transition", "derivedFrom", "stage")
+        elif request.lens_id == "scenario_exploration":
+            add("scenario", "scenario_hypothesis", "正常和异常场景", {
+                "category": "normal_and_exception",
+                "trigger": "提交任务",
+                "outcome": "完成任务或人工接管",
+            })
+            if stage:
+                relate("scenario", "derivedFrom", stage["id"])
+        elif request.lens_id == "use_case_analysis":
+            add("use_case", "use_case", "执行任务", {
+                "goal": "完成任务并支持异常处理",
+                "preconditions": ["系统已部署"],
+                "postconditions": ["任务结果已反馈"],
+            })
+            if scenario:
+                relate("use_case", "derivedFrom", scenario["id"])
+        elif request.lens_id == "operational_scenario":
+            add("operational", "operational_scenario", "任务执行运行场景", {
+                "actor_ids": [stakeholder["id"]] if stakeholder else [],
+                "steps": ["提交", "执行", "接管", "反馈"],
+                "exchanges": [],
+                "internal_component_ids": [],
+            })
+            if use_case:
+                relate("operational", "derivedFrom", use_case["id"])
+            if stakeholder:
+                relate(stakeholder["id"], "participatesIn", "operational")
+        elif request.lens_id == "activity_analysis":
+            add("activity", "activity", "执行和处置活动", {
+                "steps": ["接收", "执行", "监测", "接管", "反馈"],
+            })
+            if operational:
+                relate("activity", "derivedFrom", operational["id"])
+            if stage:
+                relate("activity", "occursIn", stage["id"])
+        elif request.lens_id == "system_requirement_derivation":
+            if requirement:
+                update(requirement["id"], {"derived_by": "system_requirement_derivation", "rationale": "由运行活动推导"})
+                if activity:
+                    relate(requirement["id"], "derivedFrom", activity["id"])
+        elif request.lens_id == "function_identification":
+            add("function", "function", "执行任务能力", {
+                "requirement_id": requirement["id"] if requirement else "",
+                "behavior": "执行输入需求规定的系统行为",
+            })
+            if requirement:
+                relate(requirement["id"], "satisfiedBy", "function")
+        elif request.lens_id == "functional_decomposition":
+            if function:
+                update(function["id"], {"decomposition": "atomic_behavior"})
+        elif request.lens_id == "functional_interaction":
+            add("flow", "functional_flow", "任务状态信息流", {
+                "exchanges": ["任务请求", "状态反馈", "接管指令"],
+            })
+            if function:
+                relate(function["id"], "exchangesWith", "flow")
+        elif request.lens_id == "functional_scenario":
+            add("fscenario", "functional_scenario", "功能执行场景", {
+                "function_ids": [function["id"]] if function else [],
+                "steps": ["请求", "处理", "反馈"],
+            })
+            if function:
+                relate(function["id"], "participatesIn", "fscenario")
+        elif request.lens_id == "functional_requirement":
+            if requirement:
+                update(requirement["id"], {
+                    "functional_behavior_ids": [function["id"]] if function else [],
+                    "functional_requirement_status": "allocated",
+                })
+        elif request.lens_id == "logical_analysis":
+            add("logical", "logical_component", "任务逻辑组件", {
+                "function_id": function["id"] if function else "",
+                "allocation_strategy": "one_component_per_function",
+            })
+            if function:
+                relate(function["id"], "allocatedTo", "logical")
+        elif request.lens_id == "physical_candidates":
+            add("physical", "physical_block", "任务执行候选", {
+                "logical_id": logical["id"] if logical else "",
+                "candidate_type": "implementation_candidate",
+                "measurement_status": "needs_measurement",
+            })
+            if logical:
+                relate(logical["id"], "allocatedTo", "physical")
+        elif request.lens_id == "allocation_tradeoff":
+            if physical:
+                update(physical["id"], {"trade_study": {"decision_status": "requires_review"}})
+        elif request.lens_id == "technical_requirement":
+            if physical:
+                update(physical["id"], {"technical_requirement_status": "no_explicit_constraints"})
+        elif request.lens_id == "interface_sequence_state":
+            add("interface", "interface", "任务控制接口", {
+                "kind": "control_and_status", "messages": ["任务", "状态", "接管"],
+            })
+            add("state", "state", "任务状态", {
+                "values": ["待命", "执行中", "异常", "完成"],
+                "transitions": ["待命→执行中", "执行中→异常", "执行中→完成"],
+            })
+            if logical:
+                relate(logical["id"], "connectedTo", "interface")
+                relate(logical["id"], "decomposes", "state")
+        elif request.lens_id == "fmea_stpa_hazard":
+            add("hazard", "hazard", "任务失败危险", {
+                "description": "任务异常导致目标未达成",
+                "requirement_ids": [requirement["id"]] if requirement else [],
+                "branches": ["人工接管"],
+            })
+            add("failure", "failure_mode", "任务未完成失效", {
+                "effect": "需求结果不满足",
+                "cause": "执行条件异常",
+                "requirement_ids": [requirement["id"]] if requirement else [],
+            })
+            relate("hazard", "causes", "failure")
+            if requirement:
+                relate("hazard", "mitigatedBy", requirement["id"])
+                relate("failure", "mitigatedBy", requirement["id"])
+        elif request.lens_id == "verification_validation":
+            add("verification", "verification_case", "验证输入需求", {
+                "requirement_ids": [requirement["id"]] if requirement else [],
+                "method": "test",
+                "precondition": "系统处于可测试状态",
+                "input": "输入需求场景",
+                "procedure": "执行系统行为并记录结果",
+                "expected_result": "行为满足需求",
+                "pass_criteria": "需求约束满足",
+            })
+            add("validation", "validation_case", "确认用户场景", {
+                "requirement_ids": [requirement["id"]] if requirement else [],
+                "method": "demonstration",
+                "precondition": "典型用户场景可用",
+                "input": "用户任务",
+                "procedure": "执行典型任务并收集反馈",
+                "expected_result": "用户目标达成",
+                "pass_criteria": "用户确认通过",
+            })
+            if requirement:
+                relate(requirement["id"], "verifiedBy", "verification")
+                relate(requirement["id"], "validatedBy", "validation")
+        elif request.lens_id == "reverse_feasibility":
+            if requirement:
+                update(requirement["id"], {
+                    "feasibility_review": {
+                        "status": "needs_measurement",
+                        "measured_values": None,
+                    },
+                })
+        elif request.lens_id == "global_cross_analysis":
+            for item in by_kind.get("verification_case", []):
+                update(item["id"], {
+                    "cross_analysis_status": "checked",
+                    "traceability_checked": True,
+                })
+
+        return GenerationResponse(
+            request.lens_id,
+            proposal,
+            "scripted-input",
+            "scripted-output",
+            False,
+            "scripted",
+            "lifecycle-model",
+        )
+
+
+def test_structured_llm_executes_all_23_tasks_and_writes_the_graph(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces")
+    services.projects.create("robot")
+    services.requirements_input("robot").ensure_text_requirements("系统应支持人工接管")
+    model = LifecycleModel()
+    services._runtime_override = StructuredModelRuntime(model)
+
+    summary = services.analysis("robot").run("robot", force_new=True)
+
+    assert summary.status is RunStatus.COMPLETED
+    assert model.calls == [task.id for task in task_catalog()]
+    stored = services.repository("robot").load_run("robot", summary.run_id)
+    assert stored is not None
+    assert len(stored.steps) == 23
+    assert all(step.status == "completed" for step in stored.steps)
+    task_patches = services.repository("robot").list_patches("robot")
+    assert {str(item["task_id"]) for item in task_patches} >= set(model.calls)
+
+    graph = services.model("robot").graph("robot")
+    assert any(item.kind is EntityKind.FUNCTION for item in graph.entities)
+    assert any(
+        item.kind is EntityKind.VALIDATION_CASE
+        for item in graph.entities
     )

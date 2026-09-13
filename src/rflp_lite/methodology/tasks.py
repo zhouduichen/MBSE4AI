@@ -164,7 +164,24 @@ def task_spec_hash(task: TaskSpec) -> str:
 def output_contract(task: TaskSpec) -> dict[str, object]:
     """Return the semantic TaskProposal schema accepted from a task runtime."""
 
-    payload_schemas = {
+    payload_schemas = _payload_schemas()
+    schema = proposal_schema(
+        tuple(sorted(task.output_kinds, key=lambda kind: kind.value)),
+        task.output_schema_id,
+        payload_schemas,
+        task.patch_policy,
+    )
+    if task.id == "system_definition":
+        schema["properties"]["updates"]["items"]["properties"]["field_patch"]["properties"]["payload"] = dict(
+            payload_schemas[EntityKind.SYSTEM.value]
+        )
+    schema["validators"] = list(task.validators)
+    schema["max_attempts"] = task.max_attempts
+    return schema
+
+
+def _payload_schemas() -> dict[str, dict[str, object]]:
+    return {
         EntityKind.SYSTEM.value: {
             "type": "object", "additionalProperties": False,
             "required": [
@@ -190,11 +207,24 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
         EntityKind.REQUIREMENT.value: {
             "type": "object", "additionalProperties": False,
             "properties": {
+                "statement": {"type": "string"},
                 "level": {"enum": ["stakeholder", "system", "functional", "technical"]},
                 "type": {"enum": ["functional", "performance", "interface", "safety", "constraint"]},
                 "obligation": {"type": "string", "minLength": 1},
                 "verification_method": {"type": "string", "minLength": 1},
                 "rationale": {"type": "string"}, "source": {"type": "string"},
+                "requires_human_review": {"type": "boolean"},
+                "constraints": {"type": "object"},
+                "constraint_provenance": {"type": "array"},
+                "stakeholder_ids": {"type": "array", "items": {"type": "string"}},
+                "derived_by": {"type": "string"},
+                "functional_behavior_ids": {"type": "array", "items": {"type": "string"}},
+                "functional_requirement_status": {"type": "string"},
+                "source_requirement_ids": {"type": "array", "items": {"type": "string"}},
+                "source_physical_ids": {"type": "array", "items": {"type": "string"}},
+                "constraint_fields": {"type": "array", "items": {"type": "string"}},
+                "open_questions": {"type": "array", "items": {"type": "string"}},
+                "feasibility_review": {"type": "object"},
             },
         },
         EntityKind.CONCERN.value: {
@@ -238,6 +268,8 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
                 "activity_ids": {"type": "array", "items": {"type": "string"}},
                 "covered_branches": {"type": "array", "items": {"type": "string"}},
                 "evidence_ids": {"type": "array", "items": {"type": "string"}},
+                "cross_analysis_status": {"type": "string"},
+                "traceability_checked": {"type": "boolean"},
             },
         },
         EntityKind.VALIDATION_CASE.value: {
@@ -278,21 +310,12 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
             "type": "object", "additionalProperties": False,
             "properties": {
                 "candidate_type": {"type": "string"}, "vendor": {"type": "string"},
-                "part_number": {"type": "string"}, "constraints": {"type": "array"},
+                "part_number": {"type": "string"}, "constraints": {"type": ["array", "object"]},
+                "constraint_provenance": {"type": "array"},
+                "logical_id": {"type": "string"}, "measurement_status": {"type": "string"},
+                "technical_requirement_status": {"type": "string"},
+                "trade_study": {"type": "object"},
                 "rationale": {"type": "string"},
             },
         },
     }
-    schema = proposal_schema(
-        tuple(sorted(task.output_kinds, key=lambda kind: kind.value)),
-        task.output_schema_id,
-        payload_schemas,
-        task.patch_policy,
-    )
-    if task.id == "system_definition":
-        schema["properties"]["updates"]["items"]["properties"]["field_patch"]["properties"]["payload"] = dict(
-            payload_schemas[EntityKind.SYSTEM.value]
-        )
-    schema["validators"] = list(task.validators)
-    schema["max_attempts"] = task.max_attempts
-    return schema

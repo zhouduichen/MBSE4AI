@@ -1,6 +1,6 @@
 # 开发状态
 
-**更新时间：** 2026-09-13
+**更新时间：** 2026-09-14
 **产品版本：** rflp-lite 0.2.0
 **方法论协议：** v2.1
 
@@ -25,6 +25,7 @@
 | 文档证据上下文 | 解析出的每个 Source Region 持久化为 `document_region` Evidence，并进入五阶段结构化 LLM 上下文，可被实体/关系引用 |
 | Golden E2E | 校园无人配送机器人 fixture 可导入并跑完整阶段；失败与锁定保护可验证 |
 | 默认产品纵向生成 | 自然语言或已解析文档 → Requirements → Functional → Logical → Physical → V&V；五阶段写入同一 ModelGraph，并返回阶段结果、追溯摘要和 SysML 文本 |
+| 完整 23-task 纵向生命周期 | `analyze run` / Web `mode=pipeline` 共享自然语言、文档区域和 ModelGraph 输入；23 个任务逐任务产生真实 typed entities/relations/updates，形成 R→F→L→P→V&V，并在语义任务失败时阻断后续阶段与 Closure |
 | 多需求输入保真 | 自然语言句子/列表项和文档独立条目分别形成 Requirement；文档来源保留 Source Region，三条输入需求可形成三条 Function 和三条完整 RFLP/V&V 路径 |
 | 自然语言工程约束抽取 | 显式功耗、质量、时延、带宽、成本和续航边界规范化为 canonical constraints，保留 constraint provenance，并随 R→F→L→P 进入物理可行性分析；未知值仍要求测量/评审 |
 | Physical Technical Requirement 闭环 | 对明确的 `max_*`/`min_*` 约束生成可审查的技术需求，回接来源需求和物理候选，进入独立 V&V、Traceability、SysML 和统一交付包；不伪造测量或可行性结论 |
@@ -56,11 +57,11 @@
 | Model connectivity | PASS |
 | Native Ollama invocation | PASS |
 | Structured MBSE contract | PASS（60/60 provider success；58/60 structural/schema/compile/domain pass） |
-| Full 23-task LLM lifecycle | NOT ACCEPTED；该入口保留为兼容/调试路径，不是默认产品生成路径 |
+| Full 23-task LLM lifecycle | SCRIPTED STRUCTURED ACCEPTED；已用脚本化 StructuredModelRuntime 验证 23 个 TaskSpec→Compiler→Validator→Workflow 调用顺序；真实 Provider 多轮稳定性仍 NOT ACCEPTED |
 
 PR09 的 conformance runner 位于 `tests/contract_conformance/`，默认使用离线 fixture；真实 Ollama 测试必须显式设置 `RFLP_RUN_LIVE_LLM=1`。最终 3 Task × 20 结果为：provider/JSON/schema/compile/domain 均 58/60，2 次 structural retry 未恢复。该结果仅说明结构化边界已有基础覆盖，不能替代新的五阶段产品链验收。
 
-最终 live artifact：`docs/superpowers/artifacts/pr09/contract-conformance-1789049206566817000.json`。新的主验收位于 `tests/e2e/test_vertical_model_generation.py`、`tests/application/test_model_generation.py` 和 `tests/interface/test_cli_v2.py`。
+最终 live artifact：`docs/superpowers/artifacts/pr09/contract-conformance-1789049206566817000.json`。五阶段主验收位于 `tests/e2e/test_vertical_model_generation.py`；完整 23-task 主验收位于 `tests/e2e/test_legacy_pipeline.py`、`tests/runtime/test_lifecycle_rule_runtime.py` 和 `tests/application/test_sysml_v2.py`。脚本模型验收不等同于真实 Provider 稳定性。
 
 Methodology Engine v1 的边界是确定性反馈；Systems Engineering Controller v1 已将这些反馈转成有限动作，并允许用户比较候选方案后提交 Trade Study 决策。Review 后可显式继续生成下游：系统从已接受实体的下一层运行到 V&V，锁定实体作为只读锚点，V&V 不创建空的后续运行。当前 Controller 仍不替用户无审查地改写工程事实或选择方案，复杂的多轮方案综合、仿真和真实工具执行留作后续迭代。
 

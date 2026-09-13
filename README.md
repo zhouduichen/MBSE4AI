@@ -7,7 +7,7 @@ AI4MBSE Harness 产品版本为 `0.2.0`，方法论协议版本为 `v2.1`。它�
                → Typed ModelGraph → SysML v2 subset / 可编辑模型
 ```
 
-ModelGraph 是模型唯一真源。纵向生成器按五个阶段调用结构化 Runtime，将每一阶段的局部 Patch 写入图并保留完整追溯链；默认链还会显式生成 Concern、State、Hazard 和 FailureMode，不把它们藏在阶段 payload 中。SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。原有 23-task 生命周期仍保留为调试和兼容入口，不是默认产品路径。
+ModelGraph 是模型唯一真源。默认纵向生成器按五个阶段调用结构化 Runtime，将每一阶段的局部 Patch 写入图并保留完整追溯链；显式的 `analyze run` 入口则按 23 个方法论任务逐任务执行同一份 ModelGraph，形成可审查的 R→F→L→P→V&V 生命周期。两条入口都显式生成 Concern、State、Hazard 和 FailureMode，不把它们藏在阶段 payload 中。SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。
 
 ## 安装
 
@@ -31,6 +31,14 @@ python3 -m venv .venv
 .venv/bin/ai4mbse --workspace-root .local-workspaces model export campus-demo --format sysml > campus-demo.sysml
 ```
 
+运行完整的 23-task 生命周期：
+
+```bash
+.venv/bin/ai4mbse --workspace-root .local-workspaces project create pipeline-demo
+.venv/bin/ai4mbse --workspace-root .local-workspaces analyze run pipeline-demo \
+  --text "系统应在校园内完成配送，并允许运营人员人工接管"
+```
+
 也可以从已解析的需求文档生成：
 
 ```bash
@@ -41,7 +49,7 @@ python3 -m venv .venv
 
 已有 SysML v2 子集模型也可以在 Web Analysis 页面上传，导入同一份 Typed ModelGraph；导入后可以继续生成下游层、Review、编辑并导出完整工程交付包。
 
-旧的 Golden fixture 生命周期用于兼容性和方法论调试：
+Golden fixture 也可以作为完整 23-task 生命周期的离线回归输入：
 
 ```bash
 .venv/bin/ai4mbse --workspace-root .local-workspaces project create campus-demo
@@ -76,7 +84,7 @@ MBSE Model 页面还提供“导出完整交付包”：同一份 ModelGraph 快
 
 未配置模型时页面会明确显示 `Offline Rule Mode`；配置并激活 Profile 后，每次新分析都会记录实际使用的 profile/provider/model。服务默认只监听 `127.0.0.1`，适用于单用户本地工作区。
 
-当前产品验收重点已经转为一次真实的五阶段纵向链：`自然语言/文档 → R → F → L → P → V&V → ModelGraph → SysML`。自然语言句子、列表项和文档中的独立条目保持为独立 Requirement，分别进入下游追溯；输入中的显式功耗、质量、时延、带宽、成本和续航边界会被规范化为 canonical constraints，并保留 `constraint_provenance`，再随 R→F→L→P 传播。对明确存在的 `max_*`/`min_*` 工程约束，P 层还会创建 `level=technical` 的 Technical Requirement，通过 `derivedFrom` 回接来源需求、通过 `satisfiedBy` 连接物理候选，并由 V&V 单独覆盖；没有明确约束的普通需求不会被额外拆分。追溯结果分开显示 RFLP、Verification、Validation 和端到端闭环，只有两类 V&V 都存在才算端到端完成。未配置模型时使用离线规则 Runtime 验证产品闭环；配置并激活 OpenAI-compatible Profile 后，`analyze generate` 会对五个阶段分别调用结构化 LLM Runtime，并记录 profile/provider/model、Prompt、上下文、Patch 和追溯摘要。上传文档解析出的 Source Region 会登记为 `document_region` Evidence，随阶段上下文提供给 LLM。语义校验失败的 LLM 输出只保留为 `candidate` 并进入 review，不计入完成度。离线 fallback 的 F/L/P 也消费图中的功能职责、分区键、共享状态和 Requirement 关系：每个功能分区生成对应的 Logical Component 与 Physical Block，并把已有结构化约束和 provenance 带到物理候选；未知 SWaP-C/续航仍保持 `needs_measurement`，不会伪造可行性。既有 Ollama 3 Task × 20 conformance artifact 仍只代表结构化边界，不等同于完整产品链验收。
+当前产品验收重点是一次真实的纵向链：`自然语言/文档 → R → F → L → P → V&V → ModelGraph → SysML`。`analyze generate` 是面向用户的五阶段快速入口；`analyze run` 是完整的 23-task 方法论入口，两个入口都消费同一份输入并写入同一份 Typed ModelGraph。自然语言句子、列表项和文档中的独立条目保持为独立 Requirement，分别进入下游追溯；输入中的显式功耗、质量、时延、带宽、成本和续航边界会被规范化为 canonical constraints，并保留 `constraint_provenance`，再随 R→F→L→P 传播。对明确存在的 `max_*`/`min_*` 工程约束，P 层还会创建 `level=technical` 的 Technical Requirement，通过 `derivedFrom` 回接来源需求、通过 `satisfiedBy` 连接物理候选，并由 V&V 单独覆盖；没有明确约束的普通需求不会被额外拆分。追溯结果分开显示 RFLP、Verification、Validation 和端到端闭环，只有两类 V&V 都存在才算端到端完成。未配置模型时使用离线规则 Runtime 验证产品闭环；配置并激活 OpenAI-compatible Profile 后，`analyze generate` 和 `analyze run` 都会通过 StructuredModelRuntime 逐阶段/逐任务调用结构化 LLM，并记录 profile/provider/model、Prompt、上下文、Patch 和追溯摘要。上传文档解析出的 Source Region 会登记为 `document_region` Evidence，随任务上下文提供给 LLM。语义校验失败的 LLM 输出只保存为 candidate 并进入 review，不计入完成度。离线 fallback 的 F/L/P 也消费图中的功能职责、分区键、共享状态和 Requirement 关系；未知 SWaP-C/续航仍保持 `needs_measurement`，不会伪造可行性。历史 Ollama conformance artifact 仍只代表结构化边界，不等同于真实 Provider 的 23-task 稳定性。
 
 纵向链完成后由 Methodology Engine 对 ModelGraph 做确定性工程分析：逻辑层报告分配覆盖、State 模型、分区和内聚/耦合信号；物理层传播约束并区分冲突与待测量；V&V 分开报告 Verification、Validation、Hazard/FailureMode 覆盖、计划字段完整度和执行证据。计划字段和 evidence 始终分层，空 evidence 不会伪装成已执行。Systems Engineering Controller 将这些 findings 汇总为下一步动作：证据缺口先通过 Tool Layer 检索文档、历史项目和本地 FTS，检索到的证据落库后触发受影响阶段重分析；仍无结果时暂停等待用户。逻辑分区或物理约束需要权衡时展示候选方案，用户选择后触发受影响阶段的定向重分析。Review 和 Controller 都沿图返回影响实体、阶段、路径和审计记录，不绕过 CAS，也不替用户无审查地作工程决策。
 

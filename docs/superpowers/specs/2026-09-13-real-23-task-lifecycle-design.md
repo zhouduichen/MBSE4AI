@@ -78,8 +78,9 @@ LifecycleTaskRuleRuntime  StructuredModelRuntime
 新增应用层 `RequirementInputService`，提供：
 
 ```python
-ensure_text_requirements(project_id: str, text: str) -> tuple[str, ...]
-ensure_document_requirements(project_id: str, document_ids: tuple[str, ...]) -> tuple[str, ...]
+RequirementInputService(repository, project_id)
+ensure_text_requirements(text: str) -> tuple[str, ...]
+ensure_document_requirements(document_ids: tuple[str, ...] = ()) -> tuple[str, ...]
 ```
 
 它复用现有 `split_requirement_statements` 和 `extract_requirement_constraints`，以稳定的 `statement` 去重，保留用户来源和文档 `document_region` source id。已有 Requirement、已有 SysML 实体或已有文档不会因重复调用被复制。
@@ -172,3 +173,9 @@ ensure_document_requirements(project_id: str, document_ids: tuple[str, ...]) -> 
 - 不新增数据库表、Provider、状态机或外部仿真执行器；
 - 不把一次脚本模型测试包装成真实 Provider 稳定性结论；
 - 不声称已完成多轮自主 Trade Study、真实 CAD/仿真或论文级 benchmark。
+
+## 实施状态（2026-09-14）
+
+本设计已落地为可验收的纵向子项目：自然语言/文档输入可驱动离线 23-task 生命周期；每个任务通过现有 `WorkflowRunner` 写入真实 typed entities、relations 或审查更新；显式工程约束会生成 Technical Requirement；结果可生成统一交付包并完成 SysML 子集往返、继续编辑和追溯检查。另有脚本化 `StructuredModelRuntime` 验收 23 次逐任务调用、编译和写入边界。
+
+真实 Provider 的多轮质量与稳定性、复杂自主 Trade Study、CAD/仿真和更完整的原生 SysML v2 语法仍属于后续产品工作，不由脚本模型验收替代。

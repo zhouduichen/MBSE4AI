@@ -185,6 +185,8 @@ def test_analysis_api_supports_pipeline_and_force_run(tmp_path: Path) -> None:
 
 def test_pipeline_analysis_accepts_natural_language_input(tmp_path: Path) -> None:
     app = create_app(tmp_path / "workspaces")
+    app.state.container.v2.settings.profiles.config_dir = tmp_path / "config"
+    app.state.container.v2.settings.profiles.path = tmp_path / "config" / "llm-profiles.json"
     client = TestClient(app)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
 
