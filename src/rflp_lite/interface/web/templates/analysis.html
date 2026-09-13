@@ -56,13 +56,28 @@
     {% endfor %}
   </div>
   <form id="analysis-form" class="workbench-actions">
-    <button class="button primary" type="submit" data-mode="pipeline"{% if not has_analysis_input %} disabled title="请先提交需求或上传文档"{% endif %}>运行完整流程</button>
+    <button class="button primary" type="submit" data-mode="generate"{% if not has_analysis_input %} disabled title="请先提交需求或上传文档"{% endif %}>生成完整 MBSE 模型</button>
     {% for phase in phases if phase.phase != 'closure' %}<button class="button" type="button" data-phase="{{ phase.phase }}"{% if not has_analysis_input %} disabled title="请先提交需求或上传文档"{% endif %}>执行{{ phase.action_label }}</button>{% endfor %}
     <label class="checkbox-control"><input id="force-run" type="checkbox"{% if not has_analysis_input %} disabled{% endif %}> 强制新运行</label>
     <span class="htmx-indicator" id="analysis-indicator"><span class="spinner"></span> 正在运行…</span>
   </form>
   <pre id="analysis-result" class="analysis-result" hidden></pre>
 </section>
+
+{% if latest_run and latest_run.mode == 'generate' and latest_run.stage_results %}
+<section class="panel generation-summary">
+  <div class="panel-head"><div><h2>完整模型生成结果</h2><p>自然语言需求已按 R → F → L → P → V&amp;V 纵向编译为可编辑 ModelGraph。</p></div><span class="status-badge {% if latest_run.status == 'completed' %}accepted{% else %}candidate{% endif %}">{{ latest_run.status }}</span></div>
+  <div class="phase-rail" aria-label="模型生成阶段">
+    {% for stage in latest_run.stage_results %}
+    <article class="phase-node phase-{{ stage.status }}"><span class="phase-index">{{ loop.index }}</span><div><strong>{{ stage.stage }}</strong><small>{{ stage.entity_count }} 个实体 · {{ stage.relation_count }} 条关系</small></div><span class="status-badge accepted">{{ stage.status }}</span></article>
+    {% endfor %}
+  </div>
+  {% if latest_run.traceability %}
+  <div class="metric-row"><article><span>完整追溯</span><strong>{{ latest_run.traceability.complete_count }}</strong></article><article><span>部分追溯</span><strong>{{ latest_run.traceability.partial_count }}</strong></article><article><span>缺失追溯</span><strong>{{ latest_run.traceability.missing_count }}</strong></article></div>
+  {% endif %}
+  {% if latest_run.warnings %}<div class="callout warning">{{ latest_run.warnings|join(' · ') }}</div>{% endif %}
+</section>
+{% endif %}
 
 <div class="analysis-layout">
   <aside class="analysis-sidebar" aria-label="分析模块">
@@ -227,7 +242,7 @@
       output.classList.add("warning");
     } finally { indicator.style.display = "none"; }
   }
-  form.addEventListener("submit", (event) => { event.preventDefault(); runAnalysis("pipeline", null); });
+  form.addEventListener("submit", (event) => { event.preventDefault(); runAnalysis("generate", null); });
   form.querySelectorAll("[data-phase]").forEach((button) => button.addEventListener("click", () => runAnalysis("phase", button.dataset.phase)));
   document.querySelectorAll(".repair-button").forEach((button) => button.addEventListener("click", async () => {
     const repairOutput = document.getElementById("repair-result");

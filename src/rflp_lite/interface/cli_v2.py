@@ -11,8 +11,10 @@ from pathlib import Path
 from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.application.llm_profiles import default_config_dir
 from rflp_lite.application.model_export import graph_sysml
+from rflp_lite.application.sysml_v2 import sysml_to_graph
 from rflp_lite.domain.canonical import canonical_json
-from rflp_lite.domain.errors import RflpError
+from rflp_lite.domain.errors import ContractViolation, RflpError
+from rflp_lite.domain.model import AddEntity, Patch, Relate
 from rflp_lite.methodology.contracts import Phase
 
 
@@ -33,6 +35,11 @@ def _parser() -> argparse.ArgumentParser:
     run = analyze_commands.add_parser("run", help="运行完整生命周期或单个阶段")
     run.add_argument("project_id", help="项目标识")
     run.add_argument("--phase", choices=[phase.value for phase in Phase if phase is not Phase.CLOSURE], default=None, help="仅运行单阶段；省略则执行完整生命周期")
+    generate = analyze_commands.add_parser("generate", help="从自然语言生成完整 MBSE 模型")
+    generate.add_argument("project_id", help="项目标识")
+    generate.add_argument("--text", default="", help="自然语言需求文本")
+    generate.add_argument("--input", type=Path, default=None, help="包含自然语言需求的 UTF-8 文件")
+    generate.add_argument("--force-new", action="store_true", help="强制创建新的生成运行")
     status = analyze_commands.add_parser("status", help="查看运行台账")
     status.add_argument("project_id", help="项目标识")
     status.add_argument("run_id", help="运行标识")
@@ -42,6 +49,9 @@ def _parser() -> argparse.ArgumentParser:
     export.add_argument("project_id", help="项目标识")
     export.add_argument("--view", default="rflp", help="模型视图标识")
     export.add_argument("--format", choices=("json", "dot", "svg", "sysml"), default="json", help="导出格式")
+    import_sysml = model_commands.add_parser("import-sysml", help="导入 SysML v2 子集模型")
+    import_sysml.add_argument("project_id", help="项目标识")
+    import_sysml.add_argument("path", type=Path, help="SysML 文件路径")
     issue = commands.add_parser("issue", help="查看模型问题")
     issue_commands = issue.add_subparsers(dest="issue_command", required=True)
     issue_list = issue_commands.add_parser("list", help="列出项目问题")
@@ -78,6 +88,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = services.analysis(args.project_id).run(args.project_id, Phase(args.phase) if args.phase else None)
         print(canonical_json({"status": "ok", "run": {"run_id": result.run_id, "phase": result.phase.value, "status": result.status.value, "completed_tasks": result.completed_tasks, "diagnostics": result.diagnostics}}))
         return 0
+    if args.command == "analyze" and args.analyze_command == "generate":
+        text = str(args.text or "")
+        if args.input is not None:
+            text = args.input.read_text(encoding="utf-8")
+        result = services.generation(args.project_id).generate(
+            args.project_id,
+            requirement_text=text or None,
+            force_new=args.force_new,
+        )
+        print(canonical_json({"status": result.status, "run": result.as_dict()}))
+        return 0 if result.status.startswith("completed") else 1
     if args.command == "analyze" and args.analyze_command == "status":
         run = services.repository(args.project_id).load_run(args.project_id, args.run_id)
         if run is None:
@@ -90,6 +111,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             content, _media = services.render(args.project_id).export(args.project_id, args.view, args.format)
             sys.stdout.buffer.write(content)
+        return 0
+    if args.command == "model" and args.model_command == "import-sysml":
+        imported = sysml_to_graph(args.path.read_text(encoding="utf-8"), args.project_id)
+        repository = services.repository(args.project_id)
+        current = repository.load_graph(args.project_id)
+        conflicts = sorted({item.id for item in current.entities} & {item.id for item in imported.entities})
+        if conflicts:
+            raise ContractViolation(f"SysML import conflicts with existing entity ids: {conflicts}")
+        operations = [AddEntity(item) for item in imported.entities]
+        operations.extend(Relate(item.source_id, item.predicate, item.target_id, item.evidence_ids) for item in imported.relations)
+        if not operations:
+            raise ContractViolation("SysML import contains no model records")
+        patch = Patch.create(args.project_id, "sysml.import", tuple(operations), "从 SysML v2 子集导入模型", current.revision)
+        revision = repository.append_patch(args.project_id, patch, current.revision)
+        print(canonical_json({"status": "ok", "revision": revision.sequence, "entity_count": len(imported.entities), "relation_count": len(imported.relations)}))
         return 0
     if args.command == "issue" and args.issue_command == "list":
         print(canonical_json({"status": "ok", "issues": services.model(args.project_id).issues(args.project_id)}))

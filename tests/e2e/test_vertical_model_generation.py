@@ -2,6 +2,8 @@ from pathlib import Path
 
 from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.domain.entities import EntityKind
+from rflp_lite.domain.model import Patch, UpdateEntity
+from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 
@@ -20,3 +22,27 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
         entity.kind for entity in graph.entities
     }
     assert graph.revision >= 6
+    assert all("候选" not in entity.meta.name and "待确认" not in entity.meta.name for entity in graph.entities)
+
+    exported = graph_to_sysml(graph)
+    restored = sysml_to_graph(exported, "robot")
+    assert {item.id for item in restored.entities} == {item.id for item in graph.entities}
+    assert {(item.source_id, item.predicate, item.target_id) for item in restored.relations} == {
+        (item.source_id, item.predicate, item.target_id) for item in graph.relations
+    }
+
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+    services.model("robot").apply_patch(
+        "robot",
+        Patch.create(
+            "robot",
+            "review.edit",
+            (UpdateEntity(function.id, {"payload": {"review_note": "人工可继续编辑"}}),),
+            "验收编辑模型",
+            graph.revision,
+        ),
+        graph.revision,
+    )
+    edited = services.model("robot").graph("robot")
+    assert edited.entity_index[function.id].payload["review_note"] == "人工可继续编辑"
+    assert "人工可继续编辑" in graph_to_sysml(edited)

@@ -1,14 +1,13 @@
 # AI4MBSE Harness
 
-AI4MBSE Harness 产品版本为 `0.2.0`，方法论协议版本为 `v2.1`。它是一个本地优先、可复现、可审计的 MBSE 方法论执行器。核心链路为：
+AI4MBSE Harness 产品版本为 `0.2.0`，方法论协议版本为 `v2.1`。它是一个本地优先、可复现、可审计的 MBSE 模型生成工作台。默认产品链路是：
 
 ```text
-Project → Documents / Evidence → Operational → Functional
-        → Logical / Physical → Assurance → Closure
-        → Typed ModelGraph → Gate / Repair → View / Export
+自然语言 / 文档 → Requirements → Functional → Logical → Physical → V&V
+               → Typed ModelGraph → SysML v2 subset / 可编辑模型
 ```
 
-ModelGraph 是模型唯一真源。任务运行只能通过经过契约、类型、关系和门禁校验的局部 Patch 修改模型；SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。
+ModelGraph 是模型唯一真源。纵向生成器按五个阶段调用结构化 Runtime，将每一阶段的局部 Patch 写入图并保留完整追溯链；SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。原有 23-task 生命周期仍保留为调试和兼容入口，不是默认产品路径。
 
 ## 安装
 
@@ -23,7 +22,24 @@ python3 -m venv .venv
 
 ## 最短路径
 
-使用仓库中的 Golden fixture 创建项目并运行分析：
+从自然语言生成完整模型：
+
+```bash
+.venv/bin/ai4mbse --workspace-root .local-workspaces project create campus-demo
+.venv/bin/ai4mbse --workspace-root .local-workspaces analyze generate campus-demo \
+  --text "系统应在校园内完成配送，并允许运营人员人工接管"
+.venv/bin/ai4mbse --workspace-root .local-workspaces model export campus-demo --format sysml > campus-demo.sysml
+```
+
+也可以从已解析的需求文档生成：
+
+```bash
+.venv/bin/ai4mbse --workspace-root .local-workspaces project create document-demo
+.venv/bin/ai4mbse --workspace-root .local-workspaces project ingest document-demo requirements.txt
+.venv/bin/ai4mbse --workspace-root .local-workspaces analyze generate document-demo
+```
+
+旧的 Golden fixture 生命周期用于兼容性和方法论调试：
 
 ```bash
 .venv/bin/ai4mbse --workspace-root .local-workspaces project create campus-demo
@@ -37,8 +53,8 @@ CLI 的主要命令：
 
 ```text
 project create|ingest
-analyze run|status
-model export
+analyze generate|run|status
+model export|import-sysml
 issue list
 repair run
 model-profile list|save|activate
@@ -54,7 +70,7 @@ model-profile list|save|activate
 
 未配置模型时页面会明确显示 `Offline Rule Mode`；配置并激活 Profile 后，每次新分析都会记录实际使用的 profile/provider/model。服务默认只监听 `127.0.0.1`，适用于单用户本地工作区。
 
-当前 LLM 验收边界：原生 Ollama 的 3 Task × 20 live probe 已完成。最终结果为 60 次 provider success，58/60 通过 JSON/schema/Proposal compile/domain validation；2 次 structural retry 未恢复，因此只确认 Structured Output Boundary 的初始验收线，不宣称 23-task full workflow 已验收。结果见 [`contract-conformance-1789049206566817000.json`](docs/superpowers/artifacts/pr09/contract-conformance-1789049206566817000.json)。
+当前产品验收重点已经转为一次真实的五阶段纵向链：`自然语言/文档 → R → F → L → P → V&V → ModelGraph → SysML`。未配置模型时使用离线规则 Runtime 验证产品闭环；配置并激活 OpenAI-compatible Profile 后，`analyze generate` 会对五个阶段分别调用结构化 LLM Runtime，并记录 profile/provider/model、Prompt、上下文、Patch 和追溯摘要。既有 Ollama 3 Task × 20 conformance artifact 仍只代表结构化边界，不等同于完整产品链验收。
 
 ## 开发与验收
 

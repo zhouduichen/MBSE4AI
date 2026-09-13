@@ -13,8 +13,9 @@ from fastapi.responses import JSONResponse, Response
 
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.errors import AdapterFailure, ConcurrentModificationError, ContractViolation, InputRequired, NotFoundError, RflpError
-from rflp_lite.domain.model import Patch, UpdateEntity
+from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.application.model_export import graph_sysml
+from rflp_lite.application.sysml_v2 import sysml_to_graph
 from rflp_lite.application.projections.assurance import build_assurance_view
 from rflp_lite.application.projections.behavior import build_behavior_view
 from rflp_lite.application.projections.history import build_history_view, build_revision_diff
@@ -84,6 +85,8 @@ def _run_payload(summary) -> Mapping[str, object]:
 def _attach_runtime_metadata(run: Mapping[str, object], analysis) -> Mapping[str, object]:
     runner = getattr(analysis, "runner", None)
     selection = getattr(runner, "runtime_selection", None)
+    if selection is None:
+        selection = getattr(analysis, "runtime_selection", None)
     if selection is None:
         return run
     run.update(
@@ -499,22 +502,39 @@ async def run_analysis(request: Request, project_id: str):
         if payload is not None and not isinstance(payload, Mapping):
             raise ContractViolation("analysis payload must be an object")
         payload = payload if isinstance(payload, Mapping) else {}
-        mode = str(payload.get("mode", "pipeline" if "phase" not in payload else "phase")).casefold()
+        mode = str(payload.get("mode", "generate" if "phase" not in payload else "phase")).casefold()
         force_run = bool(payload.get("force_run", False))
         requested_run_id = str(payload.get("run_id", "")).strip() or None
-        if not _services(request).projects.has_analysis_input(project_id):
+        requirement_text = str(payload.get("requirement_text", "")).strip() or None
+        if not _services(request).projects.has_analysis_input(project_id) and not (
+            mode in {"generate", "vertical"} and requirement_text
+        ):
             raise InputRequired("submit a requirement or ingest a document before analysis")
         if force_run and requested_run_id is None:
             requested_run_id = f"web-run-{uuid4().hex[:16]}"
-        analysis = _analysis_service(request, project_id)
+        if mode in {"generate", "vertical"}:
+            generation = _services(request).generation(project_id)
+            result = generation.generate(
+                project_id,
+                requirement_text=requirement_text,
+                document_ids=tuple(str(item) for item in payload.get("document_ids", ()) if str(item).strip()),
+                run_id=requested_run_id,
+                force_new=force_run,
+            )
+            run = result.as_dict()
+            run["mode"] = "generate"
+            run["force_run"] = force_run
+            _attach_runtime_metadata(run, generation)
+        else:
+            analysis = _analysis_service(request, project_id)
         if mode == "pipeline":
             run = _invoke_pipeline(analysis, project_id, run_id=requested_run_id, force_run=force_run)
-        else:
+        elif mode not in {"generate", "vertical"}:
             phase = Phase(str(payload.get("phase", Phase.OPERATIONAL.value)))
             run = _run_payload(_call_run(analysis, project_id, phase, requested_run_id, force_run=force_run))
             run["mode"] = "phase"
             run["force_run"] = force_run
-        _attach_runtime_metadata(run, analysis)
+            _attach_runtime_metadata(run, analysis)
         remember_run(request, project_id, run)
         return {"status": "ok", "run": run}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
@@ -895,6 +915,42 @@ async def export_model(request: Request, project_id: str):
             content, media_type = _services(request).render(project_id).export(project_id, view_id, output_format)
         return Response(content=content, media_type=media_type)
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/sysml/import")
+async def import_sysml(request: Request, project_id: str):
+    try:
+        text = (await request.body()).decode("utf-8")
+        imported = sysml_to_graph(text, project_id)
+        repository = _services(request).repository(project_id)
+        current = repository.load_graph(project_id)
+        existing_ids = {item.id for item in current.entities}
+        conflicts = sorted(existing_ids & {item.id for item in imported.entities})
+        if conflicts:
+            raise ContractViolation(f"SysML import conflicts with existing entity ids: {conflicts}")
+        operations: list[object] = [AddEntity(item) for item in imported.entities]
+        operations.extend(
+            Relate(item.source_id, item.predicate, item.target_id, item.evidence_ids)
+            for item in imported.relations
+        )
+        if not operations:
+            raise ContractViolation("SysML import contains no model records")
+        patch = Patch.create(
+            project_id,
+            "sysml.import",
+            tuple(operations),
+            "从 SysML v2 子集导入模型",
+            current.revision,
+        )
+        revision = repository.append_patch(project_id, patch, current.revision)
+        return {
+            "status": "ok",
+            "revision": revision.sequence,
+            "entity_count": len(imported.entities),
+            "relation_count": len(imported.relations),
+        }
+    except (ContractViolation, RflpError, OSError, UnicodeDecodeError, ValueError) as exc:
         return _error(exc)
 
 

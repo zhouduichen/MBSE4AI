@@ -277,6 +277,36 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
             ).fetchone()
         return row is not None
 
+    def list_source_regions(
+        self, project_id: str, document_ids: Sequence[str] = ()
+    ) -> tuple[Mapping[str, object], ...]:
+        selected = tuple(str(item).strip() for item in document_ids if str(item).strip())
+        query = (
+            "SELECT r.* FROM source_regions r "
+            "JOIN documents d ON d.id = r.document_id "
+            "WHERE d.project_id = ?"
+        )
+        params: list[object] = [project_id]
+        if selected:
+            placeholders = ", ".join("?" for _ in selected)
+            query += f" AND r.document_id IN ({placeholders})"
+            params.extend(selected)
+        query += " ORDER BY r.document_id, r.page, r.locator, r.id"
+        with self._lock:
+            rows = self._connection.execute(query, tuple(params)).fetchall()
+        return tuple(
+            {
+                "id": row["id"],
+                "document_id": row["document_id"],
+                "page": row["page"],
+                "locator": row["locator"],
+                "text": row["text"],
+                "bbox": json.loads(row["bbox"]),
+                "heading_path": json.loads(row["heading_path"]),
+            }
+            for row in rows
+        )
+
     def save_evidence(self, project_id: str, evidence: Mapping[str, object]) -> None:
         self.ensure_project(project_id)
         evidence_id = str(evidence.get("id", "")).strip()

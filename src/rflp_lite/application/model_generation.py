@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import time
+from collections.abc import Mapping
 from uuid import uuid4
 
 from rflp_lite.domain.canonical import canonical_hash
@@ -55,7 +56,7 @@ class TraceabilitySummary:
     missing_count: int
     paths: tuple[tuple[str, ...], ...] = ()
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> Mapping[str, object]:
         return {
             "complete_count": self.complete_count,
             "partial_count": self.partial_count,
@@ -75,7 +76,7 @@ class GenerateModelResult:
     warnings: tuple[str, ...] = ()
     sysml_text: str = ""
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> Mapping[str, object]:
         return {
             "run_id": self.run_id,
             "project_id": self.project_id,
@@ -98,6 +99,13 @@ class GenerateModelResult:
             "warnings": list(self.warnings),
             "sysml_text": self.sysml_text,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class _StageExecution:
+    result: StageResult | None
+    warnings: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
 
 
 class ModelGenerationService:
@@ -146,129 +154,20 @@ class ModelGenerationService:
         warnings: list[str] = []
 
         for stage in vertical_stage_specs():
-            task = stage_task(stage.stage)
             graph = self.repository.load_graph(project_id)
-            context = self._context(graph, task.id, document_ids)
-            started = time.time()
-            self.repository.update_step(
-                Step(
-                    effective_run_id,
-                    task.id,
-                    StepStatus.RUNNING.value,
-                    1,
-                    canonical_hash(context),
-                    None,
-                    (),
-                    "",
-                    self._provider_id(),
-                    self._model_id(),
-                    task.prompt_template_id,
-                    canonical_hash(context),
-                    started,
-                    0.0,
-                    "v1",
-                    "",
-                    task_spec_hash(task),
-                    "",
-                    0,
-                )
+            execution = self._execute_stage(
+                project_id, effective_run_id, stage, graph, document_ids
             )
-            try:
-                response = self.executor.execute(
-                    task,
-                    context,
-                    self.methodology_version,
-                    evidence_bundle=context.evidence,
-                    token_budget=self.output_budget,
-                )
-                if response.status is not StepStatus.COMPLETED:
-                    return self._finish_failed(
-                        project_id,
-                        effective_run_id,
-                        stage_results,
-                        stage.stage,
-                        response.diagnostics,
-                    )
-                if response.patch is None:
-                    if not self._stage_already_present(graph, stage.stage):
-                        return self._finish_failed(
-                            project_id,
-                            effective_run_id,
-                            stage_results,
-                            stage.stage,
-                            ("stage produced no model patch",),
-                        )
-                    revision = graph.revision
-                else:
-                    try:
-                        self.executor.validate_response(project_id, task, graph, context, response)
-                    except MethodologyValidationError as exc:
-                        if exc.code != "semantic_invalid":
-                            raise
-                        warnings.append(f"{stage.stage.value}: {exc}")
-                        relaxed = replace(
-                            task,
-                            validators=tuple(
-                                item for item in task.validators if item != "semantic"
-                            ),
-                        )
-                        self.executor.validate_response(project_id, relaxed, graph, context, response)
-                    patch = _promote_generated_entities(response.patch)
-                    revision = self.repository.append_patch(
-                        project_id,
-                        patch,
-                        graph.revision,
-                        run_id=effective_run_id,
-                    ).sequence
-                current = self.repository.load_graph(project_id)
-                stage_result = StageResult(
-                    stage.stage.value,
-                    "completed",
-                    revision,
-                    sum(
-                        1
-                        for entity in current.entities
-                        if entity.kind in stage.output_kinds
-                        and entity.meta.status is not EntityStatus.DEPRECATED
-                    ),
-                    len(current.relations),
-                    tuple(response.assumptions),
-                    tuple(response.open_questions),
-                    tuple(response.diagnostics),
-                )
-                stage_results.append(stage_result)
-                warnings.extend(response.open_questions)
-                self.repository.update_step(
-                    Step(
-                        effective_run_id,
-                        task.id,
-                        StepStatus.COMPLETED.value,
-                        1,
-                        response.input_hash or canonical_hash(context),
-                        response.patch.id if response.patch else None,
-                        tuple(response.diagnostics),
-                        response.output_hash,
-                        response.provider_id or self._provider_id(),
-                        response.model_id or self._model_id(),
-                        task.prompt_template_id,
-                        canonical_hash(context),
-                        started,
-                        time.time(),
-                        "v1",
-                        "",
-                        task_spec_hash(task),
-                        "",
-                        0,
-                    )
-                )
-            except Exception as exc:
+            if execution.result is None:
                 return self._finish_failed(
                     project_id,
                     effective_run_id,
                     stage_results,
                     stage.stage,
-                    (str(exc),),
+                    execution.diagnostics,
                 )
+            stage_results.append(execution.result)
+            warnings.extend(execution.warnings)
 
         final_graph = self.repository.load_graph(project_id)
         traceability = build_traceability_summary(final_graph)
@@ -295,9 +194,136 @@ class ModelGenerationService:
             _sysml_text(final_graph),
         )
 
+    def _execute_stage(
+        self,
+        project_id: str,
+        run_id: str,
+        stage,
+        graph,
+        document_ids: tuple[str, ...],
+    ) -> _StageExecution:
+        task = stage_task(stage.stage)
+        context = self._context(graph, task.id, document_ids)
+        started = time.time()
+        context_hash = canonical_hash(context)
+        self.repository.update_step(
+            Step(
+                run_id,
+                task.id,
+                StepStatus.RUNNING.value,
+                1,
+                context_hash,
+                None,
+                (),
+                "",
+                self._provider_id(),
+                self._model_id(),
+                task.prompt_template_id,
+                context_hash,
+                started,
+                0.0,
+                "v1",
+                "",
+                task_spec_hash(task),
+                "",
+                0,
+            )
+        )
+        try:
+            response = self.executor.execute(
+                task,
+                context,
+                self.methodology_version,
+                evidence_bundle=context.evidence,
+                token_budget=self.output_budget,
+            )
+            if response.status is not StepStatus.COMPLETED:
+                return _StageExecution(None, diagnostics=response.diagnostics)
+            warnings: list[str] = []
+            if response.patch is None:
+                if not self._stage_already_present(graph, stage.stage):
+                    return _StageExecution(None, diagnostics=("stage produced no model patch",))
+                revision = graph.revision
+            else:
+                try:
+                    self.executor.validate_response(project_id, task, graph, context, response)
+                except MethodologyValidationError as exc:
+                    if exc.code != "semantic_invalid":
+                        raise
+                    warnings.append(f"{stage.stage.value}: {exc}")
+                    relaxed = replace(
+                        task,
+                        validators=tuple(item for item in task.validators if item != "semantic"),
+                    )
+                    self.executor.validate_response(project_id, relaxed, graph, context, response)
+                patch = _promote_generated_entities(response.patch)
+                revision = self.repository.append_patch(
+                    project_id, patch, graph.revision, run_id=run_id
+                ).sequence
+            current = self.repository.load_graph(project_id)
+            stage_result = StageResult(
+                stage.stage.value,
+                "completed",
+                revision,
+                sum(
+                    1
+                    for entity in current.entities
+                    if entity.kind in stage.output_kinds
+                    and entity.meta.status is not EntityStatus.DEPRECATED
+                ),
+                len(current.relations),
+                tuple(response.assumptions),
+                tuple(response.open_questions),
+                tuple(response.diagnostics),
+            )
+            warnings.extend(response.open_questions)
+            self.repository.update_step(
+                Step(
+                    run_id,
+                    task.id,
+                    StepStatus.COMPLETED.value,
+                    1,
+                    response.input_hash or context_hash,
+                    response.patch.id if response.patch else None,
+                    tuple(response.diagnostics),
+                    response.output_hash,
+                    response.provider_id or self._provider_id(),
+                    response.model_id or self._model_id(),
+                    task.prompt_template_id,
+                    context_hash,
+                    started,
+                    time.time(),
+                    "v1",
+                    "",
+                    task_spec_hash(task),
+                    "",
+                    0,
+                )
+            )
+            return _StageExecution(stage_result, tuple(warnings))
+        except Exception as exc:
+            return _StageExecution(None, diagnostics=(str(exc),))
+
     def _ensure_input(self, request: GenerateModelRequest) -> None:
         graph = self.repository.load_graph(request.project_id)
         text = " ".join(str(request.requirement_text or "").split()).strip()
+        source_ids: tuple[str, ...] = ()
+        if not text:
+            list_regions = getattr(self.repository, "list_source_regions", None)
+            if callable(list_regions):
+                regions = tuple(list_regions(request.project_id, request.document_ids))
+                text = "\n".join(
+                    str(region.get("text", "")).strip()
+                    for region in regions
+                    if str(region.get("text", "")).strip()
+                ).strip()
+                source_ids = tuple(
+                    dict.fromkeys(
+                        str(region.get("id", "")).strip()
+                        for region in regions
+                        if str(region.get("id", "")).strip()
+                    )
+                )
         if text:
             existing = next(
                 (
@@ -324,6 +350,7 @@ class ModelGenerationService:
                     status=EntityStatus.CANDIDATE,
                     producer=Producer.USER,
                     confidence=1.0,
+                    source_ids=source_ids,
                     revision=graph.revision,
                 )
                 patch = Patch.create(
@@ -342,7 +369,7 @@ class ModelGenerationService:
         ):
             return
         if request.document_ids or self.repository.has_documents(request.project_id):
-            raise InputRequired("document input requires a normalized requirement text before generation")
+            raise InputRequired("document input contains no readable requirement text")
         raise InputRequired("requirement_text or an existing requirement is required")
 
     def _context(self, graph, task_id: str, document_ids: tuple[str, ...]) -> ContextBundle:
@@ -448,7 +475,7 @@ class ModelGenerationService:
     def _mode(self) -> str:
         return str(getattr(self.runtime_selection, "mode", "offline"))
 
-    def _audit(self, project_id: str, kind: str, payload: dict[str, object]) -> None:
+    def _audit(self, project_id: str, kind: str, payload: Mapping[str, object]) -> None:
         recorder = getattr(self.repository, "record_audit", None)
         if recorder is not None:
             recorder(project_id, kind, payload)
