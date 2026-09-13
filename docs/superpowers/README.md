@@ -13,6 +13,7 @@
 - [Review 后继续生成设计](specs/2026-09-13-review-to-continue-generation-design.md)
 - [Review 后继续生成实施计划](plans/2026-09-13-review-to-continue-generation.md)
 - [统一工程交付包设计](specs/2026-09-13-unified-engineering-deliverable-design.md)
+- [统一工程交付包实施计划](plans/2026-09-13-unified-engineering-deliverable.md)
 
 ## Superseded
 
