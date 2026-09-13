@@ -18,6 +18,14 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
 
     assert result.status == "completed"
     assert result.traceability.complete_count == 1
+    assert result.methodology.metrics["logical_allocation_coverage"] == 1.0
+    assert result.methodology.metrics["verification_coverage"] == 1.0
+    assert result.methodology.metrics["validation_coverage"] == 1.0
+    assert result.methodology.metrics["physical_feasibility"] == "needs_measurement"
+    assert any(
+        finding.code == "physical_measurement_required"
+        for finding in result.methodology.findings
+    )
     assert {EntityKind.FUNCTION, EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK} <= {
         entity.kind for entity in graph.entities
     }

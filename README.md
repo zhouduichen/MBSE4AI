@@ -72,6 +72,8 @@ model-profile list|save|activate
 
 当前产品验收重点已经转为一次真实的五阶段纵向链：`自然语言/文档 → R → F → L → P → V&V → ModelGraph → SysML`。追溯结果分开显示 RFLP、Verification、Validation 和端到端闭环；只有两类 V&V 都存在才算端到端完成。未配置模型时使用离线规则 Runtime 验证产品闭环；配置并激活 OpenAI-compatible Profile 后，`analyze generate` 会对五个阶段分别调用结构化 LLM Runtime，并记录 profile/provider/model、Prompt、上下文、Patch 和追溯摘要。语义校验失败的 LLM 输出只保留为 `candidate` 并进入 review，不计入完成度。既有 Ollama 3 Task × 20 conformance artifact 仍只代表结构化边界，不等同于完整产品链验收。
 
+纵向链完成后由 Methodology Engine 对 ModelGraph 做确定性工程分析：逻辑层报告分配覆盖、分区和内聚/耦合信号；物理层传播约束并区分冲突与待测量；V&V 分开报告 Verification、Validation 和结构化字段完整度；Review 重新分析请求沿图返回影响实体、阶段、路径和下一步内部任务。引擎只读模型，不替代 LLM Controller，也不把未知工程数据误报为可行。
+
 ## 开发与验收
 
 ```bash

@@ -29,15 +29,15 @@
 - Consumes: `ModelGraph`, `EntityKind`, `EntityStatus`, `RelationPredicate`.
 - Produces: `MethodologyFinding`, `MethodologyReport`, and `MethodologyEngine.analyze(graph, changed_entity_ids=())`.
 
-- [ ] **Step 1: Write failing graph-analysis tests**
+- [x] **Step 1: Write failing graph-analysis tests**
 
 Create graphs covering: a valid Function → LogicalComponent → PhysicalBlock chain; an unallocated Function; a PhysicalBlock with `max_power_w` requirement conflict; a PhysicalBlock with unknown `power_w`; incomplete Verification/Validation payloads; and a changed Requirement with downstream relations. Assert stable finding codes, metrics, impact IDs, impacted stages, and recommended task IDs.
 
-- [ ] **Step 2: Run the focused tests and verify failure**
+- [x] **Step 2: Run the focused tests and verify failure**
 
 Run `./.venv/bin/python -m pytest tests/methodology/test_engine.py -q`. It must fail because `rflp_lite.methodology.engine` does not yet exist.
 
-- [ ] **Step 3: Implement immutable report types and deterministic analyzers**
+- [x] **Step 3: Implement immutable report types and deterministic analyzers**
 
 Implement these signatures:
 
@@ -72,11 +72,11 @@ class MethodologyEngine:
 
 The logical analyzer shall calculate allocation coverage, orphan functions/components, interface crossings, and partition candidates from allocation and payload dependency signals. The physical analyzer shall normalize numeric limits from `payload["constraints"]`, `payload["limits"]`, and `max_*`/`min_*` fields, compare them with physical values, and emit `physical_constraint_conflict` or `physical_measurement_required`. The V&V analyzer shall separately count verification and validation coverage and check `method`, `precondition`, `input`, `procedure`, `expected_result`, `pass_criteria`, and `evidence_ids`. Impact traversal shall walk both relation directions with a four-hop bound and map reached kinds to concrete 23-task IDs.
 
-- [ ] **Step 4: Run focused tests and lint**
+- [x] **Step 4: Run focused tests and lint**
 
 Run `./.venv/bin/python -m pytest tests/methodology/test_engine.py -q` and `./.venv/bin/ruff check src/rflp_lite/methodology/engine.py tests/methodology/test_engine.py`. Expected: PASS.
 
-- [ ] **Step 5: Commit the pure engine**
+- [x] **Step 5: Commit the pure engine**
 
 ```bash
 git add src/rflp_lite/methodology/engine.py tests/methodology/test_engine.py
@@ -95,23 +95,23 @@ git commit -m "feat: add deterministic methodology engine"
 - Consumes: `MethodologyEngine.analyze` and `MethodologyReport.as_dict()`.
 - Produces: `GenerateModelResult.methodology` and reanalysis payload fields `impact`, `impacted_stages`, `recommended_tasks`, and `impact_paths`.
 
-- [ ] **Step 1: Write failing integration assertions**
+- [x] **Step 1: Write failing integration assertions**
 
 Assert a generated result exposes `methodology.metrics`, contains physical measurement findings for the offline candidate, and records `model_generation.methodology_analyzed`. Assert a reanalysis request for an edited Requirement contains the affected Function/Logical/Physical IDs and a non-empty recommended task list derived from the graph.
 
-- [ ] **Step 2: Run the focused tests and verify failure**
+- [x] **Step 2: Run the focused tests and verify failure**
 
 Run `./.venv/bin/python -m pytest tests/application/test_model_generation.py tests/interface/web/test_review_actions.py -q`. Expected: FAIL because generation and reanalysis currently return no methodology report or graph-derived impact.
 
-- [ ] **Step 3: Integrate without moving persistence into the engine**
+- [x] **Step 3: Integrate without moving persistence into the engine**
 
 Instantiate an injectable `MethodologyEngine` in `ModelGenerationService`. After the five stages, call `analyze(final_graph)`, add the report to `GenerateModelResult.as_dict()`, append actionable findings to warnings, and record the complete report in `model_generation.methodology_analyzed`. In `ReviewService.request_reanalysis`, call the same engine with the edited entity ID, use `report.recommended_tasks` with the existing static mapping only as a fallback, and persist the report fields in `review.reanalysis.requested`.
 
-- [ ] **Step 4: Run integration tests and lint**
+- [x] **Step 4: Run integration tests and lint**
 
 Run `./.venv/bin/python -m pytest tests/application/test_model_generation.py tests/interface/web/test_review_actions.py -q` and `./.venv/bin/ruff check src/rflp_lite/application/model_generation.py src/rflp_lite/application/review_service.py tests/application/test_model_generation.py tests/interface/web/test_review_actions.py`. Expected: PASS.
 
-- [ ] **Step 5: Commit the application integration**
+- [x] **Step 5: Commit the application integration**
 
 ```bash
 git add src/rflp_lite/application/model_generation.py src/rflp_lite/application/review_service.py tests/application/test_model_generation.py tests/interface/web/test_review_actions.py
@@ -129,19 +129,19 @@ git commit -m "feat: connect methodology analysis to generation and review"
 - Consumes: generation audit event `model_generation.methodology_analyzed` and `GenerateModelResult.methodology`.
 - Produces: `latest_run.methodology` with findings, metrics, and next tasks visible on the analysis page.
 
-- [ ] **Step 1: Write failing API/page assertions**
+- [x] **Step 1: Write failing API/page assertions**
 
 Assert the generation JSON has `methodology.findings` and `methodology.metrics`; assert the analysis page contains “Methodology Findings”, “Physical feasibility”, “V&V Coverage”, and “Next Tasks”.
 
-- [ ] **Step 2: Implement one report decoration path**
+- [x] **Step 2: Implement one report decoration path**
 
 Extend `_decorate_generation_run` to read the methodology audit event for the current `run_id`. Render only bounded finding codes/messages, key metric values, and task IDs; keep entity details linked through existing resource routes. Do not recompute analysis in Jinja or Web route code.
 
-- [ ] **Step 3: Run interface tests**
+- [x] **Step 3: Run interface tests**
 
 Run `./.venv/bin/python -m pytest tests/interface/web/test_vertical_generation_api.py tests/interface/web/test_review_actions.py -q`. Expected: PASS.
 
-- [ ] **Step 4: Commit the workbench presentation**
+- [x] **Step 4: Commit the workbench presentation**
 
 ```bash
 git add src/rflp_lite/interface/web/resource_pages.py src/rflp_lite/interface/web/templates/analysis.html tests/interface/web/test_vertical_generation_api.py
@@ -160,15 +160,15 @@ git commit -m "feat: show methodology findings in workbench"
 - Consumes: the engine, generation report, Review impact payload, and current ModelGraph export path.
 - Produces: documented Methodology Engine behavior and a regression proving one offline run creates both a complete RFLP/V&V graph and non-empty engineering analysis.
 
-- [ ] **Step 1: Add the end-to-end acceptance test**
+- [x] **Step 1: Add the end-to-end acceptance test**
 
 Run the offline generator, assert `methodology.metrics` includes logical allocation and separate verification/validation coverage, assert unknown physical values are not feasible, and assert SysML export remains readable.
 
-- [ ] **Step 2: Update product documentation**
+- [x] **Step 2: Update product documentation**
 
 Document Methodology Findings, impact analysis, and the distinction between graph truth and SysML interchange format in the three listed files.
 
-- [ ] **Step 3: Run the complete verification matrix**
+- [x] **Step 3: Run the complete verification matrix**
 
 ```bash
 ./.venv/bin/python scripts/verify_full.py
@@ -178,7 +178,7 @@ git status --short --branch
 
 Expected: all tests pass; architecture metrics remain within `architecture_budget.json`; Ruff and import-linter pass; the branch has only intended changes.
 
-- [ ] **Step 4: Commit and push the product-path slice**
+- [x] **Step 4: Commit and push the product-path slice**
 
 ```bash
 git add README.md docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md tests/e2e/test_vertical_model_generation.py

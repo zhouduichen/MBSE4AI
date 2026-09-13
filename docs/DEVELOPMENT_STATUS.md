@@ -30,6 +30,7 @@
 | 语义质量口径 | `semantic_invalid` 输出只保存为 candidate、创建 review Issue，不再通过移除 semantic validator 的方式写成 validated |
 | 追溯质量口径 | 分开报告 RFLP、Verification、Validation 和端到端闭环；Verification 或 Validation 单独存在均不算端到端完成 |
 | 内部推理记录 | 五阶段保留 23-task/架构分析映射，并以 bounded decision records 表达 clustering、constraint propagation、feasibility selection 等决策 |
+| Methodology Engine v1 | 对 ModelGraph 实现 Logical 分区质量、Physical 约束冲突/待测量、Verification/Validation 结构完整度和四跳变更影响分析，并接入生成、Review 与 Web 工作台 |
 
 ## 历史 Harness 验收边界
 
@@ -43,6 +44,8 @@
 PR09 的 conformance runner 位于 `tests/contract_conformance/`，默认使用离线 fixture；真实 Ollama 测试必须显式设置 `RFLP_RUN_LIVE_LLM=1`。最终 3 Task × 20 结果为：provider/JSON/schema/compile/domain 均 58/60，2 次 structural retry 未恢复。该结果仅说明结构化边界已有基础覆盖，不能替代新的五阶段产品链验收。
 
 最终 live artifact：`docs/superpowers/artifacts/pr09/contract-conformance-1789049206566817000.json`。新的主验收位于 `tests/e2e/test_vertical_model_generation.py`、`tests/application/test_model_generation.py` 和 `tests/interface/test_cli_v2.py`。
+
+Methodology Engine v1 的边界是确定性反馈：它已经能够提出影响实体和下一步内部任务，但 Review API 当前仍只创建 reanalysis request，尚未自动触发新的 LLM 生成运行；这属于下一阶段 AI Controller 迭代能力。
 
 ## 当前验收命令
 
