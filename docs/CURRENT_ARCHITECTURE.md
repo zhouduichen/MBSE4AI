@@ -9,7 +9,7 @@
 
 这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `0.2.0`，方法论协议是 `v2.1`。每个项目使用独立工作区和数据库，项目之间不共享模型或证据。旧 23-task WorkflowRunner 仍存在，但只承担兼容和单阶段调试职责。
 
-输入边界会把需求中的显式功耗、质量、时延、带宽、成本和续航比较式规范化为 canonical `constraints`，并保留 `constraint_provenance`。这些字段沿 Requirement→Function→Logical→Physical 传播；物理值未知时仍进入 `needs_measurement`，只有实测值违反 `max_`/`min_` 边界才报告 `physical_constraint_conflict`。
+输入边界会把需求中的显式功耗、质量、时延、带宽、成本和续航比较式规范化为 canonical `constraints`，并保留 `constraint_provenance`。这些字段沿 Requirement→Function→Logical→Physical 传播；物理值未知时仍进入 `needs_measurement`，只有实测值违反 `max_`/`min_` 边界才报告 `physical_constraint_conflict`。P 层对明确的 `max_*`/`min_*` 约束创建 `level=technical` Technical Requirement，以 `derivedFrom` 回接来源需求、以 `satisfiedBy` 连接物理候选；该技术需求复用来源需求的 RFLP 路径并拥有独立 V&V，未声明约束的需求不会额外拆分。
 
 ## 分层与依赖
 
@@ -33,7 +33,7 @@ adapters → ports + domain
 
 AI 或规则 Runtime 只返回结构化 TaskExecutionResponse。WorkflowRunner 将响应转换为局部 Patch，经实体字段、RelationPredicate、端点类型、状态、锁定标记和 expected revision 校验后提交。CAS 失败返回并发修改错误；`locked` 或 `user_modified` 的实体不能被自动覆盖。
 
-每次运行拥有稳定 `run_id`、methodology/task spec/prompt version、profile/provider/model、input/context/output hash、步骤状态和诊断。纵向生成运行按 Requirements → Functional → Logical → Physical → V&V 顺序提交阶段 Patch；输入适配器按句子/列表项建立独立 Requirement，并为文档来源保留各自的 `document_region` source id；随后计算每条 Requirement 的 RFLP、Verification、Validation 和端到端追溯。没有远程模型时，F/L/P fallback 从 Function 的显式分区键、共享状态和稳定 ID 形成逻辑分区，为每个分区生成 Physical candidate，并从 Requirement→Function 追溯和复制已有结构化约束；未知 SWaP-C 仍标记为 `needs_measurement`。生成的 LLM 实体只有通过语义校验才进入可编辑的 `validated` 状态；语义失败实体保留为 `candidate`，写入 `semantic_invalid` Issue，人工可通过既有 Review/Edit/Lock 入口接管。每个阶段还返回有界的 decision records，记录内部方法论步骤、结论和依据实体。旧 WorkflowRunner 的 Gate、Repair、Closure 状态机不驱动默认产品路径。
+每次运行拥有稳定 `run_id`、methodology/task spec/prompt version、profile/provider/model、input/context/output hash、步骤状态和诊断。纵向生成运行按 Requirements → Functional → Logical → Physical → V&V 顺序提交阶段 Patch；输入适配器按句子/列表项建立独立 Requirement，并为文档来源保留各自的 `document_region` source id；随后计算每条 Requirement 的 RFLP、Verification、Validation 和端到端追溯。没有远程模型时，F/L/P fallback 从 Function 的显式分区键、共享状态和稳定 ID 形成逻辑分区，为每个分区生成 Physical candidate，并从 Requirement→Function 追溯和复制已有结构化约束；有 canonical 工程约束时，P 层同时生成技术需求并把物理候选作为直接约束对象；未知 SWaP-C 仍标记为 `needs_measurement`。生成的 LLM 实体只有通过语义校验才进入可编辑的 `validated` 状态；语义失败实体保留为 `candidate`，写入 `semantic_invalid` Issue，人工可通过既有 Review/Edit/Lock 入口接管。每个阶段还返回有界的 decision records，记录内部方法论步骤、结论和依据实体。旧 WorkflowRunner 的 Gate、Repair、Closure 状态机不驱动默认产品路径。
 
 五阶段完成后，`MethodologyEngine` 只读当前 ModelGraph 并输出 findings、metrics、decisions、impact paths 和 recommended tasks；生成结果与 `review.reanalysis.requested` audit 共用同一报告格式。默认链在 R/F/L/P/V&V 中分别落下 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase 等可编辑对象；V&V 计划字段与执行 evidence 分开统计。未知的物理 SWaP-C 值会被标记为 `needs_measurement`，约束冲突会被标记为 `physical_constraint_conflict`，不会直接提升为可行。`SystemsEngineeringController` 将这些反馈收敛为有限的下一步动作：缺证据时暂停等待输入，物理冲突或未评审逻辑分区时提出 Trade Study 选项，并在用户选定后按影响实体调用定向重分析。选定的决策会进入后续 `ContextBundle`、context hash 和结构化 LLM 请求，保证它不只是审计文字而是下一轮推理的输入。它不绕过 Review/CAS，也不替用户无审查地改变工程决策。
 

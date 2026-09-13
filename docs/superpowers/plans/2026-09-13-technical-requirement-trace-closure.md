@@ -18,10 +18,10 @@
 - Test: `tests/application/test_model_generation.py`
 - Test: `tests/application/projections/test_traceability_projection.py`
 
-- [ ] Add `requirement_lineage(graph, requirement_id) -> tuple[str, ...]`, following only requirement-to-requirement `DERIVED_FROM` edges to stable root requirements.
-- [ ] Make application trace summaries resolve F/L/P targets from the root source requirement and append a technical requirement's direct Physical Block target without duplicating IDs.
-- [ ] Make the traceability projection use the same lineage rule, so summary rows, coverage states, and graph views agree.
-- [ ] Add focused tests for direct lineage, nested lineage, technical direct physical targets, and unchanged ordinary requirements.
+- [x] Add `requirement_lineage(graph, requirement_id) -> tuple[str, ...]`, following only requirement-to-requirement `DERIVED_FROM` edges to stable root requirements.
+- [x] Make application trace summaries resolve F/L/P targets from the root source requirement and append a technical requirement's direct Physical Block target without duplicating IDs.
+- [x] Make the traceability projection use the same lineage rule, so summary rows, coverage states, and graph views agree.
+- [x] Add focused tests for direct lineage, nested lineage, technical direct physical targets, and unchanged ordinary requirements.
 
 ## Task 2: Generate Technical Requirements from explicit Physical constraints
 
@@ -30,11 +30,11 @@
 - Test: `tests/runtime/test_vertical_rule_runtime.py`
 - Test: `tests/e2e/test_vertical_model_generation.py`
 
-- [ ] Add a small extractor for canonical explicit constraints found at the requirement top level or under `constraints`/`limits`; recognize only `max_*` and `min_*` keys.
-- [ ] After each Physical Block is created or selected, create one deterministic technical requirement per source requirement and physical candidate when the extractor returns constraints.
-- [ ] Populate provenance, source IDs, constraint fields, verification method, and open question metadata without fabricating a measurement or feasibility result.
-- [ ] Add `DERIVED_FROM` and `SATISFIED_BY` relations, and prove idempotency on repeated stage execution.
-- [ ] Cover both the normal physical candidate and an alternative candidate created by an architecture decision.
+- [x] Add a small extractor for canonical explicit constraints found at the requirement top level or under `constraints`/`limits`; recognize only `max_*` and `min_*` keys.
+- [x] After each Physical Block is created or selected, create one deterministic technical requirement per source requirement and physical candidate when the extractor returns constraints.
+- [x] Populate provenance, source IDs, constraint fields, verification method, and open question metadata without fabricating a measurement or feasibility result.
+- [x] Add `DERIVED_FROM` and `SATISFIED_BY` relations, and prove idempotency on repeated stage execution.
+- [x] Cover both the normal physical candidate and an alternative candidate created by an architecture decision.
 
 ## Task 3: Align methodology and V&V semantics
 
@@ -44,9 +44,9 @@
 - Test: `tests/e2e/test_vertical_model_generation.py`
 - Test: `tests/interface/web/test_vertical_generation_api.py`
 
-- [ ] Exclude `level=technical` requirements from Functional analysis so they do not produce false `functional_requirement_uncovered` findings.
-- [ ] Keep technical requirements in V&V analysis so each receives independent VerificationCase/ValidationCase coverage.
-- [ ] Verify constrained natural-language generation remains complete at the structural level while reporting measurement/open-question work honestly.
+- [x] Exclude `level=technical` requirements from Functional analysis so they do not produce false `functional_requirement_uncovered` findings.
+- [x] Keep technical requirements in V&V analysis so each receives independent VerificationCase/ValidationCase coverage.
+- [x] Verify constrained natural-language generation remains complete at the structural level while reporting measurement/open-question work honestly.
 
 ## Task 4: Preserve SysML, deliverables, documentation, and full-chain acceptance
 
@@ -58,10 +58,10 @@
 - Modify: `docs/DEVELOPMENT_STATUS.md`
 - Modify: `docs/superpowers/README.md`
 
-- [ ] Prove technical requirement payloads and both lineage relations survive SysML v2 export/import.
-- [ ] Prove model, RFLP, traceability, and V&V deliverables expose the generated technical requirement.
-- [ ] Document the explicit-constraint rule, its trace semantics, and the remaining measurement/feasibility boundary.
-- [ ] Run the complete verification suite: pytest, `scripts/verify_full.py`, compileall, ruff, import-linter, architecture metrics, and `git diff --check`.
+- [x] Prove technical requirement payloads and both lineage relations survive SysML v2 export/import.
+- [x] Prove model, RFLP, traceability, and V&V deliverables expose the generated technical requirement.
+- [x] Document the explicit-constraint rule, its trace semantics, and the remaining measurement/feasibility boundary.
+- [x] Run the complete verification suite: pytest, `scripts/verify_full.py`, compileall, ruff, import-linter, architecture metrics, and `git diff --check`.
 - [ ] Commit implementation/tests/docs in logical commits, push the branch to GitHub, and verify local HEAD equals its upstream HEAD.
 
 ## Verification commands
