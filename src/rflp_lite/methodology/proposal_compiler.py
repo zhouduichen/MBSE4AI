@@ -379,7 +379,8 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
             raise ContractViolation(f"task cannot update entity outside write scope: {item.entity_id}")
         if "payload" in item.field_patch:
             payload_patch = _mapping(item.field_patch["payload"], "updates.field_patch.payload")
-            _validate_entity_payload(entity.kind, payload_patch, request)
+            merged_payload = {**dict(entity.payload), **payload_patch}
+            _validate_entity_payload(entity.kind, merged_payload, request)
         operations.append(UpdateEntity(item.entity_id, item.field_patch))
     for item in proposal.deprecations:
         entity = context_entities.get(item.entity_id)

@@ -1,8 +1,10 @@
+from dataclasses import replace
+
 import pytest
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.errors import ContractViolation
-from rflp_lite.domain.model import AddEntity, Patch, Relate
+from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.methodology.contracts import ContextBundle, TaskExecutionRequest
 from rflp_lite.methodology.proposal_compiler import compile_task_proposal, proposal_schema
 from rflp_lite.methodology.tasks import output_contract, task_catalog
@@ -200,4 +202,57 @@ def test_patch_like_update_fields_are_rejected_by_proposal_schema():
     }]
 
     with pytest.raises(ContractViolation, match="schema"):
+        compile_task_proposal(request, payload)
+
+
+def _update_request() -> tuple[TaskExecutionRequest, str]:
+    request = _request()
+    entity = make_entity(
+        EntityKind.REQUIREMENT,
+        "原始需求",
+        {"obligation": "系统应完成投递", "source": "doc-1"},
+    )
+    contract = dict(request.output_contract)
+    schemas = dict(contract["x-payload-schemas"])
+    requirement_schema = dict(schemas[EntityKind.REQUIREMENT.value])
+    requirement_schema["required"] = ["obligation", "source"]
+    schemas[EntityKind.REQUIREMENT.value] = requirement_schema
+    contract["x-payload-schemas"] = schemas
+    return replace(
+        request,
+        context_bundle=replace(request.context_bundle, entities=(entity,)),
+        output_contract=contract,
+    ), entity.id
+
+
+def test_partial_payload_update_validates_merged_payload():
+    request, entity_id = _update_request()
+    payload = _proposal(
+        entities=[],
+        updates=[{
+            "entity_id": entity_id,
+            "field_patch": {"payload": {"obligation": "系统应支持人工接管"}},
+        }],
+    )
+
+    patch = compile_task_proposal(request, payload)
+
+    assert patch is not None
+    assert isinstance(patch.operations[0], UpdateEntity)
+    assert patch.operations[0].field_patch == {
+        "payload": {"obligation": "系统应支持人工接管"}
+    }
+
+
+def test_partial_payload_update_rejects_invalid_final_payload():
+    request, entity_id = _update_request()
+    payload = _proposal(
+        entities=[],
+        updates=[{
+            "entity_id": entity_id,
+            "field_patch": {"payload": {"source": 42}},
+        }],
+    )
+
+    with pytest.raises(ContractViolation, match="invalid requirement payload"):
         compile_task_proposal(request, payload)
