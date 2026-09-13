@@ -515,6 +515,119 @@ class ModelGenerationService:
         )
         return self.controller.plan(graph, report, max_actions=max_actions).as_dict()
 
+    def iterate_controller(
+        self,
+        project_id: str,
+        *,
+        max_iterations: int = 3,
+        expected_revision: int | None = None,
+    ) -> Mapping[str, object]:
+        """Execute bounded safe Controller actions and re-evaluate after each one."""
+
+        steps_limit = int(max_iterations)
+        if not 1 <= steps_limit <= 8:
+            raise ContractViolation("max_iterations must be between 1 and 8")
+        initial_graph = self.repository.load_graph(project_id)
+        if expected_revision is not None and int(expected_revision) != initial_graph.revision:
+            raise ConflictError(
+                f"stale controller iteration: expected {expected_revision}, "
+                f"current {initial_graph.revision}"
+            )
+        iteration_id = f"controller-iteration-{uuid4().hex[:16]}"
+        start_revision = initial_graph.revision
+        records: list[dict[str, object]] = []
+        seen: set[tuple[str, int]] = set()
+        terminal_status = "max_iterations"
+        self._audit(project_id, "controller.iteration.started", {
+            "iteration_id": iteration_id,
+            "start_revision": start_revision,
+            "max_iterations": steps_limit,
+        })
+        for sequence in range(1, steps_limit + 1):
+            before_graph = self.repository.load_graph(project_id)
+            before_report = self.methodology_engine.analyze(before_graph)
+            before_plan = self.controller.plan(before_graph, before_report)
+            action = before_plan.next_action
+            if action is None:
+                terminal_status = "completed"
+                break
+            fingerprint = (action.id, before_graph.revision)
+            if fingerprint in seen:
+                terminal_status = "no_progress"
+                break
+            seen.add(fingerprint)
+            if action.kind == "trade_study":
+                terminal_status = "awaiting_decision"
+                break
+            if action.kind == "collect_input":
+                terminal_status = "awaiting_input"
+                break
+            if action.kind not in {"reanalyze", "collect_evidence"}:
+                terminal_status = "failed"
+                break
+            execution = self.execute_controller_action(
+                project_id,
+                action_id=action.id,
+                expected_revision=before_graph.revision,
+            )
+            after_graph = self.repository.load_graph(project_id)
+            after_report = self.methodology_engine.analyze(after_graph)
+            nested = execution.get("reanalysis", {})
+            nested_status = (
+                str(nested.get("execution_status", "completed"))
+                if isinstance(nested, Mapping)
+                else "completed"
+            )
+            record = {
+                "sequence": sequence,
+                "action": action.as_dict(),
+                "execution_status": execution.get("execution_status", "completed"),
+                "revision_before": before_graph.revision,
+                "revision_after": after_graph.revision,
+                "traceability_before": build_traceability_summary(before_graph).as_dict(),
+                "traceability_after": build_traceability_summary(after_graph).as_dict(),
+                "finding_codes_before": [item.code for item in before_report.findings],
+                "finding_codes_after": [item.code for item in after_report.findings],
+                "result": execution,
+            }
+            records.append(record)
+            self._audit(project_id, "controller.iteration.step", {
+                "iteration_id": iteration_id,
+                **{key: value for key, value in record.items() if key != "result"},
+            })
+            if execution.get("execution_status") == "awaiting_evidence":
+                terminal_status = "awaiting_evidence"
+                break
+            if nested_status == "failed":
+                terminal_status = "failed"
+                break
+            if after_graph.revision <= before_graph.revision:
+                terminal_status = "no_progress"
+                break
+        final_graph = self.repository.load_graph(project_id)
+        final_report = self.methodology_engine.analyze(final_graph)
+        final_controller = self.controller.plan(final_graph, final_report)
+        if terminal_status == "max_iterations" and not final_controller.actions:
+            terminal_status = "completed"
+        payload = {
+            "iteration_id": iteration_id,
+            "project_id": project_id,
+            "execution_status": terminal_status,
+            "start_revision": start_revision,
+            "revision": final_graph.revision,
+            "iterations": records,
+            "traceability": build_traceability_summary(final_graph).as_dict(),
+            "methodology": final_report.as_dict(),
+            "controller": final_controller.as_dict(),
+        }
+        self._audit(project_id, f"controller.iteration.{terminal_status}", {
+            "iteration_id": iteration_id,
+            "start_revision": start_revision,
+            "revision": final_graph.revision,
+            "iteration_count": len(records),
+        })
+        return payload
+
     def execute_controller_action(
         self,
         project_id: str,

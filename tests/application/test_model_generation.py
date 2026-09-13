@@ -5,12 +5,13 @@ import pytest
 from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.errors import ContractViolation
-from rflp_lite.domain.model import ModelGraph, Patch, Relation, UpdateEntity
+from rflp_lite.domain.model import AddEntity, ModelGraph, Patch, Relation, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.application.model_generation import build_traceability_summary
 from rflp_lite.application.model_generation import ModelGenerationService
 from rflp_lite.application.tool_layer import ToolResult
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionResponse
+from rflp_lite.methodology.controller import ControllerAction, ControllerPlan
 from rflp_lite.ports.generative_model import GenerationResponse
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
@@ -374,6 +375,141 @@ def test_controller_evidence_action_calls_tool_and_reanalyzes(tmp_path: Path):
     assert tool.calls == [("robot", generated.revision, action.id)]
     assert repository.list_evidence("robot")[0]["id"] == "evidence-controller-test"
     assert result["reanalysis"]["controller_decision"]["kind"] == "evidence_collected"
+
+
+def test_controller_iteration_finishes_without_actions(tmp_path: Path, monkeypatch):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    generation = services.generation("robot")
+    monkeypatch.setattr(
+        generation.controller,
+        "plan",
+        lambda graph, report=None, max_actions=8: ControllerPlan("complete", "模型已完成"),
+    )
+
+    result = generation.iterate_controller("robot")
+
+    assert result["execution_status"] == "completed"
+    assert result["iterations"] == []
+    assert result["start_revision"] == result["revision"] == 0
+
+
+def test_controller_iteration_waits_for_input_on_empty_project(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+
+    result = services.generation("robot").iterate_controller("robot")
+
+    assert result["execution_status"] == "awaiting_input"
+    assert result["iterations"] == []
+    assert result["controller"]["next_action"]["kind"] == "collect_input"
+
+
+def test_controller_iteration_stops_at_trade_study_without_mutating_graph(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    generated = services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+    graph = services.model("robot").graph("robot")
+    requirement = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
+    physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
+    services.review("robot").edit_entity(
+        "robot", requirement.id,
+        payload={"constraints": {"max_power_w": 50}},
+        expected_revision=graph.revision,
+    )
+    graph = services.model("robot").graph("robot")
+    services.review("robot").edit_entity(
+        "robot", physical.id,
+        payload={"power_w": 80},
+        expected_revision=graph.revision,
+    )
+    before = services.model("robot").graph("robot").revision
+
+    result = services.generation("robot").iterate_controller("robot", max_iterations=3)
+
+    assert result["execution_status"] == "awaiting_decision"
+    assert result["revision"] == before
+    assert result["iterations"] == []
+    assert result["controller"]["next_action"]["kind"] == "trade_study"
+    assert generated.revision < before
+
+
+def test_controller_iteration_reports_no_progress_for_repeated_action(tmp_path: Path, monkeypatch):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    generation = services.generation("robot")
+    action = ControllerAction(
+        "controller-action-test", "reanalyze", "functional_interaction", "functional", "P1",
+        ("function-1",), "补足功能流"
+    )
+    plan = ControllerPlan("needs_action", "推进模型", ("functional_flow_missing",), (action,))
+    monkeypatch.setattr(
+        generation.controller,
+        "plan",
+        lambda graph, report=None, max_actions=8: plan,
+    )
+    monkeypatch.setattr(
+        generation,
+        "execute_controller_action",
+        lambda project_id, **kwargs: {
+            "execution_status": "completed",
+            "action": action.as_dict(),
+            "reanalysis": {"execution_status": "completed", "revision": 0},
+        },
+    )
+
+    result = generation.iterate_controller("robot", max_iterations=3)
+
+    assert result["execution_status"] == "no_progress"
+    assert len(result["iterations"]) == 1
+    assert result["iterations"][0]["revision_before"] == result["iterations"][0]["revision_after"] == 0
+    events = services.repository("robot").list_audit_events("robot")
+    assert any(item["kind"] == "controller.iteration.started" for item in events)
+    assert any(item["kind"] == "controller.iteration.no_progress" for item in events)
+
+
+def test_controller_iteration_stops_at_iteration_budget(tmp_path: Path, monkeypatch):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    generation = services.generation("robot")
+    repository = services.repository("robot")
+    action = ControllerAction(
+        "controller-action-progress", "reanalyze", "functional_interaction", "functional", "P1",
+        (), "持续补足功能流"
+    )
+    plan = ControllerPlan("needs_action", "推进模型", ("functional_flow_missing",), (action,))
+    monkeypatch.setattr(
+        generation.controller,
+        "plan",
+        lambda graph, report=None, max_actions=8: plan,
+    )
+
+    def progress(project_id, **kwargs):
+        graph = repository.load_graph(project_id)
+        entity = make_entity(EntityKind.CONCERN, f"progress-{graph.revision}")
+        patch = Patch.create(
+            project_id,
+            "controller.progress.test",
+            (AddEntity(entity),),
+            "测试 Controller 迭代进展",
+            graph.revision,
+        )
+        repository.append_patch(project_id, patch, graph.revision)
+        return {
+            "execution_status": "completed",
+            "action": action.as_dict(),
+            "reanalysis": {"execution_status": "completed"},
+        }
+
+    monkeypatch.setattr(generation, "execute_controller_action", progress)
+
+    result = generation.iterate_controller("robot", max_iterations=2)
+
+    assert result["execution_status"] == "max_iterations"
+    assert len(result["iterations"]) == 2
+    assert result["revision"] == 2
 
 
 def test_semantic_invalid_output_stays_candidate_and_creates_review_issue(tmp_path: Path):
