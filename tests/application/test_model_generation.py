@@ -405,6 +405,31 @@ def test_controller_iteration_waits_for_input_on_empty_project(tmp_path: Path):
     assert result["controller"]["next_action"]["kind"] == "collect_input"
 
 
+def test_controller_iteration_stops_when_evidence_tool_waits(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    generated = services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+
+    result = services.generation("robot").iterate_controller(
+        "robot", expected_revision=generated.revision
+    )
+
+    assert result["execution_status"] == "awaiting_evidence"
+    assert len(result["iterations"]) == 1
+    assert result["iterations"][0]["action"]["kind"] == "collect_evidence"
+    assert result["revision"] == generated.revision
+
+
+def test_controller_iteration_rejects_invalid_budget(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+
+    with pytest.raises(ContractViolation, match="between 1 and 8"):
+        services.generation("robot").iterate_controller("robot", max_iterations=0)
+
+
 def test_controller_iteration_stops_at_trade_study_without_mutating_graph(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("robot")
