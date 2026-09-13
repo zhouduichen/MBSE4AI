@@ -29,7 +29,7 @@ SYSTEM 的数量是实体身份约束，不要把 system-of-interest、边界、
 优先引用用户输入和 evidence；没有证据的判断必须标记为待确认。
 
 # Relation Rules
-只创建当前 TaskSpec 允许的关系，并保证端点来自当前上下文或本次新增实体。
+本 Task 不创建关系，`relations` 必须为空数组。系统定义只通过 SYSTEM payload 或既有 SYSTEM 的更新表达。
 
 # Forbidden Behavior
 不得编造产品、部件、供应商、型号、数值或隐藏的不确定性。

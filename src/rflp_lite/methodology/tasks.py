@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import CompletionCondition, ContextQuery, FailureAction, FailureRoute, Phase, TaskSpec
 from rflp_lite.methodology.policy import PatchPolicy
 from rflp_lite.methodology.proposal_compiler import proposal_schema
@@ -17,6 +20,7 @@ def _task(
     *,
     template: str | None = None,
     completion_condition: CompletionCondition | None = None,
+    allowed_predicates: Iterable[RelationPredicate] | None = None,
 ) -> TaskSpec:
     kinds = frozenset(input_kinds)
     routes = [FailureRoute("task_output_invalid", phase, FailureAction.RETRY, task_id)]
@@ -44,7 +48,11 @@ def _task(
         max_attempts=2,
         failure_routes=tuple(routes),
         completion_condition=completion_condition or CompletionCondition(frozenset(output_kinds), 0),
-        patch_policy=PatchPolicy.for_task(input_kinds, output_kinds),
+        patch_policy=PatchPolicy.for_task(
+            input_kinds,
+            output_kinds,
+            allowed_predicates=allowed_predicates,
+        ),
     )
 
 
@@ -56,9 +64,22 @@ def task_catalog() -> tuple[TaskSpec, ...]:
             {EntityKind.SYSTEM},
             {EntityKind.SYSTEM},
             completion_condition=CompletionCondition(frozenset({EntityKind.SYSTEM}), 1),
+            allowed_predicates=frozenset(),
         ),
-        _task("stakeholder_analysis", Phase.OPERATIONAL, {EntityKind.SYSTEM, EntityKind.STAKEHOLDER}, {EntityKind.STAKEHOLDER, EntityKind.CONCERN}),
-        _task("stakeholder_requirements", Phase.OPERATIONAL, {EntityKind.STAKEHOLDER, EntityKind.CONCERN, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
+        _task(
+            "stakeholder_analysis",
+            Phase.OPERATIONAL,
+            {EntityKind.SYSTEM, EntityKind.STAKEHOLDER},
+            {EntityKind.STAKEHOLDER, EntityKind.CONCERN},
+            allowed_predicates={RelationPredicate.HAS_CONCERN},
+        ),
+        _task(
+            "stakeholder_requirements",
+            Phase.OPERATIONAL,
+            {EntityKind.STAKEHOLDER, EntityKind.CONCERN, EntityKind.REQUIREMENT},
+            {EntityKind.REQUIREMENT},
+            allowed_predicates={RelationPredicate.DERIVED_FROM},
+        ),
         _task("lifecycle_analysis", Phase.OPERATIONAL, {EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE}, {EntityKind.LIFECYCLE_STAGE, EntityKind.LIFECYCLE_TRANSITION}),
         _task("scenario_exploration", Phase.OPERATIONAL, {EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE, EntityKind.SCENARIO_HYPOTHESIS}, {EntityKind.SCENARIO_HYPOTHESIS}),
         _task("use_case_analysis", Phase.OPERATIONAL, {EntityKind.SCENARIO_HYPOTHESIS, EntityKind.STAKEHOLDER, EntityKind.USE_CASE}, {EntityKind.USE_CASE}),

@@ -5,6 +5,7 @@ import pytest
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.domain.model import AddEntity, ModelGraph, Patch, Relate, UpdateEntity, apply_patch
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import ContextBundle, TaskExecutionRequest
 from rflp_lite.methodology.proposal_compiler import compile_task_proposal, proposal_schema
 from rflp_lite.methodology.tasks import output_contract, task_catalog
@@ -147,6 +148,71 @@ def test_duplicate_local_ref_is_rejected_for_system_definition():
         compile_task_proposal(request, proposal)
 
 
+def test_first_operational_tasks_expose_task_level_relation_predicates():
+    expected = {
+        "system_definition": set(),
+        "stakeholder_analysis": {RelationPredicate.HAS_CONCERN.value},
+        "stakeholder_requirements": {RelationPredicate.DERIVED_FROM.value},
+    }
+    for task in task_catalog()[:3]:
+        relation = output_contract(task)["properties"]["relations"]
+        if expected[task.id]:
+            assert set(relation["items"]["properties"]["predicate"]["enum"]) == expected[task.id]
+        else:
+            assert relation["maxItems"] == 0
+
+
+def test_stakeholder_requirement_derived_from_concern_compiles():
+    task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
+    stakeholder = make_entity(EntityKind.STAKEHOLDER, "用户")
+    concern = make_entity(EntityKind.CONCERN, "安全")
+    context = ContextBundle("p1", task.id, 3, (stakeholder, concern))
+    request = TaskExecutionRequest(
+        task.id, "v2.1", context, (), output_contract(task), 100,
+        patch_policy=task.patch_policy,
+    )
+    payload = _proposal(entities=[{
+        "local_ref": "new:requirement:1",
+        "name": "配送过程应保障安全",
+        "payload": {"obligation": "配送过程应保障安全"},
+    }], relations=[{
+        "source_ref": "new:requirement:1",
+        "predicate": RelationPredicate.DERIVED_FROM.value,
+        "target_ref": concern.id,
+        "evidence_ids": [],
+    }])
+
+    patch = compile_task_proposal(request, payload)
+
+    assert patch is not None
+    assert isinstance(patch.operations[1], Relate)
+    assert patch.operations[1].predicate is RelationPredicate.DERIVED_FROM
+
+
+def test_stakeholder_requirement_supported_by_is_rejected_before_patch_creation():
+    task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
+    stakeholder = make_entity(EntityKind.STAKEHOLDER, "用户")
+    concern = make_entity(EntityKind.CONCERN, "安全")
+    context = ContextBundle("p1", task.id, 3, (stakeholder, concern))
+    request = TaskExecutionRequest(
+        task.id, "v2.1", context, (), output_contract(task), 100,
+        patch_policy=task.patch_policy,
+    )
+    payload = _proposal(entities=[{
+        "local_ref": "new:requirement:1",
+        "name": "配送过程应保障安全",
+        "payload": {"obligation": "配送过程应保障安全"},
+    }], relations=[{
+        "source_ref": "new:requirement:1",
+        "predicate": RelationPredicate.SUPPORTED_BY.value,
+        "target_ref": stakeholder.id,
+        "evidence_ids": [],
+    }])
+
+    with pytest.raises(ContractViolation, match="schema"):
+        compile_task_proposal(request, payload)
+
+
 def test_proposal_schema_requires_semantic_fields_without_patch_operations():
     schema = proposal_schema(
         [EntityKind.REQUIREMENT],
@@ -281,7 +347,7 @@ def test_unknown_proposal_ref_is_rejected_before_patch_creation():
     payload = _proposal(entities=[])
     payload["relations"] = [{
         "source_ref": "missing",
-        "predicate": "satisfiedBy",
+        "predicate": RelationPredicate.DERIVED_FROM.value,
         "target_ref": "missing-too",
         "evidence_ids": [],
     }]

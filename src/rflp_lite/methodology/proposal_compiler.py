@@ -100,6 +100,8 @@ def proposal_schema(
             "evidence_ids": {"type": "array", "items": {"type": "string"}},
         },
     }
+    if not policy.allowed_predicates:
+        relation_schema["properties"]["predicate"] = {"type": "string", "minLength": 1}
     update_schema = {
         "type": "object",
         "additionalProperties": False,
@@ -142,7 +144,11 @@ def proposal_schema(
         "required": ["entities", "relations", "updates", "deprecations", "reason"],
         "properties": {
             "entities": {"type": "array", "items": entity_schema, "maxItems": 32},
-            "relations": {"type": "array", "items": relation_schema, "maxItems": 32},
+            "relations": {
+                "type": "array",
+                "items": relation_schema,
+                "maxItems": 32 if policy.allowed_predicates else 0,
+            },
             "updates": {"type": "array", "items": update_schema, "maxItems": 32},
             "deprecations": {"type": "array", "items": deprecation_schema, "maxItems": 32},
             "reason": {"type": "string", "maxLength": 300},

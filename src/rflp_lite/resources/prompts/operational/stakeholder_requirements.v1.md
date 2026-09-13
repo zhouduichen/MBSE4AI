@@ -20,7 +20,7 @@
 Requirement 必须追溯到 stakeholder、concern 或 evidence；原始证据模糊时保持模糊并标记待确认。
 
 # Relation Rules
-只使用允许的 derivedFrom、supportedBy 等关系，并保证端点存在。
+只使用 `derivedFrom`，且关系方向固定为 Requirement → Concern。优先从 Concern 建立 `Requirement --derivedFrom--> Concern`；只有上下文没有 Concern、但有 Stakeholder 来源时，才建立 `Requirement --derivedFrom--> Stakeholder`。本 Task 禁止 `supportedBy`，也不要使用 satisfiedBy、verifiedBy 或其他关系。
 
 # Forbidden Behavior
 不得合并“并且/以及/同时”的多个义务，不得把设计方案写成 stakeholder requirement。
