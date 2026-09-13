@@ -83,19 +83,25 @@ class LifecycleOrchestrator:
             phase_results.append({"phase": phase.value, "status": phase_summary.status.value, "completed_tasks": list(phase_summary.completed_tasks), "diagnostics": list(phase_summary.diagnostics)})
             completed.extend(phase_summary.completed_tasks)
             diagnostics.extend(phase_summary.diagnostics)
-            if phase_summary.failure_stage in _NON_SEMANTIC_FAILURE_STAGES:
-                diagnostics.append(f"{phase.value}: {phase_summary.failure_stage.value} failure; semantic repair skipped")
+            if phase_summary.status is not RunStatus.COMPLETED:
+                failure_reason = (
+                    phase_summary.failure_stage.value
+                    if phase_summary.failure_stage is not None
+                    else "semantic"
+                )
+                if phase_summary.failure_stage in _NON_SEMANTIC_FAILURE_STAGES:
+                    diagnostics.append(f"{phase.value}: {failure_reason} failure; semantic repair skipped")
                 self.runner._block_pending_steps(
                     project_id,
                     identity.run_id,
-                    f"blocked by {phase.value} {phase_summary.failure_stage.value} failure",
+                    f"blocked by {phase.value} {failure_reason} failure",
                 )
                 self.runner._update_run_status(identity.run_id, RunStatus.DEGRADED, tuple(diagnostics))
                 completed_phases = {item["phase"] for item in phase_results}
                 for pending in self.phases:
                     if pending.value not in completed_phases:
-                        phase_results.append({"phase": pending.value, "status": StepStatus.BLOCKED.value, "completed_tasks": [], "diagnostics": [f"Blocked by {phase_summary.failure_stage.value} failure"]})
-                phase_results.append({"phase": Phase.CLOSURE.value, "status": "blocked", "completed_tasks": [], "diagnostics": [f"{phase_summary.failure_stage.value} failure must be resolved before Closure"]})
+                        phase_results.append({"phase": pending.value, "status": StepStatus.BLOCKED.value, "completed_tasks": [], "diagnostics": [f"Blocked by {failure_reason} failure"]})
+                phase_results.append({"phase": Phase.CLOSURE.value, "status": "blocked", "completed_tasks": [], "diagnostics": [f"{failure_reason} failure must be resolved before Closure"]})
                 return RunSummary(
                     identity.run_id, project_id, phase, RunStatus.DEGRADED,
                     tuple(dict.fromkeys(completed)), tuple(diagnostics), "", False,
@@ -209,7 +215,12 @@ class WorkflowRunner:
             raise ContractViolation(f"phase has no tasks: {phase.value}")
         identity = self._ensure_run(project_id, run_id=run_id, force_new=force_new, phase=phase, tasks=tasks)
         existing = self.run_repository.load_run(project_id, identity.run_id)
-        completed_before = {step.task_id for step in (existing.steps if existing else ()) if step.status == StepStatus.COMPLETED.value}
+        task_ids = {task.id for task in tasks}
+        completed_before = {
+            step.task_id
+            for step in (existing.steps if existing else ())
+            if step.task_id in task_ids and step.status == StepStatus.COMPLETED.value
+        }
         completed = set(completed_before)
         diagnostics: list[str] = []
         for task in tasks:

@@ -1,5 +1,6 @@
 import pytest
 
+from rflp_lite.application.requirement_input import RequirementInputService
 from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation
 from rflp_lite.domain.model import AddEntity, Patch
@@ -8,6 +9,7 @@ from rflp_lite.methodology.workflow import WorkflowRunner
 from rflp_lite.repository.port import Step
 from rflp_lite.methodology.tasks import tasks_for_phase
 from rflp_lite.repository.sqlite import SQLiteModelRepository
+from rflp_lite.runtime.rule_based import RuleRuntime
 
 
 class FakeRuntime:
@@ -61,6 +63,19 @@ class RaisingAppendRepository(SQLiteModelRepository):
 
     def append_patch(self, project_id, patch, expected_revision, *, run_id=None):
         raise self.error
+
+
+class DegradedSemanticRuntime:
+    def __init__(self):
+        self.delegate = RuleRuntime()
+
+    def execute(self, request):
+        if request.task_id == "functional_decomposition":
+            return TaskExecutionResponse(
+                StepStatus.COMPLETED,
+                diagnostics=("offline:lifecycle-idempotent",),
+            )
+        return self.delegate.execute(request)
 
 
 def test_runner_persists_steps_and_completes_offline(tmp_path):
@@ -118,6 +133,20 @@ def test_structural_failure_stops_lifecycle_before_gate_repair(tmp_path):
     assert stored.status == RunStatus.DEGRADED.value
     assert all(step.repair_round == 0 for step in stored.steps)
     assert "semantic repair skipped" in " ".join(summary.diagnostics)
+
+
+def test_degraded_phase_cannot_be_reported_as_completed_lifecycle(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    RequirementInputService(repository, "p1").ensure_text_requirements("系统应支持人工接管")
+    runner = WorkflowRunner(repository, repository, DegradedSemanticRuntime())
+
+    summary = runner.run("p1", force_run=True)
+
+    assert summary.status is RunStatus.DEGRADED
+    assert summary.phase is Phase.FUNCTIONAL
+    assert summary.closure is not None
+    assert summary.closure["status"] == "blocked"
 
 
 def test_non_completed_patch_is_rejected_before_repository_append(tmp_path):

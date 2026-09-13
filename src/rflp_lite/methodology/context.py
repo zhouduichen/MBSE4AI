@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from rflp_lite.domain.model import ModelGraph
-from rflp_lite.methodology.context_planner import ContextPlanner
+from rflp_lite.methodology.context_planner import ContextPlanner, PlannedContext
 from rflp_lite.methodology.contracts import ContextBundle, TaskSpec
 from rflp_lite.retrieval.planner import KnowledgeGap, build_gap_query
 
@@ -39,6 +39,8 @@ class ContextBuilder:
             root_entity_ids=root_entity_ids,
             token_budget=available_context,
         )
+        if task.id == "global_cross_analysis":
+            planned = _global_analysis_context(graph, task, self.planner)
         context = ContextBundle(graph.project_id, task.id, graph.revision, planned.entities, planned.relations, (), planned.token_estimate)
         if self.retrieval_engine is None or not task.context_query.include_evidence:
             return context
@@ -73,3 +75,28 @@ class ContextBuilder:
             context.relations, tuple(bounded_evidence),
             context.token_estimate + sum(self.planner.estimator.estimate(item) for item in bounded_evidence),
         )
+
+
+def _global_analysis_context(graph: ModelGraph, task: TaskSpec, planner: ContextPlanner):
+    """Keep the final cross-analysis task complete over all coverage-critical nodes."""
+
+    allowed = task.context_query.entity_kinds
+    entities = tuple(
+        sorted(
+            (item for item in graph.entities if item.kind in allowed),
+            key=lambda item: item.id,
+        )
+    )
+    ids = {item.id for item in entities}
+    relations = tuple(
+        sorted(
+            (item for item in graph.relations if item.source_id in ids and item.target_id in ids),
+            key=lambda item: item.id,
+        )
+    )
+    return PlannedContext(
+        entities,
+        relations,
+        planner._estimate(graph, ids, relations),
+        (("GLOBAL_COVERAGE", tuple(item.id for item in entities)),),
+    )
