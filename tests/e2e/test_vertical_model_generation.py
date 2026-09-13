@@ -71,3 +71,19 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
     edited = services.model("robot").graph("robot")
     assert edited.entity_index[function.id].payload["review_note"] == "人工可继续编辑"
     assert "人工可继续编辑" in graph_to_sysml(edited)
+
+
+def test_multiple_natural_language_requirements_get_separate_function_paths(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+
+    result = services.generation("robot").generate(
+        "robot", requirement_text="系统应自主配送；系统应支持人工接管；系统应在断网后安全运行"
+    )
+    graph = services.model("robot").graph("robot")
+
+    requirements = [item for item in graph.entities if item.kind is EntityKind.REQUIREMENT]
+    functions = [item for item in graph.entities if item.kind is EntityKind.FUNCTION]
+    assert len(requirements) == 3
+    assert len(functions) == 3
+    assert result.traceability.complete_count == 3

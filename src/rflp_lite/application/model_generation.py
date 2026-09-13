@@ -30,6 +30,7 @@ from rflp_lite.methodology.vertical_generation import (
     vertical_stage_specs,
 )
 from rflp_lite.application.tool_layer import EngineeringToolLayer
+from rflp_lite.application.requirement_intake import split_requirement_statements
 from rflp_lite.repository.port import ModelRepository, Run, Step
 
 
@@ -784,57 +785,73 @@ class ModelGenerationService:
 
     def _ensure_input(self, request: GenerateModelRequest) -> None:
         graph = self.repository.load_graph(request.project_id)
-        text = " ".join(str(request.requirement_text or "").split()).strip()
-        source_ids: tuple[str, ...] = ()
-        if not text:
+        candidates: list[tuple[str, tuple[str, ...]]] = []
+        explicit_text = str(request.requirement_text or "").strip()
+        if explicit_text:
+            candidates.extend(
+                (statement, ())
+                for statement in split_requirement_statements(explicit_text)
+            )
+        else:
             list_regions = getattr(self.repository, "list_source_regions", None)
             if callable(list_regions):
                 regions = tuple(list_regions(request.project_id, request.document_ids))
-                text = "\n".join(
-                    str(region.get("text", "")).strip()
-                    for region in regions
-                    if str(region.get("text", "")).strip()
-                ).strip()
-                source_ids = tuple(
-                    dict.fromkeys(
-                        str(region.get("id", "")).strip()
-                        for region in regions
-                        if str(region.get("id", "")).strip()
+                for region in regions:
+                    source_id = str(region.get("id", "")).strip()
+                    candidates.extend(
+                        (statement, (source_id,) if source_id else ())
+                        for statement in split_requirement_statements(
+                            str(region.get("text", ""))
+                        )
                     )
+        merged: dict[str, list[str]] = {}
+        for statement, source_ids in candidates:
+            merged.setdefault(statement, []).extend(source_ids)
+        candidates = [
+            (statement, tuple(dict.fromkeys(source_ids)))
+            for statement, source_ids in merged.items()
+        ]
+        if candidates:
+            operations: list[AddEntity] = []
+            for statement, source_ids in candidates:
+                existing = next(
+                    (
+                        entity
+                        for entity in graph.entities
+                        if entity.kind is EntityKind.REQUIREMENT
+                        and entity.meta.status is not EntityStatus.DEPRECATED
+                        and str(entity.payload.get("statement", entity.meta.name)).strip()
+                        == statement
+                    ),
+                    None,
                 )
-        if text:
-            existing = next(
-                (
-                    entity
-                    for entity in graph.entities
-                    if entity.kind is EntityKind.REQUIREMENT
-                    and entity.meta.status is not EntityStatus.DEPRECATED
-                    and str(entity.payload.get("statement", entity.meta.name)).strip() == text
-                ),
-                None,
-            )
-            if existing is None:
-                entity = make_entity(
-                    EntityKind.REQUIREMENT,
-                    text,
-                    {
-                        "statement": text,
-                        "source": "user_input",
-                        "level": "system",
-                        "type": "functional",
-                        "obligation": "系统应",
-                        "verification_method": "test",
-                    },
-                    status=EntityStatus.CANDIDATE,
-                    producer=Producer.USER,
-                    confidence=1.0,
-                    source_ids=source_ids,
-                    revision=graph.revision,
-                )
+                if existing is None:
+                    operations.append(
+                        AddEntity(
+                            make_entity(
+                                EntityKind.REQUIREMENT,
+                                statement,
+                                {
+                                    "statement": statement,
+                                    "source": "user_input",
+                                    "level": "system",
+                                    "type": "functional",
+                                    "obligation": "系统应",
+                                    "verification_method": "test",
+                                },
+                                status=EntityStatus.CANDIDATE,
+                                producer=Producer.USER,
+                                confidence=1.0,
+                                source_ids=source_ids,
+                                revision=graph.revision,
+                            )
+                        )
+                    )
+            if operations:
                 patch = Patch.create(
                     request.project_id,
                     "user.requirement_input",
-                    (AddEntity(entity),),
+                    tuple(operations),
                     "用户输入自然语言需求",
                     graph.revision,
                 )

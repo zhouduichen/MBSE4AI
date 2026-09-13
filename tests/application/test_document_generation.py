@@ -21,3 +21,18 @@ def test_document_regions_can_seed_the_vertical_generation_path(tmp_path: Path):
     assert any(item.kind is EntityKind.REQUIREMENT for item in graph.entities)
     requirement = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
     assert requirement.meta.source_ids
+
+
+def test_document_sentences_create_independent_requirements(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    services.projects.ingest_uploaded(
+        "robot", "requirements.txt", "系统应自主配送。系统应支持人工接管。".encode()
+    )
+
+    services.generation("robot").generate("robot")
+    graph = services.model("robot").graph("robot")
+    requirements = [item for item in graph.entities if item.kind is EntityKind.REQUIREMENT]
+
+    assert {item.meta.name for item in requirements} == {"系统应自主配送", "系统应支持人工接管"}
+    assert all(item.meta.source_ids for item in requirements)
