@@ -26,6 +26,7 @@
 | Golden E2E | 校园无人配送机器人 fixture 可导入并跑完整阶段；失败与锁定保护可验证 |
 | 默认产品纵向生成 | 自然语言或已解析文档 → Requirements → Functional → Logical → Physical → V&V；五阶段写入同一 ModelGraph，并返回阶段结果、追溯摘要和 SysML 文本 |
 | 多需求输入保真 | 自然语言句子/列表项和文档独立条目分别形成 Requirement；文档来源保留 Source Region，三条输入需求可形成三条 Function 和三条完整 RFLP/V&V 路径 |
+| 自然语言工程约束抽取 | 显式功耗、质量、时延、带宽、成本和续航边界规范化为 canonical constraints，保留 constraint provenance，并随 R→F→L→P 进入物理可行性分析；未知值仍要求测量/评审 |
 | 数据驱动架构综合 | Fallback 根据 Function 的分区键、共享状态或稳定 ID 形成 Logical 分区；每个分区生成 Physical 候选，并沿 Requirement→Function→Logical→Physical 传播已有结构化约束 |
 | LLM 五阶段接入 | 每个纵向阶段通过现有 StructuredModelRuntime 的 TaskProposal → Compiler → Patch 边界执行；测试覆盖五次真实 stage lens 调用 |
 | SysML v2 子集往返 | 导出实际 `part/requirement/action/interface/state/verification/validation` 声明及关系元数据；Concern、Hazard、FailureMode 使用可编辑的通用 part 声明并保留类型元数据；可重新读入新项目并继续编辑 |
@@ -65,7 +66,8 @@ Methodology Engine v1 的边界是确定性反馈；Systems Engineering Controll
 
 ```bash
 ./.venv/bin/python -m pytest -q
-./.venv/bin/python -m compileall -q src
+./.venv/bin/python -m compileall -q src tests scripts
+./.venv/bin/ruff check src tests scripts
 ./.venv/bin/python scripts/architecture_metrics.py
 ./.venv/bin/lint-imports
 ```

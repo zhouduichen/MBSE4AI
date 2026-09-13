@@ -31,7 +31,7 @@
 - Consumes: arbitrary `statement: str`.
 - Produces: `extract_requirement_constraints(statement: str) -> Mapping[str, object]` with optional `constraints` mapping and `constraint_provenance` list.
 
-- [ ] **Step 1: Write failing parser tests**
+- [x] **Step 1: Write failing parser tests**
 
 Add:
 
@@ -83,13 +83,13 @@ def test_does_not_infer_from_bare_numbers_or_version_text():
     assert extract_requirement_constraints("系统续航 10 小时") == {}
 ```
 
-- [ ] **Step 2: Run parser tests and verify they fail**
+- [x] **Step 2: Run parser tests and verify they fail**
 
 Run: `./.venv/bin/pytest tests/application/test_requirement_intake.py -q`
 
 Expected: FAIL during collection because `extract_requirement_constraints` is not defined.
 
-- [ ] **Step 3: Implement the restricted parser**
+- [x] **Step 3: Implement the restricted parser**
 
 Add the following shape to `requirement_intake.py`:
 
@@ -155,13 +155,13 @@ def extract_requirement_constraints(statement: str) -> Mapping[str, object]:
 
 The implementation must make the cost unit optional only if the metric and comparator are explicit; all other metrics require a recognized unit. It must preserve the first selected provenance for equal duplicate values and return a deterministic key order.
 
-- [ ] **Step 4: Run parser tests and lint**
+- [x] **Step 4: Run parser tests and lint**
 
 Run: `./.venv/bin/pytest tests/application/test_requirement_intake.py -q` and `./.venv/bin/ruff check src/rflp_lite/application/requirement_intake.py tests/application/test_requirement_intake.py`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the parser**
+- [x] **Step 5: Commit the parser**
 
 ```bash
 git add src/rflp_lite/application/requirement_intake.py tests/application/test_requirement_intake.py
@@ -180,7 +180,7 @@ git commit -m "feat: parse explicit engineering constraints"
 - Consumes: `extract_requirement_constraints(clean_statement)`.
 - Produces: newly created Requirement payloads with the parser's `constraints` and `constraint_provenance`, while preserving existing fields and source IDs.
 
-- [ ] **Step 1: Write failing application tests**
+- [x] **Step 1: Write failing application tests**
 
 Add:
 
@@ -214,23 +214,23 @@ def test_natural_language_generation_stores_constraint_provenance(tmp_path: Path
     assert len(requirement.payload["constraint_provenance"]) == 2
 ```
 
-- [ ] **Step 2: Run application tests and verify they fail**
+- [x] **Step 2: Run application tests and verify they fail**
 
 Run: `./.venv/bin/pytest tests/application/test_project_service.py tests/application/test_model_generation.py -q -k constraint`
 
 Expected: FAIL because the two creation paths do not call the parser.
 
-- [ ] **Step 3: Integrate the shared parser without overwriting explicit fields**
+- [x] **Step 3: Integrate the shared parser without overwriting explicit fields**
 
 Import `extract_requirement_constraints` in both application modules. In `ProjectService.add_requirement`, build the existing payload first and update it with the helper result. In `ModelGenerationService._ensure_input`, build the existing payload containing `statement`, `source`, `level`, `type`, `obligation` and `verification_method`, then update it with the helper result before passing it to `make_entity`. Do not update an existing Requirement merely because a later input statement parses differently.
 
-- [ ] **Step 4: Run the application tests**
+- [x] **Step 4: Run the application tests**
 
 Run: `./.venv/bin/pytest tests/application/test_project_service.py tests/application/test_model_generation.py -q -k constraint`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Requirement enrichment**
+- [x] **Step 5: Commit Requirement enrichment**
 
 ```bash
 git add src/rflp_lite/application/project_service.py src/rflp_lite/application/model_generation.py tests/application/test_project_service.py tests/application/test_model_generation.py
@@ -250,7 +250,7 @@ git commit -m "feat: enrich requirements with parsed constraints"
 - Consumes: Requirement payload `constraints` and `constraint_provenance` reached through existing Requirement→Function→Logical relations.
 - Produces: Physical payload `propagated_constraints`, `propagated_constraint_provenance`, `source_requirement_ids`, and `endurance_h`; Methodology compares `min_endurance_h` to `endurance_h`.
 
-- [ ] **Step 1: Write failing physical and Methodology tests**
+- [x] **Step 1: Write failing physical and Methodology tests**
 
 Add to `tests/methodology/test_engine.py`:
 
@@ -305,25 +305,25 @@ def test_natural_language_constraints_reach_physical_candidate(tmp_path: Path):
     assert physical.payload["propagated_constraint_provenance"]
 ```
 
-- [ ] **Step 2: Run the physical tests and verify they fail**
+- [x] **Step 2: Run the physical tests and verify they fail**
 
 Run: `./.venv/bin/pytest tests/methodology/test_engine.py tests/e2e/test_vertical_model_generation.py -q -k 'endurance or natural_language_constraints'`
 
 Expected: FAIL because `endurance_h` and physical provenance propagation do not exist.
 
-- [ ] **Step 3: Add endurance as a measurable Physical field and propagate provenance**
+- [x] **Step 3: Add endurance as a measurable Physical field and propagate provenance**
 
 Append `endurance_h` to `_PHYSICAL_FIELDS` in `methodology/engine.py`. Add `endurance_h: None` and `propagated_constraint_provenance: []` to the fallback `_physical_payload`. Collect each Requirement's list-valued `constraint_provenance` in deterministic Requirement-ID order. Keep existing `propagated_constraints` merge semantics and all unknown values unchanged.
 
 Update `physical.v1.md` to mention `endurance_h` when a requirement contains endurance/runtime constraints and require the LLM to preserve constraint provenance where available.
 
-- [ ] **Step 4: Run focused physical tests**
+- [x] **Step 4: Run focused physical tests**
 
 Run: `./.venv/bin/pytest tests/methodology/test_engine.py tests/e2e/test_vertical_model_generation.py -q -k 'endurance or natural_language_constraints'`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Physical propagation**
+- [x] **Step 5: Commit Physical propagation**
 
 ```bash
 git add src/rflp_lite/runtime/rule_based.py src/rflp_lite/methodology/engine.py src/rflp_lite/resources/prompts/vertical/physical.v1.md tests/methodology/test_engine.py tests/e2e/test_vertical_model_generation.py
@@ -343,11 +343,11 @@ git commit -m "feat: propagate constraints into physical analysis"
 - Consumes: parser, enriched Requirement, Physical propagation and Methodology behavior from Tasks 1–3.
 - Produces: documented input-to-feasibility path and a verified pushed branch.
 
-- [ ] **Step 1: Document constraint-aware generation**
+- [x] **Step 1: Document constraint-aware generation**
 
 State that explicit natural-language constraints are normalized at input, preserve provenance, flow through the RFLP graph, and remain measurable/Reviewable rather than being treated as automatic feasibility.
 
-- [ ] **Step 2: Mark this plan complete and scan it**
+- [x] **Step 2: Mark this plan complete and scan it**
 
 Change implementation checkboxes to `[x]`. Run:
 
@@ -357,7 +357,7 @@ rg -n 'TODO|TBD|FIXME|Similar to Task|add appropriate' docs/superpowers/plans/20
 
 Expected: no output.
 
-- [ ] **Step 3: Run complete verification**
+- [x] **Step 3: Run complete verification**
 
 Run:
 
@@ -373,7 +373,7 @@ git diff --check
 
 Expected: every command exits 0, including the existing architecture budget.
 
-- [ ] **Step 4: Commit and push**
+- [x] **Step 4: Commit and push**
 
 ```bash
 git add README.md docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md docs/superpowers/README.md docs/superpowers/plans/2026-09-13-natural-language-constraints.md
