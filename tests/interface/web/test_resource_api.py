@@ -43,6 +43,24 @@ def test_root_redirects_to_projects_and_requirement_intake_is_visible_in_model(t
     assert client.get("/projects/p1/model").json()["revision"] == 1
 
 
+def test_project_goal_is_exposed_and_can_start_generation(tmp_path: Path):
+    app = create_app(tmp_path)
+    app.state.container.v2._runtime_override = VerticalRuleRuntime()
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    response = client.post("/projects/p1/goal", json={"goal": "建设可验证的校园配送系统"})
+    assert response.status_code == 200
+    assert response.json()["context"]["requirement"]["payload"]["source"] == "user_goal"
+    context = client.get("/projects/p1/context")
+    assert context.status_code == 200
+    assert context.json()["context"]["goal"] == "建设可验证的校园配送系统"
+
+    run = client.post("/projects/p1/analysis", json={"mode": "generate"})
+    assert run.status_code == 200
+    assert run.json()["run"]["mode"] == "generate"
+
+
 def test_multipart_document_intake_is_saved(tmp_path: Path):
     client = TestClient(create_app(tmp_path))
     assert client.post("/projects", json={"id": "p1"}).status_code == 200

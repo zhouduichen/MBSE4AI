@@ -819,6 +819,13 @@ def build_analysis_view(request: Request, project_id: str) -> dict[str, object]:
     services = _services(request)
     project = _mapping(services.projects.summary(project_id))
     graph = services.model(project_id).graph(project_id)
+    system = next(
+        (
+            item for item in graph.entities
+            if item.kind is EntityKind.SYSTEM and item.meta.status.value != "deprecated"
+        ),
+        None,
+    )
     has_analysis_input = services.projects.has_analysis_input(project_id)
     run = _aggregate_pipeline_steps(services, project_id, _latest_run(request, services, project_id))
     run = _decorate_generation_run(services, project_id, graph, run)
@@ -900,6 +907,7 @@ def build_analysis_view(request: Request, project_id: str) -> dict[str, object]:
     view = {
         "project": {**project, "revision": graph.revision},
         "project_id": project_id,
+        "project_goal": str(system.payload.get("mission", "")) if system else "",
         "current_revision": graph.revision,
         "has_analysis_input": has_analysis_input,
         "graph_hash": graph.snapshot_hash,

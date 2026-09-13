@@ -4,10 +4,12 @@
 
 ```text
 自然语言 / 文档 → Requirements → Functional → Logical → Physical → V&V
-               → Typed ModelGraph → SysML v2 subset / 可编辑模型
+              → Typed ModelGraph → SysML v2 subset / 可编辑模型
 ```
 
-这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `0.2.0`，方法论协议是 `v2.1`。每个项目使用独立工作区和数据库，项目之间不共享模型或证据。`WorkflowRunner` 同时支持完整 23-task 生命周期和单阶段调试；五阶段生成器仍是默认的快速产品入口。
+项目目标通过 `ProjectContextService` 进入同一条链：写入 System 的 mission/objectives，并以候选 Requirement 保留来源和后续 RFLP/V&V 追溯；既有 SysML 直接导入 ModelGraph，其他 managed project 则只作为 Controller 的历史检索来源。
+
+这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `0.2.0`，方法论协议是 `v2.1`。每个项目使用独立工作区和数据库，正式模型和证据仍按项目隔离；Controller 可对其他 managed project 的 FTS 做只读历史检索，命中内容以 Evidence 回写当前项目。`WorkflowRunner` 同时支持完整 23-task 生命周期和单阶段调试；五阶段生成器仍是默认的快速产品入口。
 
 输入边界会把需求中的显式功耗、质量、时延、带宽、成本和续航比较式规范化为 canonical `constraints`，并保留 `constraint_provenance`。这些字段沿 Requirement→Function→Logical→Physical 传播；物理值未知时仍进入 `needs_measurement`，只有实测值违反 `max_`/`min_` 边界才报告 `physical_constraint_conflict`。P 层对明确的 `max_*`/`min_*` 约束创建 `level=technical` Technical Requirement，以 `derivedFrom` 回接来源需求、以 `satisfiedBy` 连接物理候选；该技术需求复用来源需求的 RFLP 路径并拥有独立 V&V，未声明约束的需求不会额外拆分。
 
@@ -22,7 +24,7 @@ adapters → ports + domain
 
 - `domain/`：Typed Entity、Relation、ModelGraph、Patch、Requirement 和稳定 ID；不依赖外层。
 - `methodology/`：五个产品级 `VerticalStage` 合约和阶段 Prompt；纯 ModelGraph `MethodologyEngine` 负责 Logical 分区/State 信号、Physical 约束/可行性、V&V 计划与证据分层、Hazard/FailureMode 覆盖和四跳 Impact Analysis；23 个细粒度 TaskSpec、四个 Phase、Context/Retrieval、Schema/Validator/Retry、PatchPolicy、谓词感知 Gate/Coverage Matrix、局部 Repair 和 LifecycleOrchestrator 驱动显式的完整 23-task 生命周期，也保留单阶段调试能力。
-- `application/`：Project、ModelGeneration、Analysis、Model、Evidence、Render、EngineeringDeliverable、Settings、Tool Layer 服务；`ModelGenerationService` 负责五阶段纵向编排、追溯摘要和 Controller 动作执行。`EngineeringDeliverableService` 从单一 ModelGraph revision 组合 Requirements、RFLP、Traceability、V&V Plan、Architecture Report、SysML 和 manifest，并可导出固定成员顺序的 ZIP。`EngineeringToolLayer` 将文档/历史/本地 FTS 证据检索封装为受限工具；工具只采集，应用服务统一持久化 Evidence，不能直接写 ModelGraph。
+- `application/`：Project、ProjectContext、ModelGeneration、Analysis、Model、Evidence、Render、EngineeringDeliverable、Settings、Tool Layer 服务；`ProjectContextService` 把用户目标写为 System intent 和候选 Requirement。`ModelGenerationService` 负责五阶段纵向编排、追溯摘要和 Controller 动作执行。`EngineeringDeliverableService` 从单一 ModelGraph revision 组合 Requirements、RFLP、Traceability、V&V Plan、Architecture Report、SysML 和 manifest，并可导出固定成员顺序的 ZIP。`EngineeringToolLayer` 将文档/历史/本地 FTS 证据检索封装为受限工具；工具只采集，应用服务统一持久化 Evidence，不能直接写 ModelGraph。
 - `repository/`：SQLite ModelRepository v2，保存 Graph、文档 Source Region 对应的 `document_region` Evidence、Run、Step、Patch、Revision、Issue、Closure 和 FTS，并提供 lease/heartbeat。
 - `runtime/`：RuntimeFactory、结构化模型端口、OpenAI-compatible 适配和离线 RuleRuntime；每次运行动态解析 active profile。
 - `adapters/`：文档解析、OCR 和模型/文档技术实现；由 `bootstrap/container.py` 组装。
@@ -51,7 +53,7 @@ Review 后的显式“继续生成下游”调用 `ModelGenerationService.contin
 
 | 资源 | 入口 |
 |---|---|
-| 项目 / 文档 | `POST /projects`、`POST /projects/{id}/documents` |
+| 项目 / 目标 / 文档 | `POST /projects`、`POST /projects/{id}/goal`、`GET /projects/{id}/context`、`POST /projects/{id}/documents` |
 | 分析运行 | `POST /projects/{id}/analysis`（默认五阶段生成；`mode=pipeline` 为完整 23-task；`mode=phase` 为单阶段调试）、`GET /projects/{id}/controller`、`POST /projects/{id}/controller/execute`（Controller 动作/Trade Study）、`POST /projects/{id}/controller/iterate`（有界自动推进安全动作）、`POST /projects/{id}/entities/{entity_id}/reanalyze/execute`（定向重分析）、`POST /projects/{id}/entities/{entity_id}/continue`（Review 后从下一层继续生成）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
 | 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities` |
 | 人工编辑 | `PATCH /projects/{id}/entities/{entity_id}` |

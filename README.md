@@ -31,6 +31,14 @@ python3 -m venv .venv
 .venv/bin/ai4mbse --workspace-root .local-workspaces model export campus-demo --format sysml > campus-demo.sysml
 ```
 
+也可以先输入项目目标；目标会进入 System 的 mission/objectives，并生成一条可继续追溯的候选需求：
+
+```bash
+.venv/bin/ai4mbse --workspace-root .local-workspaces project goal campus-demo \
+  "建设一个可在校园内安全完成配送并支持人工接管的系统"
+.venv/bin/ai4mbse --workspace-root .local-workspaces analyze generate campus-demo
+```
+
 运行完整的 23-task 生命周期：
 
 ```bash
@@ -62,7 +70,7 @@ Golden fixture 也可以作为完整 23-task 生命周期的离线回归输入�
 CLI 的主要命令：
 
 ```text
-project create|ingest
+project create|ingest|goal
 analyze generate|run|status
 model export|import-sysml
 issue list
@@ -77,6 +85,8 @@ model-profile list|save|activate
 ```
 
 页面收敛为 Projects、Analysis、MBSE Model、Evidence & Issues、Settings；API 资源以 `/projects` 为根，提供项目、分析运行、模型、实体 CAS 编辑、证据、Issue、Repair 和 Export。MBSE Model 页面按 System Definition、Functional、Logical、Physical、V&V 展示真实 ModelGraph 实体，并支持实体编辑、Review、锁定和重新分析。
+
+Analysis 页面可以直接保存“系统目标 / 项目使命”；目标同时作为 System intent 和候选 Requirement 进入后续 R→F→L→P→V&V。Controller 的历史项目检索只读其他 managed project 的模型、文档区域和证据 FTS，命中结果以 `historical_project` Evidence 回写当前项目，不跨项目修改模型。
 
 Analysis 页面支持上传已有 `.sysml` 模型。导入使用与命令行相同的确定性 SysML v2 子集解析器，写入当前项目的 ModelGraph，并在实体 ID 冲突时拒绝整次导入；任何包含活动实体的已有模型（包括只有部分层的模型）都可以作为分析输入，继续生成、编辑和导出。缺失层和追溯缺口会保留为 warnings/review findings。
 

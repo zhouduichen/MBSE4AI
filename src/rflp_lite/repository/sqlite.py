@@ -473,6 +473,17 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
                         f"SELECT {columns} FROM {table} WHERE project_id = ? AND ({predicate}) LIMIT ?",
                         (project_id, *(f"%{clean_query}%" for _ in search_columns), bounded_limit),
                     ).fetchall()
+                if not rows:
+                    # The default SQLite FTS tokenizer does not reliably
+                    # segment CJK text.  Preserve FTS as the fast path, then
+                    # use the indexed table's portable substring fallback so
+                    # Chinese project material remains searchable.
+                    search_columns = columns.split(", ")[1:]
+                    predicate = " OR ".join("{} LIKE ?".format(column) for column in search_columns)
+                    rows = self._connection.execute(
+                        f"SELECT {columns} FROM {table} WHERE project_id = ? AND ({predicate}) LIMIT ?",
+                        (project_id, *(f"%{clean_query}%" for _ in search_columns), bounded_limit),
+                    ).fetchall()
                 for row in rows:
                     values = dict(row)
                     values["kind"] = kind

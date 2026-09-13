@@ -23,6 +23,13 @@
     <div><h2>输入需求或模型</h2><p>先提交需求、上传文档或导入已有模型，再运行生命周期分析。</p></div>
     <span class="status-badge {% if has_analysis_input %}accepted{% else %}candidate{% endif %}">{% if has_analysis_input %}已有输入{% else %}等待输入{% endif %}</span>
   </div>
+  <form id="goal-input-form" class="intake-form goal-form">
+    <label class="field" for="project-goal">系统目标 / 项目使命
+      <textarea id="project-goal" rows="3" placeholder="例如：建设一个可在校园内安全完成配送并支持人工接管的系统">{{ project_goal }}</textarea>
+    </label>
+    <span class="form-hint">目标会同时进入 System mission/objectives，并形成一条可追溯的候选目标需求。</span>
+    <button class="button" type="submit">保存项目目标</button>
+  </form>
   <div class="two-column workflow-columns">
     <form id="requirement-input-form" class="intake-form">
       <label class="field" for="requirement-text">需求描述
@@ -195,6 +202,7 @@
   const forceRun = document.getElementById("force-run");
   const intakeResult = document.getElementById("intake-result");
   const requirementInputForm = document.getElementById("requirement-input-form");
+  const goalInputForm = document.getElementById("goal-input-form");
   const documentUploadForm = document.getElementById("document-upload-form");
   const sysmlUploadForm = document.getElementById("sysml-upload-form");
   const moduleCards = document.querySelectorAll(".analysis-module-card");
@@ -215,6 +223,22 @@
     intakeResult.textContent = JSON.stringify(payload, null, 2);
     intakeResult.classList.toggle("warning", payload.status !== "ok");
   }
+
+  goalInputForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const goal = document.getElementById("project-goal").value.trim();
+    if (!goal) return;
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/goal`, {
+        method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({goal}),
+      });
+      const payload = await response.json();
+      showIntakeResult(payload);
+      if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+    } catch (error) {
+      showIntakeResult({status: "failed", message: "请求失败：" + error});
+    }
+  });
 
   requirementInputForm.addEventListener("submit", async (event) => {
     event.preventDefault();

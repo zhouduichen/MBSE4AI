@@ -30,6 +30,9 @@ def _parser() -> argparse.ArgumentParser:
     ingest = project_commands.add_parser("ingest", help="导入需求或模型文件")
     ingest.add_argument("project_id", help="项目标识")
     ingest.add_argument("path", type=Path, help="待导入文件路径")
+    goal = project_commands.add_parser("goal", help="设置项目目标并建立目标需求")
+    goal.add_argument("project_id", help="项目标识")
+    goal.add_argument("text", help="系统目标文本")
     analyze = commands.add_parser("analyze", help="运行分析与查看运行状态")
     analyze_commands = analyze.add_subparsers(dest="analyze_command", required=True)
     run = analyze_commands.add_parser("run", help="运行完整生命周期或单个阶段")
@@ -37,11 +40,13 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--phase", choices=[phase.value for phase in Phase if phase is not Phase.CLOSURE], default=None, help="仅运行单阶段；省略则执行完整生命周期")
     run.add_argument("--text", default="", help="将自然语言需求作为完整生命周期输入")
     run.add_argument("--input", type=Path, default=None, help="包含自然语言需求的 UTF-8 文件")
+    run.add_argument("--goal", default="", help="将用户目标作为系统使命和目标需求输入")
     run.add_argument("--force-new", action="store_true", help="强制创建新的运行")
     generate = analyze_commands.add_parser("generate", help="从自然语言生成完整 MBSE 模型")
     generate.add_argument("project_id", help="项目标识")
     generate.add_argument("--text", default="", help="自然语言需求文本")
     generate.add_argument("--input", type=Path, default=None, help="包含自然语言需求的 UTF-8 文件")
+    generate.add_argument("--goal", default="", help="将用户目标作为系统使命和目标需求输入")
     generate.add_argument("--force-new", action="store_true", help="强制创建新的生成运行")
     status = analyze_commands.add_parser("status", help="查看运行台账")
     status.add_argument("project_id", help="项目标识")
@@ -87,12 +92,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "project" and args.project_command == "ingest":
         print(canonical_json({"status": "ok", "document": services.projects.ingest(args.project_id, args.path)}))
         return 0
+    if args.command == "project" and args.project_command == "goal":
+        print(canonical_json({"status": "ok", "context": services.context(args.project_id).set_goal(args.text)}))
+        return 0
     if args.command == "analyze" and args.analyze_command == "run":
         text = str(args.text or "")
         if args.input is not None:
             if text:
                 raise ContractViolation("--text and --input cannot be used together")
             text = args.input.read_text(encoding="utf-8")
+        if str(args.goal or "").strip():
+            services.context(args.project_id).set_goal(args.goal)
         if text.strip():
             services.requirements_input(args.project_id).ensure_text_requirements(text)
         result = services.analysis(args.project_id).run(
@@ -106,6 +116,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         text = str(args.text or "")
         if args.input is not None:
             text = args.input.read_text(encoding="utf-8")
+        if str(args.goal or "").strip():
+            services.context(args.project_id).set_goal(args.goal)
         result = services.generation(args.project_id).generate(
             args.project_id,
             requirement_text=text or None,

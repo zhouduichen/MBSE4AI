@@ -72,3 +72,30 @@ def test_cli_run_accepts_natural_language_input(tmp_path: Path, monkeypatch, cap
     json.loads(capsys.readouterr().out)
     graph = build_v2_services(workspace_root, runtime=RuleRuntime()).repository("robot").load_graph("robot")
     assert any(item.payload.get("statement") == "系统应支持人工接管" for item in graph.entities)
+
+
+def test_cli_goal_is_available_as_system_and_requirement_input(tmp_path: Path, monkeypatch, capsys):
+    workspace_root = tmp_path / "workspaces"
+
+    def services_factory(root, *, config_dir=None):
+        return build_v2_services(root, runtime=RuleRuntime(), config_dir=config_dir)
+
+    monkeypatch.setattr(cli_v2, "build_v2_services", services_factory)
+    root_args = ["--workspace-root", str(workspace_root)]
+    assert cli_v2.main([*root_args, "project", "create", "robot"]) == 0
+    capsys.readouterr()
+
+    assert cli_v2.main([
+        *root_args,
+        "analyze",
+        "generate",
+        "robot",
+        "--goal",
+        "建设可在校园内安全完成配送的系统",
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["run"]["status"] == "completed"
+    graph = build_v2_services(workspace_root, runtime=RuleRuntime()).repository("robot").load_graph("robot")
+    assert any(item.payload.get("source") == "user_goal" for item in graph.entities)
+    system = next(item for item in graph.entities if item.kind.value == "system")
+    assert system.payload["mission"] == "建设可在校园内安全完成配送的系统"

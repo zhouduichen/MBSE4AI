@@ -475,6 +475,48 @@ async def add_requirement(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.post("/projects/{project_id}/goal")
+async def set_project_goal(request: Request, project_id: str):
+    try:
+        payload = await _json_object(request)
+        result = _services(request).context(project_id).set_goal(str(payload.get("text", payload.get("goal", ""))))
+        return {"status": "ok", "context": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/context")
+def get_project_context(request: Request, project_id: str):
+    try:
+        graph = _services(request).model(project_id).graph(project_id)
+        system = next(
+            (
+                item for item in graph.entities
+                if item.kind is EntityKind.SYSTEM and item.meta.status.value != "deprecated"
+            ),
+            None,
+        )
+        goals = [
+            str(item.payload.get("goal_text", item.meta.name))
+            for item in graph.entities
+            if item.kind is EntityKind.REQUIREMENT
+            and item.meta.status.value != "deprecated"
+            and item.payload.get("source") == "user_goal"
+        ]
+        return {
+            "status": "ok",
+            "context": {
+                "project_id": project_id,
+                "revision": graph.revision,
+                "goal": str(system.payload.get("mission", "")) if system else "",
+                "goals": list(dict.fromkeys(goals)),
+                "system_id": system.id if system else None,
+            },
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/documents")
 async def ingest_document(request: Request, project_id: str):
     try:
@@ -506,9 +548,12 @@ async def run_analysis(request: Request, project_id: str):
         force_run = bool(payload.get("force_run", False))
         requested_run_id = str(payload.get("run_id", "")).strip() or None
         requirement_text = str(payload.get("requirement_text", "")).strip() or None
+        goal = str(payload.get("goal", "")).strip() or None
         document_ids = tuple(
             str(item) for item in payload.get("document_ids", ()) if str(item).strip()
         )
+        if goal:
+            _services(request).context(project_id).set_goal(goal)
         if not _services(request).projects.has_analysis_input(project_id) and not (
             mode in {"generate", "vertical", "pipeline"} and (requirement_text or document_ids)
         ):

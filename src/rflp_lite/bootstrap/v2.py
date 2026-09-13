@@ -13,12 +13,17 @@ from rflp_lite.application.evidence_service import EvidenceService
 from rflp_lite.application.model_service import ModelService
 from rflp_lite.application.model_generation import ModelGenerationService
 from rflp_lite.application.project_service import ProjectService
+from rflp_lite.application.project_context import ProjectContextService
 from rflp_lite.application.requirement_input import RequirementInputService
 from rflp_lite.application.render_service import RenderService
 from rflp_lite.application.review_service import ReviewService
 from rflp_lite.application.settings_service import SettingsService
+from rflp_lite.application.tool_layer import EngineeringToolLayer
 from rflp_lite.methodology.workflow import WorkflowRunner
 from rflp_lite.repository.sqlite import SQLiteModelRepository
+from rflp_lite.methodology.context import ContextBuilder
+from rflp_lite.retrieval.evidence import RetrievalEngine
+from rflp_lite.retrieval.history import HistoricalProjectRetriever
 from rflp_lite.runtime.factory import RuntimeFactory
 
 
@@ -72,6 +77,7 @@ class V2Services:
                 repository,
                 repository,
                 selection.runtime,
+                context_builder=ContextBuilder(self._retrieval_engine(project_id, repository)),
                 runtime_selection=selection,
             )
         )
@@ -86,13 +92,37 @@ class V2Services:
             repository,
             selection.runtime,
             runtime_selection=selection,
+            tool_layer=EngineeringToolLayer(
+                repository,
+                retrieval_engine=self._retrieval_engine(project_id, repository),
+            ),
         )
 
     def requirements_input(self, project_id: str) -> RequirementInputService:
         return RequirementInputService(self.repository(project_id), project_id)
 
+    def context(self, project_id: str) -> ProjectContextService:
+        return ProjectContextService(self.repository(project_id), project_id)
+
     def evidence(self, project_id: str) -> EvidenceService:
-        return EvidenceService(self.repository(project_id))
+        repository = self.repository(project_id)
+        return EvidenceService(repository, retrieval_engine=self._retrieval_engine(project_id, repository))
+
+    def _retrieval_engine(self, project_id: str, repository) -> RetrievalEngine:
+        sources = tuple(
+            (
+                item.name,
+                item.path / ".rflp" / "model.db",
+            )
+            for item in self.projects.list()
+            if item.name != project_id
+        )
+        historical = HistoricalProjectRetriever(
+            repository,
+            project_sources=sources,
+            repository_factory=SQLiteModelRepository,
+        )
+        return RetrievalEngine(repository, historical_retriever=historical)
 
     def test_model_profile(self, config: Mapping[str, object]) -> Mapping[str, object]:
         return test_llm_connection(config)

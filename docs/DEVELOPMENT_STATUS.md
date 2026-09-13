@@ -49,6 +49,7 @@
 | 统一工程交付包 | 同一 ModelGraph revision 输出 model/SysML/Requirements/RFLP/Traceability/V&V Plan/Architecture Report；提供 JSON、固定成员 ZIP 和 SysML 回读证据 |
 | 23-task 纵向追溯回接 | 后置 functional/technical/reverse requirement 自动回接 Function 与 V&V；校园配送 fixture 交付包验证 7/7 需求完整追溯 |
 | 已有 SysML 模型输入 | Web Analysis 支持上传 `.sysml`，通过同一解析器导入 ModelGraph；任意非弃用实体组成的局部模型都可作为分析种子，冲突 ID 在写入前拒绝，并可继续生成、编辑和导出 |
+| 用户目标与历史项目输入 | `project goal`、Web `/projects/{id}/goal` 和 Analysis 页面可把目标写入 System mission/objectives 及候选 Requirement；Controller Tool Layer 通过只读跨项目 FTS 检索历史项目模型、文档区域和证据，并将命中结果作为当前项目 Evidence 使用 |
 
 ## 历史 Harness 验收边界
 
