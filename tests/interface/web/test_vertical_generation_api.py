@@ -130,6 +130,30 @@ def test_sysml_import_api_round_trips_into_fresh_project(tmp_path: Path):
     assert response.json()["revision"] == 1
 
 
+def test_document_upload_can_seed_the_complete_generation_path(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    uploaded = client.post(
+        "/projects/p1/documents",
+        files={"file": ("requirements.txt", "系统应支持人工接管\n", "text/plain")},
+    )
+
+    assert uploaded.status_code == 200
+    generated = client.post("/projects/p1/analysis", json={"mode": "generate"})
+
+    assert generated.status_code == 200
+    run = generated.json()["run"]
+    assert run["status"] in {"completed", "completed_with_warnings"}
+    assert [item["stage"] for item in run["stage_results"]] == [
+        "requirements", "functional", "logical", "physical", "verification_validation"
+    ]
+    requirement = next(
+        item for item in client.get("/projects/p1/model").json()["entities"]
+        if item["kind"] == "requirement"
+    )
+    assert requirement["source_ids"]
+
+
 def test_analysis_page_exposes_default_generation_action(tmp_path: Path):
     client = _client(tmp_path)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
