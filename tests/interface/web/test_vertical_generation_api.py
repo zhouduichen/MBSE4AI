@@ -32,6 +32,10 @@ def test_generate_mode_returns_stage_and_traceability_payload(tmp_path: Path):
     assert run["traceability"]["verification_complete_count"] >= 1
     assert run["traceability"]["validation_complete_count"] >= 1
     assert run["traceability"]["end_to_end_complete_count"] >= 1
+    assert "methodology" in run
+    assert "physical_measurement_required" in {
+        item["code"] for item in run["methodology"]["findings"]
+    }
 
 
 def test_sysml_import_api_round_trips_into_fresh_project(tmp_path: Path):
@@ -68,4 +72,8 @@ def test_analysis_page_exposes_default_generation_action(tmp_path: Path):
     assert "端到端闭环" in page.text
     assert "Verification" in page.text
     assert "Validation" in page.text
+    assert "Methodology Findings" in page.text
+    assert "Physical feasibility" in page.text
+    assert "V&amp;V Coverage" in page.text
+    assert "Next Tasks" in page.text
     assert 'runAnalysis("generate", null)' in page.text

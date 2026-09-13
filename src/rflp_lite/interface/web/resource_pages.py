@@ -479,8 +479,26 @@ def _decorate_generation_run(services, project_id: str, graph: ModelGraph, run):
     list_audit_events = getattr(services.repository(project_id), "list_audit_events", None)
     if not callable(list_audit_events):
         return decorated
+    events = list(list_audit_events(project_id))
+    if not decorated.get("methodology"):
+        for event in events:
+            if event.get("kind") != "model_generation.methodology_analyzed":
+                continue
+            payload = _mapping(event.get("payload"))
+            if payload.get("run_id") != decorated.get("run_id"):
+                continue
+            decorated["methodology"] = {
+                key: payload.get(key)
+                for key in (
+                    "findings", "metrics", "decisions", "impacted_entity_ids",
+                    "impacted_stages", "recommended_tasks", "impact_paths",
+                )
+            }
+            break
+    if decorated.get("stage_results"):
+        return decorated
     stage_results = []
-    for event in list_audit_events(project_id):
+    for event in events:
         if event.get("kind") != "model_generation.stage_completed":
             continue
         payload = _mapping(event.get("payload"))

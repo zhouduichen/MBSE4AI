@@ -75,6 +75,13 @@
   {% if latest_run.traceability %}
   <div class="metric-row"><article><span>RFLP 完整</span><strong>{{ latest_run.traceability.rflp_complete_count }}</strong></article><article><span>Verification</span><strong>{{ latest_run.traceability.verification_complete_count }}</strong></article><article><span>Validation</span><strong>{{ latest_run.traceability.validation_complete_count }}</strong></article><article><span>端到端闭环</span><strong>{{ latest_run.traceability.end_to_end_complete_count }}</strong></article></div>
   {% endif %}
+  {% if latest_run.methodology %}
+  <div class="module-subsection"><div class="panel-head"><div><h3>Methodology Findings</h3><p>方法论引擎基于当前 ModelGraph 给出可追踪的工程判断。</p></div><span class="count-badge">{{ latest_run.methodology.findings|length }} 个</span></div>
+    <div class="metric-row"><article><span>Logical allocation</span><strong>{{ latest_run.methodology.metrics.logical_allocation_coverage }}</strong></article><article><span>Physical feasibility</span><strong>{{ latest_run.methodology.metrics.physical_feasibility }}</strong></article><article><span>V&amp;V Coverage</span><strong>{{ latest_run.methodology.metrics.end_to_end_vv_coverage }}</strong></article></div>
+    {% if latest_run.methodology.findings %}<div class="compact-list">{% for finding in latest_run.methodology.findings %}<article><span class="status-badge {% if finding.severity == 'error' %}failed{% else %}candidate{% endif %}">{{ finding.code }}</span><span><strong>{{ finding.stage }}</strong><small>{{ finding.message }}</small></span></article>{% endfor %}</div>{% endif %}
+    {% if latest_run.methodology.recommended_tasks %}<div class="callout info"><strong>Next Tasks</strong>：{{ latest_run.methodology.recommended_tasks|join('、') }}</div>{% endif %}
+  </div>
+  {% endif %}
   {% if latest_run.warnings %}<div class="callout warning">{{ latest_run.warnings|join(' · ') }}</div>{% endif %}
 </section>
 {% endif %}

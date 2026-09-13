@@ -132,6 +132,12 @@ class MethodologyEngine:
         self._analyze_physical(graph, index, findings, metrics)
         self._analyze_vv(graph, index, findings, decisions, metrics)
         impact = self._impact(graph, index, changed_entity_ids)
+        finding_tasks = {
+            task for finding in findings for task in finding.recommended_actions
+        }
+        recommended_tasks = impact[2] or tuple(
+            task for task in _TASK_ORDER if task in finding_tasks
+        )
         findings.sort(key=lambda item: (item.stage, item.code, item.entity_ids))
         decisions.sort(key=lambda item: (str(item.get("step", "")), str(item.get("decision", ""))))
         return MethodologyReport(
@@ -140,7 +146,7 @@ class MethodologyEngine:
             tuple(decisions),
             impact[0],
             impact[1],
-            impact[2],
+            recommended_tasks,
             impact[3],
         )
 
