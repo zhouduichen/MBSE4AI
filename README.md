@@ -74,6 +74,8 @@ model-profile list|save|activate
 
 纵向链完成后由 Methodology Engine 对 ModelGraph 做确定性工程分析：逻辑层报告分配覆盖、分区和内聚/耦合信号；物理层传播约束并区分冲突与待测量；V&V 分开报告 Verification、Validation 和结构化字段完整度；Review 重新分析请求沿图返回影响实体、阶段、路径和下一步内部任务。引擎只读模型，不替代 LLM Controller，也不把未知工程数据误报为可行。
 
+在实体 Review 后，用户可以先创建影响分析请求，也可以执行定向重新分析：编辑 Requirement 会从 Requirements 向下重跑，编辑 Function 从 Functional 向下重跑，Logical/Physical/V&V 编辑只重跑受影响的后续阶段。每次重分析仍写入独立 Run、Patch、Revision 和 audit，不覆盖锁定实体。
+
 ## 开发与验收
 
 ```bash

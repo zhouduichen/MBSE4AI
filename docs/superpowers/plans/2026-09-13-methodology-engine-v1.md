@@ -185,3 +185,19 @@ git add README.md docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md tests/
 git commit -m "docs: document methodology engine product path"
 git push origin HEAD
 ```
+
+### Task 5: Execute targeted reanalysis from Review
+
+**Files:**
+- Modify: `src/rflp_lite/application/model_generation.py`
+- Modify: `src/rflp_lite/interface/web/resource_api.py`
+- Modify: `src/rflp_lite/interface/web/templates/requirement-detail.html`
+- Test: `tests/application/test_model_generation.py`
+- Test: `tests/interface/web/test_review_actions.py`
+
+**Result:** Completed. `ModelGenerationService.reanalyze` maps changed entity kinds to the earliest affected vertical stage and executes all downstream stages with a `vertical_reanalysis` Run. The explicit `/reanalyze/execute` endpoint and requirement detail action expose the behavior while the original request-only endpoint remains compatible.
+
+- [x] **Step 1: Add targeted execution tests**
+- [x] **Step 2: Implement stage selection and downstream execution**
+- [x] **Step 3: Expose the execution endpoint and Review action**
+- [x] **Step 4: Run focused and full verification**

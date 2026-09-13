@@ -33,14 +33,14 @@ AI 或规则 Runtime 只返回结构化 TaskExecutionResponse。WorkflowRunner �
 
 每次运行拥有稳定 `run_id`、methodology/task spec/prompt version、profile/provider/model、input/context/output hash、步骤状态和诊断。纵向生成运行按 Requirements → Functional → Logical → Physical → V&V 顺序提交阶段 Patch，并计算每条 Requirement 的 RFLP、Verification、Validation 和端到端追溯。生成的 LLM 实体只有通过语义校验才进入可编辑的 `validated` 状态；语义失败实体保留为 `candidate`，写入 `semantic_invalid` Issue，人工可通过既有 Review/Edit/Lock 入口接管。每个阶段还返回有界的 decision records，记录内部方法论步骤、结论和依据实体。旧 WorkflowRunner 的 Gate、Repair、Closure 状态机不驱动默认产品路径。
 
-五阶段完成后，`MethodologyEngine` 只读当前 ModelGraph 并输出 findings、metrics、decisions、impact paths 和 recommended tasks；生成结果与 `review.reanalysis.requested` audit 共用同一报告格式。未知的物理 SWaP-C 值会被标记为 `needs_measurement`，约束冲突会被标记为 `physical_constraint_conflict`，不会直接提升为可行。它是 Controller 的确定性反馈层，后续 LLM 迭代可据此选择局部任务。
+五阶段完成后，`MethodologyEngine` 只读当前 ModelGraph 并输出 findings、metrics、decisions、impact paths 和 recommended tasks；生成结果与 `review.reanalysis.requested` audit 共用同一报告格式。未知的物理 SWaP-C 值会被标记为 `needs_measurement`，约束冲突会被标记为 `physical_constraint_conflict`，不会直接提升为可行。它是 Controller 的确定性反馈层：Review API 可以只创建请求，也可以通过 `/entities/{entity_id}/reanalyze/execute` 按实体类型选择最早受影响阶段并向下重跑，继续复用当前 LLM/规则 Runtime、CAS、Run/Revision 和 Patch 审计。
 
 ## 对外资源
 
 | 资源 | 入口 |
 |---|---|
 | 项目 / 文档 | `POST /projects`、`POST /projects/{id}/documents` |
-| 分析运行 | `POST /projects/{id}/analysis`（默认五阶段生成；`mode=pipeline/phase` 为兼容入口）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
+| 分析运行 | `POST /projects/{id}/analysis`（默认五阶段生成；`mode=pipeline/phase` 为兼容入口）、`POST /projects/{id}/entities/{entity_id}/reanalyze/execute`（定向重分析）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
 | 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities` |
 | 人工编辑 | `PATCH /projects/{id}/entities/{entity_id}` |
 | 视图 / 导出 | `GET /projects/{id}/views/{view_id}`、`POST /projects/{id}/export`、`POST /projects/{id}/sysml/import` |

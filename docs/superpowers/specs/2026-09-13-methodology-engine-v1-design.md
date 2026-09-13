@@ -44,7 +44,7 @@ MethodologyReport(
 
 `ModelGenerationService` 在五阶段完成后调用引擎，把 `methodology` 放进 `GenerateModelResult.as_dict()`，并记录 `model_generation.methodology_analyzed` audit event。生成仍以端到端追溯作为主状态，但当分析发现未知物理约束、结构化 V&V 缺口或架构孤立项时，结果带有 warning 和可见的 review findings。
 
-`ReviewService.request_reanalysis` 调用同一个引擎，不再只根据实体 kind 静态选择 task；它将影响分析中的 `recommended_tasks`、路径和阶段写入请求 audit，仍保持“请求创建”和“执行生成”两个动作分离，避免 Review API 意外触发长时间 LLM 调用。
+`ReviewService.request_reanalysis` 调用同一个引擎，不再只根据实体 kind 静态选择 task；它将影响分析中的 `recommended_tasks`、路径和阶段写入请求 audit。`ModelGenerationService.reanalyze` 是显式执行入口，按修改实体类型从受影响阶段向下重跑并复用 CAS/Run/Patch 审计；“创建请求”和“执行生成”仍是两个动作，避免 Review API 意外触发长时间 LLM 调用。
 
 Web 分析页显示四个精简区域：Methodology Findings、Architecture/Physical Metrics、V&V Coverage 和 Impact / Next Tasks。详细实体和原始诊断继续由现有资源页提供。
 
