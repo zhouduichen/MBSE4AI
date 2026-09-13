@@ -1,9 +1,21 @@
-from rflp_lite.domain.entities import EntityKind, make_entity
-from rflp_lite.domain.model import ModelGraph, apply_patch
+from rflp_lite.domain.entities import EntityKind, EntityStatus, make_entity
+from rflp_lite.domain.model import ModelGraph, Relation, apply_patch
 from rflp_lite.methodology.contracts import ContextBundle, TaskExecutionRequest
 from rflp_lite.methodology.engine import MethodologyEngine
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.runtime.rule_based import _partition_functions, _partition_label
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
+
+
+def _logical_request(entities, relations=(), decision=None):
+    context = ContextBundle(
+        "robot", "vertical.logical", 3, tuple(entities), tuple(relations),
+        controller_decisions=(decision,) if decision else (),
+    )
+    return TaskExecutionRequest(
+        "vertical.logical", "v2.1", context, (),
+        {"output_kinds": ["logical_component", "interface", "state"]}, 3000,
+    )
 
 
 def test_partition_functions_uses_explicit_key_and_falls_back_to_function_id():
@@ -54,3 +66,244 @@ def test_shared_state_partition_is_reviewable_for_high_coupling():
 
     assert logical.payload["coupling"] == "high"
     assert any(item.code == "logical_partition_needs_review" for item in report.findings)
+
+
+def test_one_component_per_function_repartitions_existing_logical_components():
+    first = make_entity(EntityKind.FUNCTION, "采集任务", {"shared_state": ["task_state"]})
+    second = make_entity(EntityKind.FUNCTION, "执行任务", {"shared_state": ["task_state"]})
+    old = make_entity(
+        EntityKind.LOGICAL_COMPONENT,
+        "共享任务逻辑组件",
+        {"cohesion": "high", "coupling": "high"},
+        status=EntityStatus.VALIDATED,
+    )
+    graph = ModelGraph(
+        "robot",
+        (first, second, old),
+        (
+            Relation("f1-l", first.id, RelationPredicate.ALLOCATED_TO, old.id),
+            Relation("f2-l", second.id, RelationPredicate.ALLOCATED_TO, old.id),
+        ),
+        revision=3,
+    )
+
+    response = VerticalRuleRuntime().execute(_logical_request(
+        graph.entities,
+        graph.relations,
+        {
+            "action_id": "a1",
+            "option_id": "o1",
+            "option": "one_component_per_function",
+            "task_id": "architecture_evaluation",
+            "revision": 3,
+        },
+    ))
+    result = apply_patch(graph, response.patch)
+
+    active = [
+        item for item in result.entities
+        if item.kind is EntityKind.LOGICAL_COMPONENT
+        and item.meta.status is not EntityStatus.DEPRECATED
+    ]
+    assert result.entity_index[old.id].meta.status is EntityStatus.DEPRECATED
+    assert len(active) == 2
+    assert all(item.payload["architecture_variant"] == "one_component_per_function" for item in active)
+    assert all(item.payload["architecture_decision"]["option_id"] == "o1" for item in active)
+
+
+def test_shared_coordinator_variant_is_marked_high_coupling():
+    first = make_entity(EntityKind.FUNCTION, "采集任务", {"shared_state": ["task_state"]})
+    second = make_entity(EntityKind.FUNCTION, "执行任务", {"shared_state": ["task_state"]})
+
+    response = VerticalRuleRuntime().execute(_logical_request(
+        (first, second),
+        decision={
+            "action_id": "a2",
+            "option_id": "o2",
+            "option": "shared_coordinator",
+            "task_id": "architecture_evaluation",
+            "revision": 0,
+        },
+    ))
+    logical = next(
+        operation.entity
+        for operation in response.patch.operations
+        if hasattr(operation, "entity")
+        and operation.entity.kind is EntityKind.LOGICAL_COMPONENT
+    )
+
+    assert logical.payload["architecture_variant"] == "shared_coordinator"
+    assert logical.payload["coupling"] == "high"
+    assert logical.payload["architecture_decision"]["action_id"] == "a2"
+
+
+def test_physical_candidate_trade_study_adds_traceable_alternative():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "功耗需求",
+        {
+            "constraints": {"max_power_w": 50},
+            "constraint_provenance": [{"field": "power_w"}],
+        },
+    )
+    function = make_entity(EntityKind.FUNCTION, "执行任务")
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "任务控制器")
+    physical = make_entity(
+        EntityKind.PHYSICAL_BLOCK,
+        "配送协同执行平台",
+        {"power_w": 80},
+    )
+    context = ContextBundle(
+        "robot",
+        "vertical.physical",
+        4,
+        (requirement, function, logical, physical),
+        (
+            Relation("r-f", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+            Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+            Relation("l-p", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
+        ),
+        controller_decisions=(
+            {
+                "action_id": "a3",
+                "option_id": "o3",
+                "option": "更换物理候选或计算架构",
+                "task_id": "allocation_tradeoff",
+                "revision": 4,
+            },
+        ),
+    )
+    request = TaskExecutionRequest(
+        "vertical.physical",
+        "v2.1",
+        context,
+        (),
+        {"output_kinds": ["physical_block", "requirement"]},
+        3000,
+    )
+
+    response = VerticalRuleRuntime().execute(request)
+    alternative = next(
+        operation.entity
+        for operation in response.patch.operations
+        if hasattr(operation, "entity")
+        and operation.entity.kind is EntityKind.PHYSICAL_BLOCK
+        and operation.entity.payload.get("candidate_variant") == "alternative"
+    )
+
+    assert alternative.payload["propagated_constraints"] == {"max_power_w": 50}
+    assert alternative.payload["architecture_decision"]["option_id"] == "o3"
+    assert alternative.payload["source_requirement_ids"] == [requirement.id]
+
+
+def test_physical_budget_trade_does_not_fabricate_measurements():
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "任务控制器")
+    physical = make_entity(
+        EntityKind.PHYSICAL_BLOCK,
+        "配送协同执行平台",
+        {"power_w": 80, "mass_kg": 12, "propagated_constraints": {"max_power_w": 50}},
+    )
+    context = ContextBundle(
+        "robot",
+        "vertical.physical",
+        4,
+        (logical, physical),
+        (Relation("l-p", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),),
+        controller_decisions=(
+            {
+                "action_id": "a5",
+                "option_id": "o5",
+                "option": "降低计算或功耗需求",
+                "task_id": "constraint_propagation",
+                "revision": 4,
+            },
+        ),
+    )
+    request = TaskExecutionRequest(
+        "vertical.physical", "v2.1", context, (), {"output_kinds": ["physical_block"]}, 3000
+    )
+
+    response = VerticalRuleRuntime().execute(request)
+    update = next(
+        operation for operation in response.patch.operations
+        if operation.__class__.__name__ == "UpdateEntity"
+    )
+
+    assert update.field_patch["payload"]["power_w"] == 80
+    assert update.field_patch["payload"]["mass_kg"] == 12
+    assert update.field_patch["payload"]["propagated_constraints"] == {"max_power_w": 50}
+    assert update.field_patch["payload"]["architecture_decision"]["option_id"] == "o5"
+
+
+def test_locked_physical_candidate_gets_unmeasured_alternative():
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "任务控制器")
+    physical = make_entity(
+        EntityKind.PHYSICAL_BLOCK,
+        "配送协同执行平台",
+        {"power_w": 80},
+        status=EntityStatus.LOCKED,
+    )
+    context = ContextBundle(
+        "robot",
+        "vertical.physical",
+        4,
+        (logical, physical),
+        (Relation("l-p", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),),
+        controller_decisions=(
+            {
+                "action_id": "a6",
+                "option_id": "o6",
+                "option": "降低计算或功耗需求",
+                "task_id": "constraint_propagation",
+                "revision": 4,
+            },
+        ),
+    )
+    request = TaskExecutionRequest(
+        "vertical.physical", "v2.1", context, (), {"output_kinds": ["physical_block"]}, 3000
+    )
+
+    response = VerticalRuleRuntime().execute(request)
+    alternative = next(
+        operation.entity for operation in response.patch.operations
+        if hasattr(operation, "entity")
+        and operation.entity.kind is EntityKind.PHYSICAL_BLOCK
+        and operation.entity.payload.get("candidate_variant") == "alternative"
+    )
+
+    assert alternative.payload["blocked_by_locked_entity"] is True
+    assert alternative.payload["power_w"] is None
+    assert alternative.payload["architecture_decision"]["option_id"] == "o6"
+
+
+def test_locked_logical_component_is_not_deprecated_when_variant_is_generated():
+    function = make_entity(EntityKind.FUNCTION, "执行任务")
+    locked = make_entity(
+        EntityKind.LOGICAL_COMPONENT,
+        "锁定控制器",
+        {},
+        status=EntityStatus.LOCKED,
+    )
+    response = VerticalRuleRuntime().execute(_logical_request(
+        (function, locked),
+        (Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, locked.id),),
+        {
+            "action_id": "a4",
+            "option_id": "o4",
+            "option": "shared_coordinator",
+            "task_id": "architecture_evaluation",
+            "revision": 3,
+        },
+    ))
+
+    assert not any(
+        operation.__class__.__name__ == "Deprecate"
+        and operation.entity_id == locked.id
+        for operation in response.patch.operations
+    )
+    assert any(
+        hasattr(operation, "entity")
+        and operation.entity.kind is EntityKind.LOGICAL_COMPONENT
+        and operation.entity.payload.get("blocked_by_locked_entity") is True
+        for operation in response.patch.operations
+    )

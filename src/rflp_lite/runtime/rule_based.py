@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
-from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
+from rflp_lite.domain.model import AddEntity, Deprecate, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
 
@@ -35,6 +35,13 @@ _PRIMARY_OUTPUT: dict[str, EntityKind] = {
     "reverse_feasibility": EntityKind.REQUIREMENT,
     "global_cross_analysis": EntityKind.VALIDATION_CASE,
 }
+_LOGICAL_VARIANTS = frozenset({
+    "one_component_per_function", "shared_coordinator", "current_dependency_partition",
+})
+_PHYSICAL_VARIANTS = frozenset({
+    "更换物理候选或计算架构", "降低计算或功耗需求",
+    "调整需求约束或资源预算", "增加电池质量或资源预算",
+})
 
 
 def _first(context, kind: EntityKind):
@@ -221,6 +228,7 @@ class _VerticalPatchBuilder:
         self.index = {item.id: item for item in self.context.entities}
         self.operations: list[object] = []
         self.added: dict[str, object] = {}
+        self.deprecated = set()
         self.relation_keys = {
             (item.source_id, item.predicate, item.target_id)
             for item in self.context.relations
@@ -260,6 +268,22 @@ class _VerticalPatchBuilder:
             return
         self.relation_keys.add(key)
         self.operations.append(Relate(source.id, predicate, target.id))
+
+    def deprecate(self, entity) -> None:
+        if entity.meta.status in {EntityStatus.DEPRECATED, EntityStatus.LOCKED}:
+            return
+        if bool(entity.payload.get("user_modified")) or entity.id in self.deprecated:
+            return
+        self.deprecated.add(entity.id)
+        self.operations.append(Deprecate(entity.id))
+
+    def update_payload(self, entity, payload: Mapping[str, object]) -> bool:
+        if entity.meta.status in {EntityStatus.DEPRECATED, EntityStatus.LOCKED}:
+            return False
+        if bool(entity.payload.get("user_modified")):
+            return False
+        self.operations.append(UpdateEntity(entity.id, {"payload": dict(payload)}))
+        return True
 
     def response(self) -> TaskExecutionResponse:
         if not self.operations:
@@ -382,42 +406,89 @@ class VerticalRuleRuntime:
 
     def _logical(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         builder = _VerticalPatchBuilder(request)
+        decision = _controller_decision(request.context_bundle)
+        option = str(decision.get("option", "")).strip()
+        variant = option if option in _LOGICAL_VARIANTS else ""
         functions = _context_entities(request.context_bundle, EntityKind.FUNCTION)
         groups = _partition_functions(functions)
+        if variant:
+            existing_variant = next(
+                (
+                    item for item in _context_entities(
+                        request.context_bundle, EntityKind.LOGICAL_COMPONENT
+                    )
+                    if item.payload.get("architecture_variant") == variant
+                ),
+                None,
+            )
+            if existing_variant is not None:
+                return builder.response()
+            if variant == "one_component_per_function":
+                groups = tuple((function,) for function in functions)
+            elif variant == "shared_coordinator" and functions:
+                groups = (tuple(functions),)
+            blocked = False
+            for item in request.context_bundle.entities:
+                if item.kind not in {
+                    EntityKind.LOGICAL_COMPONENT,
+                    EntityKind.INTERFACE,
+                    EntityKind.STATE,
+                }:
+                    continue
+                if item.meta.status is EntityStatus.LOCKED or bool(item.payload.get("user_modified")):
+                    blocked = True
+                    continue
+                builder.deprecate(item)
+        else:
+            blocked = False
         logical_components = []
         for group in groups:
             label = _partition_label(group)
-            name = "配送协同逻辑架构" if len(groups) == 1 and len(group) == 1 else f"{label}逻辑组件"
+            base_name = (
+                "配送协同逻辑架构"
+                if len(groups) == 1 and len(group) == 1
+                else f"{group[0].meta.name}逻辑组件"
+                if variant == "one_component_per_function" and len(group) == 1
+                else f"{label}逻辑组件"
+            )
+            name = f"{base_name}（{variant}）" if variant else base_name
             shared_state = _union_payload_values(group, "shared_state") or ["配送任务状态"]
             timing_constraints = _union_payload_values(group, "timing_constraints") or ["任务状态更新必须可排序"]
-            logical_components.append(
-                builder.add(EntityKind.LOGICAL_COMPONENT, name, {
-                    "responsibility": "；".join(
-                        str(item.payload.get("behavior") or item.meta.name)
-                        for item in group
-                    ),
-                    "partition_basis": (
-                        f"按 {label} 的功能职责形成独立分区"
-                        if len(group) == 1
-                        else f"按 {label} 共享状态和功能依赖形成分区"
-                    ),
-                    "dependencies": [item.id for item in group],
-                    "shared_state": shared_state,
-                    "timing_constraints": timing_constraints,
-                    "safety_isolation": ["人工接管路径与自动执行路径隔离"],
-                    "cohesion": "high",
-                    "coupling": "controlled" if len(group) == 1 else "high",
-                    "interfaces": [],
-                    "architecture_rationale": (
-                        "单一功能职责保持边界清晰"
-                        if len(group) == 1
-                        else "共享状态使功能保持在同一逻辑边界，但需要评审耦合"
-                    ),
+            payload = {
+                "responsibility": "；".join(
+                    str(item.payload.get("behavior") or item.meta.name)
+                    for item in group
+                ),
+                "partition_basis": (
+                    f"按 {label} 的功能职责形成独立分区"
+                    if len(group) == 1
+                    else f"按 {label} 共享状态和功能依赖形成分区"
+                ),
+                "dependencies": [item.id for item in group],
+                "shared_state": shared_state,
+                "timing_constraints": timing_constraints,
+                "safety_isolation": ["人工接管路径与自动执行路径隔离"],
+                "cohesion": "high",
+                "coupling": "controlled" if len(group) == 1 else "high",
+                "interfaces": [],
+                "architecture_rationale": (
+                    "单一功能职责保持边界清晰"
+                    if len(group) == 1
+                    else "共享状态使功能保持在同一逻辑边界，但需要评审耦合"
+                ),
+            }
+            if variant:
+                payload.update({
+                    "architecture_variant": variant,
+                    "architecture_decision": dict(_decision_payload(decision)),
                 })
-            )
+                if blocked:
+                    payload["blocked_by_locked_entity"] = True
+            logical_components.append(builder.add(EntityKind.LOGICAL_COMPONENT, name, payload))
         if not logical_components:
             return builder.response()
-        state = builder.add(EntityKind.STATE, "配送任务状态", {
+        suffix = f"（{variant}）" if variant else ""
+        state = builder.add(EntityKind.STATE, f"配送任务状态{suffix}", {
             "values": ["待受理", "执行中", "人工接管", "完成", "失败"],
             "transitions": [
                 "待受理->执行中", "执行中->人工接管", "执行中->完成",
@@ -426,7 +497,7 @@ class VerticalRuleRuntime:
             "owner_id": logical_components[0].id,
             "owner_ids": [item.id for item in logical_components],
         })
-        interface = builder.add(EntityKind.INTERFACE, "配送任务交互接口", {
+        interface = builder.add(EntityKind.INTERFACE, f"配送任务交互接口{suffix}", {
             "protocol": "logical-message",
             "exchanges": ["task_request", "task_status", "handover"],
             "connected_component_ids": [item.id for item in logical_components],
@@ -443,6 +514,9 @@ class VerticalRuleRuntime:
 
     def _physical(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         builder = _VerticalPatchBuilder(request)
+        decision = _controller_decision(request.context_bundle)
+        option = str(decision.get("option", "")).strip()
+        physical_variant = option if option in _PHYSICAL_VARIANTS else ""
         logical_components = _context_entities(request.context_bundle, EntityKind.LOGICAL_COMPONENT)
         for logical in logical_components:
             functions = tuple(
@@ -460,11 +534,43 @@ class VerticalRuleRuntime:
                 if len(logical_components) == 1
                 else f"{logical.meta.name}执行平台"
             )
-            physical = builder.add(
-                EntityKind.PHYSICAL_BLOCK,
-                name,
-                _physical_payload(logical, requirements),
-            )
+            payload = dict(_physical_payload(logical, requirements))
+            if physical_variant == "更换物理候选或计算架构":
+                name = f"{name}替代候选"
+                payload.update({
+                    "candidate_variant": "alternative",
+                    "architecture_decision": dict(_decision_payload(decision)),
+                    "open_questions": ["替代物理候选的 SWaP-C 需要测量并重新验证"],
+                })
+                physical = builder.add(EntityKind.PHYSICAL_BLOCK, name, payload)
+            else:
+                existing = builder.find(EntityKind.PHYSICAL_BLOCK, name)
+                if existing is None and physical_variant:
+                    payload.update({
+                        "architecture_decision": dict(_decision_payload(decision)),
+                        "open_questions": ["需要用户/利益相关者确认该 Trade Study 决策并重新验证"],
+                    })
+                physical = builder.add(EntityKind.PHYSICAL_BLOCK, name, payload)
+                if physical_variant and existing is not None and not _same_decision(existing, decision):
+                    decision_fields = {
+                        "architecture_decision": dict(_decision_payload(decision)),
+                        "open_questions": ["需要用户/利益相关者确认该 Trade Study 决策并重新验证"],
+                    }
+                    if not builder.update_payload(
+                        physical, {**dict(physical.payload), **decision_fields}
+                    ):
+                        alternative_payload = {
+                            **payload,
+                            "candidate_variant": "alternative",
+                            "architecture_decision": dict(_decision_payload(decision)),
+                            "blocked_by_locked_entity": True,
+                            "open_questions": ["替代物理候选的 SWaP-C 需要测量并重新验证"],
+                        }
+                        physical = builder.add(
+                            EntityKind.PHYSICAL_BLOCK,
+                            f"{name}替代候选",
+                            alternative_payload,
+                        )
             builder.relate(logical, RelationPredicate.ALLOCATED_TO, physical)
         return builder.response()
 
@@ -595,6 +701,32 @@ def _context_first(context, kind: EntityKind):
 
 def _context_entities(context, kind: EntityKind):
     return tuple(item for item in context.entities if item.kind is kind)
+
+
+def _controller_decision(context):
+    for raw in reversed(context.controller_decisions):
+        if isinstance(raw, Mapping):
+            return raw
+    return {}
+
+
+def _decision_payload(decision: Mapping[str, object]) -> Mapping[str, object]:
+    return {
+        "action_id": str(decision.get("action_id", "")),
+        "option_id": str(decision.get("option_id", "")),
+        "option": str(decision.get("option", "")),
+        "task_id": str(decision.get("task_id", "")),
+        "source_revision": int(decision.get("revision", 0) or 0),
+    }
+
+
+def _same_decision(entity, decision: Mapping[str, object]) -> bool:
+    existing = entity.payload.get("architecture_decision")
+    return (
+        isinstance(existing, Mapping)
+        and str(existing.get("option_id", "")) == str(decision.get("option_id", ""))
+        and str(existing.get("option", "")) == str(decision.get("option", ""))
+    )
 
 
 def _builder_entities(builder: _VerticalPatchBuilder, kind: EntityKind):
