@@ -20,6 +20,8 @@
 - [已有模型作为分析种子实施计划](plans/2026-09-13-existing-model-seed-continuation.md)
 - [多需求输入设计](specs/2026-09-13-multi-requirement-intake-design.md)
 - [多需求输入实施计划](plans/2026-09-13-multi-requirement-intake.md)
+- [数据驱动架构综合设计](specs/2026-09-13-data-driven-architecture-synthesis-design.md)
+- [数据驱动架构综合实施计划](plans/2026-09-13-data-driven-architecture-synthesis.md)
 
 ## Superseded
 
