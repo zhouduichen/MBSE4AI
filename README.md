@@ -82,6 +82,8 @@ MBSE Model 页面还提供“导出完整交付包”：同一份 ModelGraph 快
 
 在实体 Review 后，用户可以先创建影响分析请求，也可以执行定向重新分析：编辑 Requirement 会从 Requirements 向下重跑，编辑 Function 从 Functional 向下重跑，Logical/Physical/V&V 编辑只重跑受影响的后续阶段。确认实体后还可以显式执行“继续生成下游”，从已确认层的下一个阶段运行到 V&V；锁定实体作为只读锚点参与推理，不会被修改。完整交互闭环是：`Review 实体 → 接受/锁定 → 继续生成下游 → 重新计算 Trace/Methodology → Review 新结果`。每次重分析或继续生成仍写入独立 Run、Patch、Revision 和 audit，不覆盖锁定实体。
 
+Controller 还提供有界的“自动推进安全动作”入口：它可以连续执行安全的局部重分析或证据检索，并在每轮重新计算 Traceability、Methodology 和下一步动作；遇到 Trade Study、缺少用户输入/证据、无进展或迭代预算耗尽时暂停。Trade Study 方案仍必须由用户明确选择，LLM 生成内容继续经过结构化 Runtime、Compiler、Validator 和 CAS。
+
 对完整 fixture 的 23-task 兼容链，后置功能/技术/反向需求会回接已有 Function 与 V&V 案例，最终交付包以 7/7 需求形成完整 R→F→L→P→V&V 追溯作为验收证据。
 
 ## 开发与验收

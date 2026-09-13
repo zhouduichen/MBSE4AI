@@ -37,6 +37,7 @@
 | 定向重新分析 Controller | Review 请求支持影响路径和下一步 task 路由；执行入口按修改实体从受影响阶段向下重跑，并保留独立 Run、Patch、Revision 与 audit |
 | Systems Engineering Controller | 将 Methodology findings 路由为缺证据/补输入/重新分析/Trade Study 动作；支持用户选择物理或逻辑架构方案后按影响实体执行定向重分析，并在 Web/API 中显示决策状态 |
 | Controller 决策上下文 | Trade Study 选择进入定向重分析的 ContextBundle、上下文哈希和结构化 LLM 请求，后续阶段能够消费用户已确认的方案 |
+| Controller 自动迭代闭环 | 可有界执行安全的局部重分析/证据检索，逐轮刷新 Traceability、Methodology 和 Controller；在 Trade Study、用户输入/证据、无进展或预算耗尽时暂停，并通过 API/Web 工作台暴露 |
 | Controller Tool Layer | 证据缺口先调用文档/历史/本地 FTS 检索工具；结果持久化为 Evidence 后再触发受影响阶段重分析，无结果才等待用户补充 |
 | MBSE 对象纵向覆盖 | 默认五阶段显式生成 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase；方法学报告分别检查风险覆盖、缓解关系、V&V 计划字段和执行证据 |
 | 分层 ModelGraph 工作台 | MBSE 模型页按 System Definition、Functional、Logical、Physical、V&V 展示真实实体，并复用 Review/CAS API 支持编辑、接受、拒绝、锁定、解锁和重新分析 |

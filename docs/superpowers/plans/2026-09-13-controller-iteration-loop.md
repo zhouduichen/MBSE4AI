@@ -30,7 +30,7 @@
 - Consumes: `SystemsEngineeringController.plan`, `ModelGenerationService.execute_controller_action`, `build_traceability_summary`, current Repository revision.
 - Produces: `ModelGenerationService.iterate_controller(project_id, *, max_iterations=3, expected_revision=None) -> Mapping[str, object]` with `iteration_id`, `execution_status`, `start_revision`, `revision`, `iterations`, `traceability`, `methodology`, and `controller`.
 
-- [ ] **Step 1: Write service tests for terminal states and progress guards**
+- [x] **Step 1: Write service tests for terminal states and progress guards**
 
 Add these imports to `tests/application/test_model_generation.py`:
 
@@ -110,13 +110,13 @@ def test_controller_iteration_reports_no_progress_for_repeated_action(tmp_path: 
     assert result["iterations"][0]["revision_before"] == result["iterations"][0]["revision_after"] == 0
 ```
 
-- [ ] **Step 2: Run the service tests and verify they fail**
+- [x] **Step 2: Run the service tests and verify they fail**
 
 Run: `./.venv/bin/pytest tests/application/test_model_generation.py -q -k controller_iteration`
 
 Expected: FAIL because `ModelGenerationService` has no `iterate_controller` method.
 
-- [ ] **Step 3: Implement the bounded iteration method**
+- [x] **Step 3: Implement the bounded iteration method**
 
 Insert this method after `controller_plan` and before `execute_controller_action`:
 
@@ -228,13 +228,13 @@ Insert this method after `controller_plan` and before `execute_controller_action
 
 The `collect_evidence` branch must preserve the existing tool result inside `result`; only a `completed` tool action with a successful nested reanalysis can proceed to another loop iteration. The existing `execute_controller_action` implementation remains unchanged.
 
-- [ ] **Step 4: Run the service tests and the existing Controller tests**
+- [x] **Step 4: Run the service tests and the existing Controller tests**
 
 Run: `./.venv/bin/pytest tests/application/test_model_generation.py tests/methodology/test_controller.py -q`
 
 Expected: PASS, including the existing single-action and trade-study behavior.
 
-- [ ] **Step 5: Commit the service iteration**
+- [x] **Step 5: Commit the service iteration**
 
 ```bash
 git add src/rflp_lite/application/model_generation.py tests/application/test_model_generation.py
@@ -251,7 +251,7 @@ git commit -m "feat: add bounded controller iteration"
 - Consumes: JSON `{ "max_iterations": 3, "expected_revision": 14 }`.
 - Produces: `{ "status": "ok", "controller": <iterate_controller result> }`, with the same error handling and HTTP status mapping as `/controller/execute`.
 
-- [ ] **Step 1: Write API tests**
+- [x] **Step 1: Write API tests**
 
 Add:
 
@@ -299,13 +299,13 @@ def test_controller_iteration_endpoint_rejects_stale_revision(tmp_path: Path):
     assert response.status_code == 409
 ```
 
-- [ ] **Step 2: Run the API tests and verify the new route fails**
+- [x] **Step 2: Run the API tests and verify the new route fails**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_vertical_generation_api.py -q -k controller_iteration`
 
 Expected: FAIL because the route is not registered.
 
-- [ ] **Step 3: Add the API route**
+- [x] **Step 3: Add the API route**
 
 Add this route after the existing `/projects/{project_id}/controller/execute` handler:
 
@@ -325,13 +325,13 @@ async def iterate_controller(request: Request, project_id: str):
         return _error(exc)
 ```
 
-- [ ] **Step 4: Run the API tests**
+- [x] **Step 4: Run the API tests**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_vertical_generation_api.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the API route**
+- [x] **Step 5: Commit the API route**
 
 ```bash
 git add src/rflp_lite/interface/web/resource_api.py tests/interface/web/test_vertical_generation_api.py
@@ -348,7 +348,7 @@ git commit -m "feat: expose controller iteration endpoint"
 - Consumes: current `current_revision` and `/controller/iterate` response.
 - Produces: a visible `自动推进安全动作` control and a result block showing iteration status; Trade Study buttons continue using `/controller/execute`.
 
-- [ ] **Step 1: Add a template assertion**
+- [x] **Step 1: Add a template assertion**
 
 Extend `test_analysis_page_exposes_default_generation_action`:
 
@@ -357,7 +357,7 @@ Extend `test_analysis_page_exposes_default_generation_action`:
     assert "/controller/iterate" in page.text
 ```
 
-- [ ] **Step 2: Add the UI control and JavaScript handler**
+- [x] **Step 2: Add the UI control and JavaScript handler**
 
 In the Controller panel header, place this button before the status badge:
 
@@ -391,13 +391,13 @@ Add this listener before the existing `.controller-execute` listener:
   });
 ```
 
-- [ ] **Step 3: Run the page/API regression tests**
+- [x] **Step 3: Run the page/API regression tests**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_vertical_generation_api.py -q`
 
 Expected: PASS, including the pre-existing Trade Study buttons and generation page assertions.
 
-- [ ] **Step 4: Commit the workbench control**
+- [x] **Step 4: Commit the workbench control**
 
 ```bash
 git add src/rflp_lite/interface/web/templates/analysis.html tests/interface/web/test_vertical_generation_api.py
@@ -417,11 +417,11 @@ git commit -m "feat: add controller iteration to analysis workbench"
 - Consumes: the service/API/UI behavior from Tasks 1–3.
 - Produces: documentation that distinguishes automatic safe iteration from user-decided Trade Study and a clean pushed branch.
 
-- [ ] **Step 1: Document the iteration loop**
+- [x] **Step 1: Document the iteration loop**
 
 Add to the product documentation that Controller can automatically execute bounded safe actions, reports each revision/traceability change, and pauses for Trade Study or missing user input/evidence. State that LLM content still flows through the existing structured stage runtime.
 
-- [ ] **Step 2: Mark this plan complete and scan it**
+- [x] **Step 2: Mark this plan complete and scan it**
 
 Change implementation checkboxes to `[x]`. Run:
 
@@ -431,7 +431,7 @@ rg -n 'TODO|TBD|FIXME|Similar to Task|add appropriate' docs/superpowers/plans/20
 
 Expected: no output.
 
-- [ ] **Step 3: Run complete verification**
+- [x] **Step 3: Run complete verification**
 
 Run:
 
@@ -447,7 +447,7 @@ git diff --check
 
 Expected: every command exits 0; iteration audit events, API route and UI text are covered by tests.
 
-- [ ] **Step 4: Commit and push**
+- [x] **Step 4: Commit and push**
 
 ```bash
 git add README.md docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md docs/superpowers/README.md docs/superpowers/plans/2026-09-13-controller-iteration-loop.md

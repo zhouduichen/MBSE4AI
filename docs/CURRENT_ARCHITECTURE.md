@@ -39,6 +39,8 @@ AI 或规则 Runtime 只返回结构化 TaskExecutionResponse。WorkflowRunner �
 
 Review 后的显式“继续生成下游”调用 `ModelGenerationService.continue_generation`，按实体所属层路由到下一个 VerticalStage，使用独立的 `vertical_continuation` Run。接受的实体不会被重复改写；锁定实体可作为只读上下文参与 Logical、Physical 或 V&V 推理。续行结束后重新计算 Traceability、Methodology 和 Controller，V&V 是终止层。
 
+`ModelGenerationService.iterate_controller` 提供有界的 Controller 迭代：每轮读取最新图、选择最高优先级动作，并复用单动作入口执行 `reanalyze` 或成功的 `collect_evidence`。它记录每轮 revision、Traceability 和 finding 变化；`trade_study`、`collect_input`、证据等待、无进展和预算耗尽分别成为明确停止状态。该迭代不新增模型状态机，也不绕过用户决策、CAS、锁定保护或结构化 LLM 边界。Resource API 的 `/controller/iterate` 和 Analysis 工作台的自动推进按钮使用同一返回结构。
+
 `EngineeringDeliverableService` 是只读的交付投影边界。它先加载一次图和 Issue，再生成带统一 revision/hash 的结构化 artifacts；V&V Plan 从 Verification/Validation 行派生，Architecture Report 同时检查 RFLP gaps 和 V&V gaps，因此后置需求未回接时会明确报告 BLOCKED。ZIP 包固定包含 `manifest.json`、`model.json`、`model.sysml`、`requirements.json`、`rflp.json`、`traceability.json`、`vv-plan.json`、`vv-plan.md`、`architecture-report.json` 和 `architecture-report.md`，SysML 仍通过现有 importer 回读到 ModelGraph。
 
 ## 对外资源
@@ -46,7 +48,7 @@ Review 后的显式“继续生成下游”调用 `ModelGenerationService.contin
 | 资源 | 入口 |
 |---|---|
 | 项目 / 文档 | `POST /projects`、`POST /projects/{id}/documents` |
-| 分析运行 | `POST /projects/{id}/analysis`（默认五阶段生成；`mode=pipeline/phase` 为兼容入口）、`GET /projects/{id}/controller`、`POST /projects/{id}/controller/execute`（Controller 动作/Trade Study）、`POST /projects/{id}/entities/{entity_id}/reanalyze/execute`（定向重分析）、`POST /projects/{id}/entities/{entity_id}/continue`（Review 后从下一层继续生成）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
+| 分析运行 | `POST /projects/{id}/analysis`（默认五阶段生成；`mode=pipeline/phase` 为兼容入口）、`GET /projects/{id}/controller`、`POST /projects/{id}/controller/execute`（Controller 动作/Trade Study）、`POST /projects/{id}/controller/iterate`（有界自动推进安全动作）、`POST /projects/{id}/entities/{entity_id}/reanalyze/execute`（定向重分析）、`POST /projects/{id}/entities/{entity_id}/continue`（Review 后从下一层继续生成）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
 | 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities` |
 | 人工编辑 | `PATCH /projects/{id}/entities/{entity_id}` |
 | 视图 / 导出 | `GET /projects/{id}/views/{view_id}`、`POST /projects/{id}/export`、`GET /projects/{id}/deliverables`、`GET /projects/{id}/deliverables/download`、`POST /projects/{id}/sysml/import`、`POST /projects/{id}/sysml/import/upload` |
