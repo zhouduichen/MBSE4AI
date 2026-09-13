@@ -150,3 +150,26 @@ All 25 calls in the final prefix had `finish_reason=stop`; no transport
 failure, structural retry, compiler failure, duplicate `local_ref`, semantic
 rejection, or failed/blocked task carrying a patch was observed. The 23-task
 lifecycle remains intentionally pending.
+
+### Follow-up: nine-task Operational phase
+
+The staged continuation added `use_case_analysis`, `operational_scenario`,
+`activity_analysis`, and `system_requirement_derivation`.
+
+- [x] Run the nine-task Operational chain once.
+- [x] Correct the two observed relation-direction contracts:
+  `scenario_exploration` now uses only `derivedFrom`; `operational_scenario`
+  distinguishes `derivedFrom`, `participatesIn`, and `occursIn` by endpoint.
+- [x] Rerun the nine-task chain once: 9/9 completed. One transient transport
+  error on `scenario_exploration` recovered on retry; no terminal failure.
+- [x] Run the corrected nine-task chain ×5: 45/45 tasks and 5/5 runs
+  completed, with revision delta `+9` on every run.
+- [x] Inspect the Operational Gate and explicit graph trace. The Gate passes
+  5/5, but explicit scenario provenance and Activity → OperationalScenario
+  relations are not yet complete; this is recorded as semantic trace
+  `PARTIAL`, not as an execution failure.
+
+The full evidence report is
+`docs/superpowers/artifacts/pr09/operational-9-task-acceptance-20260913.md`.
+The nine-task stability artifact is
+`docs/superpowers/artifacts/pr09/relation-policy-operational-9-task-stability-20260913.json`.
