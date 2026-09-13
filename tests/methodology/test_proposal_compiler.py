@@ -162,6 +162,21 @@ def test_first_operational_tasks_expose_task_level_relation_predicates():
             assert relation["maxItems"] == 0
 
 
+def test_scenario_and_operational_scenario_expose_endpoint_valid_predicates():
+    expected = {
+        "scenario_exploration": {RelationPredicate.DERIVED_FROM.value},
+        "operational_scenario": {
+            RelationPredicate.DERIVED_FROM.value,
+            RelationPredicate.PARTICIPATES_IN.value,
+            RelationPredicate.OCCURS_IN.value,
+        },
+    }
+    for task_id, predicates in expected.items():
+        task = next(item for item in task_catalog() if item.id == task_id)
+        relation = output_contract(task)["properties"]["relations"]["items"]
+        assert set(relation["properties"]["predicate"]["enum"]) == predicates
+
+
 def test_stakeholder_requirement_derived_from_concern_compiles():
     task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
     stakeholder = make_entity(EntityKind.STAKEHOLDER, "用户")

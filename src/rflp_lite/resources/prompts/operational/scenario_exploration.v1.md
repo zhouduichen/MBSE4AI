@@ -20,7 +20,7 @@
 场景假设必须有 stakeholder/lifecycle/concern 或 evidence 支撑。
 
 # Relation Rules
-使用 participatesIn、occursIn 等合法关系，端点必须真实存在。
+只使用 `derivedFrom`，关系方向固定为 ScenarioHypothesis → Stakeholder、Concern 或 LifecycleStage；不要使用 `participatesIn` 或 `occursIn`，因为它们的端点不适用于 ScenarioHypothesis。
 
 # Forbidden Behavior
 不得把未证实的异常概率、性能数值或产品方案写成事实。
