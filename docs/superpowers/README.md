@@ -27,6 +27,7 @@
 - [自然语言工程约束抽取设计](specs/2026-09-13-natural-language-constraints-design.md)
 - [决策驱动的架构迭代设计](specs/2026-09-13-decision-driven-architecture-iteration-design.md)
 - [物理技术需求与追溯闭环设计](specs/2026-09-13-technical-requirement-trace-closure-design.md)
+- [物理技术需求与追溯闭环实施计划](plans/2026-09-13-technical-requirement-trace-closure.md)
 - [自然语言工程约束抽取实施计划](plans/2026-09-13-natural-language-constraints.md)
 
 ## Superseded
