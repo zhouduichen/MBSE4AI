@@ -454,6 +454,11 @@ class MethodologyEngine:
                 "task": "system_requirement_derivation",
                 "impact": "需要用户和利益相关者确认",
             },
+            {
+                "option": "增加电池质量或资源预算",
+                "task": "system_requirement_derivation",
+                "impact": "需要重新评估质量、续航和利益相关者约束",
+            },
         ] if conflicts else []
 
     def _analyze_vv(self, graph, index, findings, decisions, metrics) -> None:

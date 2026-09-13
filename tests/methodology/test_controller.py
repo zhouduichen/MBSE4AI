@@ -50,6 +50,7 @@ def test_controller_routes_physical_conflict_to_trade_study_options():
         "降低计算或功耗需求",
         "更换物理候选或计算架构",
         "调整需求约束或资源预算",
+        "增加电池质量或资源预算",
     }
     assert all(item["requires_user_decision"] for item in action.options)
 
