@@ -6,7 +6,9 @@ import pytest
 from rflp_lite.adapters.document_intelligence import LocalDocumentParser
 from rflp_lite.application.project_service import ProjectService
 from rflp_lite.application.workspaces import create_managed_workspace
+from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.errors import ContractViolation, NotFoundError
+from rflp_lite.domain.model import AddEntity, Patch
 from rflp_lite.repository.sqlite import SQLiteModelRepository
 
 
@@ -69,6 +71,45 @@ def test_add_requirement_rejects_blank_text(tmp_path: Path) -> None:
 
     with pytest.raises(ContractViolation, match="requirement text is required"):
         _service(root).add_requirement("p1", "  ")
+
+
+def test_active_partial_model_counts_as_analysis_input(tmp_path: Path) -> None:
+    root = tmp_path / "workspaces"
+    create_managed_workspace(root, "p1")
+    service = _service(root)
+    repository = service.repository("p1")
+    graph = repository.load_graph("p1")
+    entity = make_entity(
+        EntityKind.FUNCTION,
+        "已有配送功能",
+        {"behavior": "完成配送"},
+        status=EntityStatus.ACCEPTED,
+        producer=Producer.IMPORT,
+        confidence=1.0,
+    )
+    repository.append_patch(
+        "p1",
+        Patch.create("p1", "test.import", (AddEntity(entity),), "导入部分模型", graph.revision),
+        graph.revision,
+    )
+
+    assert service.has_analysis_input("p1") is True
+
+
+def test_deprecated_only_model_is_not_analysis_input(tmp_path: Path) -> None:
+    root = tmp_path / "workspaces"
+    create_managed_workspace(root, "p1")
+    service = _service(root)
+    repository = service.repository("p1")
+    graph = repository.load_graph("p1")
+    entity = make_entity(EntityKind.FUNCTION, "废弃功能", status=EntityStatus.DEPRECATED)
+    repository.append_patch(
+        "p1",
+        Patch.create("p1", "test.import", (AddEntity(entity),), "导入废弃模型", graph.revision),
+        graph.revision,
+    )
+
+    assert service.has_analysis_input("p1") is False
 
 
 def test_uploaded_text_document_is_saved_and_counts_as_analysis_input(tmp_path: Path) -> None:

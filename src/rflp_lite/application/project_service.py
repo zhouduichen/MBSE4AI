@@ -117,12 +117,7 @@ class ProjectService:
     def has_analysis_input(self, project_id: str) -> bool:
         repository = self.repository(project_id)
         graph = repository.load_graph(project_id)
-        if any(
-            item.kind is EntityKind.REQUIREMENT
-            and item.meta.status is not EntityStatus.DEPRECATED
-            and item.meta.producer in {Producer.USER, Producer.IMPORT}
-            for item in graph.entities
-        ):
+        if graph.has_active_entities:
             return True
         checker = getattr(repository, "has_documents", None)
         return bool(checker(project_id)) if callable(checker) else False

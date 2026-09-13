@@ -840,11 +840,7 @@ class ModelGenerationService:
                 )
                 self.repository.append_patch(request.project_id, patch, graph.revision)
             return
-        if any(
-            entity.kind is EntityKind.REQUIREMENT
-            and entity.meta.status is not EntityStatus.DEPRECATED
-            for entity in graph.entities
-        ):
+        if graph.has_active_entities:
             return
         if request.document_ids or self.repository.has_documents(request.project_id):
             raise InputRequired("document input contains no readable requirement text")

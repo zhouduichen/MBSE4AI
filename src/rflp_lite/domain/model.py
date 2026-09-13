@@ -42,6 +42,10 @@ class ModelGraph:
         return {item.id: item for item in self.entities}
 
     @property
+    def has_active_entities(self) -> bool:
+        return any(item.meta.status is not EntityStatus.DEPRECATED for item in self.entities)
+
+    @property
     def snapshot_hash(self) -> str:
         return canonical_hash({
             "project_id": self.project_id,

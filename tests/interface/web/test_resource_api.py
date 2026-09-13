@@ -2,7 +2,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from rflp_lite.application.sysml_v2 import graph_to_sysml
+from rflp_lite.domain.entities import EntityKind, make_entity
+from rflp_lite.domain.model import ModelGraph
 from rflp_lite.interface.web.app import create_app
+from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 
 def test_resource_api_project_model_and_cas_patch(tmp_path: Path):
@@ -73,3 +77,28 @@ def test_empty_project_analysis_is_rejected_without_writing_a_run(tmp_path: Path
     assert response.status_code == 422
     assert response.json()["error"] == "InputRequired"
     assert client.get("/projects/p1/model").json()["revision"] == 0
+
+
+def test_partial_sysml_model_can_start_analysis_without_requirement_text(tmp_path: Path):
+    app = create_app(tmp_path)
+    app.state.container.v2._runtime_override = VerticalRuleRuntime()
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    source = graph_to_sysml(
+        ModelGraph(
+            "source",
+            (make_entity(EntityKind.FUNCTION, "已有配送功能"),),
+            (),
+            0,
+        )
+    )
+    imported = client.post(
+        "/projects/p1/sysml/import/upload",
+        files={"file": ("partial.sysml", source, "text/plain")},
+    )
+    assert imported.status_code == 200
+
+    response = client.post("/projects/p1/analysis", json={"mode": "generate"})
+
+    assert response.status_code == 200
+    assert response.json()["run"]["mode"] == "generate"
