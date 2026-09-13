@@ -1,4 +1,5 @@
 from tests.interface.web.test_requirements_workbench import _client_with_fixture
+from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 
 def test_model_page_exposes_layered_entities_and_review_controls(tmp_path):
@@ -52,3 +53,45 @@ def test_function_edit_keeps_id_marks_user_change_and_lock_protects_it(tmp_path)
         json={"expected_revision": locked.json()["revision"]["sequence"], "name": "tampered"},
     )
     assert blocked.status_code == 409
+
+
+def test_continue_generation_api_runs_only_downstream_stages(tmp_path):
+    client, _ = _client_with_fixture(tmp_path, runtime=VerticalRuleRuntime())
+    model = client.get("/projects/p1/model").json()
+    function = next(item for item in model["entities"] if item["kind"] == "function")
+
+    accepted = client.post(
+        f"/projects/p1/entities/{function['id']}/accept",
+        json={"expected_revision": model["revision"]},
+    )
+    assert accepted.status_code == 200
+    accepted_revision = accepted.json()["revision"]["sequence"]
+
+    response = client.post(
+        f"/projects/p1/entities/{function['id']}/continue",
+        json={"expected_revision": accepted_revision},
+    )
+
+    assert response.status_code == 200
+    continuation = response.json()["continuation"]
+    assert continuation["execution_status"] == "completed"
+    assert continuation["selected_stages"] == [
+        "logical", "physical", "verification_validation"
+    ]
+
+
+def test_model_workbench_exposes_continue_action_after_function_acceptance(tmp_path):
+    client, _ = _client_with_fixture(tmp_path)
+    model = client.get("/projects/p1/model").json()
+    function = next(item for item in model["entities"] if item["kind"] == "function")
+    accepted = client.post(
+        f"/projects/p1/entities/{function['id']}/accept",
+        json={"expected_revision": model["revision"]},
+    )
+    assert accepted.status_code == 200
+
+    page = client.get("/ui/projects/p1/model")
+
+    assert page.status_code == 200
+    assert "继续生成下游" in page.text
+    assert 'data-review-action="continue"' in page.text

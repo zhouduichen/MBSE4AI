@@ -136,7 +136,9 @@ git commit -m "feat: continue model generation after review"
 **Files:**
 - Modify: `src/rflp_lite/interface/web/resource_api.py`
 - Modify: `src/rflp_lite/interface/web/templates/model.html`
+- Modify: `src/rflp_lite/interface/web/templates/requirement-detail.html`
 - Test: `tests/interface/web/test_model_workbench.py`
+- Test: `tests/interface/web/test_review_actions.py`
 
 **Interfaces:**
 - Consumes: `ModelGenerationService.continue_generation` and `POST /projects/{project_id}/entities/{entity_id}/continue`.
@@ -155,7 +157,7 @@ assert response.status_code == 200
 assert response.json()["continuation"]["selected_stages"][0] == "logical"
 ```
 
-Add a page assertion for `继续生成下游` and `data-review-action="continue"`; assert a V&V-only fixture does not render that action.
+Add a page assertion for `继续生成下游` and `data-review-action="continue"`; assert the accepted Requirement detail page also exposes `data-action="continue"`, while a V&V-only fixture does not render that action.
 
 - [ ] **Step 2: Run the focused interface tests and verify failure**
 
@@ -190,21 +192,21 @@ The route must return the existing error mapping, including 409 for stale revisi
 
 - [ ] **Step 4: Add the workbench action**
 
-In `model_workbench.py`, expose `can_continue` when the card kind is in the first four product layers and the status is `accepted` or `locked`; expose `continue_label` as `继续生成下游` or `基于锁定实体继续生成`. Render a button only when `can_continue` is true. Extend the workbench script to POST `/continue` with the page revision, display API errors in the existing feedback area, and reload only after `status == "ok"`.
+In `model_workbench.py`, expose `can_continue` when the card kind is in the first four product layers and the status is `accepted` or `locked`; expose `continue_label` as `继续生成下游` or `基于锁定实体继续生成`. Render a button only when `can_continue` is true. Extend the workbench script to POST `/continue` with the page revision, display API errors in the existing feedback area, and reload only after `status == "ok"`. Add the same explicit action to `requirement-detail.html`, because Requirements remain a separate user-facing workbench; its existing request-only and execute-reanalysis actions remain unchanged.
 
 - [ ] **Step 5: Run interface tests and commit**
 
 Run:
 
 ```bash
-./.venv/bin/python -m pytest tests/interface/web/test_model_workbench.py tests/interface/web/test_vertical_generation_api.py -q
-./.venv/bin/ruff check src/rflp_lite/interface/web/resource_api.py src/rflp_lite/interface/web/templates/model.html tests/interface/web/test_model_workbench.py
+./.venv/bin/python -m pytest tests/interface/web/test_model_workbench.py tests/interface/web/test_review_actions.py tests/interface/web/test_vertical_generation_api.py -q
+./.venv/bin/ruff check src/rflp_lite/interface/web/resource_api.py tests/interface/web/test_model_workbench.py tests/interface/web/test_review_actions.py
 ```
 
 Expected: PASS.
 
 ```bash
-git add src/rflp_lite/interface/web/resource_api.py src/rflp_lite/interface/web/templates/model.html tests/interface/web/test_model_workbench.py
+git add src/rflp_lite/interface/web/resource_api.py src/rflp_lite/interface/web/templates/model.html src/rflp_lite/interface/web/templates/requirement-detail.html tests/interface/web/test_model_workbench.py tests/interface/web/test_review_actions.py
 git commit -m "feat: expose downstream continuation in model workbench"
 ```
 

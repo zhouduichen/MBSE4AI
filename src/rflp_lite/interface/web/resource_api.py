@@ -839,6 +839,24 @@ async def edit_entity(request: Request, project_id: str, entity_id: str):
         return _error(exc)
 
 
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/continue")
+async def continue_entity_generation(request: Request, project_id: str, entity_id: str):
+    try:
+        payload = await _json_object(request)
+        decision = payload.get("controller_decision")
+        if decision is not None and not isinstance(decision, Mapping):
+            raise ContractViolation("controller_decision must be an object")
+        result = _services(request).generation(project_id).continue_generation(
+            project_id,
+            entity_id,
+            expected_revision=_expected_revision(payload),
+            controller_decision=dict(decision) if isinstance(decision, Mapping) else None,
+        )
+        return {"status": "ok", "continuation": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/entities/{entity_id}/reanalyze")
 async def request_entity_reanalysis(request: Request, project_id: str, entity_id: str):
     try:

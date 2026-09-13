@@ -47,6 +47,7 @@
         <details class="entity-payload"><summary>查看模型属性</summary><pre>{{ item.payload|tojson(indent=2) }}</pre></details>
         <div class="workbench-actions">
           {% if item.status in ['candidate', 'validated'] %}<button class="button compact workbench-command" type="button" data-review-action="accept" data-entity-id="{{ item.id }}">接受</button><button class="button compact danger workbench-command" type="button" data-review-action="reject" data-entity-id="{{ item.id }}">拒绝</button>{% elif item.status == 'accepted' %}<button class="button compact workbench-command" type="button" data-review-action="lock" data-entity-id="{{ item.id }}">锁定</button>{% elif item.status == 'locked' %}<button class="button compact workbench-command" type="button" data-review-action="unlock" data-entity-id="{{ item.id }}">解锁</button>{% endif %}
+          {% if item.can_continue %}<button class="button compact primary workbench-command" type="button" data-review-action="continue" data-entity-id="{{ item.id }}">{{ item.continue_label }}</button>{% endif %}
           {% if item.status != 'locked' %}<button class="button compact" type="button" data-action="edit" data-edit-toggle="{{ item.id }}">编辑</button>{% endif %}
           <button class="button compact" type="button" data-review-action="reanalyze" data-entity-id="{{ item.id }}">重新分析</button>
         </div>

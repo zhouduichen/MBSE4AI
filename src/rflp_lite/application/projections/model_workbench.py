@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Mapping
 
 from rflp_lite.application.projections.common import entity_card, header, issues_by_entity
-from rflp_lite.domain.entities import EntityKind
+from rflp_lite.domain.entities import EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
 
 
@@ -52,6 +52,12 @@ _GROUPS: tuple[tuple[str, str, str, tuple[EntityKind, ...]], ...] = (
     ),
 )
 
+_CONTINUABLE_KINDS = frozenset(
+    kind
+    for _, _, _, kinds in _GROUPS[:4]
+    for kind in kinds
+) | {EntityKind.REQUIREMENT}
+
 
 def build_model_workbench_view(
     graph: ModelGraph,
@@ -81,6 +87,15 @@ def build_model_workbench_view(
                 "source_count": len(entity.meta.source_ids),
                 "evidence_count": len(set(entity.meta.evidence_ids) | relation_evidence.get(entity.id, set())),
                 "relation_count": relation_counts.get(entity.id, 0),
+                "can_continue": (
+                    entity.kind in _CONTINUABLE_KINDS
+                    and entity.meta.status in {EntityStatus.ACCEPTED, EntityStatus.LOCKED}
+                ),
+                "continue_label": (
+                    "基于锁定实体继续生成"
+                    if entity.meta.status is EntityStatus.LOCKED
+                    else "继续生成下游"
+                ),
             })
             entities.append(card)
         groups.append({

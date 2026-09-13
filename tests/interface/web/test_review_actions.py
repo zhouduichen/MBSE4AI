@@ -75,3 +75,4 @@ def test_accepted_requirement_detail_exposes_reject_and_lock(tmp_path):
     assert page.status_code == 200
     assert 'data-action="reject"' in page.text
     assert 'data-action="lock"' in page.text
+    assert 'data-action="continue"' in page.text
