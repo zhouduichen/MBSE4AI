@@ -576,6 +576,21 @@ async def execute_controller_action(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.post("/projects/{project_id}/controller/iterate")
+async def iterate_controller(request: Request, project_id: str):
+    try:
+        payload = await _json_object(request)
+        max_iterations = int(payload.get("max_iterations", 3))
+        result = _services(request).generation(project_id).iterate_controller(
+            project_id,
+            max_iterations=max_iterations,
+            expected_revision=_expected_revision(payload),
+        )
+        return {"status": "ok", "controller": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.get("/projects/{project_id}/runs/{run_id}")
 def get_run(request: Request, project_id: str, run_id: str):
     try:

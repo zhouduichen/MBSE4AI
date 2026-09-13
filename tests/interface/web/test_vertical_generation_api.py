@@ -61,6 +61,55 @@ def test_controller_plan_and_execution_endpoint_expose_next_action(tmp_path: Pat
     assert execution.json()["controller"]["execution_status"] == "awaiting_evidence"
 
 
+def test_controller_iteration_endpoint_returns_waiting_decision(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    generated = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统应支持人工接管"},
+    ).json()["run"]
+    model = client.get("/projects/p1/model").json()
+    requirement_id = next(item["id"] for item in model["entities"] if item["kind"] == "requirement")
+    physical_id = next(item["id"] for item in model["entities"] if item["kind"] == "physical_block")
+    edited = client.post(
+        f"/projects/p1/entities/{requirement_id}/edit",
+        json={
+            "expected_revision": generated["revision"],
+            "payload": {"constraints": {"max_power_w": 50}},
+        },
+    )
+    edited_physical = client.post(
+        f"/projects/p1/entities/{physical_id}/edit",
+        json={
+            "expected_revision": edited.json()["revision"]["sequence"],
+            "payload": {"power_w": 80},
+        },
+    )
+    revision = edited_physical.json()["revision"]["sequence"]
+
+    response = client.post(
+        "/projects/p1/controller/iterate",
+        json={"max_iterations": 3, "expected_revision": revision},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["controller"]
+    assert payload["execution_status"] == "awaiting_decision"
+    assert payload["revision"] == revision
+
+
+def test_controller_iteration_endpoint_rejects_stale_revision(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    response = client.post(
+        "/projects/p1/controller/iterate",
+        json={"max_iterations": 3, "expected_revision": 9},
+    )
+
+    assert response.status_code == 409
+
+
 def test_controller_trade_study_decision_runs_only_affected_downstream_stages(tmp_path: Path):
     client = _client(tmp_path)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
@@ -175,4 +224,6 @@ def test_analysis_page_exposes_default_generation_action(tmp_path: Path):
     assert "Physical feasibility" in page.text
     assert "V&amp;V Coverage" in page.text
     assert "Next Tasks" in page.text
+    assert "自动推进安全动作" in page.text
+    assert "/controller/iterate" in page.text
     assert 'runAnalysis("generate", null)' in page.text
