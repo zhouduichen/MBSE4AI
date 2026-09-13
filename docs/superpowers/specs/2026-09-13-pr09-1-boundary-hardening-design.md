@@ -43,6 +43,8 @@ _validate_entity_payload(entity.kind, merged_payload, request)
 | `ContractViolation` | `FAILED` | 记录 contract failure | `BLOCKED` |
 | 其它 `Exception` | `FAILED` | 记录 `internal_error` | `BLOCKED` |
 
+`MethodologyValidationError` 是已知 semantic validator 结果，保持 `DEGRADED` 并继续现有 gate/repair 流程；它必须在 `ContractViolation` 之前单独捕获。其它直接抛出的 `ContractViolation` 则视为执行契约失败并 fail-closed。
+
 所有 fail-closed 路由都不得写入 committable patch；异常发生后立即调用 `_block_pending_steps()`，更新 run 为 `DEGRADED`（保持现有 RunSummary/API 兼容），并返回当前 phase 的 failure stage。未知异常的诊断包含 task id、异常类型和消息，不包含完整模型响应。
 
 现有已知 semantic response（`TaskExecutionResponse` 为 `DEGRADED` 且无 structural/compiler/transport failure stage）继续走 completion/semantic 处理，不因本次 catch-all 收紧而误分类。由于 `ConcurrentModificationError` 不属于 `ContractViolation`，它必须在 catch 顺序中单独位于通用异常之前。
