@@ -28,7 +28,7 @@
 - Consumes: arbitrary text from user requirements or parsed document regions.
 - Produces: `split_requirement_statements(text: str) -> tuple[str, ...]` with stable order, normalized whitespace, and no empty entries.
 
-- [ ] **Step 1: Write failing splitter tests**
+- [x] **Step 1: Write failing splitter tests**
 
 ```python
 from rflp_lite.application.requirement_intake import split_requirement_statements
@@ -55,13 +55,13 @@ def test_splitter_ignores_blank_entries():
     assert split_requirement_statements("；\n  \n系统应可用！") == ("系统应可用",)
 ```
 
-- [ ] **Step 2: Run the splitter tests and verify they fail**
+- [x] **Step 2: Run the splitter tests and verify they fail**
 
 Run: `./.venv/bin/pytest tests/application/test_requirement_intake.py -q`
 
 Expected: FAIL with `ModuleNotFoundError` because the splitter module does not exist.
 
-- [ ] **Step 3: Implement the pure splitter**
+- [x] **Step 3: Implement the pure splitter**
 
 ```python
 _SEPARATOR = re.compile(r"(?:\r?\n+|[；;。！？!?]+|(?<=[.!?])\s+(?=[A-Z]))")
@@ -80,13 +80,13 @@ def split_requirement_statements(text: str) -> tuple[str, ...]:
     return tuple(values)
 ```
 
-- [ ] **Step 4: Run the splitter tests and verify they pass**
+- [x] **Step 4: Run the splitter tests and verify they pass**
 
 Run: `./.venv/bin/pytest tests/application/test_requirement_intake.py -q`
 
 Expected: 3 passed.
 
-- [ ] **Step 5: Commit the splitter**
+- [x] **Step 5: Commit the splitter**
 
 ```bash
 git add src/rflp_lite/application/requirement_intake.py tests/application/test_requirement_intake.py
@@ -104,7 +104,7 @@ git commit -m "feat: split multi-requirement input statements"
 - Consumes: `split_requirement_statements`, `repository.list_source_regions`, and existing `AddEntity`/`Patch` input path.
 - Produces: one active Requirement per ordered statement, with region provenance and downstream per-requirement generation.
 
-- [ ] **Step 1: Write failing multi-input generation tests**
+- [x] **Step 1: Write failing multi-input generation tests**
 
 ```python
 def test_document_sentences_create_independent_requirements(tmp_path: Path):
@@ -138,23 +138,23 @@ def test_multiple_natural_language_requirements_get_separate_function_paths(tmp_
     assert result.traceability.complete_count == 3
 ```
 
-- [ ] **Step 2: Run the new generation tests and verify the old single-Requirement behavior fails**
+- [x] **Step 2: Run the new generation tests and verify the old single-Requirement behavior fails**
 
 Run: `./.venv/bin/pytest tests/application/test_document_generation.py::test_document_sentences_create_independent_requirements tests/e2e/test_vertical_model_generation.py::test_multiple_natural_language_requirements_get_separate_function_paths -q`
 
 Expected: FAIL because `_ensure_input` currently creates one Requirement containing all statements.
 
-- [ ] **Step 3: Build ordered candidates and append one input Patch**
+- [x] **Step 3: Build ordered candidates and append one input Patch**
 
 Import `split_requirement_statements`. In `_ensure_input`, build ordered `(statement, source_ids)` candidates from explicit text or each source region. Merge repeated statements by statement while preserving the first-seen order and unioning source IDs. For every candidate, find an existing active Requirement whose statement and `source_ids` match; create only missing entities. Append all new `AddEntity` operations in one `user.requirement_input` Patch at the current revision. If no candidate text exists, preserve the active-model and existing error branches.
 
-- [ ] **Step 4: Run the focused generation and regression tests**
+- [x] **Step 4: Run the focused generation and regression tests**
 
 Run: `./.venv/bin/pytest tests/application/test_document_generation.py tests/e2e/test_vertical_model_generation.py tests/application/test_model_generation.py -q`
 
 Expected: PASS; single-input tests retain one Requirement and multi-input tests produce independent Function and trace paths.
 
-- [ ] **Step 5: Commit the generation integration**
+- [x] **Step 5: Commit the generation integration**
 
 ```bash
 git add src/rflp_lite/application/model_generation.py tests/application/test_document_generation.py tests/e2e/test_vertical_model_generation.py
@@ -174,11 +174,11 @@ git commit -m "feat: preserve per-requirement generation traces"
 - Consumes: the multi-statement intake and per-requirement trace behavior from Tasks 1–2.
 - Produces: user-facing input semantics and a verified pushed branch.
 
-- [ ] **Step 1: Document statement boundaries and trace semantics**
+- [x] **Step 1: Document statement boundaries and trace semantics**
 
 State that newline/list/sentence-separated requirements remain separate in ModelGraph, document-derived items retain Source Region evidence, and the five stages report traceability per Requirement.
 
-- [ ] **Step 2: Mark the plan complete and scan for placeholders**
+- [x] **Step 2: Mark the plan complete and scan for placeholders**
 
 Change completed checkboxes to `[x]`. Run:
 
@@ -188,7 +188,7 @@ rg -n 'TODO|TBD|FIXME|Similar to Task|add appropriate' docs/superpowers/plans/20
 
 Expected: no output.
 
-- [ ] **Step 3: Run complete verification**
+- [x] **Step 3: Run complete verification**
 
 Run:
 
@@ -204,7 +204,7 @@ git diff --check
 
 Expected: every command exits 0.
 
-- [ ] **Step 4: Commit and push**
+- [x] **Step 4: Commit and push**
 
 ```bash
 git add README.md docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md docs/superpowers/README.md docs/superpowers/plans/2026-09-13-multi-requirement-intake.md
