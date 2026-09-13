@@ -21,6 +21,7 @@ from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.engine import MethodologyEngine, MethodologyReport
 from rflp_lite.methodology.controller import ControllerPlan, SystemsEngineeringController
 from rflp_lite.methodology.tasks import task_spec_hash
+from rflp_lite.methodology.trace_rules import is_technical_requirement, requirement_lineage
 from rflp_lite.methodology.vertical_generation import (
     VerticalStage,
     downstream_vertical_stages,
@@ -1344,7 +1345,14 @@ def build_traceability_summary(graph) -> TraceabilitySummary:
     end_to_end_missing = 0
     paths: list[tuple[str, ...]] = []
     for requirement in sorted(active, key=lambda item: item.id):
-        functions = _trace_targets(graph, requirement.id, RelationPredicate.SATISFIED_BY, EntityKind.FUNCTION)
+        lineage = requirement_lineage(graph, requirement.id)
+        functions = tuple(dict.fromkeys(
+            function_id
+            for source_id in lineage
+            for function_id in _trace_targets(
+                graph, source_id, RelationPredicate.SATISFIED_BY, EntityKind.FUNCTION
+            )
+        ))
         logical = tuple(dict.fromkeys(
             logical_id
             for function_id in functions
@@ -1355,6 +1363,13 @@ def build_traceability_summary(graph) -> TraceabilitySummary:
             for logical_id in logical
             for physical_id in _trace_targets(graph, logical_id, RelationPredicate.ALLOCATED_TO, EntityKind.PHYSICAL_BLOCK)
         ))
+        if is_technical_requirement(requirement):
+            physical = tuple(dict.fromkeys((*physical, *(_trace_targets(
+                graph,
+                requirement.id,
+                RelationPredicate.SATISFIED_BY,
+                EntityKind.PHYSICAL_BLOCK,
+            )))))
         verification = _trace_targets(graph, requirement.id, RelationPredicate.VERIFIED_BY, EntityKind.VERIFICATION_CASE)
         validation = _trace_targets(graph, requirement.id, RelationPredicate.VALIDATED_BY, EntityKind.VALIDATION_CASE)
         rflp = bool(functions and logical and physical)

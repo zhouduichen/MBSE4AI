@@ -45,6 +45,40 @@ MITIGATION = TraceRule(
 TRACE_RULES = (R_TO_F, F_TO_L, L_TO_P, R_TO_V, R_TO_VALIDATION, MITIGATION)
 
 
+def is_technical_requirement(entity) -> bool:
+    return (
+        entity.kind is EntityKind.REQUIREMENT
+        and str(entity.payload.get("level", "")).strip().lower() == "technical"
+    )
+
+
+def requirement_lineage(graph: ModelGraph, requirement_id: str) -> tuple[str, ...]:
+    """Return stable root requirements for a derived requirement."""
+
+    index = graph.entity_index
+    pending = [requirement_id]
+    visited: set[str] = set()
+    roots: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        parent_ids = {
+            relation.target_id
+            for relation in graph.relations
+            if relation.source_id == current
+            and relation.predicate is RelationPredicate.DERIVED_FROM
+            and index.get(relation.target_id) is not None
+            and index[relation.target_id].kind is EntityKind.REQUIREMENT
+        }
+        if parent_ids:
+            pending.extend(sorted(parent_ids))
+        else:
+            roots.add(current)
+    return tuple(sorted(roots or {requirement_id}))
+
+
 def targets(graph: ModelGraph, source_id: str, rule: TraceRule) -> tuple[str, ...]:
     """Return only typed targets connected by one of ``rule`` predicates."""
 

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.methodology.trace_rules import is_technical_requirement
 
 
 _INACTIVE = frozenset({EntityStatus.REJECTED, EntityStatus.DEPRECATED})
@@ -175,6 +176,10 @@ class MethodologyEngine:
             kind: _active(index, kind)
             for kind in _OPERATIONAL_KINDS
         }
+        present[EntityKind.REQUIREMENT] = tuple(
+            item for item in present[EntityKind.REQUIREMENT]
+            if not is_technical_requirement(item)
+        )
         present_count = sum(bool(items) for items in present.values())
         metrics["operational_context_coverage"] = _ratio(present_count, len(_OPERATIONAL_KINDS))
         actions = {
@@ -235,7 +240,10 @@ class MethodologyEngine:
         ))
 
     def _analyze_functional(self, graph, index, findings, decisions, metrics) -> None:
-        requirements = _active(index, EntityKind.REQUIREMENT)
+        requirements = tuple(
+            item for item in _active(index, EntityKind.REQUIREMENT)
+            if not is_technical_requirement(item)
+        )
         functions = _active(index, EntityKind.FUNCTION)
         flows = _active(index, EntityKind.FUNCTIONAL_FLOW)
         scenarios = _active(index, EntityKind.FUNCTIONAL_SCENARIO)

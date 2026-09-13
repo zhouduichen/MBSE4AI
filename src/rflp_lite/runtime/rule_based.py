@@ -572,6 +572,17 @@ class VerticalRuleRuntime:
                             alternative_payload,
                         )
             builder.relate(logical, RelationPredicate.ALLOCATED_TO, physical)
+            for requirement in requirements:
+                constraints = _explicit_constraint_map(requirement)
+                if not constraints:
+                    continue
+                technical = builder.add(
+                    EntityKind.REQUIREMENT,
+                    f"{physical.meta.name}技术约束：{requirement.meta.name[:24]}",
+                    _technical_requirement_payload(requirement, physical, constraints),
+                )
+                builder.relate(technical, RelationPredicate.DERIVED_FROM, requirement)
+                builder.relate(technical, RelationPredicate.SATISFIED_BY, physical)
         return builder.response()
 
     def _verification_validation(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
@@ -693,6 +704,41 @@ def _requirements_for_functions(context, functions):
         item for item in context.entities
         if item.kind is EntityKind.REQUIREMENT and item.id in requirement_ids
     )
+
+
+def _explicit_constraint_map(requirement):
+    constraints = {}
+    for key, value in requirement.payload.items():
+        key = str(key)
+        if key.startswith(("max_", "min_")):
+            constraints[key] = value
+    for container_key in ("constraints", "limits"):
+        container = requirement.payload.get(container_key)
+        if isinstance(container, Mapping):
+            for key, value in container.items():
+                key = str(key)
+                if key.startswith(("max_", "min_")):
+                    constraints[key] = value
+    return dict(sorted(constraints.items()))
+
+
+def _technical_requirement_payload(requirement, physical, constraints):
+    provenance = requirement.payload.get("constraint_provenance")
+    return {
+        "level": "technical",
+        "type": "constraint",
+        "statement": f"物理候选“{physical.meta.name}”应满足需求“{requirement.meta.name}”中的显式工程约束",
+        "obligation": "物理候选应满足显式工程约束",
+        "verification_method": "test",
+        "constraint_fields": list(constraints),
+        "constraints": dict(constraints),
+        "source_requirement_ids": [requirement.id],
+        "source_physical_ids": [physical.id],
+        "constraint_provenance": [
+            item for item in provenance if isinstance(item, Mapping)
+        ] if isinstance(provenance, list) else [],
+        "open_questions": ["需要对该物理候选执行工程约束验证"],
+    }
 
 
 def _context_first(context, kind: EntityKind):

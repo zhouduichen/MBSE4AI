@@ -10,7 +10,8 @@ from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.trace_rules import (
-    F_TO_L, L_TO_P, R_TO_F, R_TO_V, R_TO_VALIDATION, targets,
+    F_TO_L, L_TO_P, R_TO_F, R_TO_V, R_TO_VALIDATION, is_technical_requirement,
+    requirement_lineage, targets,
 )
 
 
@@ -101,9 +102,27 @@ def related_cards(graph: ModelGraph, entity_id: str, *, outgoing: bool, issues: 
 
 
 def trace_targets(graph: ModelGraph, requirement_id: str) -> dict[str, tuple[str, ...]]:
-    functions = targets(graph, requirement_id, R_TO_F)
+    lineage = requirement_lineage(graph, requirement_id)
+    functions = tuple(sorted({
+        target
+        for source_id in lineage
+        for target in targets(graph, source_id, R_TO_F)
+    }))
     logical = tuple(sorted({target for function_id in functions for target in targets(graph, function_id, F_TO_L)}))
     physical = tuple(sorted({target for logical_id in logical for target in targets(graph, logical_id, L_TO_P)}))
+    requirement = graph.entity_index.get(requirement_id)
+    if requirement is not None and is_technical_requirement(requirement):
+        physical = tuple(sorted({
+            *physical,
+            *(
+                relation.target_id
+                for relation in graph.relations
+                if relation.source_id == requirement_id
+                and relation.predicate is RelationPredicate.SATISFIED_BY
+                and graph.entity_index.get(relation.target_id) is not None
+                and graph.entity_index[relation.target_id].kind is EntityKind.PHYSICAL_BLOCK
+            ),
+        }))
     verification = targets(graph, requirement_id, R_TO_V)
     validation = targets(graph, requirement_id, R_TO_VALIDATION)
     return {
