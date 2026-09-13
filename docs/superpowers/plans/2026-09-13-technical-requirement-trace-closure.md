@@ -62,7 +62,7 @@
 - [x] Prove model, RFLP, traceability, and V&V deliverables expose the generated technical requirement.
 - [x] Document the explicit-constraint rule, its trace semantics, and the remaining measurement/feasibility boundary.
 - [x] Run the complete verification suite: pytest, `scripts/verify_full.py`, compileall, ruff, import-linter, architecture metrics, and `git diff --check`.
-- [ ] Commit implementation/tests/docs in logical commits, push the branch to GitHub, and verify local HEAD equals its upstream HEAD.
+- [x] Commit implementation/tests/docs in logical commits, push the branch to GitHub, and verify local HEAD equals its upstream HEAD.
 
 ## Verification commands
 
