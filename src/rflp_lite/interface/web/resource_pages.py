@@ -15,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.model import ModelGraph
+from rflp_lite.application.model_generation import build_traceability_summary
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.gates import gate_for_phase, global_gate
 from rflp_lite.methodology.tasks import task_catalog, tasks_for_phase
@@ -82,6 +83,7 @@ _STATUS_LABELS = {
     "degraded": "已降级",
     "failed": "失败",
     "completed": "已完成",
+    "needs_review": "需人工复核",
     "repairing": "修复中",
     "cancelled": "已取消",
     "candidate": "候选",
@@ -466,6 +468,36 @@ def _latest_run(request: Request, services, project_id: str) -> dict[str, object
     return _repository_latest_run(services, project_id)
 
 
+def _decorate_generation_run(services, project_id: str, graph: ModelGraph, run):
+    if not run or run.get("phase") != "vertical_generation":
+        return run
+    decorated = dict(run)
+    decorated["mode"] = "generate"
+    decorated["traceability"] = build_traceability_summary(graph).as_dict()
+    if decorated.get("stage_results"):
+        return decorated
+    list_audit_events = getattr(services.repository(project_id), "list_audit_events", None)
+    if not callable(list_audit_events):
+        return decorated
+    stage_results = []
+    for event in list_audit_events(project_id):
+        if event.get("kind") != "model_generation.stage_completed":
+            continue
+        payload = _mapping(event.get("payload"))
+        if payload.get("run_id") != decorated.get("run_id"):
+            continue
+        stage_results.append({
+            key: payload.get(key)
+            for key in (
+                "stage", "status", "revision", "entity_count", "relation_count",
+                "assumptions", "open_questions", "diagnostics", "decision_records",
+            )
+        })
+    if stage_results:
+        decorated["stage_results"] = stage_results
+    return decorated
+
+
 def _aggregate_pipeline_steps(services, project_id: str, run: dict[str, object] | None) -> dict[str, object] | None:
     if not run or run.get("steps"):
         return run
@@ -748,6 +780,7 @@ def build_analysis_view(request: Request, project_id: str) -> dict[str, object]:
     graph = services.model(project_id).graph(project_id)
     has_analysis_input = services.projects.has_analysis_input(project_id)
     run = _aggregate_pipeline_steps(services, project_id, _latest_run(request, services, project_id))
+    run = _decorate_generation_run(services, project_id, graph, run)
     runtime = _runtime_metadata(services, run)
     record_gates = _record_gate_results(run)
     gate_results: list[dict[str, object]] = []

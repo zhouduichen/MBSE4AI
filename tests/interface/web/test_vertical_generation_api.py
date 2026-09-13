@@ -28,6 +28,10 @@ def test_generate_mode_returns_stage_and_traceability_payload(tmp_path: Path):
         "requirements", "functional", "logical", "physical", "verification_validation"
     ]
     assert run["traceability"]["complete_count"] >= 1
+    assert run["traceability"]["rflp_complete_count"] >= 1
+    assert run["traceability"]["verification_complete_count"] >= 1
+    assert run["traceability"]["validation_complete_count"] >= 1
+    assert run["traceability"]["end_to_end_complete_count"] >= 1
 
 
 def test_sysml_import_api_round_trips_into_fresh_project(tmp_path: Path):
@@ -52,9 +56,16 @@ def test_analysis_page_exposes_default_generation_action(tmp_path: Path):
     client = _client(tmp_path)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
     assert client.post("/projects/p1/requirements", json={"text": "系统应支持人工接管"}).status_code == 200
+    assert client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统应支持人工接管"},
+    ).status_code == 200
 
     page = client.get("/ui/projects/p1/analysis")
 
     assert page.status_code == 200
     assert "生成完整 MBSE 模型" in page.text
+    assert "端到端闭环" in page.text
+    assert "Verification" in page.text
+    assert "Validation" in page.text
     assert 'runAnalysis("generate", null)' in page.text

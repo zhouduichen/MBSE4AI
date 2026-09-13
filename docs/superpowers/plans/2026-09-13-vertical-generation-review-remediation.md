@@ -28,11 +28,11 @@
 - Consumes: `TaskExecutor.validate_response`, `MethodologyValidationError`, `ModelRepository.save_issue`。
 - Produces: `_promote_generated_entities(patch, validated: bool)`, `StageResult.status == "needs_review"` for semantic failures, and an open `semantic_invalid` issue.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add a scripted model output whose Functional stage contains a hardware-specific Function name. Assert that generation returns `completed_with_warnings`, the Function status is `candidate`, and the project has an open `semantic_invalid` issue.
 
-- [ ] **Step 2: Run the focused test**
+- [x] **Step 2: Run the focused test**
 
 Run:
 
@@ -42,7 +42,7 @@ Run:
 
 Expected: FAIL because the current implementation removes the semantic validator and promotes the Function to `validated`.
 
-- [ ] **Step 3: Implement the explicit semantic branch**
+- [x] **Step 3: Implement the explicit semantic branch**
 
 Use this behavior inside `_execute_stage`:
 
@@ -73,11 +73,11 @@ if semantic_invalid:
 
 Return `needs_review` and retain candidate status when `semantic_invalid` is set. Only `validated=True` may promote LLM entities.
 
-- [ ] **Step 4: Run the focused test**
+- [x] **Step 4: Run the focused test**
 
 Run the same pytest command. Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rflp_lite/application/model_generation.py tests/application/test_model_generation.py
@@ -95,11 +95,11 @@ git commit -m "fix: keep semantic-invalid model output in review"
 - Consumes: `ModelGraph`, `RelationPredicate`, entity status.
 - Produces: `TraceabilitySummary` fields `rflp_complete_count`, `verification_complete_count`, `validation_complete_count`, `end_to_end_complete_count`, plus backward-compatible aliases.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Construct graphs with RFLP only, RFLP plus Verification, RFLP plus Validation, and all five links. Assert only the last graph has `end_to_end_complete_count == 1`; assert old `complete_count` equals the end-to-end count.
 
-- [ ] **Step 2: Run the focused tests**
+- [x] **Step 2: Run the focused tests**
 
 ```bash
 ./.venv/bin/python -m pytest tests/application/test_model_generation.py tests/e2e/test_vertical_model_generation.py -q
@@ -107,11 +107,11 @@ Construct graphs with RFLP only, RFLP plus Verification, RFLP plus Validation, a
 
 Expected: FAIL because the current summary counts Verification **or** Validation as complete.
 
-- [ ] **Step 3: Implement status-aware split metrics**
+- [x] **Step 3: Implement status-aware split metrics**
 
 Filter downstream entities to `validated`, `accepted`, or `locked`; keep the root Requirement active unless rejected/deprecated. Compute the four independent counters and set `complete_count` to `end_to_end_complete_count`. Include both verification and validation IDs in complete paths.
 
-- [ ] **Step 4: Run focused and API tests**
+- [x] **Step 4: Run focused and API tests**
 
 ```bash
 ./.venv/bin/python -m pytest tests/application/test_model_generation.py tests/e2e/test_vertical_model_generation.py tests/interface/web/test_vertical_generation_api.py -q
@@ -119,7 +119,7 @@ Filter downstream entities to `validated`, `accepted`, or `locked`; keep the roo
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rflp_lite/application/model_generation.py tests/application/test_model_generation.py tests/e2e/test_vertical_model_generation.py
@@ -140,11 +140,11 @@ git commit -m "fix: split model generation traceability metrics"
 - Consumes: existing 23-task catalog and `VerticalStageSpec`.
 - Produces: `reasoning_tasks` mapping and Requirements minimum kinds containing lifecycle, scenario, use case, activity, and requirement objects.
 
-- [ ] **Step 1: Write failing contract tests**
+- [x] **Step 1: Write failing contract tests**
 
 Assert Requirements `required_kinds` contains `SYSTEM`, `STAKEHOLDER`, `LIFECYCLE_STAGE`, `SCENARIO_HYPOTHESIS`, `USE_CASE`, `OPERATIONAL_SCENARIO`, `ACTIVITY`, and `REQUIREMENT`; assert the stage exposes the internal task IDs.
 
-- [ ] **Step 2: Run the focused contract test**
+- [x] **Step 2: Run the focused contract test**
 
 ```bash
 ./.venv/bin/python -m pytest tests/methodology/test_vertical_generation.py -q
@@ -152,11 +152,11 @@ Assert Requirements `required_kinds` contains `SYSTEM`, `STAKEHOLDER`, `LIFECYCL
 
 Expected: FAIL because only System, Stakeholder, and Requirement are required today.
 
-- [ ] **Step 3: Implement the operational contract**
+- [x] **Step 3: Implement the operational contract**
 
 Extend Requirements output kinds, allowed predicates, and `reasoning_tasks`. Update the requirements prompt to require lifecycle stages, scenario hypothesis, use case, operational scenario, activity, and derived requirements with local references. Extend `VerticalRuleRuntime` to produce one deterministic object of each kind and valid relations.
 
-- [ ] **Step 4: Update structured LLM fixture and run tests**
+- [x] **Step 4: Update structured LLM fixture and run tests**
 
 Add those objects and relations to `ScriptedModel` in `tests/application/test_model_generation.py`, then run:
 
@@ -166,7 +166,7 @@ Add those objects and relations to `ScriptedModel` in `tests/application/test_mo
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rflp_lite/methodology/vertical_generation.py src/rflp_lite/resources/prompts/vertical/requirements.v1.md src/rflp_lite/runtime/rule_based.py src/rflp_lite/application/model_generation.py tests/methodology/test_vertical_generation.py tests/application/test_model_generation.py
@@ -192,11 +192,11 @@ git commit -m "feat: preserve operational reasoning in requirements stage"
 - Consumes: TaskProposal metadata contract and five-stage prompt registry.
 - Produces: `TaskProposal.decision_records`, `TaskExecutionResponse.decision_records`, `StageResult.decision_records`, and non-placeholder Logical/Physical payload fields.
 
-- [ ] **Step 1: Write failing metadata tests**
+- [x] **Step 1: Write failing metadata tests**
 
 Pass `decision_records=[{"step": "dependency_clustering", "decision": "共享配送状态", "basis": ["function-1"]}]` through the compiler/runtime and assert it is returned in the stage result.
 
-- [ ] **Step 2: Run focused tests**
+- [x] **Step 2: Run focused tests**
 
 ```bash
 ./.venv/bin/python -m pytest tests/methodology/test_proposal_compiler.py tests/runtime/test_task_execution.py -q
@@ -204,15 +204,15 @@ Pass `decision_records=[{"step": "dependency_clustering", "decision": "共享配
 
 Expected: FAIL because decision records are not part of the proposal contract.
 
-- [ ] **Step 3: Implement bounded decision records**
+- [x] **Step 3: Implement bounded decision records**
 
 Add a top-level optional `decision_records` array to the proposal schema with `step`, `decision`, and `basis` fields, maximum 24 records. Parse it, carry it through `TaskExecutionResponse`, and expose it in `StageResult.as_dict`.
 
-- [ ] **Step 4: Enrich logical/physical contracts**
+- [x] **Step 4: Enrich logical/physical contracts**
 
 Update Logical prompt and offline payloads to cover `partition_basis`, `dependencies`, `shared_state`, `timing_constraints`, `safety_isolation`, `cohesion`, `coupling`, and `architecture_rationale`. Update Physical prompt and payloads to cover `mass_kg`, `power_w`, `compute`, `memory_mb`, `latency_ms`, `bandwidth_mbps`, `cost`, `thermal`, `reliability`, `availability`, `swap_c`, `constraints`, `feasibility`, `alternatives`, and `selection_rationale`.
 
-- [ ] **Step 5: Run focused tests and commit**
+- [x] **Step 5: Run focused tests and commit**
 
 ```bash
 ./.venv/bin/python -m pytest tests/methodology/test_proposal_compiler.py tests/runtime/test_task_execution.py tests/application/test_model_generation.py -q
@@ -233,15 +233,15 @@ git commit -m "feat: add bounded architecture decisions to vertical generation"
 - Consumes: `GenerateModelResult.as_dict()` with split traceability and stage decision records.
 - Produces: UI labels for RFLP/Verification/Validation/End-to-end and a visible needs-review state.
 
-- [ ] **Step 1: Write failing UI/API assertions**
+- [x] **Step 1: Write failing UI/API assertions**
 
 Assert the API JSON contains all four metric families and the analysis page contains `端到端闭环` and `Validation` labels.
 
-- [ ] **Step 2: Implement presentation changes**
+- [x] **Step 2: Implement presentation changes**
 
 Render the four counters, stage status, and a compact list of decision record steps. Keep raw diagnostics and candidate review visible.
 
-- [ ] **Step 3: Run interface tests**
+- [x] **Step 3: Run interface tests**
 
 ```bash
 ./.venv/bin/python -m pytest tests/interface/web/test_vertical_generation_api.py tests/interface/web/test_analysis_workflow.py -q
@@ -249,7 +249,7 @@ Render the four counters, stage status, and a compact list of decision record st
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/rflp_lite/interface/web/templates/analysis.html README.md docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md tests/interface/web/test_vertical_generation_api.py
@@ -261,7 +261,7 @@ git commit -m "docs: expose split vertical generation quality metrics"
 **Files:**
 - No source changes expected.
 
-- [ ] **Step 1: Run all checks**
+- [x] **Step 1: Run all checks**
 
 ```bash
 ./.venv/bin/python -m pytest -q
@@ -272,7 +272,7 @@ git commit -m "docs: expose split vertical generation quality metrics"
 
 Expected: all tests pass, architecture metrics remain within `architecture_budget.json`, and import-linter reports 5 kept / 0 broken.
 
-- [ ] **Step 2: Inspect the final diff and commit status**
+- [x] **Step 2: Inspect the final diff and commit status**
 
 ```bash
 git diff --check

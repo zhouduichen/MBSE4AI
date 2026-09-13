@@ -149,6 +149,7 @@ class TaskExecutionResponse:
     usage: Mapping[str, object] = field(default_factory=dict)
     assumptions: tuple[str, ...] = ()
     open_questions: tuple[str, ...] = ()
+    decision_records: tuple[Mapping[str, object], ...] = ()
 
 
 class TaskRuntime(Protocol):

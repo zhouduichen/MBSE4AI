@@ -70,7 +70,7 @@ model-profile list|save|activate
 
 未配置模型时页面会明确显示 `Offline Rule Mode`；配置并激活 Profile 后，每次新分析都会记录实际使用的 profile/provider/model。服务默认只监听 `127.0.0.1`，适用于单用户本地工作区。
 
-当前产品验收重点已经转为一次真实的五阶段纵向链：`自然语言/文档 → R → F → L → P → V&V → ModelGraph → SysML`。未配置模型时使用离线规则 Runtime 验证产品闭环；配置并激活 OpenAI-compatible Profile 后，`analyze generate` 会对五个阶段分别调用结构化 LLM Runtime，并记录 profile/provider/model、Prompt、上下文、Patch 和追溯摘要。既有 Ollama 3 Task × 20 conformance artifact 仍只代表结构化边界，不等同于完整产品链验收。
+当前产品验收重点已经转为一次真实的五阶段纵向链：`自然语言/文档 → R → F → L → P → V&V → ModelGraph → SysML`。追溯结果分开显示 RFLP、Verification、Validation 和端到端闭环；只有两类 V&V 都存在才算端到端完成。未配置模型时使用离线规则 Runtime 验证产品闭环；配置并激活 OpenAI-compatible Profile 后，`analyze generate` 会对五个阶段分别调用结构化 LLM Runtime，并记录 profile/provider/model、Prompt、上下文、Patch 和追溯摘要。语义校验失败的 LLM 输出只保留为 `candidate` 并进入 review，不计入完成度。既有 Ollama 3 Task × 20 conformance artifact 仍只代表结构化边界，不等同于完整产品链验收。
 
 ## 开发与验收
 

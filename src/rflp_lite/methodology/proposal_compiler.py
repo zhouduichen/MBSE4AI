@@ -59,6 +59,7 @@ class TaskProposal:
     reason: str
     assumptions: tuple[str, ...] = ()
     open_questions: tuple[str, ...] = ()
+    decision_records: tuple[Mapping[str, object], ...] = ()
 
 
 def proposal_schema(
@@ -156,6 +157,20 @@ def proposal_schema(
             "reason": {"type": "string", "maxLength": 300},
             "assumptions": {"type": "array", "items": {"type": "string"}, "maxItems": 16},
             "open_questions": {"type": "array", "items": {"type": "string"}, "maxItems": 16},
+            "decision_records": {
+                "type": "array",
+                "maxItems": 24,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["step", "decision", "basis"],
+                    "properties": {
+                        "step": {"type": "string", "minLength": 1},
+                        "decision": {"type": "string", "minLength": 1},
+                        "basis": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            },
         },
         "schema_id": schema_id,
         "output_kinds": kind_values,
@@ -199,6 +214,20 @@ def _mapping(value: object, field: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise ContractViolation(f"task proposal field must be an object: {field}")
     return dict(value)
+
+
+def _decision_records(value: object) -> tuple[Mapping[str, object], ...]:
+    if value is None:
+        return ()
+    records = _arrays({"decision_records": value}, "decision_records")
+    result = []
+    for raw in records:
+        result.append({
+            "step": _string(raw.get("step"), "decision_records.step"),
+            "decision": _string(raw.get("decision"), "decision_records.decision"),
+            "basis": list(_strings(raw.get("basis"), "decision_records.basis")),
+        })
+    return tuple(result)
 
 
 def _arrays(payload: Mapping[str, object], field: str) -> list[Mapping[str, object]]:
@@ -325,6 +354,7 @@ def parse_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, obj
         tuple(entities), tuple(relations), tuple(updates), deprecations, reason,
         _strings(payload.get("assumptions"), "assumptions"),
         _strings(payload.get("open_questions"), "open_questions"),
+        _decision_records(payload.get("decision_records")),
     )
 
 

@@ -69,11 +69,11 @@
   <div class="panel-head"><div><h2>完整模型生成结果</h2><p>自然语言需求已按 R → F → L → P → V&amp;V 纵向编译为可编辑 ModelGraph。</p></div><span class="status-badge {% if latest_run.status == 'completed' %}accepted{% else %}candidate{% endif %}">{{ latest_run.status }}</span></div>
   <div class="phase-rail" aria-label="模型生成阶段">
     {% for stage in latest_run.stage_results %}
-    <article class="phase-node phase-{{ stage.status }}"><span class="phase-index">{{ loop.index }}</span><div><strong>{{ stage.stage }}</strong><small>{{ stage.entity_count }} 个实体 · {{ stage.relation_count }} 条关系</small></div><span class="status-badge accepted">{{ stage.status }}</span></article>
+    <article class="phase-node phase-{{ stage.status }}"><span class="phase-index">{{ loop.index }}</span><div><strong>{{ stage.stage }}</strong><small>{{ stage.entity_count }} 个实体 · {{ stage.relation_count }} 条关系</small>{% if stage.decision_records %}<small>决策：{{ stage.decision_records|map(attribute='step')|join('、') }}</small>{% endif %}</div><span class="status-badge {% if stage.status == 'completed' %}accepted{% else %}candidate{% endif %}">{{ stage.status }}</span></article>
     {% endfor %}
   </div>
   {% if latest_run.traceability %}
-  <div class="metric-row"><article><span>完整追溯</span><strong>{{ latest_run.traceability.complete_count }}</strong></article><article><span>部分追溯</span><strong>{{ latest_run.traceability.partial_count }}</strong></article><article><span>缺失追溯</span><strong>{{ latest_run.traceability.missing_count }}</strong></article></div>
+  <div class="metric-row"><article><span>RFLP 完整</span><strong>{{ latest_run.traceability.rflp_complete_count }}</strong></article><article><span>Verification</span><strong>{{ latest_run.traceability.verification_complete_count }}</strong></article><article><span>Validation</span><strong>{{ latest_run.traceability.validation_complete_count }}</strong></article><article><span>端到端闭环</span><strong>{{ latest_run.traceability.end_to_end_complete_count }}</strong></article></div>
   {% endif %}
   {% if latest_run.warnings %}<div class="callout warning">{{ latest_run.warnings|join(' · ') }}</div>{% endif %}
 </section>

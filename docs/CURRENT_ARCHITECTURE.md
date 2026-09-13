@@ -31,7 +31,7 @@ adapters → ports + domain
 
 AI 或规则 Runtime 只返回结构化 TaskExecutionResponse。WorkflowRunner 将响应转换为局部 Patch，经实体字段、RelationPredicate、端点类型、状态、锁定标记和 expected revision 校验后提交。CAS 失败返回并发修改错误；`locked` 或 `user_modified` 的实体不能被自动覆盖。
 
-每次运行拥有稳定 `run_id`、methodology/task spec/prompt version、profile/provider/model、input/context/output hash、步骤状态和诊断。纵向生成运行按 Requirements → Functional → Logical → Physical → V&V 顺序提交阶段 Patch，并计算每条 Requirement 的完整/部分/缺失追溯。生成的 LLM 实体进入可编辑的 `validated` 状态，人工仍可通过既有 Review/Edit/Lock 入口接管。旧 WorkflowRunner 的 Gate、Repair、Closure 状态机不驱动默认产品路径。
+每次运行拥有稳定 `run_id`、methodology/task spec/prompt version、profile/provider/model、input/context/output hash、步骤状态和诊断。纵向生成运行按 Requirements → Functional → Logical → Physical → V&V 顺序提交阶段 Patch，并计算每条 Requirement 的 RFLP、Verification、Validation 和端到端追溯。生成的 LLM 实体只有通过语义校验才进入可编辑的 `validated` 状态；语义失败实体保留为 `candidate`，写入 `semantic_invalid` Issue，人工可通过既有 Review/Edit/Lock 入口接管。每个阶段还返回有界的 decision records，记录内部方法论步骤、结论和依据实体。旧 WorkflowRunner 的 Gate、Repair、Closure 状态机不驱动默认产品路径。
 
 ## 对外资源
 

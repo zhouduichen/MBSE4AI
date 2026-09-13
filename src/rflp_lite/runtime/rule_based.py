@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
@@ -112,157 +114,359 @@ class RuleRuntime:
         return TaskExecutionResponse(StepStatus.COMPLETED, patch=patch, diagnostics=("offline:rule-runtime",))
 
 
-class VerticalRuleRuntime:
-    """Concrete offline generator used to exercise the product path.
-
-    This is intentionally not an acceptance substitute for a configured LLM.
-    It provides a complete, editable graph for local development without
-    creating the placeholder entities used by the legacy task runtime.
-    """
-
-    def execute(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
-        context = request.context_bundle
-        index = {item.id: item for item in context.entities}
-        operations: list[object] = []
-        added: dict[str, object] = {}
-        relation_keys = {
+class _VerticalPatchBuilder:
+    def __init__(self, request: TaskExecutionRequest):
+        self.request = request
+        self.context = request.context_bundle
+        self.index = {item.id: item for item in self.context.entities}
+        self.operations: list[object] = []
+        self.added: dict[str, object] = {}
+        self.relation_keys = {
             (item.source_id, item.predicate, item.target_id)
-            for item in context.relations
+            for item in self.context.relations
         }
 
-        def find(kind: EntityKind, name: str):
-            return next(
-                (
-                    item for item in tuple(index.values()) + tuple(added.values())
-                    if item.kind is kind and item.meta.name == name
-                ),
-                None,
-            )
+    def find(self, kind: EntityKind, name: str):
+        return next(
+            (
+                item for item in tuple(self.index.values()) + tuple(self.added.values())
+                if item.kind is kind and item.meta.name == name
+            ),
+            None,
+        )
 
-        def add(kind: EntityKind, name: str, payload: dict[str, object]):
-            existing = find(kind, name)
-            if existing is not None:
-                return existing
-            entity = make_entity(
-                kind,
-                name,
-                payload,
-                status=EntityStatus.VALIDATED,
-                producer=Producer.RULE,
-                confidence=0.8,
-                revision=context.revision,
-            )
-            if entity.id not in index and entity.id not in added:
-                added[entity.id] = entity
-                operations.append(AddEntity(entity))
-            return entity
+    def add(self, kind: EntityKind, name: str, payload: Mapping[str, object]):
+        existing = self.find(kind, name)
+        if existing is not None:
+            return existing
+        entity = make_entity(
+            kind,
+            name,
+            payload,
+            status=EntityStatus.VALIDATED,
+            producer=Producer.RULE,
+            confidence=0.8,
+            revision=self.context.revision,
+        )
+        self.added[entity.id] = entity
+        self.operations.append(AddEntity(entity))
+        return entity
 
-        def relate(source, predicate: RelationPredicate, target):
-            if source is None or target is None:
-                return
-            key = (source.id, predicate, target.id)
-            if key in relation_keys:
-                return
-            relation_keys.add(key)
-            operations.append(Relate(source.id, predicate, target.id))
+    def relate(self, source, predicate: RelationPredicate, target):
+        if source is None or target is None:
+            return
+        key = (source.id, predicate, target.id)
+        if key in self.relation_keys:
+            return
+        self.relation_keys.add(key)
+        self.operations.append(Relate(source.id, predicate, target.id))
 
-        requirements = [
-            item for item in context.entities
-            if item.kind is EntityKind.REQUIREMENT
-            and item.meta.status is not EntityStatus.DEPRECATED
-        ]
-        if request.task_id == "vertical.requirements":
-            seed = requirements[0].meta.name if requirements else context.project_id
-            system = next((item for item in context.entities if item.kind is EntityKind.SYSTEM), None)
-            system = system or add(EntityKind.SYSTEM, f"{seed} 系统", {
-                "mission": f"完成{seed}",
-                "system_boundary": {"inside": ["核心服务能力"], "outside": ["运行环境"]},
-                "objectives": [f"满足{seed}"],
-                "environment_assumptions": ["运行环境可用"],
-                "exclusions": ["不预设具体厂商"] ,
-                "open_questions": [],
-            })
-            stakeholder = next((item for item in context.entities if item.kind is EntityKind.STAKEHOLDER), None)
-            stakeholder = stakeholder or add(EntityKind.STAKEHOLDER, "系统使用者", {"role": "使用与验收"})
-            scenario = next((item for item in context.entities if item.kind is EntityKind.OPERATIONAL_SCENARIO), None)
-            scenario = scenario or add(EntityKind.OPERATIONAL_SCENARIO, "典型运行场景", {
-                "actor_ids": [stakeholder.id],
-                "steps": ["提出任务", "系统执行任务", "反馈结果"],
-                "exchanges": [],
-                "internal_component_ids": [],
-            })
-            relate(system, RelationPredicate.DECOMPOSES, stakeholder)
-            relate(stakeholder, RelationPredicate.PARTICIPATES_IN, scenario)
-            for requirement in requirements:
-                relate(requirement, RelationPredicate.DERIVED_FROM, scenario)
-        elif request.task_id == "vertical.functional":
-            for requirement in requirements:
-                function = add(EntityKind.FUNCTION, f"执行：{requirement.meta.name[:36]}", {
-                    "behavior": f"实现{requirement.meta.name}",
-                    "inputs": [],
-                    "outputs": ["执行结果"],
-                })
-                relate(requirement, RelationPredicate.SATISFIED_BY, function)
-            functions = [item for item in tuple(index.values()) + tuple(added.values()) if item.kind is EntityKind.FUNCTION]
-            flow = add(EntityKind.FUNCTIONAL_FLOW, "任务信息交互流", {"direction": "双向", "content": "任务与结果"})
-            scenario = add(EntityKind.FUNCTIONAL_SCENARIO, "完成核心功能场景", {"function_ids": [item.id for item in functions], "steps": ["输入", "处理", "输出"]})
-            for function in functions:
-                relate(function, RelationPredicate.EXCHANGES_WITH, flow)
-                relate(function, RelationPredicate.DERIVED_FROM, scenario)
-        elif request.task_id == "vertical.logical":
-            functions = [item for item in context.entities if item.kind is EntityKind.FUNCTION]
-            for function in functions:
-                logical = add(EntityKind.LOGICAL_COMPONENT, f"逻辑服务：{function.meta.name[:30]}", {
-                    "responsibility": function.meta.name,
-                    "interfaces": [],
-                })
-                relate(function, RelationPredicate.ALLOCATED_TO, logical)
-                interface = add(EntityKind.INTERFACE, f"功能接口：{function.meta.name[:24]}", {
-                    "protocol": "logical-message",
-                    "exchanges": ["request", "response"],
-                })
-                relate(function, RelationPredicate.EXCHANGES_WITH, interface)
-                relate(logical, RelationPredicate.CONNECTED_TO, interface)
-        elif request.task_id == "vertical.physical":
-            logical_components = [item for item in context.entities if item.kind is EntityKind.LOGICAL_COMPONENT]
-            for logical in logical_components:
-                physical = add(EntityKind.PHYSICAL_BLOCK, f"物理实现：{logical.meta.name[:30]}", {
-                    "candidate_type": "可部署执行单元",
-                    "solution_class": "领域适配实现",
-                    "constraints": ["满足对应逻辑职责"],
-                    "rationale": f"承载{logical.meta.name}",
-                })
-                relate(logical, RelationPredicate.ALLOCATED_TO, physical)
-        elif request.task_id == "vertical.verification_validation":
-            for requirement in requirements:
-                verification = add(EntityKind.VERIFICATION_CASE, f"验证：{requirement.meta.name[:32]}", {
-                    "method": "test",
-                    "pass_criteria": f"测试结果满足：{requirement.meta.name}",
-                    "requirement_ids": [requirement.id],
-                    "scenario_ids": [],
-                })
-                validation = add(EntityKind.VALIDATION_CASE, f"确认：{requirement.meta.name[:32]}", {
-                    "method": "demonstration",
-                    "pass_criteria": f"用户场景确认：{requirement.meta.name}",
-                    "requirement_ids": [requirement.id],
-                    "scenario_ids": [],
-                })
-                relate(requirement, RelationPredicate.VERIFIED_BY, verification)
-                relate(requirement, RelationPredicate.VALIDATED_BY, validation)
-        else:
-            return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:vertical-no-op",))
-
-        if not operations:
+    def response(self) -> TaskExecutionResponse:
+        if not self.operations:
             return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:vertical-idempotent",))
         patch = Patch.create(
-            context.project_id,
-            request.task_id,
-            tuple(operations),
-            f"离线纵向生成 {request.task_id}",
-            context.revision,
+            self.context.project_id,
+            self.request.task_id,
+            tuple(self.operations),
+            f"离线纵向生成 {self.request.task_id}",
+            self.context.revision,
         )
         return TaskExecutionResponse(
             StepStatus.COMPLETED,
             patch=patch,
             diagnostics=("offline:vertical-runtime",),
+            decision_records=_vertical_decision_records(self.request.task_id, self.context, self.added),
         )
+
+
+class VerticalRuleRuntime:
+    """Concrete offline generator used to exercise the product path."""
+
+    def execute(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
+        handler = {
+            "vertical.requirements": self._requirements,
+            "vertical.functional": self._functional,
+            "vertical.logical": self._logical,
+            "vertical.physical": self._physical,
+            "vertical.verification_validation": self._verification_validation,
+        }.get(request.task_id)
+        if handler is None:
+            return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:vertical-no-op",))
+        return handler(request)
+
+    def _requirements(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
+        builder = _VerticalPatchBuilder(request)
+        requirements = _requirements(request)
+        seed = requirements[0].meta.name if requirements else builder.context.project_id
+        system = _context_first(builder.context, EntityKind.SYSTEM) or builder.add(
+            EntityKind.SYSTEM, f"{seed} 系统", _system_payload(seed)
+        )
+        stakeholder = _context_first(builder.context, EntityKind.STAKEHOLDER) or builder.add(
+            EntityKind.STAKEHOLDER, "系统使用者", {"role": "使用与验收"}
+        )
+        scenario = _context_first(builder.context, EntityKind.OPERATIONAL_SCENARIO) or builder.add(
+            EntityKind.OPERATIONAL_SCENARIO, "典型运行场景", {
+                "actor_ids": [stakeholder.id],
+                "steps": ["提出任务", "系统执行任务", "反馈结果"],
+                "exchanges": [],
+                "internal_component_ids": [],
+            }
+        )
+        lifecycle = _context_first(builder.context, EntityKind.LIFECYCLE_STAGE) or builder.add(
+            EntityKind.LIFECYCLE_STAGE, "设计—运行生命周期", {
+                "stage": "operation",
+                "sequence": ["设计", "部署", "运行", "维护"],
+                "exit_criteria": "进入可持续运行和维护",
+            }
+        )
+        hypothesis = _context_first(builder.context, EntityKind.SCENARIO_HYPOTHESIS) or builder.add(
+            EntityKind.SCENARIO_HYPOTHESIS, "典型配送场景假设", {
+                "category": "normal",
+                "actors": [stakeholder.meta.name],
+                "trigger": "运营人员提交配送任务",
+                "outcome": "任务完成并反馈结果",
+            }
+        )
+        use_case = _context_first(builder.context, EntityKind.USE_CASE) or builder.add(
+            EntityKind.USE_CASE, "执行一次配送任务", {
+                "primary_actor": stakeholder.meta.name,
+                "goal": "完成可追踪配送",
+                "success": "接收结果并可人工接管",
+            }
+        )
+        activity = _context_first(builder.context, EntityKind.ACTIVITY) or builder.add(
+            EntityKind.ACTIVITY, "受理并完成配送活动", {
+                "steps": ["受理任务", "规划路径", "执行配送", "反馈结果"],
+                "branches": ["人工接管", "任务失败后重试"],
+            }
+        )
+        builder.relate(system, RelationPredicate.DECOMPOSES, stakeholder)
+        builder.relate(stakeholder, RelationPredicate.PARTICIPATES_IN, scenario)
+        builder.relate(stakeholder, RelationPredicate.DERIVED_FROM, hypothesis)
+        builder.relate(use_case, RelationPredicate.DERIVED_FROM, hypothesis)
+        builder.relate(scenario, RelationPredicate.DERIVED_FROM, use_case)
+        builder.relate(activity, RelationPredicate.OCCURS_IN, lifecycle)
+        for requirement in requirements:
+            builder.relate(requirement, RelationPredicate.DERIVED_FROM, activity)
+        return builder.response()
+
+    def _functional(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
+        builder = _VerticalPatchBuilder(request)
+        requirements = _requirements(request)
+        for requirement in requirements:
+            function = builder.add(EntityKind.FUNCTION, f"执行：{requirement.meta.name[:36]}", {
+                "behavior": f"实现{requirement.meta.name}",
+                "inputs": [],
+                "outputs": ["执行结果"],
+            })
+            builder.relate(requirement, RelationPredicate.SATISFIED_BY, function)
+        functions = _builder_entities(builder, EntityKind.FUNCTION)
+        flow = builder.add(EntityKind.FUNCTIONAL_FLOW, "任务信息交互流", {
+            "direction": "双向", "content": "任务与结果"
+        })
+        scenario = builder.add(EntityKind.FUNCTIONAL_SCENARIO, "完成核心功能场景", {
+            "function_ids": [item.id for item in functions],
+            "steps": ["输入", "处理", "输出"],
+        })
+        for function in functions:
+            builder.relate(function, RelationPredicate.EXCHANGES_WITH, flow)
+            builder.relate(function, RelationPredicate.DERIVED_FROM, scenario)
+        return builder.response()
+
+    def _logical(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
+        builder = _VerticalPatchBuilder(request)
+        functions = _context_entities(request.context_bundle, EntityKind.FUNCTION)
+        logical = builder.add(EntityKind.LOGICAL_COMPONENT, "配送协同逻辑架构", {
+            "responsibility": "协调配送功能与共享任务状态",
+            "partition_basis": "根据功能流、共享状态和时序依赖进行聚类",
+            "dependencies": [item.id for item in functions],
+            "shared_state": ["配送任务状态", "人工接管状态"],
+            "timing_constraints": ["任务状态更新必须可排序"],
+            "safety_isolation": ["人工接管路径与自动执行路径隔离"],
+            "cohesion": "high",
+            "coupling": "controlled",
+            "interfaces": [],
+            "architecture_rationale": "共享任务状态和交互流适合由一个逻辑协同边界承载",
+        })
+        interface = builder.add(EntityKind.INTERFACE, "配送任务交互接口", {
+            "protocol": "logical-message",
+            "exchanges": ["task_request", "task_status", "handover"],
+            "connected_component_ids": [logical.id],
+        })
+        builder.relate(logical, RelationPredicate.CONNECTED_TO, interface)
+        for function in functions:
+            builder.relate(function, RelationPredicate.ALLOCATED_TO, logical)
+            builder.relate(function, RelationPredicate.EXCHANGES_WITH, interface)
+        return builder.response()
+
+    def _physical(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
+        builder = _VerticalPatchBuilder(request)
+        logical_components = _context_entities(request.context_bundle, EntityKind.LOGICAL_COMPONENT)
+        for logical in logical_components:
+            physical = builder.add(EntityKind.PHYSICAL_BLOCK, "配送协同执行平台", _physical_payload(logical))
+            builder.relate(logical, RelationPredicate.ALLOCATED_TO, physical)
+        return builder.response()
+
+    def _verification_validation(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
+        builder = _VerticalPatchBuilder(request)
+        for requirement in _requirements(request):
+            verification = builder.add(EntityKind.VERIFICATION_CASE, f"验证：{requirement.meta.name[:32]}", {
+                "method": "test",
+                "pass_criteria": f"测试结果满足：{requirement.meta.name}",
+                "requirement_ids": [requirement.id],
+                "scenario_ids": [],
+            })
+            validation = builder.add(EntityKind.VALIDATION_CASE, f"确认：{requirement.meta.name[:32]}", {
+                "method": "demonstration",
+                "pass_criteria": f"用户场景确认：{requirement.meta.name}",
+                "requirement_ids": [requirement.id],
+                "scenario_ids": [],
+            })
+            builder.relate(requirement, RelationPredicate.VERIFIED_BY, verification)
+            builder.relate(requirement, RelationPredicate.VALIDATED_BY, validation)
+        return builder.response()
+
+
+def _context_first(context, kind: EntityKind):
+    return next((item for item in context.entities if item.kind is kind), None)
+
+
+def _context_entities(context, kind: EntityKind):
+    return tuple(item for item in context.entities if item.kind is kind)
+
+
+def _builder_entities(builder: _VerticalPatchBuilder, kind: EntityKind):
+    return tuple(
+        item for item in tuple(builder.index.values()) + tuple(builder.added.values())
+        if item.kind is kind
+    )
+
+
+def _requirements(request: TaskExecutionRequest):
+    return tuple(
+        item for item in request.context_bundle.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and item.meta.status is not EntityStatus.DEPRECATED
+    )
+
+
+def _system_payload(seed: str) -> Mapping[str, object]:
+    return {
+        "mission": f"完成{seed}",
+        "system_boundary": {"inside": ["核心服务能力"], "outside": ["运行环境"]},
+        "objectives": [f"满足{seed}"],
+        "environment_assumptions": ["运行环境可用"],
+        "exclusions": ["不预设具体厂商"],
+        "open_questions": [],
+    }
+
+
+def _physical_payload(logical) -> Mapping[str, object]:
+    return {
+        "candidate_type": "可部署执行单元",
+        "solution_class": "领域适配实现",
+        "mass_kg": None,
+        "power_w": None,
+        "compute": "待基准测试",
+        "memory_mb": None,
+        "latency_ms": None,
+        "bandwidth_mbps": None,
+        "cost": None,
+        "thermal": "待热设计评估",
+        "reliability": "待可靠性试验",
+        "availability": "待运行数据确认",
+        "swap_c": {
+            "mass_kg": None,
+            "power_w": None,
+            "cost": None,
+            "status": "requires_measurement",
+        },
+        "constraints": ["满足对应逻辑职责", "满足质量、功耗、时延和热约束"],
+        "feasibility": {
+            "status": "needs_measurement",
+            "checks": ["mass", "power", "compute", "memory", "latency", "thermal"],
+        },
+        "alternatives": ["集中式执行单元", "分布式执行单元"],
+        "selection_rationale": f"优先承载{logical.meta.name}，在测量约束后进行候选选择",
+        "rationale": f"承载{logical.meta.name}",
+    }
+
+
+def _vertical_decision_records(task_id: str, context, added: dict[str, object]):
+    entities = tuple(context.entities) + tuple(added.values())
+    if task_id == "vertical.requirements":
+        return (
+            {
+                "step": "operational_reasoning",
+                "decision": "保留利益相关者、生命周期、场景、用例和活动上下文",
+                "basis": [
+                    item.id for item in entities
+                    if item.kind in {
+                        EntityKind.STAKEHOLDER,
+                        EntityKind.LIFECYCLE_STAGE,
+                        EntityKind.ACTIVITY,
+                    }
+                ],
+            },
+            {
+                "step": "system_requirement_derivation",
+                "decision": "从活动和运行场景推导可验证系统需求",
+                "basis": [item.id for item in entities if item.kind is EntityKind.REQUIREMENT],
+            },
+        )
+    if task_id == "vertical.functional":
+        return (
+            {
+                "step": "function_identification",
+                "decision": "从需求识别系统行为而不是具体零件",
+                "basis": [item.id for item in entities if item.kind is EntityKind.REQUIREMENT],
+            },
+            {
+                "step": "functional_interaction",
+                "decision": "用功能流表达任务与结果交互",
+                "basis": [item.id for item in entities if item.kind is EntityKind.FUNCTIONAL_FLOW],
+            },
+        )
+    if task_id == "vertical.logical":
+        return (
+            {
+                "step": "dependency_clustering",
+                "decision": "按功能流、共享状态和时序依赖形成逻辑分区",
+                "basis": [item.id for item in entities if item.kind is EntityKind.FUNCTION],
+            },
+            {
+                "step": "architecture_evaluation",
+                "decision": "评估内聚、耦合、时序和安全隔离后保留逻辑边界",
+                "basis": [item.id for item in entities if item.kind is EntityKind.LOGICAL_COMPONENT],
+            },
+        )
+    if task_id == "vertical.physical":
+        return (
+            {
+                "step": "constraint_propagation",
+                "decision": "将质量、功耗、算力、内存、时延和热约束传播到物理候选",
+                "basis": [item.id for item in entities if item.kind is EntityKind.REQUIREMENT],
+            },
+            {
+                "step": "feasibility_selection",
+                "decision": "在测量 SWaP-C 和可行性后选择物理候选",
+                "basis": [item.id for item in entities if item.kind is EntityKind.PHYSICAL_BLOCK],
+            },
+        )
+    if task_id == "vertical.verification_validation":
+        return (
+            {
+                "step": "verification_validation",
+                "decision": "为每个需求分别建立工程验证和用户场景确认",
+                "basis": [item.id for item in entities if item.kind is EntityKind.REQUIREMENT],
+            },
+            {
+                "step": "global_cross_analysis",
+                "decision": "检查需求、架构和 V&V 端到端覆盖",
+                "basis": [
+                    item.id for item in entities
+                    if item.kind in {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}
+                ],
+            },
+        )
+    return ()

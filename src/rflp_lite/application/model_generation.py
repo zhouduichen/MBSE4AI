@@ -10,7 +10,7 @@ from uuid import uuid4
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.errors import ContractViolation, InputRequired, MethodologyValidationError
-from rflp_lite.domain.model import AddEntity, Patch
+from rflp_lite.domain.model import AddEntity, Patch, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import (
     ContextBundle,
@@ -47,20 +47,46 @@ class StageResult:
     assumptions: tuple[str, ...] = ()
     open_questions: tuple[str, ...] = ()
     diagnostics: tuple[str, ...] = ()
+    decision_records: tuple[Mapping[str, object], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class TraceabilitySummary:
-    complete_count: int
-    partial_count: int
-    missing_count: int
+    rflp_complete_count: int
+    rflp_partial_count: int
+    rflp_missing_count: int
+    verification_complete_count: int
+    validation_complete_count: int
+    end_to_end_complete_count: int
+    end_to_end_partial_count: int
+    end_to_end_missing_count: int
     paths: tuple[tuple[str, ...], ...] = ()
+
+    @property
+    def complete_count(self) -> int:
+        return self.end_to_end_complete_count
+
+    @property
+    def partial_count(self) -> int:
+        return self.end_to_end_partial_count
+
+    @property
+    def missing_count(self) -> int:
+        return self.end_to_end_missing_count
 
     def as_dict(self) -> Mapping[str, object]:
         return {
-            "complete_count": self.complete_count,
-            "partial_count": self.partial_count,
-            "missing_count": self.missing_count,
+            "complete_count": self.end_to_end_complete_count,
+            "partial_count": self.end_to_end_partial_count,
+            "missing_count": self.end_to_end_missing_count,
+            "rflp_complete_count": self.rflp_complete_count,
+            "rflp_partial_count": self.rflp_partial_count,
+            "rflp_missing_count": self.rflp_missing_count,
+            "verification_complete_count": self.verification_complete_count,
+            "validation_complete_count": self.validation_complete_count,
+            "end_to_end_complete_count": self.end_to_end_complete_count,
+            "end_to_end_partial_count": self.end_to_end_partial_count,
+            "end_to_end_missing_count": self.end_to_end_missing_count,
             "paths": [list(path) for path in self.paths],
         }
 
@@ -92,6 +118,7 @@ class GenerateModelResult:
                     "assumptions": list(item.assumptions),
                     "open_questions": list(item.open_questions),
                     "diagnostics": list(item.diagnostics),
+                    "decision_records": [dict(record) for record in item.decision_records],
                 }
                 for item in self.stage_results
             ],
@@ -172,7 +199,11 @@ class ModelGenerationService:
         final_graph = self.repository.load_graph(project_id)
         traceability = build_traceability_summary(final_graph)
         if traceability.complete_count:
-            status = "completed" if not warnings and not traceability.partial_count else "completed_with_warnings"
+            status = (
+                "completed"
+                if not warnings and not traceability.partial_count and not traceability.missing_count
+                else "completed_with_warnings"
+            )
         else:
             status = "completed_with_warnings"
             warnings.append("没有形成完整的 R→F→L→P→V&V 追溯链")
@@ -240,6 +271,7 @@ class ModelGenerationService:
             if response.status is not StepStatus.COMPLETED:
                 return _StageExecution(None, diagnostics=response.diagnostics)
             warnings: list[str] = []
+            semantic_invalid = ""
             if response.patch is None:
                 if not self._stage_already_present(graph, stage.stage):
                     return _StageExecution(None, diagnostics=("stage produced no model patch",))
@@ -250,20 +282,29 @@ class ModelGenerationService:
                 except MethodologyValidationError as exc:
                     if exc.code != "semantic_invalid":
                         raise
-                    warnings.append(f"{stage.stage.value}: {exc}")
+                    semantic_invalid = str(exc)
                     relaxed = replace(
                         task,
                         validators=tuple(item for item in task.validators if item != "semantic"),
                     )
                     self.executor.validate_response(project_id, relaxed, graph, context, response)
-                patch = _promote_generated_entities(response.patch)
+                patch = _promote_generated_entities(response.patch, validated=not semantic_invalid)
                 revision = self.repository.append_patch(
                     project_id, patch, graph.revision, run_id=run_id
                 ).sequence
+                if semantic_invalid:
+                    self._save_semantic_issue(project_id, run_id, task.id, patch, semantic_invalid)
+                    warnings.append(f"{stage.stage.value}: semantic_invalid: {semantic_invalid}")
             current = self.repository.load_graph(project_id)
+            missing_kinds = self._missing_stage_kinds(current, stage.stage)
+            if missing_kinds:
+                warnings.append(
+                    f"{stage.stage.value}: missing required kinds: "
+                    + ", ".join(kind.value for kind in missing_kinds)
+                )
             stage_result = StageResult(
                 stage.stage.value,
-                "completed",
+                "needs_review" if semantic_invalid or missing_kinds else "completed",
                 revision,
                 sum(
                     1
@@ -275,6 +316,7 @@ class ModelGenerationService:
                 tuple(response.assumptions),
                 tuple(response.open_questions),
                 tuple(response.diagnostics),
+                tuple(response.decision_records),
             )
             warnings.extend(response.open_questions)
             self.repository.update_step(
@@ -300,6 +342,18 @@ class ModelGenerationService:
                     0,
                 )
             )
+            self._audit(project_id, "model_generation.stage_completed", {
+                "run_id": run_id,
+                "stage": stage_result.stage,
+                "status": stage_result.status,
+                "revision": stage_result.revision,
+                "entity_count": stage_result.entity_count,
+                "relation_count": stage_result.relation_count,
+                "assumptions": list(stage_result.assumptions),
+                "open_questions": list(stage_result.open_questions),
+                "diagnostics": list(stage_result.diagnostics),
+                "decision_records": [dict(record) for record in stage_result.decision_records],
+            })
             return _StageExecution(stage_result, tuple(warnings))
         except Exception as exc:
             return _StageExecution(None, diagnostics=(str(exc),))
@@ -429,14 +483,50 @@ class ModelGenerationService:
         })
 
     def _stage_already_present(self, graph, stage: VerticalStage) -> bool:
+        return not self._missing_stage_kinds(graph, stage)
+
+    def _missing_stage_kinds(self, graph, stage: VerticalStage) -> tuple[EntityKind, ...]:
         required = stage_required_kinds(stage)
-        return all(
-            any(
-                entity.kind is kind
-                and entity.meta.status is not EntityStatus.DEPRECATED
-                for entity in graph.entities
+        return tuple(
+            sorted(
+                (
+                    kind for kind in required
+                    if not any(
+                        entity.kind is kind
+                        and entity.meta.status is not EntityStatus.DEPRECATED
+                        for entity in graph.entities
+                    )
+                ),
+                key=lambda item: item.value,
             )
-            for kind in required
+        )
+
+    def _save_semantic_issue(
+        self,
+        project_id: str,
+        run_id: str,
+        task_id: str,
+        patch: Patch,
+        diagnostic: str,
+    ) -> None:
+        entity_ids = []
+        for operation in patch.operations:
+            if isinstance(operation, AddEntity):
+                entity_ids.append(operation.entity.id)
+            elif isinstance(operation, UpdateEntity):
+                entity_ids.append(operation.entity_id)
+        self.repository.save_issue(
+            project_id,
+            {
+                "id": f"issue-{canonical_hash((run_id, task_id, diagnostic))[:16]}",
+                "run_id": run_id,
+                "task_id": task_id,
+                "code": "semantic_invalid",
+                "severity": "warning",
+                "entity_ids": entity_ids,
+                "suggested_rollback": task_id,
+                "status": "open",
+            },
         )
 
     def _finish_failed(
@@ -481,7 +571,8 @@ class ModelGenerationService:
             recorder(project_id, kind, payload)
 
 
-def _promote_generated_entities(patch: Patch) -> Patch:
+def _promote_generated_entities(patch: Patch, *, validated: bool = True) -> Patch:
+    target_status = EntityStatus.VALIDATED if validated else EntityStatus.CANDIDATE
     operations = []
     for operation in patch.operations:
         if isinstance(operation, AddEntity) and operation.entity.meta.producer is Producer.LLM:
@@ -489,7 +580,7 @@ def _promote_generated_entities(patch: Patch) -> Patch:
                 AddEntity(
                     replace(
                         operation.entity,
-                        meta=replace(operation.entity.meta, status=EntityStatus.VALIDATED),
+                        meta=replace(operation.entity.meta, status=target_status),
                     )
                 )
             )
@@ -506,50 +597,93 @@ def _targets(graph, source_id: str, predicate: RelationPredicate) -> tuple[str, 
     )
 
 
+_TRACE_READY_STATUSES = frozenset({
+    EntityStatus.VALIDATED,
+    EntityStatus.ACCEPTED,
+    EntityStatus.LOCKED,
+})
+
+
+def _trace_targets(graph, source_id: str, predicate: RelationPredicate, kind: EntityKind) -> tuple[str, ...]:
+    index = graph.entity_index
+    return tuple(sorted({
+        relation.target_id
+        for relation in graph.relations
+        if relation.source_id == source_id
+        and relation.predicate is predicate
+        and index.get(relation.target_id) is not None
+        and index[relation.target_id].kind is kind
+        and index[relation.target_id].meta.status in _TRACE_READY_STATUSES
+    }))
+
+
 def build_traceability_summary(graph) -> TraceabilitySummary:
     active = [
         entity for entity in graph.entities
         if entity.kind is EntityKind.REQUIREMENT
         and entity.meta.status is not EntityStatus.DEPRECATED
     ]
-    complete = 0
-    partial = 0
-    missing = 0
+    rflp_complete = 0
+    rflp_partial = 0
+    rflp_missing = 0
+    verification_complete = 0
+    validation_complete = 0
+    end_to_end_complete = 0
+    end_to_end_partial = 0
+    end_to_end_missing = 0
     paths: list[tuple[str, ...]] = []
-    index = graph.entity_index
     for requirement in sorted(active, key=lambda item: item.id):
-        functions = _targets(graph, requirement.id, RelationPredicate.SATISFIED_BY)
-        functions = tuple(
-            item for item in functions
-            if index.get(item) is not None and index[item].kind is EntityKind.FUNCTION
-        )
+        functions = _trace_targets(graph, requirement.id, RelationPredicate.SATISFIED_BY, EntityKind.FUNCTION)
         logical = tuple(dict.fromkeys(
             logical_id
             for function_id in functions
-            for logical_id in _targets(graph, function_id, RelationPredicate.ALLOCATED_TO)
-            if index.get(logical_id) is not None
-            and index[logical_id].kind is EntityKind.LOGICAL_COMPONENT
+            for logical_id in _trace_targets(graph, function_id, RelationPredicate.ALLOCATED_TO, EntityKind.LOGICAL_COMPONENT)
         ))
         physical = tuple(dict.fromkeys(
             physical_id
             for logical_id in logical
-            for physical_id in _targets(graph, logical_id, RelationPredicate.ALLOCATED_TO)
-            if index.get(physical_id) is not None
-            and index[physical_id].kind is EntityKind.PHYSICAL_BLOCK
+            for physical_id in _trace_targets(graph, logical_id, RelationPredicate.ALLOCATED_TO, EntityKind.PHYSICAL_BLOCK)
         ))
-        verification = _targets(graph, requirement.id, RelationPredicate.VERIFIED_BY)
-        validation = _targets(graph, requirement.id, RelationPredicate.VALIDATED_BY)
-        final = verification[0] if verification else (validation[0] if validation else "")
-        if functions and logical and physical and final:
-            complete += 1
-            paths.append((requirement.id, functions[0], logical[0], physical[0], final))
-        elif functions or logical or physical or verification or validation:
-            partial += 1
-            paths.append(tuple(item for item in (requirement.id, *(functions[:1]), *(logical[:1]), *(physical[:1]), final) if item))
+        verification = _trace_targets(graph, requirement.id, RelationPredicate.VERIFIED_BY, EntityKind.VERIFICATION_CASE)
+        validation = _trace_targets(graph, requirement.id, RelationPredicate.VALIDATED_BY, EntityKind.VALIDATION_CASE)
+        rflp = bool(functions and logical and physical)
+        if rflp:
+            rflp_complete += 1
+        elif functions or logical or physical:
+            rflp_partial += 1
         else:
-            missing += 1
-            paths.append((requirement.id,))
-    return TraceabilitySummary(complete, partial, missing, tuple(paths))
+            rflp_missing += 1
+        verification_complete += bool(verification)
+        validation_complete += bool(validation)
+        end_to_end = rflp and bool(verification) and bool(validation)
+        if end_to_end:
+            end_to_end_complete += 1
+        elif rflp or verification or validation:
+            end_to_end_partial += 1
+        else:
+            end_to_end_missing += 1
+        path = tuple(
+            item for item in (
+                requirement.id,
+                *(functions[:1]),
+                *(logical[:1]),
+                *(physical[:1]),
+                *(verification[:1]),
+                *(validation[:1]),
+            ) if item
+        )
+        paths.append(path)
+    return TraceabilitySummary(
+        rflp_complete,
+        rflp_partial,
+        rflp_missing,
+        verification_complete,
+        validation_complete,
+        end_to_end_complete,
+        end_to_end_partial,
+        end_to_end_missing,
+        tuple(paths),
+    )
 
 
 def _sysml_text(graph) -> str:

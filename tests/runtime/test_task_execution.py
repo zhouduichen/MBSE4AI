@@ -62,6 +62,11 @@ def test_runtime_returns_stage_review_metadata():
         "reason": "补充阶段假设",
         "assumptions": ["校园网络可用"],
         "open_questions": ["是否允许夜间配送"],
+        "decision_records": [{
+            "step": "architecture_evaluation",
+            "decision": "保留逻辑边界",
+            "basis": ["function-1", "flow-1"],
+        }],
     })
     runtime = StructuredModelRuntime(model)
     task = task_catalog()[1]
@@ -71,6 +76,11 @@ def test_runtime_returns_stage_review_metadata():
 
     assert result.assumptions == ("校园网络可用",)
     assert result.open_questions == ("是否允许夜间配送",)
+    assert result.decision_records == ({
+        "step": "architecture_evaluation",
+        "decision": "保留逻辑边界",
+        "basis": ["function-1", "flow-1"],
+    },)
 
 
 def test_rule_runtime_enriches_existing_system_instead_of_adding_one():

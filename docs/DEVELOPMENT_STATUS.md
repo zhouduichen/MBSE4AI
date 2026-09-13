@@ -27,6 +27,9 @@
 | LLM 五阶段接入 | 每个纵向阶段通过现有 StructuredModelRuntime 的 TaskProposal → Compiler → Patch 边界执行；测试覆盖五次真实 stage lens 调用 |
 | SysML v2 子集往返 | 导出实际 `part/requirement/action/interface/verification/validation` 声明及关系元数据；可重新读入新项目并继续编辑 |
 | 产品验收指标 | 以 R→F→L→P→V&V 完整追溯、SysML 往返和 ModelGraph 编辑为主，不再以 23-task 重复运行次数作为主进度指标 |
+| 语义质量口径 | `semantic_invalid` 输出只保存为 candidate、创建 review Issue，不再通过移除 semantic validator 的方式写成 validated |
+| 追溯质量口径 | 分开报告 RFLP、Verification、Validation 和端到端闭环；Verification 或 Validation 单独存在均不算端到端完成 |
+| 内部推理记录 | 五阶段保留 23-task/架构分析映射，并以 bounded decision records 表达 clustering、constraint propagation、feasibility selection 等决策 |
 
 ## 历史 Harness 验收边界
 

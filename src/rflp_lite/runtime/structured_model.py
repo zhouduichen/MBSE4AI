@@ -83,6 +83,7 @@ class StructuredModelRuntime:
             usage=response.usage,
             assumptions=proposal.assumptions,
             open_questions=proposal.open_questions,
+            decision_records=proposal.decision_records,
         )
 
 

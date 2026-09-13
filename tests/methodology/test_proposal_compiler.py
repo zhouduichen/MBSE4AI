@@ -91,10 +91,20 @@ def test_task_proposal_preserves_stage_review_metadata():
     proposal = parse_task_proposal(_request(), _proposal(
         assumptions=["配送区域已经定义"],
         open_questions=["是否需要人工接管"],
+        decision_records=[{
+            "step": "dependency_clustering",
+            "decision": "共享配送状态",
+            "basis": ["function-1"],
+        }],
     ))
 
     assert proposal.assumptions == ("配送区域已经定义",)
     assert proposal.open_questions == ("是否需要人工接管",)
+    assert proposal.decision_records == ({
+        "step": "dependency_clustering",
+        "decision": "共享配送状态",
+        "basis": ["function-1"],
+    },)
 
 
 def test_system_definition_contract_describes_system_payload_and_cardinality():

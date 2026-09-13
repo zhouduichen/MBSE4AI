@@ -1,7 +1,10 @@
 from pathlib import Path
 
 from rflp_lite.bootstrap.v2 import build_v2_services
-from rflp_lite.domain.entities import EntityKind, Producer
+from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
+from rflp_lite.domain.model import ModelGraph, Relation
+from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.application.model_generation import build_traceability_summary
 from rflp_lite.ports.generative_model import GenerationResponse
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
@@ -29,11 +32,19 @@ class ScriptedModel:
         if request.lens_id == "vertical.requirements":
             entity("system", "system", "校园配送系统", {"mission": "完成校园配送", "system_boundary": {"inside": ["配送服务"], "outside": ["校园环境"]}, "objectives": ["按时完成任务"], "environment_assumptions": ["道路可通行"], "exclusions": [], "open_questions": []})
             entity("stakeholder", "stakeholder", "配送运营人员", {"role": "任务运营"})
+            entity("lifecycle", "lifecycle_stage", "设计—运行生命周期", {"stage": "operation", "sequence": ["设计", "部署", "运行", "维护"]})
+            entity("hypothesis", "scenario_hypothesis", "典型配送场景假设", {"category": "normal", "trigger": "提交配送任务", "outcome": "完成任务"})
+            entity("use_case", "use_case", "执行一次配送任务", {"primary_actor": "配送运营人员", "goal": "完成可追踪配送"})
             entity("scenario", "operational_scenario", "典型配送场景", {"actor_ids": ["stakeholder"], "steps": ["提交任务", "完成配送"], "exchanges": [], "internal_component_ids": []})
+            entity("activity", "activity", "受理并完成配送活动", {"steps": ["受理", "执行", "反馈"], "branches": ["人工接管"]})
             relation("system", "decomposes", "stakeholder")
             relation("stakeholder", "participatesIn", "scenario")
+            relation("stakeholder", "derivedFrom", "hypothesis")
+            relation("use_case", "derivedFrom", "hypothesis")
+            relation("scenario", "derivedFrom", "use_case")
+            relation("activity", "occursIn", "lifecycle")
             if requirements:
-                relation(requirements[0]["id"], "derivedFrom", "scenario")
+                relation(requirements[0]["id"], "derivedFrom", "activity")
         elif request.lens_id == "vertical.functional":
             entity("function", "function", "规划并执行配送", {"behavior": "根据任务完成配送", "inputs": ["任务"], "outputs": ["结果"]})
             entity("flow", "functional_flow", "任务结果流", {"content": "任务和结果"})
@@ -61,7 +72,67 @@ class ScriptedModel:
                 relation(requirements[0]["id"], "validatedBy", "validation")
         payload["assumptions"] = ["脚本模型用于测试结构化边界"]
         payload["open_questions"] = []
+        payload["decision_records"] = [{
+            "step": request.lens_id,
+            "decision": "按照阶段契约产生结构化模型",
+            "basis": [],
+        }]
         return GenerationResponse(request.lens_id, payload, "input", "output", False, "fake", "scripted")
+
+
+class SemanticInvalidModel(ScriptedModel):
+    def complete_json(self, request):
+        response = super().complete_json(request)
+        if request.lens_id == "vertical.functional":
+            response.payload["entities"][0]["name"] = "配送传感器控制"
+        return response
+
+
+class IncompleteOperationalModel(ScriptedModel):
+    def complete_json(self, request):
+        response = super().complete_json(request)
+        if request.lens_id == "vertical.requirements":
+            keep = {"system", "stakeholder", "scenario"}
+            response.payload["entities"] = [
+                item for item in response.payload["entities"] if item["local_ref"] in keep
+            ]
+            response.payload["relations"] = [
+                item for item in response.payload["relations"]
+                if item["source_ref"] in keep and item["target_ref"] in keep
+            ]
+        return response
+
+
+def _trace_graph(*, verification: bool, validation: bool) -> ModelGraph:
+    requirement = make_entity(EntityKind.REQUIREMENT, "系统应完成配送", {"obligation": "系统应"})
+    function = make_entity(EntityKind.FUNCTION, "规划配送", status=EntityStatus.VALIDATED)
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "规划组件", status=EntityStatus.VALIDATED)
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "计算单元", status=EntityStatus.VALIDATED)
+    entities = [requirement, function, logical, physical]
+    relations = [
+        Relation("r-f", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+        Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+        Relation("l-p", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
+    ]
+    if verification:
+        case = make_entity(
+            EntityKind.VERIFICATION_CASE,
+            "验证配送",
+            {"method": "test", "pass_criteria": "满足需求"},
+            status=EntityStatus.VALIDATED,
+        )
+        entities.append(case)
+        relations.append(Relation("r-v", requirement.id, RelationPredicate.VERIFIED_BY, case.id))
+    if validation:
+        case = make_entity(
+            EntityKind.VALIDATION_CASE,
+            "确认体验",
+            {"method": "demonstration", "pass_criteria": "用户认可"},
+            status=EntityStatus.VALIDATED,
+        )
+        entities.append(case)
+        relations.append(Relation("r-va", requirement.id, RelationPredicate.VALIDATED_BY, case.id))
+    return ModelGraph("trace", tuple(entities), tuple(relations), revision=1)
 
 
 def test_generation_creates_real_rflp_and_vv_objects_from_one_requirement(tmp_path: Path):
@@ -83,6 +154,15 @@ def test_generation_creates_real_rflp_and_vv_objects_from_one_requirement(tmp_pa
         EntityKind.VALIDATION_CASE,
     } <= {item.kind for item in graph.entities}
     assert result.traceability.complete_count >= 1
+    logical = next(item for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT)
+    physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
+    assert logical.payload["partition_basis"]
+    assert logical.payload["cohesion"] == "high"
+    assert physical.payload["feasibility"]["status"] == "needs_measurement"
+    assert physical.payload["swap_c"]["status"] == "requires_measurement"
+    assert {record["step"] for record in result.stage_results[2].decision_records} >= {
+        "dependency_clustering", "architecture_evaluation"
+    }
     assert all(
         "候选" not in item.meta.name and "待确认" not in item.meta.name
         for item in graph.entities
@@ -132,3 +212,54 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
         "vertical.verification_validation",
     ]
     assert result.traceability.complete_count == 1
+    assert result.stage_results[2].decision_records[0]["step"] == "vertical.logical"
+
+
+def test_semantic_invalid_output_stays_candidate_and_creates_review_issue(tmp_path: Path):
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(SemanticInvalidModel()),
+    )
+    services.projects.create("robot")
+
+    result = services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+    graph = services.model("robot").graph("robot")
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+
+    assert result.status == "completed_with_warnings"
+    assert result.stage_results[1].status == "needs_review"
+    assert function.meta.status is EntityStatus.CANDIDATE
+    assert any(item["code"] == "semantic_invalid" for item in services.model("robot").issues("robot"))
+
+
+def test_incomplete_operational_stage_is_marked_for_review(tmp_path: Path):
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(IncompleteOperationalModel()),
+    )
+    services.projects.create("robot")
+
+    result = services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+
+    assert result.status == "completed_with_warnings"
+    assert result.stage_results[0].status == "needs_review"
+    assert any("missing required kinds" in warning for warning in result.warnings)
+
+
+def test_traceability_requires_both_verification_and_validation():
+    rflp = build_traceability_summary(_trace_graph(verification=False, validation=False))
+    verified = build_traceability_summary(_trace_graph(verification=True, validation=False))
+    validated = build_traceability_summary(_trace_graph(verification=False, validation=True))
+    complete = build_traceability_summary(_trace_graph(verification=True, validation=True))
+
+    assert rflp.rflp_complete_count == 1
+    assert verified.verification_complete_count == 1
+    assert validated.validation_complete_count == 1
+    assert verified.end_to_end_complete_count == 0
+    assert validated.end_to_end_complete_count == 0
+    assert complete.end_to_end_complete_count == 1
+    assert complete.complete_count == complete.end_to_end_complete_count

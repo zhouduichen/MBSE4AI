@@ -33,6 +33,7 @@ class VerticalStageSpec:
     output_kinds: frozenset[EntityKind]
     allowed_predicates: frozenset[RelationPredicate]
     required_kinds: frozenset[EntityKind]
+    reasoning_tasks: tuple[str, ...] = ()
 
 
 _ALL = frozenset(EntityKind)
@@ -45,6 +46,9 @@ _STAGES: tuple[VerticalStageSpec, ...] = (
             EntityKind.SYSTEM,
             EntityKind.STAKEHOLDER,
             EntityKind.CONCERN,
+            EntityKind.LIFECYCLE_STAGE,
+            EntityKind.SCENARIO_HYPOTHESIS,
+            EntityKind.USE_CASE,
             EntityKind.OPERATIONAL_SCENARIO,
             EntityKind.ACTIVITY,
             EntityKind.REQUIREMENT,
@@ -56,7 +60,21 @@ _STAGES: tuple[VerticalStageSpec, ...] = (
             RelationPredicate.DERIVED_FROM,
             RelationPredicate.DECOMPOSES,
         }),
-        frozenset({EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.REQUIREMENT}),
+        frozenset({
+            EntityKind.SYSTEM,
+            EntityKind.STAKEHOLDER,
+            EntityKind.LIFECYCLE_STAGE,
+            EntityKind.SCENARIO_HYPOTHESIS,
+            EntityKind.USE_CASE,
+            EntityKind.OPERATIONAL_SCENARIO,
+            EntityKind.ACTIVITY,
+            EntityKind.REQUIREMENT,
+        }),
+        (
+            "system_definition", "stakeholder_analysis", "stakeholder_requirements",
+            "lifecycle_analysis", "scenario_exploration", "use_case_analysis",
+            "operational_scenario", "activity_analysis", "system_requirement_derivation",
+        ),
     ),
     VerticalStageSpec(
         VerticalStage.FUNCTIONAL,
@@ -82,6 +100,10 @@ _STAGES: tuple[VerticalStageSpec, ...] = (
             RelationPredicate.EXCHANGES_WITH,
         }),
         frozenset({EntityKind.FUNCTION}),
+        (
+            "function_identification", "functional_decomposition", "functional_interaction",
+            "functional_scenario", "functional_requirement",
+        ),
     ),
     VerticalStageSpec(
         VerticalStage.LOGICAL,
@@ -102,6 +124,10 @@ _STAGES: tuple[VerticalStageSpec, ...] = (
             RelationPredicate.DERIVED_FROM,
         }),
         frozenset({EntityKind.LOGICAL_COMPONENT}),
+        (
+            "logical_analysis", "interface_sequence_state",
+            "dependency_clustering", "architecture_evaluation",
+        ),
     ),
     VerticalStageSpec(
         VerticalStage.PHYSICAL,
@@ -121,6 +147,10 @@ _STAGES: tuple[VerticalStageSpec, ...] = (
             RelationPredicate.DERIVED_FROM,
         }),
         frozenset({EntityKind.PHYSICAL_BLOCK}),
+        (
+            "physical_candidates", "allocation_tradeoff", "technical_requirement",
+            "constraint_propagation", "feasibility_selection",
+        ),
     ),
     VerticalStageSpec(
         VerticalStage.VERIFICATION_VALIDATION,
@@ -133,6 +163,10 @@ _STAGES: tuple[VerticalStageSpec, ...] = (
             RelationPredicate.SUPPORTED_BY,
         }),
         frozenset({EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}),
+        (
+            "fmea_stpa_hazard", "verification_validation", "reverse_feasibility",
+            "global_cross_analysis",
+        ),
     ),
 )
 

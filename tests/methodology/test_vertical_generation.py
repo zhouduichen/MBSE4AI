@@ -24,6 +24,23 @@ def test_vertical_stages_have_product_order_and_narrow_write_scopes():
     })
 
 
+def test_requirements_stage_requires_operational_model_kinds_and_internal_steps():
+    requirements = next(item for item in vertical_stage_specs() if item.stage is VerticalStage.REQUIREMENTS)
+
+    assert requirements.required_kinds == frozenset({
+        EntityKind.SYSTEM,
+        EntityKind.STAKEHOLDER,
+        EntityKind.LIFECYCLE_STAGE,
+        EntityKind.SCENARIO_HYPOTHESIS,
+        EntityKind.USE_CASE,
+        EntityKind.OPERATIONAL_SCENARIO,
+        EntityKind.ACTIVITY,
+        EntityKind.REQUIREMENT,
+    })
+    assert "lifecycle_analysis" in requirements.reasoning_tasks
+    assert "activity_analysis" in requirements.reasoning_tasks
+
+
 def test_vertical_prompt_resources_resolve_and_include_review_metadata():
     task = stage_task(VerticalStage.PHYSICAL)
     request = TaskExecutor(RuleRuntime()).request(
