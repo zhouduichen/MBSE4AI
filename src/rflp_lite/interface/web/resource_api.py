@@ -1004,36 +1004,56 @@ def download_deliverables(request: Request, project_id: str):
 async def import_sysml(request: Request, project_id: str):
     try:
         text = (await request.body()).decode("utf-8")
-        imported = sysml_to_graph(text, project_id)
-        repository = _services(request).repository(project_id)
-        current = repository.load_graph(project_id)
-        existing_ids = {item.id for item in current.entities}
-        conflicts = sorted(existing_ids & {item.id for item in imported.entities})
-        if conflicts:
-            raise ContractViolation(f"SysML import conflicts with existing entity ids: {conflicts}")
-        operations: list[object] = [AddEntity(item) for item in imported.entities]
-        operations.extend(
-            Relate(item.source_id, item.predicate, item.target_id, item.evidence_ids)
-            for item in imported.relations
-        )
-        if not operations:
-            raise ContractViolation("SysML import contains no model records")
-        patch = Patch.create(
-            project_id,
-            "sysml.import",
-            tuple(operations),
-            "从 SysML v2 子集导入模型",
-            current.revision,
-        )
-        revision = repository.append_patch(project_id, patch, current.revision)
-        return {
-            "status": "ok",
-            "revision": revision.sequence,
-            "entity_count": len(imported.entities),
-            "relation_count": len(imported.relations),
-        }
+        return _append_sysml_import(request, project_id, text)
     except (ContractViolation, RflpError, OSError, UnicodeDecodeError, ValueError) as exc:
         return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/sysml/import/upload")
+async def upload_sysml(request: Request, project_id: str):
+    try:
+        form = await request.form()
+        upload = form.get("file")
+        if upload is None or (not isinstance(upload, UploadFile) and not hasattr(upload, "read")):
+            raise ContractViolation("multipart SysML field 'file' is required")
+        filename = str(getattr(upload, "filename", "")).casefold()
+        if not filename.endswith(".sysml"):
+            raise ContractViolation("uploaded SysML file must use the .sysml extension")
+        content = await upload.read()
+        return _append_sysml_import(request, project_id, content.decode("utf-8"))
+    except (ContractViolation, RflpError, OSError, UnicodeDecodeError, ValueError) as exc:
+        return _error(exc)
+
+
+def _append_sysml_import(request: Request, project_id: str, text: str) -> Mapping[str, object]:
+    imported = sysml_to_graph(text, project_id)
+    repository = _services(request).repository(project_id)
+    current = repository.load_graph(project_id)
+    existing_ids = {item.id for item in current.entities}
+    conflicts = sorted(existing_ids & {item.id for item in imported.entities})
+    if conflicts:
+        raise ContractViolation(f"SysML import conflicts with existing entity ids: {conflicts}")
+    operations: list[object] = [AddEntity(item) for item in imported.entities]
+    operations.extend(
+        Relate(item.source_id, item.predicate, item.target_id, item.evidence_ids)
+        for item in imported.relations
+    )
+    if not operations:
+        raise ContractViolation("SysML import contains no model records")
+    patch = Patch.create(
+        project_id,
+        "sysml.import",
+        tuple(operations),
+        "从 SysML v2 子集导入模型",
+        current.revision,
+    )
+    revision = repository.append_patch(project_id, patch, current.revision)
+    return {
+        "status": "ok",
+        "revision": revision.sequence,
+        "entity_count": len(imported.entities),
+        "relation_count": len(imported.relations),
+    }
 
 
 @resource_api.get("/model-profiles")
