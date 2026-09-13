@@ -29,7 +29,7 @@
 - Consumes: multipart `file`, `sysml_to_graph`, `repository.load_graph`, and existing `AddEntity`/`Relate` CAS append path.
 - Produces: `POST /projects/{project_id}/sysml/import/upload` returning `status`, `revision`, `entity_count`, and `relation_count`.
 
-- [ ] **Step 1: Write failing endpoint tests**
+- [x] **Step 1: Write failing endpoint tests**
 
 ```python
 def test_sysml_upload_imports_model_and_reports_counts(tmp_path):
@@ -54,13 +54,13 @@ def test_sysml_upload_conflict_does_not_mutate_revision(tmp_path):
     assert client.get("/projects/p1/model").json()["revision"] == before
 ```
 
-- [ ] **Step 2: Run the tests and verify the route is absent**
+- [x] **Step 2: Run the tests and verify the route is absent**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_sysml_intake.py -q`
 
 Expected: FAIL because the upload route does not exist.
 
-- [ ] **Step 3: Implement the upload route**
+- [x] **Step 3: Implement the upload route**
 
 Read the multipart form, require a readable `file`, decode UTF-8, parse with
 `sysml_to_graph`, reject `existing_ids & imported_ids`, build the same
@@ -68,13 +68,13 @@ Read the multipart form, require a readable `file`, decode UTF-8, parse with
 revision. Catch `UnicodeDecodeError` in the existing error tuple. Return the
 same response fields as the raw importer.
 
-- [ ] **Step 4: Run focused and regression SysML tests**
+- [x] **Step 4: Run focused and regression SysML tests**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_sysml_intake.py tests/interface/web/test_resource_api.py tests/interface/web/test_vertical_generation_api.py -q`
 
 Expected: PASS, including raw-body import and existing export behavior.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rflp_lite/interface/web/resource_api.py tests/interface/web/test_sysml_intake.py
@@ -91,7 +91,7 @@ git commit -m "feat: accept uploaded SysML models"
 - Consumes: the new upload endpoint and `FormData` with field `file`.
 - Produces: visible `.sysml` file input, “导入已有 SysML 模型” action, and reload-on-success behavior.
 
-- [ ] **Step 1: Write the failing page assertion**
+- [x] **Step 1: Write the failing page assertion**
 
 ```python
 def test_analysis_page_exposes_existing_sysml_upload(tmp_path):
@@ -104,26 +104,26 @@ def test_analysis_page_exposes_existing_sysml_upload(tmp_path):
     assert "/sysml/import/upload" in page.text
 ```
 
-- [ ] **Step 2: Run the page test and verify it fails**
+- [x] **Step 2: Run the page test and verify it fails**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_analysis_workflow.py::test_analysis_page_exposes_existing_sysml_upload -q`
 
 Expected: FAIL because the Analysis page has no SysML control.
 
-- [ ] **Step 3: Add the control and browser handler**
+- [x] **Step 3: Add the control and browser handler**
 
 Add a separate form with `<input accept=".sysml" type="file">`, a submit
 button, and a handler that appends the selected file under `file` to
 `/projects/${projectId}/sysml/import/upload`. Reuse `showIntakeResult`; reload
 after an `ok` response.
 
-- [ ] **Step 4: Run all Analysis page tests**
+- [x] **Step 4: Run all Analysis page tests**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_analysis_workflow.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rflp_lite/interface/web/templates/analysis.html tests/interface/web/test_analysis_workflow.py
@@ -142,7 +142,7 @@ git commit -m "feat: add SysML model intake to analysis workbench"
 - Consumes: upload import, existing CAS edit, `/projects/{id}/deliverables/download`, and SysML round-trip.
 - Produces: evidence for import → edit → export and user documentation of existing model intake.
 
-- [ ] **Step 1: Add the integrated flow test**
+- [x] **Step 1: Add the integrated flow test**
 
 ```python
 def test_imported_model_can_be_edited_and_exported(tmp_path):
@@ -172,7 +172,7 @@ Run: `./.venv/bin/pytest tests/interface/web/test_sysml_intake.py::test_imported
 
 Expected: PASS.
 
-- [ ] **Step 3: Update product documentation**
+- [x] **Step 3: Update product documentation**
 
 Add existing `.sysml` model upload to the README, current architecture
 resource table, and development status. State that import uses the same
@@ -200,4 +200,3 @@ git add tests/interface/web/test_sysml_intake.py README.md docs/CURRENT_ARCHITEC
 git commit -m "test: prove existing SysML intake loop"
 git push origin codex/web-audit-2026-08-18
 ```
-

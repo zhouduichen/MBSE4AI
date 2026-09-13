@@ -41,6 +41,7 @@
 | Review 后继续生成 | 用户确认实体后可从其下一层继续生成至 V&V；使用独立 continuation Run，锁定实体只读，V&V 返回无下游状态 |
 | 统一工程交付包 | 同一 ModelGraph revision 输出 model/SysML/Requirements/RFLP/Traceability/V&V Plan/Architecture Report；提供 JSON、固定成员 ZIP 和 SysML 回读证据 |
 | 23-task 纵向追溯回接 | 后置 functional/technical/reverse requirement 自动回接 Function 与 V&V；校园配送 fixture 交付包验证 7/7 需求完整追溯 |
+| 已有 SysML 模型输入 | Web Analysis 支持上传 `.sysml`，通过同一解析器导入 ModelGraph；冲突 ID 在写入前拒绝，并可继续编辑和导出 |
 
 ## 历史 Harness 验收边界
 

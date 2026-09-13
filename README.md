@@ -39,6 +39,8 @@ python3 -m venv .venv
 .venv/bin/ai4mbse --workspace-root .local-workspaces analyze generate document-demo
 ```
 
+已有 SysML v2 子集模型也可以在 Web Analysis 页面上传，导入同一份 Typed ModelGraph；导入后可以继续生成下游层、Review、编辑并导出完整工程交付包。
+
 旧的 Golden fixture 生命周期用于兼容性和方法论调试：
 
 ```bash
@@ -67,6 +69,8 @@ model-profile list|save|activate
 ```
 
 页面收敛为 Projects、Analysis、MBSE Model、Evidence & Issues、Settings；API 资源以 `/projects` 为根，提供项目、分析运行、模型、实体 CAS 编辑、证据、Issue、Repair 和 Export。MBSE Model 页面按 System Definition、Functional、Logical、Physical、V&V 展示真实 ModelGraph 实体，并支持实体编辑、Review、锁定和重新分析。
+
+Analysis 页面支持上传已有 `.sysml` 模型。导入使用与命令行相同的确定性 SysML v2 子集解析器，写入当前项目的 ModelGraph，并在实体 ID 冲突时拒绝整次导入；成功后仍可继续生成、编辑和导出。
 
 MBSE Model 页面还提供“导出完整交付包”：同一份 ModelGraph 快照一次性输出 `model.json`、SysML v2 子集、Requirements、RFLP、Traceability、V&V Plan 和 Architecture Report，并在 manifest 中绑定项目、revision 和 snapshot hash。交付包可以重新读取 SysML 后继续编辑；报告中的缺口仍保留为 BLOCKED/INCOMPLETE，不会被下载过程隐藏。
 
