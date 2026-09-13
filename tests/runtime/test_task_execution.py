@@ -1,13 +1,14 @@
 import json
 
 from rflp_lite.domain.entities import EntityKind, make_entity
-from rflp_lite.domain.model import ModelGraph
+from rflp_lite.domain.model import ModelGraph, UpdateEntity
 from rflp_lite.domain.errors import StructuredOutputFailure
 from rflp_lite.methodology.contracts import ContextBundle, StepStatus, TaskExecutionRequest
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.registries import RetryPolicy
 from rflp_lite.methodology.tasks import task_catalog
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
+from rflp_lite.runtime.rule_based import RuleRuntime
 from rflp_lite.ports.generative_model import GenerationResponse
 
 
@@ -53,6 +54,20 @@ def test_runtime_turns_allowed_output_into_patch():
     assert result.patch is not None
     assert result.patch.expected_revision == 3
     assert result.patch.operations[0].entity.kind is EntityKind.REQUIREMENT
+
+
+def test_rule_runtime_enriches_existing_system_instead_of_adding_one():
+    task = task_catalog()[0]
+    system = make_entity(EntityKind.SYSTEM, "系统")
+    context = ContextBundle("p1", task.id, 3, (system,))
+    request = TaskExecutor(lambda request: None).request(task, context, "v2.1")
+
+    response = RuleRuntime().execute(request)
+
+    assert response.patch is not None
+    assert len(response.patch.operations) == 1
+    assert isinstance(response.patch.operations[0], UpdateEntity)
+    assert response.patch.operations[0].entity_id == system.id
 
 
 def test_failure_diagnostics_store_excerpt_hash_and_size_not_unbounded_raw():

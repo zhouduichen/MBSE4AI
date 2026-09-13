@@ -9,8 +9,8 @@ from rflp_lite.methodology.validation import ValidationContext
 from rflp_lite.methodology.validators.identity import validate
 
 
-def _context(graph, patch):
-    task = next(item for item in task_catalog() if item.id == "functional_decomposition")
+def _context(graph, patch, task_id="functional_decomposition"):
+    task = next(item for item in task_catalog() if item.id == task_id)
     response = TaskExecutionResponse(StepStatus.COMPLETED, patch)
     return ValidationContext("p1", task, graph, ContextBundle("p1", task.id, graph.revision, graph.entities), response)
 
@@ -40,3 +40,13 @@ def test_update_locked_or_user_modified_entity_is_rejected(status, payload):
 
     with pytest.raises(MethodologyValidationError, match="identity_conflict"):
         validate(_context(graph, patch))
+
+
+def test_system_definition_cannot_add_a_second_system():
+    existing = make_entity(EntityKind.SYSTEM, "已有系统")
+    another = make_entity(EntityKind.SYSTEM, "第二个系统")
+    graph = ModelGraph("p1", (existing,))
+    patch = Patch.create("p1", "system_definition", (AddEntity(another),), "second", graph.revision)
+
+    with pytest.raises(MethodologyValidationError, match="identity_conflict"):
+        validate(_context(graph, patch, "system_definition"))

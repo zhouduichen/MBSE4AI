@@ -4,7 +4,7 @@ import pytest
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.errors import ContractViolation
-from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
+from rflp_lite.domain.model import AddEntity, ModelGraph, Patch, Relate, UpdateEntity, apply_patch
 from rflp_lite.methodology.contracts import ContextBundle, TaskExecutionRequest
 from rflp_lite.methodology.proposal_compiler import compile_task_proposal, proposal_schema
 from rflp_lite.methodology.tasks import output_contract, task_catalog
@@ -49,6 +49,102 @@ def _proposal(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def _system_payload():
+    return {
+        "mission": "支持校园配送服务",
+        "system_boundary": {
+            "inside": ["配送服务能力"],
+            "outside": ["校园道路环境"],
+        },
+        "objectives": ["完成可追踪的配送任务"],
+        "environment_assumptions": ["校园网络可用"],
+        "exclusions": ["不定义具体硬件实现"],
+        "open_questions": ["待确认高峰期任务量"],
+    }
+
+
+def _system_request(entities=(), revision=3):
+    task = next(item for item in task_catalog() if item.id == "system_definition")
+    context = ContextBundle("p1", task.id, revision, tuple(entities))
+    return TaskExecutionRequest(
+        task.id, "v2.1", context, (), output_contract(task), 4000,
+        patch_policy=task.patch_policy,
+    )
+
+
+def _system_proposal(**overrides):
+    payload = {
+        "entities": [],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "补全系统定义",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_system_definition_contract_describes_system_payload_and_cardinality():
+    task = next(item for item in task_catalog() if item.id == "system_definition")
+    contract = output_contract(task)
+    payload = contract["properties"]["entities"]["items"]["properties"]["payload"]
+
+    assert task.completion_condition.minimum_entities == 1
+    assert payload["additionalProperties"] is False
+    assert set(payload["required"]) == {
+        "mission", "system_boundary", "objectives",
+        "environment_assumptions", "exclusions", "open_questions",
+    }
+    assert contract["properties"]["updates"]["items"]["properties"]["field_patch"]["properties"]["payload"] == payload
+
+
+def test_system_definition_enriches_existing_system_without_adding_one():
+    system = make_entity(EntityKind.SYSTEM, "系统")
+    request = _system_request((system,))
+    proposal = _system_proposal(updates=[{
+        "entity_id": system.id,
+        "field_patch": {"payload": _system_payload()},
+    }])
+
+    patch = compile_task_proposal(request, proposal)
+
+    assert patch is not None
+    assert len(patch.operations) == 1
+    assert isinstance(patch.operations[0], UpdateEntity)
+    next_graph = apply_patch(ModelGraph("p1", (system,), revision=3), patch)
+    assert next_graph.revision == 4
+    assert sum(entity.kind is EntityKind.SYSTEM for entity in next_graph.entities) == 1
+    assert next_graph.entity_index[system.id].payload == _system_payload()
+
+
+def test_system_definition_creates_one_system_when_context_has_none():
+    request = _system_request((), revision=0)
+    proposal = _system_proposal(entities=[{
+        "local_ref": "new:system:1",
+        "name": "校园配送系统",
+        "payload": _system_payload(),
+    }])
+
+    patch = compile_task_proposal(request, proposal)
+
+    assert patch is not None
+    assert len(patch.operations) == 1
+    assert isinstance(patch.operations[0], AddEntity)
+    next_graph = apply_patch(ModelGraph("p1"), patch)
+    assert sum(entity.kind is EntityKind.SYSTEM for entity in next_graph.entities) == 1
+
+
+def test_duplicate_local_ref_is_rejected_for_system_definition():
+    request = _system_request((), revision=0)
+    proposal = _system_proposal(entities=[
+        {"local_ref": "new:system:1", "name": "系统 A", "payload": _system_payload()},
+        {"local_ref": "new:system:1", "name": "系统 B", "payload": _system_payload()},
+    ])
+
+    with pytest.raises(ContractViolation, match="duplicate task proposal local_ref"):
+        compile_task_proposal(request, proposal)
 
 
 def test_proposal_schema_requires_semantic_fields_without_patch_operations():

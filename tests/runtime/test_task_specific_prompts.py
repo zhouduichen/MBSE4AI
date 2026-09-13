@@ -29,5 +29,5 @@ def test_structured_runtime_sends_task_specific_prompt_to_model():
 
     assert request.prompt_text in model.requests[0].system_prompt
     assert all(item in model.requests[0].system_prompt for item in (
-        "entities", "relations", "updates", "deprecations", "reason",
+        "entities", "relations", "updates", "deprecations", "reason", "local_ref",
     ))

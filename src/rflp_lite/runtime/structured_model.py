@@ -38,6 +38,8 @@ class StructuredModelRuntime:
                     + "\n\n"
                     "仅返回 TaskProposal JSON 对象，必须包含 entities、relations、updates、deprecations、reason；"
                     "除非任务明确要求修改或弃用既有实体，否则 updates 和 deprecations 必须为空数组；"
+                    "每个 entities[i].local_ref 必须在当前 Proposal 内唯一；local_ref 只是本轮临时引用，不是领域 ID；"
+                    "relations 只能引用当前上下文中的 canonical entity id 或本 Proposal 内唯一的 local_ref；"
                     "不要返回 operations、Patch ID、revision、status、producer 或 kind/value/path 更新 DSL；不要解释。"
                 ),
                 payload,

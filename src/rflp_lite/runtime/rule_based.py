@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
-from rflp_lite.domain.model import AddEntity, Patch, Relate
+from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
 
@@ -46,11 +46,39 @@ class RuleRuntime:
         kind = _PRIMARY_OUTPUT.get(request.task_id)
         if kind is None or kind.value not in {str(value) for value in request.output_contract.get("output_kinds", ())}:
             return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:no-op",))
+        if request.task_id == "system_definition":
+            existing = _first(request.context_bundle, EntityKind.SYSTEM)
+            if existing is not None:
+                payload = {
+                    "mission": "待确认",
+                    "system_boundary": {"inside": [], "outside": []},
+                    "objectives": ["待确认"],
+                    "environment_assumptions": ["待确认"],
+                    "exclusions": ["待确认"],
+                    "open_questions": ["待确认"],
+                }
+                patch = Patch.create(
+                    request.context_bundle.project_id,
+                    request.task_id,
+                    (UpdateEntity(existing.id, {"payload": payload}),),
+                    "离线规则补全系统定义",
+                    request.context_bundle.revision,
+                )
+                return TaskExecutionResponse(StepStatus.COMPLETED, patch=patch, diagnostics=("offline:system-update",))
         name = f"{request.task_id} 候选"
         existing = next((item for item in request.context_bundle.entities if item.kind is kind and item.meta.name == name), None)
         if existing is not None:
             return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:idempotent",))
         payload: dict[str, object] = {"task_id": request.task_id, "requires_human_review": True}
+        if kind is EntityKind.SYSTEM:
+            payload = {
+                "mission": "待确认",
+                "system_boundary": {"inside": [], "outside": []},
+                "objectives": ["待确认"],
+                "environment_assumptions": ["待确认"],
+                "exclusions": ["待确认"],
+                "open_questions": ["待确认"],
+            }
         if kind is EntityKind.REQUIREMENT:
             payload.update({"level": "system", "type": "functional", "obligation": "待确认", "verification_method": "review"})
         if kind is EntityKind.VERIFICATION_CASE:

@@ -16,6 +16,7 @@ def _task(
     output_kinds: set[EntityKind],
     *,
     template: str | None = None,
+    completion_condition: CompletionCondition | None = None,
 ) -> TaskSpec:
     kinds = frozenset(input_kinds)
     routes = [FailureRoute("task_output_invalid", phase, FailureAction.RETRY, task_id)]
@@ -42,14 +43,20 @@ def _task(
         validators=("schema", "identity", "reference", "evidence", "semantic", "patch_policy"),
         max_attempts=2,
         failure_routes=tuple(routes),
-        completion_condition=CompletionCondition(frozenset(output_kinds), 0),
+        completion_condition=completion_condition or CompletionCondition(frozenset(output_kinds), 0),
         patch_policy=PatchPolicy.for_task(input_kinds, output_kinds),
     )
 
 
 def task_catalog() -> tuple[TaskSpec, ...]:
     return (
-        _task("system_definition", Phase.OPERATIONAL, {EntityKind.SYSTEM}, {EntityKind.SYSTEM}),
+        _task(
+            "system_definition",
+            Phase.OPERATIONAL,
+            {EntityKind.SYSTEM},
+            {EntityKind.SYSTEM},
+            completion_condition=CompletionCondition(frozenset({EntityKind.SYSTEM}), 1),
+        ),
         _task("stakeholder_analysis", Phase.OPERATIONAL, {EntityKind.SYSTEM, EntityKind.STAKEHOLDER}, {EntityKind.STAKEHOLDER, EntityKind.CONCERN}),
         _task("stakeholder_requirements", Phase.OPERATIONAL, {EntityKind.STAKEHOLDER, EntityKind.CONCERN, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
         _task("lifecycle_analysis", Phase.OPERATIONAL, {EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE}, {EntityKind.LIFECYCLE_STAGE, EntityKind.LIFECYCLE_TRANSITION}),
@@ -119,6 +126,28 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
     """Return the semantic TaskProposal schema accepted from a task runtime."""
 
     payload_schemas = {
+        EntityKind.SYSTEM.value: {
+            "type": "object", "additionalProperties": False,
+            "required": [
+                "mission", "system_boundary", "objectives",
+                "environment_assumptions", "exclusions", "open_questions",
+            ],
+            "properties": {
+                "mission": {"type": "string", "minLength": 1},
+                "system_boundary": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["inside", "outside"],
+                    "properties": {
+                        "inside": {"type": "array", "items": {"type": "string"}},
+                        "outside": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "objectives": {"type": "array", "items": {"type": "string"}},
+                "environment_assumptions": {"type": "array", "items": {"type": "string"}},
+                "exclusions": {"type": "array", "items": {"type": "string"}},
+                "open_questions": {"type": "array", "items": {"type": "string"}},
+            },
+        },
         EntityKind.REQUIREMENT.value: {
             "type": "object", "additionalProperties": False,
             "properties": {
@@ -165,6 +194,10 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
         payload_schemas,
         task.patch_policy,
     )
+    if task.id == "system_definition":
+        schema["properties"]["updates"]["items"]["properties"]["field_patch"]["properties"]["payload"] = dict(
+            payload_schemas[EntityKind.SYSTEM.value]
+        )
     schema["validators"] = list(task.validators)
     schema["max_attempts"] = task.max_attempts
     return schema

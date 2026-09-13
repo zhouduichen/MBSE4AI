@@ -230,7 +230,7 @@ class ProjectService:
             operations.append(AddEntity(entity))
             return entity.id
 
-        system_id = add(EntityKind.SYSTEM, str(fixture.get("system", "")), {"fixture": True})
+        system_id = add(EntityKind.SYSTEM, str(fixture.get("system", "")))
         stakeholder_ids = [add(EntityKind.STAKEHOLDER, str(item), {"fixture": True}) for item in fixture.get("stakeholders", ())]
         stage_ids = [add(EntityKind.LIFECYCLE_STAGE, str(item), {"fixture": True}) for item in fixture.get("lifecycle_stages", ())]
         scenario_ids = [add(EntityKind.SCENARIO_HYPOTHESIS, str(item), {"fixture": True}) for item in fixture.get("scenarios", ())]
