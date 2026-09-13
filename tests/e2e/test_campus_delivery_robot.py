@@ -42,6 +42,19 @@ def test_campus_fixture_runs_all_phases_and_closure(tmp_path: Path) -> None:
     report = run_acceptance(services.model("campus").graph("campus"), fixture)
     assert report.status == "passed", report.diagnostics
 
+    package = services.deliverables("campus").build("campus")
+    graph = services.model("campus").graph("campus")
+    assert package["revision"] == graph.revision
+    assert package["snapshot_hash"] == graph.snapshot_hash
+    trace_metrics = package["artifacts"]["traceability"]["content"]["metrics"]
+    assert trace_metrics["requirement_count"] == 7
+    assert trace_metrics["complete_count"] == 7
+    assert package["artifacts"]["architecture_report"]["content"]["status"] == "PASS"
+    assert all(
+        row["status"] == "PASS"
+        for row in package["artifacts"]["vv_plan"]["content"]["rows"]
+    )
+
 
 def test_failure_is_registered_and_repaired_with_local_patch(tmp_path: Path) -> None:
     services = build_v2_services(tmp_path / "workspaces")

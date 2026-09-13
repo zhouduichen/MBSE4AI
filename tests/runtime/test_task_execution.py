@@ -2,6 +2,7 @@ import json
 
 from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.model import ModelGraph, UpdateEntity
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.domain.errors import StructuredOutputFailure
 from rflp_lite.methodology.contracts import ContextBundle, StepStatus, TaskExecutionRequest
 from rflp_lite.methodology.executor import TaskExecutor
@@ -95,6 +96,61 @@ def test_rule_runtime_enriches_existing_system_instead_of_adding_one():
     assert len(response.patch.operations) == 1
     assert isinstance(response.patch.operations[0], UpdateEntity)
     assert response.patch.operations[0].entity_id == system.id
+
+
+def test_rule_runtime_traces_late_requirements_to_functions_and_vv():
+    requirement = make_entity(EntityKind.REQUIREMENT, "原始需求")
+    function = make_entity(EntityKind.FUNCTION, "执行功能")
+    verification = make_entity(EntityKind.VERIFICATION_CASE, "验证用例")
+    validation = make_entity(EntityKind.VALIDATION_CASE, "确认用例")
+    context = ContextBundle(
+        "p1",
+        "reverse_feasibility",
+        3,
+        (requirement, function, verification, validation),
+    )
+    task = next(item for item in task_catalog() if item.id == "reverse_feasibility")
+    response = RuleRuntime().execute(TaskExecutor(RuleRuntime()).request(task, context, "v2.1"))
+
+    assert response.patch is not None
+    added = next(
+        operation.entity
+        for operation in response.patch.operations
+        if hasattr(operation, "entity") and operation.entity.kind is EntityKind.REQUIREMENT
+    )
+    relations = {
+        (operation.source_id, operation.predicate, operation.target_id)
+        for operation in response.patch.operations
+        if hasattr(operation, "predicate")
+    }
+    assert (added.id, RelationPredicate.SATISFIED_BY, function.id) in relations
+    assert (added.id, RelationPredicate.VERIFIED_BY, verification.id) in relations
+    assert (added.id, RelationPredicate.VALIDATED_BY, validation.id) in relations
+
+
+def test_global_cross_analysis_repairs_vv_links_for_late_requirements():
+    requirements = (
+        make_entity(EntityKind.REQUIREMENT, "原始需求"),
+        make_entity(EntityKind.REQUIREMENT, "后置需求"),
+    )
+    verification = make_entity(EntityKind.VERIFICATION_CASE, "验证用例")
+    validation = make_entity(EntityKind.VALIDATION_CASE, "确认用例")
+    task = next(item for item in task_catalog() if item.id == "global_cross_analysis")
+    context = ContextBundle("p1", task.id, 3, (*requirements, verification, validation))
+
+    response = RuleRuntime().execute(TaskExecutor(RuleRuntime()).request(task, context, "v2.1"))
+
+    assert response.patch is not None
+    relations = {
+        (operation.source_id, operation.predicate, operation.target_id)
+        for operation in response.patch.operations
+        if hasattr(operation, "predicate")
+    }
+    assert all(
+        (requirement.id, RelationPredicate.VALIDATED_BY, validation.id) in relations
+        and (requirement.id, RelationPredicate.VERIFIED_BY, verification.id) in relations
+        for requirement in requirements
+    )
 
 
 def test_failure_diagnostics_store_excerpt_hash_and_size_not_unbounded_raw():

@@ -49,8 +49,10 @@ class RuleRuntime:
             return VerticalRuleRuntime().execute(request)
         if request.task_id == "verification_validation":
             return self._verification_validation(request)
-        if request.task_id == "global_cross_analysis" and _first(request.context_bundle, EntityKind.VALIDATION_CASE) is not None:
-            return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:assurance-already-covered",))
+        if request.task_id == "global_cross_analysis":
+            response = self._cross_analysis_links(request)
+            if response is not None:
+                return response
         kind = _PRIMARY_OUTPUT.get(request.task_id)
         if kind is None or kind.value not in {str(value) for value in request.output_contract.get("output_kinds", ())}:
             return TaskExecutionResponse(StepStatus.COMPLETED, diagnostics=("offline:no-op",))
@@ -114,8 +116,67 @@ class RuleRuntime:
                 Relate(item.id, RelationPredicate.PARTICIPATES_IN, entity.id)
                 for item in context.entities if item.kind is EntityKind.STAKEHOLDER
             )
+        elif kind is EntityKind.REQUIREMENT:
+            operations.extend(
+                Relate(entity.id, RelationPredicate.SATISFIED_BY, item.id)
+                for item in functions
+            )
+            operations.extend(
+                Relate(entity.id, RelationPredicate.VERIFIED_BY, item.id)
+                for item in context.entities if item.kind is EntityKind.VERIFICATION_CASE
+            )
+            operations.extend(
+                Relate(entity.id, RelationPredicate.VALIDATED_BY, item.id)
+                for item in context.entities if item.kind is EntityKind.VALIDATION_CASE
+            )
+        elif kind is EntityKind.VALIDATION_CASE:
+            operations.extend(
+                Relate(item.id, RelationPredicate.VALIDATED_BY, entity.id)
+                for item in requirements
+            )
         patch = Patch.create(context.project_id, request.task_id, tuple(operations), f"离线规则生成 {kind.value} 候选", context.revision)
         return TaskExecutionResponse(StepStatus.COMPLETED, patch=patch, diagnostics=("offline:rule-runtime",))
+
+    def _cross_analysis_links(self, request: TaskExecutionRequest) -> TaskExecutionResponse | None:
+        context = request.context_bundle
+        requirements = [item for item in context.entities if item.kind is EntityKind.REQUIREMENT]
+        verifications = [item for item in context.entities if item.kind is EntityKind.VERIFICATION_CASE]
+        validations = [item for item in context.entities if item.kind is EntityKind.VALIDATION_CASE]
+        existing = {
+            (item.source_id, item.predicate, item.target_id)
+            for item in context.relations
+        }
+        operations: list[object] = []
+        for requirement in requirements:
+            for case in verifications:
+                key = (requirement.id, RelationPredicate.VERIFIED_BY, case.id)
+                if key not in existing:
+                    operations.append(Relate(*key))
+                    existing.add(key)
+            for case in validations:
+                key = (requirement.id, RelationPredicate.VALIDATED_BY, case.id)
+                if key not in existing:
+                    operations.append(Relate(*key))
+                    existing.add(key)
+        if operations:
+            patch = Patch.create(
+                context.project_id,
+                request.task_id,
+                tuple(operations),
+                "离线规则补齐全局需求验证追踪",
+                context.revision,
+            )
+            return TaskExecutionResponse(
+                StepStatus.COMPLETED,
+                patch=patch,
+                diagnostics=("offline:cross-analysis-links",),
+            )
+        if validations:
+            return TaskExecutionResponse(
+                StepStatus.COMPLETED,
+                diagnostics=("offline:assurance-already-covered",),
+            )
+        return None
 
     def _verification_validation(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         context = request.context_bundle

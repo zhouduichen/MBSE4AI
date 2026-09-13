@@ -46,7 +46,9 @@ class EngineeringDeliverableService:
         traceability = dict(build_traceability_view(graph, issues))
         assurance = dict(build_assurance_view(graph, issues))
         vv_plan = _vv_plan(assurance)
-        architecture_report = _architecture_report(graph, rflp, traceability, assurance)
+        architecture_report = _architecture_report(
+            graph, rflp, traceability, assurance, vv_plan
+        )
         model = _model_content(graph)
         artifacts = {
             "model": _artifact("model-json-v1", model, graph),
@@ -181,6 +183,7 @@ def _architecture_report(
     rflp: Mapping[str, object],
     traceability: Mapping[str, object],
     assurance: Mapping[str, object],
+    vv_plan: Mapping[str, object],
 ) -> dict[str, object]:
     counts = {
         kind.value: sum(entity.kind is kind for entity in graph.entities)
@@ -191,7 +194,13 @@ def _architecture_report(
     gates = list(assurance.get("gates", ()))
     gate_passed = bool(gates) and all(bool(gate.get("passed")) for gate in gates)
     has_blocking_issue = any(bool(gate.get("blocking_issues")) for gate in gates)
-    status = "PASS" if gate_passed else "BLOCKED" if has_blocking_issue else "DEGRADED"
+    trace_gaps = list(rflp.get("gaps", ()))
+    vv_gaps = [
+        row for row in vv_plan.get("rows", ())
+        if str(row.get("status", "")) != "PASS"
+    ]
+    complete = gate_passed and not trace_gaps and not vv_gaps
+    status = "PASS" if complete else "BLOCKED" if has_blocking_issue or trace_gaps or vv_gaps else "DEGRADED"
     return {
         "status": status,
         "entity_counts": counts,
@@ -202,7 +211,8 @@ def _architecture_report(
             relation.predicate.value == "allocatedTo" for relation in graph.relations
         ),
         "gates": gates,
-        "gaps": list(rflp.get("gaps", ())),
+        "gaps": trace_gaps,
+        "vv_gaps": vv_gaps,
     }
 
 
@@ -265,6 +275,15 @@ def _architecture_markdown(report: Mapping[str, object]) -> str:
             lines.append(
                 f"- {_cell(gap.get('requirement_id', gap.get('id', 'gap')))}: "
                 f"{_cell(', '.join(str(item) for item in gap.get('missing', ())) or 'review')}"
+            )
+    vv_gaps = list(report.get("vv_gaps", ()))
+    if vv_gaps:
+        lines.extend(["", "## V&V gaps", ""])
+        for row in vv_gaps:
+            lines.append(
+                f"- {_cell(row.get('requirement_id', 'requirement'))}: "
+                f"{_cell(row.get('case_type_label') or row.get('case_type') or 'V&V')} "
+                f"({_cell(row.get('status', 'INCOMPLETE'))})"
             )
     return "\n".join(lines) + "\n"
 
