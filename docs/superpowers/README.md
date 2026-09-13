@@ -25,6 +25,7 @@
 - [Controller 自动迭代闭环设计](specs/2026-09-13-controller-iteration-loop-design.md)
 - [Controller 自动迭代闭环实施计划](plans/2026-09-13-controller-iteration-loop.md)
 - [自然语言工程约束抽取设计](specs/2026-09-13-natural-language-constraints-design.md)
+- [自然语言工程约束抽取实施计划](plans/2026-09-13-natural-language-constraints.md)
 
 ## Superseded
 
