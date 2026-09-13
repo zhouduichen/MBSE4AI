@@ -41,6 +41,7 @@ _PRIMARY_OUTPUT: dict[str, EntityKind] = {
 }
 _LOGICAL_VARIANTS = frozenset({
     "one_component_per_function", "shared_coordinator", "current_dependency_partition",
+    "dependency_cluster_search",
 })
 _PHYSICAL_VARIANTS = frozenset({
     "更换物理候选或计算架构", "降低计算或功耗需求",
@@ -434,6 +435,8 @@ class VerticalRuleRuntime:
                 groups = tuple((function,) for function in functions)
             elif variant == "shared_coordinator" and functions:
                 groups = (tuple(functions),)
+            elif variant == "dependency_cluster_search":
+                groups = _partition_functions(functions)
             blocked = False
             for item in request.context_bundle.entities:
                 if item.kind not in {

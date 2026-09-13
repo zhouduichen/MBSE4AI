@@ -9,6 +9,10 @@ from dataclasses import dataclass, field
 from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.methodology.architecture_synthesis import (
+    ArchitectureSynthesis,
+    synthesize_architecture,
+)
 from rflp_lite.methodology.trace_rules import is_technical_requirement
 
 
@@ -147,11 +151,14 @@ class MethodologyEngine:
         findings: list[MethodologyFinding] = []
         decisions: list[Mapping[str, object]] = []
         metrics = {}
+        architecture = synthesize_architecture(graph)
         self._analyze_operational(graph, index, findings, decisions, metrics)
         self._analyze_functional(graph, index, findings, decisions, metrics)
-        self._analyze_logical(graph, index, findings, decisions, metrics)
-        self._analyze_physical(graph, index, findings, metrics)
+        self._analyze_logical(graph, index, findings, decisions, metrics, architecture)
+        self._analyze_physical(graph, index, findings, decisions, metrics, architecture)
         self._analyze_vv(graph, index, findings, decisions, metrics)
+        names = {item.id: item.meta.name for item in graph.entities}
+        metrics["architecture_synthesis"] = architecture.as_dict(names)
         impact = self._impact(graph, index, changed_entity_ids)
         finding_tasks = {
             task for finding in findings for task in finding.recommended_actions
@@ -297,7 +304,15 @@ class MethodologyEngine:
             },
         ))
 
-    def _analyze_logical(self, graph, index, findings, decisions, metrics) -> None:
+    def _analyze_logical(
+        self,
+        graph,
+        index,
+        findings,
+        decisions,
+        metrics,
+        architecture: ArchitectureSynthesis,
+    ) -> None:
         functions = _active(index, EntityKind.FUNCTION)
         components = _active(index, EntityKind.LOGICAL_COMPONENT)
         allocations = _relation_targets(graph, index, RelationPredicate.ALLOCATED_TO)
@@ -373,11 +388,34 @@ class MethodologyEngine:
             }
             for component in components
         ]
-        metrics["logical_trade_study"] = _logical_trade_study(
-            functions, components, component_functions
+        names = {item.id: item.meta.name for item in functions}
+        candidates = [
+            item.as_dict(names) for item in architecture.logical_candidates
+        ]
+        metrics["logical_trade_study"] = candidates
+        metrics["logical_architecture_recommended"] = (
+            candidates[0]["alternative"] if candidates else ""
         )
+        if candidates:
+            decisions.append({
+                "step": "logical_architecture_trade_study",
+                "decision": (
+                    f"推荐 {candidates[0]['alternative']}，评分 "
+                    f"{candidates[0]['score']} / 100"
+                ),
+                "basis": [item.id for item in functions],
+                "alternatives": candidates,
+            })
 
-    def _analyze_physical(self, graph, index, findings, metrics) -> None:
+    def _analyze_physical(
+        self,
+        graph,
+        index,
+        findings,
+        decisions,
+        metrics,
+        architecture: ArchitectureSynthesis,
+    ) -> None:
         logicals = _active(index, EntityKind.LOGICAL_COMPONENT)
         physicals = _active(index, EntityKind.PHYSICAL_BLOCK)
         allocations = _relation_targets(graph, index, RelationPredicate.ALLOCATED_TO)
@@ -437,15 +475,39 @@ class MethodologyEngine:
             "needs_measurement" if unknown_fields else
             "feasible" if physicals else "missing"
         )
+        feasibility_rows = {
+            row.physical_id: row.as_dict()
+            for row in architecture.physical_rows
+        }
+        metrics["physical_feasibility_matrix"] = [
+            feasibility_rows[item.id]
+            for item in physicals
+            if item.id in feasibility_rows
+        ]
         metrics["physical_trade_study"] = [
             {
                 "physical_id": item.id,
                 "alternatives": list(item.payload.get("alternatives", ())),
                 "selection_rationale": str(item.payload.get("selection_rationale", "")),
                 "feasibility": item.payload.get("feasibility", {}),
+                "constraint_evidence": feasibility_rows.get(item.id, {}),
             }
             for item in physicals
         ]
+        if feasibility_rows:
+            best = max(
+                feasibility_rows.values(),
+                key=lambda item: (float(item["score"]), item["physical_id"]),
+            )
+            decisions.append({
+                "step": "physical_feasibility_trade_study",
+                "decision": (
+                    f"当前物理候选按约束证据评分最高为 {best['physical_id']} "
+                    f"({best['status']}, {best['score']} / 100)"
+                ),
+                "basis": [item["physical_id"] for item in feasibility_rows.values()],
+                "alternatives": list(feasibility_rows.values()),
+            })
         metrics["physical_resolution_options"] = [
             {
                 "option": "降低计算或功耗需求",

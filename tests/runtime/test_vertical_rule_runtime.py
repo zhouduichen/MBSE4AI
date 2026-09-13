@@ -148,6 +148,32 @@ def test_shared_coordinator_variant_is_marked_high_coupling():
     assert logical.payload["architecture_decision"]["action_id"] == "a2"
 
 
+def test_dependency_cluster_variant_applies_synthesized_partition():
+    first = make_entity(EntityKind.FUNCTION, "采集", {"shared_state": ["任务状态"]})
+    second = make_entity(EntityKind.FUNCTION, "调度", {"shared_state": ["任务状态"]})
+    third = make_entity(EntityKind.FUNCTION, "告警")
+
+    response = VerticalRuleRuntime().execute(_logical_request(
+        (first, second, third),
+        decision={
+            "action_id": "a-cluster",
+            "option_id": "o-cluster",
+            "option": "dependency_cluster_search",
+            "task_id": "architecture_evaluation",
+            "revision": 0,
+        },
+    ))
+    components = [
+        operation.entity for operation in response.patch.operations
+        if hasattr(operation, "entity")
+        and operation.entity.kind is EntityKind.LOGICAL_COMPONENT
+    ]
+
+    assert len(components) == 2
+    assert all(item.payload["architecture_variant"] == "dependency_cluster_search" for item in components)
+    assert sorted(len(item.payload["dependencies"]) for item in components) == [1, 2]
+
+
 def test_physical_candidate_trade_study_adds_traceable_alternative():
     requirement = make_entity(
         EntityKind.REQUIREMENT,

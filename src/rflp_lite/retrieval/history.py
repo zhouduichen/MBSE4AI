@@ -23,7 +23,9 @@ class HistoricalProjectRetriever:
         repository_factory: Callable[[Path], object] | None = None,
     ):
         self.repository = repository
-        self.project_sources = tuple(project_sources)
+        self.project_sources = (
+            None if project_sources is None else tuple(project_sources)
+        )
         self.repository_factory = repository_factory
 
     def search(self, task: RetrievalTask, limit: int = 20) -> tuple[EvidenceCandidate, ...]:
