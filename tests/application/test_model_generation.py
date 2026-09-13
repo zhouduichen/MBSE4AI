@@ -13,9 +13,11 @@ from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 class ScriptedModel:
     def __init__(self):
         self.calls = []
+        self.relation_contexts = []
 
     def complete_json(self, request):
         self.calls.append(request.lens_id)
+        self.relation_contexts.append(request.user_payload["context"]["relations"])
         entities = request.user_payload["context"]["entities"]
         by_kind = {}
         for item in entities:
@@ -235,6 +237,13 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
     ]
     assert result.traceability.complete_count == 1
     assert result.stage_results[2].decision_records[0]["step"] == "vertical.logical"
+    relation_context = [
+        model_relation
+        for context in model.relation_contexts
+        for model_relation in context
+    ]
+    assert any(model_relation["predicate"] == "satisfiedBy" for model_relation in relation_context)
+    assert {"id", "source_id", "predicate", "target_id", "evidence_ids"} <= set(relation_context[0])
 
 
 def test_semantic_invalid_output_stays_candidate_and_creates_review_issue(tmp_path: Path):

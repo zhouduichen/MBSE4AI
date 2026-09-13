@@ -24,7 +24,16 @@ class StructuredModelRuntime:
                 "project_id": request.context_bundle.project_id,
                 "revision": request.context_bundle.revision,
                 "entities": [item.as_dict() for item in request.context_bundle.entities],
-                "relations": [str(item) for item in request.context_bundle.relations],
+                "relations": [
+                    {
+                        "id": item.id,
+                        "source_id": item.source_id,
+                        "predicate": item.predicate.value,
+                        "target_id": item.target_id,
+                        "evidence_ids": list(item.evidence_ids),
+                    }
+                    for item in request.context_bundle.relations
+                ],
             },
             "evidence": list(request.evidence_bundle),
             "context_hash": canonical_hash(request.context_bundle),

@@ -36,6 +36,80 @@ def test_generate_mode_returns_stage_and_traceability_payload(tmp_path: Path):
     assert "physical_measurement_required" in {
         item["code"] for item in run["methodology"]["findings"]
     }
+    assert run["controller"]["status"] == "needs_action"
+    assert run["controller"]["next_action"]["kind"] == "collect_evidence"
+
+
+def test_controller_plan_and_execution_endpoint_expose_next_action(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    generated = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统应支持人工接管"},
+    ).json()["run"]
+
+    plan_response = client.get("/projects/p1/controller")
+    assert plan_response.status_code == 200
+    plan = plan_response.json()["controller"]
+    assert plan["next_action"]["id"] == generated["controller"]["next_action"]["id"]
+
+    execution = client.post(
+        "/projects/p1/controller/execute",
+        json={"action_id": plan["next_action"]["id"], "expected_revision": generated["revision"]},
+    )
+    assert execution.status_code == 200
+    assert execution.json()["controller"]["execution_status"] == "awaiting_evidence"
+
+
+def test_controller_trade_study_decision_runs_only_affected_downstream_stages(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    generated = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统应支持人工接管"},
+    ).json()["run"]
+    model = client.get("/projects/p1/model").json()
+    requirement_id = next(item["id"] for item in model["entities"] if item["kind"] == "requirement")
+    physical_id = next(item["id"] for item in model["entities"] if item["kind"] == "physical_block")
+
+    edited_requirement = client.post(
+        f"/projects/p1/entities/{requirement_id}/edit",
+        json={
+            "expected_revision": generated["revision"],
+            "payload": {"constraints": {"max_power_w": 50}},
+        },
+    )
+    revision = edited_requirement.json()["revision"]["sequence"]
+    edited_physical = client.post(
+        f"/projects/p1/entities/{physical_id}/edit",
+        json={"expected_revision": revision, "payload": {"power_w": 80}},
+    )
+    revision = edited_physical.json()["revision"]["sequence"]
+    plan = client.get("/projects/p1/controller").json()["controller"]
+    action = next(item for item in plan["actions"] if item["kind"] == "trade_study")
+    option = next(item for item in action["options"] if item["task_id"] == "allocation_tradeoff")
+
+    proposed = client.post(
+        "/projects/p1/controller/execute",
+        json={"action_id": action["id"], "expected_revision": revision},
+    )
+    assert proposed.json()["controller"]["execution_status"] == "awaiting_decision"
+    decided = client.post(
+        "/projects/p1/controller/execute",
+        json={
+            "action_id": action["id"],
+            "option_id": option["id"],
+            "expected_revision": revision,
+        },
+    )
+
+    assert decided.status_code == 200
+    payload = decided.json()["controller"]
+    assert payload["execution_status"] == "completed"
+    assert payload["decision"]["option_id"] == option["id"]
+    assert payload["reanalysis"]["selected_stages"] == [
+        "physical", "verification_validation"
+    ]
 
 
 def test_sysml_import_api_round_trips_into_fresh_project(tmp_path: Path):

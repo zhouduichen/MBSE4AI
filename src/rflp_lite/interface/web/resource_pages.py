@@ -495,6 +495,21 @@ def _decorate_generation_run(services, project_id: str, graph: ModelGraph, run):
                 )
             }
             break
+    if not decorated.get("controller"):
+        for event in events:
+            if event.get("kind") != "model_generation.controller_planned":
+                continue
+            payload = _mapping(event.get("payload"))
+            if payload.get("run_id") != decorated.get("run_id"):
+                continue
+            decorated["controller"] = {
+                key: payload.get(key)
+                for key in (
+                    "status", "objective", "findings", "actions", "next_action",
+                    "impacted_entity_ids", "impacted_stages",
+                )
+            }
+            break
     if decorated.get("stage_results"):
         return decorated
     stage_results = []

@@ -550,6 +550,32 @@ def get_analysis(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.get("/projects/{project_id}/controller")
+def get_controller_plan(request: Request, project_id: str):
+    try:
+        controller = _services(request).generation(project_id).controller_plan(project_id)
+        return {"status": "ok", "controller": controller}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/controller/execute")
+async def execute_controller_action(request: Request, project_id: str):
+    try:
+        payload = await _json_object(request)
+        action_id = str(payload.get("action_id", "")).strip() or None
+        option_id = str(payload.get("option_id", "")).strip() or None
+        result = _services(request).generation(project_id).execute_controller_action(
+            project_id,
+            action_id=action_id,
+            option_id=option_id,
+            expected_revision=_expected_revision(payload),
+        )
+        return {"status": "ok", "controller": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.get("/projects/{project_id}/runs/{run_id}")
 def get_run(request: Request, project_id: str, run_id: str):
     try:

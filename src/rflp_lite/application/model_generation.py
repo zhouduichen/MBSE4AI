@@ -19,6 +19,7 @@ from rflp_lite.methodology.contracts import (
 )
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.engine import MethodologyEngine, MethodologyReport
+from rflp_lite.methodology.controller import ControllerPlan, SystemsEngineeringController
 from rflp_lite.methodology.tasks import task_spec_hash
 from rflp_lite.methodology.vertical_generation import (
     VerticalStage,
@@ -103,6 +104,7 @@ class GenerateModelResult:
     warnings: tuple[str, ...] = ()
     sysml_text: str = ""
     methodology: MethodologyReport | None = None
+    controller: ControllerPlan | None = None
 
     def as_dict(self) -> Mapping[str, object]:
         return {
@@ -128,6 +130,7 @@ class GenerateModelResult:
             "warnings": list(self.warnings),
             "sysml_text": self.sysml_text,
             "methodology": self.methodology.as_dict() if self.methodology else {},
+            "controller": self.controller.as_dict() if self.controller else {},
         }
 
 
@@ -148,6 +151,7 @@ class ModelGenerationService:
         *,
         runtime_selection=None,
         methodology_engine: MethodologyEngine | None = None,
+        controller: SystemsEngineeringController | None = None,
         methodology_version: str = "v2.1",
         output_budget: int | None = None,
     ) -> None:
@@ -155,6 +159,7 @@ class ModelGenerationService:
         self.runtime = runtime
         self.runtime_selection = runtime_selection
         self.methodology_engine = methodology_engine or MethodologyEngine()
+        self.controller = controller or SystemsEngineeringController(self.methodology_engine)
         self.methodology_version = methodology_version
         self.output_budget = max(
             256,
@@ -204,6 +209,7 @@ class ModelGenerationService:
         final_graph = self.repository.load_graph(project_id)
         traceability = build_traceability_summary(final_graph)
         methodology = self.methodology_engine.analyze(final_graph)
+        controller_plan = self.controller.plan(final_graph, methodology)
         warnings.extend(
             f"{finding.stage}: {finding.code}: {finding.message}"
             for finding in methodology.findings
@@ -229,6 +235,10 @@ class ModelGenerationService:
             "run_id": effective_run_id,
             **methodology.as_dict(),
         })
+        self._audit(project_id, "model_generation.controller_planned", {
+            "run_id": effective_run_id,
+            **controller_plan.as_dict(),
+        })
         return GenerateModelResult(
             effective_run_id,
             project_id,
@@ -239,6 +249,7 @@ class ModelGenerationService:
             tuple(dict.fromkeys(warnings)),
             _sysml_text(final_graph),
             methodology,
+            controller_plan,
         )
 
     def reanalyze(
@@ -294,6 +305,7 @@ class ModelGenerationService:
             final_graph,
             changed_entity_ids=(entity_id,),
         )
+        controller_plan = self.controller.plan(final_graph, methodology)
         warnings.extend(
             f"{finding.stage}: {finding.code}: {finding.message}"
             for finding in methodology.findings
@@ -313,6 +325,11 @@ class ModelGenerationService:
             "run_id": effective_run_id,
             **methodology.as_dict(),
         })
+        self._audit(project_id, "model_generation.controller_planned", {
+            "run_id": effective_run_id,
+            "trigger_entity_id": entity_id,
+            **controller_plan.as_dict(),
+        })
         result = GenerateModelResult(
             effective_run_id,
             project_id,
@@ -323,6 +340,7 @@ class ModelGenerationService:
             tuple(dict.fromkeys(warnings)),
             _sysml_text(final_graph),
             methodology,
+            controller_plan,
         )
         return _reanalysis_payload(
             result,
@@ -331,6 +349,109 @@ class ModelGenerationService:
             stages,
             execution_status="completed",
         )
+
+    def controller_plan(
+        self,
+        project_id: str,
+        *,
+        changed_entity_ids: tuple[str, ...] = (),
+        max_actions: int = 8,
+    ) -> Mapping[str, object]:
+        """Return the next controller actions without mutating the project."""
+
+        graph = self.repository.load_graph(project_id)
+        report = self.methodology_engine.analyze(
+            graph,
+            changed_entity_ids=changed_entity_ids,
+        )
+        return self.controller.plan(graph, report, max_actions=max_actions).as_dict()
+
+    def execute_controller_action(
+        self,
+        project_id: str,
+        *,
+        action_id: str | None = None,
+        option_id: str | None = None,
+        expected_revision: int | None = None,
+    ) -> Mapping[str, object]:
+        """Execute the next safe controller action or wait for its decision/input."""
+
+        graph = self.repository.load_graph(project_id)
+        if expected_revision is not None and int(expected_revision) != graph.revision:
+            raise ConflictError(
+                f"stale controller action: expected {expected_revision}, current {graph.revision}"
+            )
+        report = self.methodology_engine.analyze(graph)
+        plan = self.controller.plan(graph, report)
+        action = next(
+            (item for item in plan.actions if item.id == action_id),
+            plan.next_action if action_id is None else None,
+        )
+        if action is None:
+            raise ContractViolation(f"controller action not found: {action_id}")
+        action_payload = action.as_dict()
+        if action.kind in {"collect_evidence", "collect_input"}:
+            audit_kind = (
+                "controller.evidence_requested"
+                if action.kind == "collect_evidence"
+                else "controller.input_requested"
+            )
+            self._audit(project_id, audit_kind, action_payload)
+            return {
+                "execution_status": "awaiting_evidence" if action.kind == "collect_evidence" else "awaiting_input",
+                "action": action_payload,
+                "controller": plan.as_dict(),
+            }
+        if action.kind == "trade_study":
+            option = next(
+                (item for item in action.options if str(item.get("id")) == str(option_id)),
+                None,
+            )
+            if option is None:
+                self._audit(project_id, "controller.trade_study.proposed", action_payload)
+                return {
+                    "execution_status": "awaiting_decision",
+                    "action": action_payload,
+                    "controller": plan.as_dict(),
+                }
+            task_id = str(option.get("task_id", ""))
+            target_id = _controller_target(graph, action.entity_ids, task_id)
+            if target_id is None:
+                raise ContractViolation("trade study decision has no editable target")
+            decision = {
+                "action_id": action.id,
+                "option_id": str(option["id"]),
+                "option": str(option.get("option", "")),
+                "task_id": task_id,
+                "target_entity_id": target_id,
+                "revision": graph.revision,
+            }
+            self._audit(project_id, "controller.trade_study.decided", decision)
+            result = self.reanalyze(
+                project_id,
+                target_id,
+                expected_revision=graph.revision,
+            )
+            return {
+                "execution_status": "completed",
+                "action": action_payload,
+                "decision": decision,
+                "reanalysis": result,
+            }
+        target_id = _controller_target(graph, action.entity_ids, action.task_id)
+        if target_id is None:
+            raise ContractViolation("controller action has no editable target")
+        self._audit(project_id, "controller.action.executing", action_payload)
+        result = self.reanalyze(
+            project_id,
+            target_id,
+            expected_revision=graph.revision,
+        )
+        return {
+            "execution_status": "completed",
+            "action": action_payload,
+            "reanalysis": result,
+        }
 
     def _execute_stage(
         self,
@@ -671,6 +792,7 @@ class ModelGenerationService:
             message,
             _sysml_text(graph),
             self.methodology_engine.analyze(graph),
+            self.controller.plan(graph),
         )
 
     def _provider_id(self) -> str:
@@ -716,6 +838,61 @@ _REANALYSIS_START = {
 def _reanalysis_stages(kind: EntityKind):
     start = _REANALYSIS_START.get(kind, 0)
     return tuple(vertical_stage_specs())[start:]
+
+
+def _controller_target(graph, entity_ids: tuple[str, ...], task_id: str) -> str | None:
+    """Choose a canonical graph seed for a controller action."""
+
+    entities = tuple(
+        graph.entity_index[entity_id]
+        for entity_id in entity_ids
+        if entity_id in graph.entity_index
+    )
+    preferred = {
+        "requirements": (EntityKind.REQUIREMENT, EntityKind.CONCERN, EntityKind.ACTIVITY),
+        "functional": (EntityKind.FUNCTION, EntityKind.REQUIREMENT),
+        "logical": (EntityKind.LOGICAL_COMPONENT, EntityKind.STATE, EntityKind.FUNCTION),
+        "physical": (EntityKind.PHYSICAL_BLOCK, EntityKind.LOGICAL_COMPONENT),
+        "assurance": (
+            EntityKind.VERIFICATION_CASE,
+            EntityKind.VALIDATION_CASE,
+            EntityKind.HAZARD,
+            EntityKind.FAILURE_MODE,
+            EntityKind.REQUIREMENT,
+        ),
+    }
+    stage = {
+        "system_definition": "requirements",
+        "stakeholder_analysis": "requirements",
+        "stakeholder_requirements": "requirements",
+        "lifecycle_analysis": "requirements",
+        "scenario_exploration": "requirements",
+        "use_case_analysis": "requirements",
+        "operational_scenario": "requirements",
+        "activity_analysis": "requirements",
+        "system_requirement_derivation": "requirements",
+        "function_identification": "functional",
+        "functional_decomposition": "functional",
+        "functional_interaction": "functional",
+        "logical_analysis": "logical",
+        "dependency_clustering": "logical",
+        "architecture_evaluation": "logical",
+        "interface_sequence_state": "logical",
+        "physical_candidates": "physical",
+        "allocation_tradeoff": "physical",
+        "technical_requirement": "physical",
+        "constraint_propagation": "physical",
+        "feasibility_selection": "physical",
+        "fmea_stpa_hazard": "assurance",
+        "verification_validation": "assurance",
+        "reverse_feasibility": "assurance",
+        "global_cross_analysis": "assurance",
+    }.get(task_id, "assurance")
+    for kind in preferred[stage]:
+        match = next((entity for entity in entities if entity.kind is kind), None)
+        if match is not None:
+            return match.id
+    return entities[0].id if entities else None
 
 
 def _reanalysis_payload(result: GenerateModelResult, entity_id: str, trigger_revision: int, stages, *, execution_status: str):

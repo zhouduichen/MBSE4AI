@@ -32,6 +32,7 @@
 | 内部推理记录 | 五阶段保留 23-task/架构分析映射，并以 bounded decision records 表达 clustering、constraint propagation、feasibility selection 等决策 |
 | Methodology Engine v1 | 对 ModelGraph 实现 Logical 分区质量、Physical 约束冲突/待测量、Verification/Validation 结构完整度和四跳变更影响分析，并接入生成、Review 与 Web 工作台 |
 | 定向重新分析 Controller | Review 请求支持影响路径和下一步 task 路由；执行入口按修改实体从受影响阶段向下重跑，并保留独立 Run、Patch、Revision 与 audit |
+| Systems Engineering Controller | 将 Methodology findings 路由为缺证据/补输入/重新分析/Trade Study 动作；支持用户选择物理或逻辑架构方案后按影响实体执行定向重分析，并在 Web/API 中显示决策状态 |
 | MBSE 对象纵向覆盖 | 默认五阶段显式生成 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase；方法学报告分别检查风险覆盖、缓解关系、V&V 计划字段和执行证据 |
 
 ## 历史 Harness 验收边界
@@ -47,7 +48,7 @@ PR09 的 conformance runner 位于 `tests/contract_conformance/`，默认使用�
 
 最终 live artifact：`docs/superpowers/artifacts/pr09/contract-conformance-1789049206566817000.json`。新的主验收位于 `tests/e2e/test_vertical_model_generation.py`、`tests/application/test_model_generation.py` 和 `tests/interface/test_cli_v2.py`。
 
-Methodology Engine v1 的边界是确定性反馈：它已经能够提出影响实体、工程 findings 和下一步内部任务，Review 还提供显式的定向执行入口。自动根据每条 finding 选择多个候选方案、让用户比较后提交 trade study 决策，仍属于后续 AI Controller 迭代能力。
+Methodology Engine v1 的边界是确定性反馈；Systems Engineering Controller v1 已将这些反馈转成有限动作，并允许用户比较候选方案后提交 Trade Study 决策。当前 Controller 仍不替用户无审查地改写工程事实或选择方案，复杂的多轮方案综合、仿真和真实工具执行留作后续迭代。
 
 ## 当前验收命令
 

@@ -9,6 +9,7 @@ from uuid import uuid4
 from rflp_lite.domain.entities import EntityStatus, Producer
 from rflp_lite.domain.errors import ConflictError, ContractViolation, NotFoundError
 from rflp_lite.domain.model import Patch, UpdateEntity
+from rflp_lite.methodology.controller import SystemsEngineeringController
 from rflp_lite.methodology.engine import MethodologyEngine
 
 
@@ -28,10 +29,11 @@ class ReviewCommandResult:
 
 
 class ReviewService:
-    def __init__(self, model_service):
+    def __init__(self, model_service, *, controller: SystemsEngineeringController | None = None):
         self.model_service = model_service
         self.repository = model_service.repository
         self.methodology_engine = MethodologyEngine()
+        self.controller = controller or SystemsEngineeringController(self.methodology_engine)
 
     def _entity(self, project_id: str, entity_id: str):
         entity = self.model_service.graph(project_id).entity_index.get(entity_id)
@@ -100,6 +102,7 @@ class ReviewService:
         if expected_revision is not None and int(expected_revision) != graph.revision:
             raise ConflictError(f"stale re-analysis request: expected {expected_revision}, current {graph.revision}")
         impact = self.methodology_engine.analyze(graph, changed_entity_ids=(entity_id,))
+        controller_plan = self.controller.plan(graph, impact)
         task_sets = {
             "requirement": ("system_requirement_derivation", "function_identification", "logical_analysis", "physical_candidates", "verification_validation"),
             "function": ("functional_decomposition", "functional_interaction", "logical_analysis", "physical_candidates", "verification_validation"),
@@ -117,6 +120,7 @@ class ReviewService:
             "impacted_stages": list(impact.impacted_stages),
             "recommended_tasks": list(impact.recommended_tasks),
             "impact_paths": [list(path) for path in impact.impact_paths],
+            "controller": controller_plan.as_dict(),
             "reason": "local impact routing from review action",
             "status": "requested",
             "execution_status": "pending_execution",
