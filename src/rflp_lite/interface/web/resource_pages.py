@@ -292,6 +292,8 @@ def _diagnostic_display(values: object) -> list[str]:
         "compiler": "Proposal 编译",
         "semantic": "MBSE 语义",
         "transport": "模型传输",
+        "concurrency": "并发冲突",
+        "internal": "内部执行错误",
     }
     for value in values:
         text = str(value)
@@ -629,6 +631,8 @@ def _current_task(services, project_id: str, graph: ModelGraph, run: Mapping[str
             "compiler": "Proposal 编译",
             "semantic": "MBSE 语义",
             "transport": "模型传输",
+            "concurrency": "并发冲突",
+            "internal": "内部执行错误",
         }.get(failure_stage, ""),
         "failure_code": failure_code,
         "diagnostic_details": diagnostic_details,

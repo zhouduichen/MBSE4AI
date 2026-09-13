@@ -44,6 +44,8 @@ class FailureStage(StrEnum):
     COMPILER = "compiler"
     SEMANTIC = "semantic"
     TRANSPORT = "transport"
+    CONCURRENCY = "concurrency"
+    INTERNAL = "internal"
 
 
 class FailureAction(StrEnum):

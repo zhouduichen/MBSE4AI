@@ -8,7 +8,12 @@ from uuid import uuid4
 
 from rflp_lite.application.closure_service import ClosureService
 from rflp_lite.domain.canonical import canonical_hash
-from rflp_lite.domain.errors import ContractViolation, WorkflowInvariantError
+from rflp_lite.domain.errors import (
+    ConcurrentModificationError,
+    ContractViolation,
+    MethodologyValidationError,
+    WorkflowInvariantError,
+)
 from rflp_lite.domain.model import Patch
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.completion import evaluate_completion
@@ -30,6 +35,8 @@ _NON_SEMANTIC_FAILURE_STAGES = frozenset({
     FailureStage.STRUCTURAL,
     FailureStage.COMPILER,
     FailureStage.TRANSPORT,
+    FailureStage.CONCURRENCY,
+    FailureStage.INTERNAL,
 })
 
 
@@ -266,13 +273,75 @@ class WorkflowRunner:
                 else:
                     diagnostics.extend(response.diagnostics)
                 self.run_repository.update_step(Step(identity.run_id, task.id, response.status.value, prior_attempt + 1, response.input_hash or context_hash, patch_id, response.diagnostics, response.output_hash, response.provider_id or self._provider_id(), response.model_id or self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
-            except Exception as exc:
-                message = f"{task.id}: {exc}"
+            except MethodologyValidationError as exc:
+                message = f"{task.id}: semantic validation: {exc}"
                 diagnostics.append(message)
-                self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.DEGRADED.value, prior_attempt + 1, context_hash, None, (message,), "", self._provider_id(), self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
+                self.run_repository.update_step(Step(
+                    identity.run_id, task.id, StepStatus.DEGRADED.value,
+                    prior_attempt + 1, context_hash, None, (message,), "",
+                    self._provider_id(), self._model_id(), task.prompt_template_id,
+                    context_hash, started, time.time(), request.prompt_version,
+                    request.prompt_hash, task_spec_hash(task), "none", 0,
+                ))
+            except ConcurrentModificationError as exc:
+                return self._fail_closed_task(
+                    project_id, phase, identity, task, request, context_hash,
+                    prior_attempt, started, completed, diagnostics, FailureStage.CONCURRENCY,
+                    "concurrency_conflict", exc,
+                )
+            except WorkflowInvariantError as exc:
+                return self._fail_closed_task(
+                    project_id, phase, identity, task, request, context_hash,
+                    prior_attempt, started, completed, diagnostics, FailureStage.INTERNAL,
+                    "workflow_invariant", exc,
+                )
+            except ContractViolation as exc:
+                return self._fail_closed_task(
+                    project_id, phase, identity, task, request, context_hash,
+                    prior_attempt, started, completed, diagnostics, FailureStage.INTERNAL,
+                    "contract_violation", exc,
+                )
+            except Exception as exc:
+                return self._fail_closed_task(
+                    project_id, phase, identity, task, request, context_hash,
+                    prior_attempt, started, completed, diagnostics, FailureStage.INTERNAL,
+                    "internal_error", exc,
+                )
         status = RunStatus.COMPLETED if len(completed) == len(tasks) else RunStatus.DEGRADED
         self._update_run_status(identity.run_id, status, tuple(diagnostics))
         return RunSummary(identity.run_id, project_id, phase, status, tuple(sorted(completed)), tuple(diagnostics))
+
+    def _fail_closed_task(
+        self, project_id, phase, identity, task, request, context_hash,
+        prior_attempt, started, completed, diagnostics, failure_stage, code, exc,
+    ) -> RunSummary:
+        message = f"{task.id}: {code}: {type(exc).__name__}: {exc}"
+        diagnostic = f"{failure_stage.value}:{code}: {message}"
+        diagnostics.append(diagnostic)
+        self.run_repository.update_step(Step(
+            identity.run_id, task.id, StepStatus.FAILED.value,
+            prior_attempt + 1, context_hash, None, (diagnostic,),
+            canonical_hash(diagnostic), self._provider_id(), self._model_id(),
+            task.prompt_template_id, context_hash, started, time.time(),
+            request.prompt_version, request.prompt_hash, task_spec_hash(task),
+            "none", 0,
+        ))
+        self._block_pending_steps(
+            project_id,
+            identity.run_id,
+            f"blocked by {task.id} {failure_stage.value} failure",
+            after_task_id=task.id,
+        )
+        self._update_run_status(identity.run_id, RunStatus.DEGRADED, tuple(diagnostics))
+        return RunSummary(
+            identity.run_id,
+            project_id,
+            phase,
+            RunStatus.DEGRADED,
+            tuple(sorted(completed)),
+            tuple(diagnostics),
+            failure_stage=failure_stage,
+        )
 
     def _ensure_run(self, project_id: str, *, run_id: str | None = None, force_new: bool = False, phase: Phase | None = None, tasks=None) -> RunIdentity:
         graph = self.model_repository.load_graph(project_id)

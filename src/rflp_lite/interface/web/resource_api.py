@@ -44,6 +44,8 @@ _NON_SEMANTIC_FAILURE_VALUES = frozenset(
         FailureStage.STRUCTURAL,
         FailureStage.COMPILER,
         FailureStage.TRANSPORT,
+        FailureStage.CONCURRENCY,
+        FailureStage.INTERNAL,
     )
 )
 

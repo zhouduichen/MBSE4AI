@@ -1,4 +1,7 @@
+import pytest
+
 from rflp_lite.domain.entities import EntityKind, make_entity
+from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation
 from rflp_lite.domain.model import AddEntity, Patch
 from rflp_lite.methodology.contracts import FailureStage, Phase, RunStatus, StepStatus, TaskExecutionResponse
 from rflp_lite.methodology.workflow import WorkflowRunner
@@ -34,6 +37,30 @@ class InvalidPatchResponseRuntime:
             StepStatus.DEGRADED,
             patch=Patch.create(request.context_bundle.project_id, request.task_id, (AddEntity(entity),), "invalid", request.context_bundle.revision),
         )
+
+
+class CommittableRuntime:
+    def execute(self, request):
+        entity = make_entity(EntityKind.SYSTEM, "候选系统")
+        return TaskExecutionResponse(
+            StepStatus.COMPLETED,
+            Patch.create(
+                request.context_bundle.project_id,
+                request.task_id,
+                (AddEntity(entity),),
+                "测试 patch",
+                request.context_bundle.revision,
+            ),
+        )
+
+
+class RaisingAppendRepository(SQLiteModelRepository):
+    def __init__(self, path, error):
+        super().__init__(path)
+        self.error = error
+
+    def append_patch(self, project_id, patch, expected_revision, *, run_id=None):
+        raise self.error
 
 
 def test_runner_persists_steps_and_completes_offline(tmp_path):
@@ -105,6 +132,67 @@ def test_non_completed_patch_is_rejected_before_repository_append(tmp_path):
     stored = repository.load_run("p1", summary.run_id)
     assert stored is not None
     assert any("non-completed response" in item for item in stored.diagnostics)
+
+
+@pytest.mark.parametrize(
+    ("error", "stage", "diagnostic"),
+    [
+        (ContractViolation("contract broken"), FailureStage.INTERNAL, "contract_violation"),
+        (RuntimeError("unexpected bug"), FailureStage.INTERNAL, "internal_error"),
+    ],
+)
+def test_fail_closed_append_error_marks_failed_and_blocks_pending(tmp_path, error, stage, diagnostic):
+    repository = RaisingAppendRepository(tmp_path / "model.db", error)
+    repository.ensure_project("p1")
+    runner = WorkflowRunner(repository, repository, CommittableRuntime())
+
+    summary = runner.run("p1", Phase.OPERATIONAL, force_run=True)
+    stored = repository.load_run("p1", summary.run_id)
+
+    assert summary.failure_stage is stage
+    assert stored is not None
+    statuses = {step.task_id: step.status for step in stored.steps}
+    assert statuses["system_definition"] == "failed"
+    assert statuses["stakeholder_analysis"] == "blocked"
+    assert repository.load_graph("p1").revision == 0
+    assert diagnostic in " ".join(summary.diagnostics)
+
+
+def test_workflow_invariant_fails_closed_before_repository_append(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    runner = WorkflowRunner(repository, repository, InvalidPatchResponseRuntime())
+
+    summary = runner.run("p1", Phase.OPERATIONAL, force_run=True)
+    stored = repository.load_run("p1", summary.run_id)
+
+    assert summary.failure_stage is FailureStage.INTERNAL
+    assert stored is not None
+    statuses = {step.task_id: step.status for step in stored.steps}
+    assert statuses["system_definition"] == "failed"
+    assert statuses["stakeholder_analysis"] == "blocked"
+    assert repository.load_graph("p1").revision == 0
+    assert "workflow_invariant" in " ".join(summary.diagnostics)
+
+
+def test_concurrent_modification_fails_closed_before_repository_mutation(tmp_path):
+    repository = RaisingAppendRepository(
+        tmp_path / "model.db",
+        ConcurrentModificationError("stale ModelGraph revision"),
+    )
+    repository.ensure_project("p1")
+    runner = WorkflowRunner(repository, repository, CommittableRuntime())
+
+    summary = runner.run("p1", Phase.OPERATIONAL, force_run=True)
+    stored = repository.load_run("p1", summary.run_id)
+
+    assert summary.failure_stage is FailureStage.CONCURRENCY
+    assert stored is not None
+    statuses = {step.task_id: step.status for step in stored.steps}
+    assert statuses["system_definition"] == "failed"
+    assert statuses["stakeholder_analysis"] == "blocked"
+    assert repository.load_graph("p1").revision == 0
+    assert "concurrency_conflict" in " ".join(summary.diagnostics)
 
 
 def test_structural_failure_marks_remaining_tasks_blocked(tmp_path):
