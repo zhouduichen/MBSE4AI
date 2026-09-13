@@ -57,7 +57,7 @@ def evaluate_completion(task: TaskSpec, graph: ModelGraph, response: TaskExecuti
 
 def _is_lifecycle_response(response: TaskExecutionResponse) -> bool:
     return any(
-        diagnostic.startswith("offline:lifecycle-")
+        diagnostic.startswith(("offline:lifecycle-", "lifecycle:structured"))
         for diagnostic in response.diagnostics
     )
 

@@ -10,6 +10,7 @@ from rflp_lite.domain.errors import ContractViolation, ProposalCompileFailure
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
 from rflp_lite.methodology.proposal_compiler import compile_task_proposal, parse_task_proposal
 from rflp_lite.ports.generative_model import GenerationRequest, GenerativeModel
+from rflp_lite.runtime.lifecycle_rule import LIFECYCLE_TASKS
 
 
 class StructuredModelRuntime:
@@ -82,6 +83,8 @@ class StructuredModelRuntime:
             diagnostics.append(
                 "usage=" + json.dumps(response.usage, ensure_ascii=False, sort_keys=True)
             )
+        if request.task_id in LIFECYCLE_TASKS:
+            diagnostics.append("lifecycle:structured")
         return TaskExecutionResponse(
             StepStatus.COMPLETED,
             patch=patch,
