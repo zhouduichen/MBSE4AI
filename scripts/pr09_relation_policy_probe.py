@@ -26,6 +26,17 @@ CHAINS = {
         "lifecycle_analysis",
         "scenario_exploration",
     ),
+    "operational-9-task": (
+        "system_definition",
+        "stakeholder_analysis",
+        "stakeholder_requirements",
+        "lifecycle_analysis",
+        "scenario_exploration",
+        "use_case_analysis",
+        "operational_scenario",
+        "activity_analysis",
+        "system_requirement_derivation",
+    ),
 }
 
 
@@ -50,7 +61,7 @@ def main() -> int:
         "experiment": "pr09-task-relation-policy",
         "mode": args.mode,
         "date": "2026-09-13",
-        "code_commit": "b4cbb54095c620b8745ac25449edb3b551d89034",
+        "code_commit": "b1f8aaf4b6fc8ed79871ed213f41b49db4a23ffb",
         "fixture": str(budget_experiment.FIXTURE),
         "provider": {
             "display_name": "Windows 5080 Ollama",
