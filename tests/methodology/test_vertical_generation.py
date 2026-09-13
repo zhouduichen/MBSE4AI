@@ -3,6 +3,7 @@ from rflp_lite.methodology.contracts import ContextBundle
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.vertical_generation import (
     VerticalStage,
+    downstream_vertical_stages,
     stage_task,
     vertical_stage_specs,
 )
@@ -22,6 +23,13 @@ def test_vertical_stages_have_product_order_and_narrow_write_scopes():
         EntityKind.FUNCTIONAL_FLOW,
         EntityKind.FUNCTIONAL_SCENARIO,
     })
+
+
+def test_downstream_routing_skips_the_confirmed_stage():
+    assert [item.stage.value for item in downstream_vertical_stages(EntityKind.FUNCTION)] == [
+        "logical", "physical", "verification_validation"
+    ]
+    assert downstream_vertical_stages(EntityKind.VALIDATION_CASE) == ()
 
 
 def test_requirements_stage_requires_operational_model_kinds_and_internal_steps():

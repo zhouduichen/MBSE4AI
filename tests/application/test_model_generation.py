@@ -419,3 +419,33 @@ def test_reanalysis_runs_only_from_changed_entity_stage_downstream(tmp_path: Pat
     assert function.id in result["methodology"]["impacted_entity_ids"]
     assert result["methodology"]["recommended_tasks"]
     assert len(result["stage_results"]) == 4
+
+
+def test_continue_generation_runs_only_downstream_and_preserves_trigger(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    generated = services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+    graph = services.model("robot").graph("robot")
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+    accepted = services.review("robot").accept_entity(
+        "robot", function.id, expected_revision=graph.revision
+    )
+    before = services.model("robot").graph("robot").entity_index[function.id]
+
+    result = services.generation("robot").continue_generation(
+        "robot", function.id, expected_revision=accepted.revision["sequence"]
+    )
+
+    assert result["execution_status"] == "completed"
+    assert result["selected_stages"] == [
+        "logical", "physical", "verification_validation"
+    ]
+    assert result["run_id"] != generated.run_id
+    after = services.model("robot").graph("robot").entity_index[function.id]
+    assert after.id == before.id
+    assert after.meta.status is before.meta.status
+    assert after.meta.name == before.meta.name
+    assert after.payload == before.payload
+    assert after.meta.updated_revision == before.meta.updated_revision

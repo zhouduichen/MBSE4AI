@@ -23,8 +23,10 @@ from rflp_lite.methodology.controller import ControllerPlan, SystemsEngineeringC
 from rflp_lite.methodology.tasks import task_spec_hash
 from rflp_lite.methodology.vertical_generation import (
     VerticalStage,
+    downstream_vertical_stages,
     stage_required_kinds,
     stage_task,
+    vertical_stage_index_for_kind,
     vertical_stage_specs,
 )
 from rflp_lite.application.tool_layer import EngineeringToolLayer
@@ -362,6 +364,139 @@ class ModelGenerationService:
             execution_status="completed",
             controller_decision=controller_decision,
         )
+
+    def continue_generation(
+        self,
+        project_id: str,
+        entity_id: str,
+        *,
+        expected_revision: int | None = None,
+        controller_decision: Mapping[str, object] | None = None,
+    ) -> Mapping[str, object]:
+        """Continue the product path after a user has reviewed one entity."""
+
+        graph = self.repository.load_graph(project_id)
+        if expected_revision is not None and int(expected_revision) != graph.revision:
+            raise ConflictError(
+                f"stale continuation request: expected {expected_revision}, current {graph.revision}"
+            )
+        entity = graph.entity_index.get(entity_id)
+        if entity is None:
+            raise ContractViolation(f"entity not found: {entity_id}")
+        if entity.meta.status not in {EntityStatus.ACCEPTED, EntityStatus.LOCKED}:
+            raise ContractViolation(
+                "only accepted or locked entities can continue generation"
+            )
+        stages = downstream_vertical_stages(entity.kind)
+        if not stages:
+            traceability = build_traceability_summary(graph)
+            methodology = self.methodology_engine.analyze(
+                graph,
+                changed_entity_ids=(entity_id,),
+            )
+            controller_plan = self.controller.plan(graph, methodology)
+            return _continuation_noop_payload(
+                graph,
+                entity_id,
+                traceability,
+                methodology,
+                controller_plan,
+            )
+
+        effective_run_id = f"continuation-{uuid4().hex[:16]}"
+        self._ensure_run(
+            effective_run_id,
+            project_id,
+            graph,
+            stages=stages,
+            phase="vertical_continuation",
+        )
+        self._audit(project_id, "model_generation.continuation.started", {
+            "run_id": effective_run_id,
+            "trigger_entity_id": entity_id,
+            "trigger_revision": graph.revision,
+            "selected_stages": [stage.stage.value for stage in stages],
+        })
+        stage_results: list[StageResult] = []
+        warnings: list[str] = []
+        for stage in stages:
+            current = self.repository.load_graph(project_id)
+            execution = self._execute_stage(
+                project_id,
+                effective_run_id,
+                stage,
+                current,
+                (),
+                controller_decision=controller_decision,
+            )
+            if execution.result is None:
+                failed = self._finish_failed(
+                    project_id,
+                    effective_run_id,
+                    stage_results,
+                    stage.stage,
+                    execution.diagnostics,
+                )
+                payload = _continuation_payload(
+                    failed,
+                    entity_id,
+                    graph.revision,
+                    stages,
+                    execution_status="failed",
+                    controller_decision=controller_decision,
+                )
+                self._audit(project_id, "model_generation.continuation.failed", {
+                    "run_id": effective_run_id,
+                    "trigger_entity_id": entity_id,
+                    "stage": stage.stage.value,
+                    "diagnostics": list(execution.diagnostics),
+                })
+                return payload
+            stage_results.append(execution.result)
+            warnings.extend(execution.warnings)
+
+        final_graph = self.repository.load_graph(project_id)
+        traceability = build_traceability_summary(final_graph)
+        methodology = self.methodology_engine.analyze(
+            final_graph,
+            changed_entity_ids=(entity_id,),
+        )
+        controller_plan = self.controller.plan(final_graph, methodology)
+        warnings.extend(
+            f"{finding.stage}: {finding.code}: {finding.message}"
+            for finding in methodology.findings
+            if finding.severity == "error"
+        )
+        status = "completed" if not warnings else "completed_with_warnings"
+        self.repository.update_run(effective_run_id, RunStatus.COMPLETED.value, tuple(warnings))
+        result = GenerateModelResult(
+            effective_run_id,
+            project_id,
+            status,
+            final_graph.revision,
+            tuple(stage_results),
+            traceability,
+            tuple(dict.fromkeys(warnings)),
+            _sysml_text(final_graph),
+            methodology,
+            controller_plan,
+        )
+        payload = _continuation_payload(
+            result,
+            entity_id,
+            graph.revision,
+            stages,
+            execution_status="completed",
+            controller_decision=controller_decision,
+        )
+        self._audit(project_id, "model_generation.continuation.completed", {
+            "run_id": effective_run_id,
+            "trigger_entity_id": entity_id,
+            "revision": final_graph.revision,
+            "selected_stages": [stage.stage.value for stage in stages],
+            "traceability": traceability.as_dict(),
+        })
+        return payload
 
     def controller_plan(
         self,
@@ -880,33 +1015,8 @@ class ModelGenerationService:
             recorder(project_id, kind, payload)
 
 
-_REANALYSIS_START = {
-    EntityKind.SYSTEM: 0,
-    EntityKind.STAKEHOLDER: 0,
-    EntityKind.CONCERN: 0,
-    EntityKind.LIFECYCLE_STAGE: 0,
-    EntityKind.SCENARIO_HYPOTHESIS: 0,
-    EntityKind.USE_CASE: 0,
-    EntityKind.OPERATIONAL_SCENARIO: 0,
-    EntityKind.ACTIVITY: 0,
-    EntityKind.REQUIREMENT: 0,
-    EntityKind.FUNCTION: 1,
-    EntityKind.FUNCTIONAL_FLOW: 1,
-    EntityKind.FUNCTIONAL_SCENARIO: 1,
-    EntityKind.LOGICAL_COMPONENT: 2,
-    EntityKind.INTERFACE: 2,
-    EntityKind.STATE: 2,
-    EntityKind.PHYSICAL_BLOCK: 3,
-    EntityKind.HAZARD: 4,
-    EntityKind.FAILURE_MODE: 4,
-    EntityKind.VERIFICATION_CASE: 4,
-    EntityKind.VALIDATION_CASE: 4,
-    EntityKind.EVIDENCE: 4,
-}
-
-
 def _reanalysis_stages(kind: EntityKind):
-    start = _REANALYSIS_START.get(kind, 0)
+    start = vertical_stage_index_for_kind(kind)
     return tuple(vertical_stage_specs())[start:]
 
 
@@ -985,6 +1095,60 @@ def _reanalysis_payload(
     if controller_decision:
         payload["controller_decision"] = dict(controller_decision)
     return payload
+
+
+def _continuation_payload(
+    result: GenerateModelResult,
+    entity_id: str,
+    trigger_revision: int,
+    stages,
+    *,
+    execution_status: str,
+    controller_decision: Mapping[str, object] | None = None,
+):
+    payload = dict(result.as_dict())
+    payload.update({
+        "trigger_entity_id": entity_id,
+        "entity_id": entity_id,
+        "trigger_revision": trigger_revision,
+        "selected_stages": [stage.stage.value for stage in stages],
+        "execution_status": execution_status,
+        "execution_status_label": (
+            "下游生成已完成"
+            if execution_status == "completed"
+            else "下游生成失败"
+        ),
+    })
+    if controller_decision:
+        payload["controller_decision"] = dict(controller_decision)
+    return payload
+
+
+def _continuation_noop_payload(
+    graph,
+    entity_id: str,
+    traceability: TraceabilitySummary,
+    methodology: MethodologyReport,
+    controller: ControllerPlan,
+) -> Mapping[str, object]:
+    return {
+        "run_id": None,
+        "project_id": graph.project_id,
+        "status": "completed",
+        "revision": graph.revision,
+        "stage_results": [],
+        "traceability": traceability.as_dict(),
+        "warnings": [],
+        "sysml_text": _sysml_text(graph),
+        "methodology": methodology.as_dict(),
+        "controller": controller.as_dict(),
+        "trigger_entity_id": entity_id,
+        "entity_id": entity_id,
+        "trigger_revision": graph.revision,
+        "selected_stages": [],
+        "execution_status": "no_downstream_work",
+        "execution_status_label": "没有可继续的下游阶段",
+    }
 
 
 def _promote_generated_entities(patch: Patch, *, validated: bool = True) -> Patch:

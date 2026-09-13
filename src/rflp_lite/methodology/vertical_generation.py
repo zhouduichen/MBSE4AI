@@ -187,8 +187,42 @@ _STAGES: tuple[VerticalStageSpec, ...] = (
 )
 
 
+_KIND_STAGE_INDEX = {
+    EntityKind.SYSTEM: 0,
+    EntityKind.STAKEHOLDER: 0,
+    EntityKind.CONCERN: 0,
+    EntityKind.LIFECYCLE_STAGE: 0,
+    EntityKind.LIFECYCLE_TRANSITION: 0,
+    EntityKind.SCENARIO_HYPOTHESIS: 0,
+    EntityKind.USE_CASE: 0,
+    EntityKind.OPERATIONAL_SCENARIO: 0,
+    EntityKind.ACTIVITY: 0,
+    EntityKind.REQUIREMENT: 0,
+    EntityKind.FUNCTION: 1,
+    EntityKind.FUNCTIONAL_FLOW: 1,
+    EntityKind.FUNCTIONAL_SCENARIO: 1,
+    EntityKind.LOGICAL_COMPONENT: 2,
+    EntityKind.INTERFACE: 2,
+    EntityKind.STATE: 2,
+    EntityKind.PHYSICAL_BLOCK: 3,
+    EntityKind.HAZARD: 4,
+    EntityKind.FAILURE_MODE: 4,
+    EntityKind.VERIFICATION_CASE: 4,
+    EntityKind.VALIDATION_CASE: 4,
+    EntityKind.EVIDENCE: 4,
+}
+
+
 def vertical_stage_specs() -> tuple[VerticalStageSpec, ...]:
     return _STAGES
+
+
+def vertical_stage_index_for_kind(kind: EntityKind) -> int:
+    return _KIND_STAGE_INDEX.get(EntityKind(kind), 0)
+
+
+def downstream_vertical_stages(kind: EntityKind) -> tuple[VerticalStageSpec, ...]:
+    return vertical_stage_specs()[vertical_stage_index_for_kind(kind) + 1:]
 
 
 def stage_spec(stage: VerticalStage | str) -> VerticalStageSpec:
