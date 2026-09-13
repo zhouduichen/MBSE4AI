@@ -29,6 +29,7 @@
 - [物理技术需求与追溯闭环设计](specs/2026-09-13-technical-requirement-trace-closure-design.md)
 - [物理技术需求与追溯闭环实施计划](plans/2026-09-13-technical-requirement-trace-closure.md)
 - [真实 23-task 端到端生命周期设计](specs/2026-09-13-real-23-task-lifecycle-design.md)
+- [真实 23-task 端到端生命周期实施计划](plans/2026-09-13-real-23-task-lifecycle.md)
 - [自然语言工程约束抽取实施计划](plans/2026-09-13-natural-language-constraints.md)
 
 ## Superseded
