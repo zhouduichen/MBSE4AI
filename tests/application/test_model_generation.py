@@ -352,6 +352,84 @@ def test_controller_decision_is_passed_to_downstream_structured_runtime(tmp_path
     assert any(decision in context for context in model.controller_decisions)
 
 
+def test_controller_logical_trade_study_generates_versioned_architecture_variant(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    generation = services.generation("robot")
+    generated = generation.generate(
+        "robot", requirement_text="系统应自主配送；系统应支持人工接管"
+    )
+    graph = services.model("robot").graph("robot")
+    functions = [item for item in graph.entities if item.kind is EntityKind.FUNCTION]
+    logicals = [
+        item for item in graph.entities
+        if item.kind is EntityKind.LOGICAL_COMPONENT
+    ]
+    assert len(functions) == len(logicals) == 2
+
+    revision = graph.revision
+    for function in functions:
+        result = services.review("robot").edit_entity(
+            "robot",
+            function.id,
+            payload={**function.payload, "shared_state": ["task_state"]},
+            expected_revision=revision,
+        )
+        revision = result.revision["sequence"]
+        result = services.review("robot").accept_entity(
+            "robot", function.id, expected_revision=revision
+        )
+        revision = result.revision["sequence"]
+    graph = services.model("robot").graph("robot")
+    logical = next(item for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT)
+    services.model("robot").apply_patch(
+        "robot",
+        Patch.create(
+            "robot",
+            "architecture-review",
+            (UpdateEntity(logical.id, {"payload": {**logical.payload, "coupling": "high"}}),),
+            "制造待评审的逻辑耦合决策场景",
+            graph.revision,
+        ),
+        graph.revision,
+    )
+    before = services.model("robot").graph("robot")
+    report = generation.methodology_engine.analyze(before)
+    plan = generation.controller.plan(before, report)
+    action = next(
+        item for item in plan.actions
+        if item.kind == "trade_study" and item.stage == "logical"
+    )
+    option = next(
+        item for item in action.options
+        if item["option"] == "one_component_per_function"
+    )
+
+    result = generation.execute_controller_action(
+        "robot",
+        action_id=action.id,
+        option_id=option["id"],
+        expected_revision=before.revision,
+    )
+    after = services.model("robot").graph("robot")
+    active_variants = [
+        item for item in after.entities
+        if item.kind is EntityKind.LOGICAL_COMPONENT
+        and item.meta.status is not EntityStatus.DEPRECATED
+        and item.payload.get("architecture_variant") == "one_component_per_function"
+    ]
+
+    assert after.revision > before.revision
+    assert any(
+        item.kind is EntityKind.LOGICAL_COMPONENT
+        and item.meta.status is EntityStatus.DEPRECATED
+        for item in after.entities
+    )
+    assert len(active_variants) == 2
+    assert result["reanalysis"]["controller_decision"]["option_id"] == option["id"]
+    assert result["reanalysis"]["traceability"]["complete_count"] > 0
+
+
 def test_document_regions_are_available_as_structured_generation_evidence(tmp_path: Path):
     model = ScriptedModel()
     services = build_v2_services(

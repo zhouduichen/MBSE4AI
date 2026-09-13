@@ -160,6 +160,14 @@ def test_controller_trade_study_decision_runs_only_affected_downstream_stages(tm
         "physical", "verification_validation"
     ]
     assert payload["reanalysis"]["controller_decision"]["option_id"] == option["id"]
+    model_after = client.get("/projects/p1/model").json()
+    alternatives = [
+        item for item in model_after["entities"]
+        if item["kind"] == "physical_block"
+        and item["payload"].get("candidate_variant") == "alternative"
+    ]
+    assert alternatives
+    assert alternatives[0]["payload"]["architecture_decision"]["option_id"] == option["id"]
 
 
 def test_sysml_import_api_round_trips_into_fresh_project(tmp_path: Path):
