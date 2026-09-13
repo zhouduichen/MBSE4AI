@@ -64,6 +64,18 @@ def test_analysis_view_contains_chinese_module_cards(tmp_path: Path) -> None:
     assert 'title="请先提交需求或上传文档"' in page.text
 
 
+def test_analysis_page_exposes_existing_sysml_upload(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "workspaces"))
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    page = client.get("/ui/projects/p1/analysis")
+
+    assert page.status_code == 200
+    assert "已有 SysML 模型" in page.text
+    assert ".sysml" in page.text
+    assert "/sysml/import/upload" in page.text
+
+
 def test_analysis_cards_switch_detail_panels_without_navigation(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path / "workspaces"))
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
