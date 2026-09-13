@@ -23,6 +23,7 @@
 - [数据驱动架构综合设计](specs/2026-09-13-data-driven-architecture-synthesis-design.md)
 - [数据驱动架构综合实施计划](plans/2026-09-13-data-driven-architecture-synthesis.md)
 - [Controller 自动迭代闭环设计](specs/2026-09-13-controller-iteration-loop-design.md)
+- [Controller 自动迭代闭环实施计划](plans/2026-09-13-controller-iteration-loop.md)
 
 ## Superseded
 

@@ -80,7 +80,7 @@ def iterate_controller(
 {
   "iteration_id": "controller-iteration-...",
   "project_id": "robot",
-  "execution_status": "completed|awaiting_decision|awaiting_input|no_progress|max_iterations",
+  "execution_status": "completed|awaiting_decision|awaiting_input|awaiting_evidence|no_progress|max_iterations|failed",
   "start_revision": 12,
   "revision": 14,
   "iterations": [
@@ -100,7 +100,7 @@ def iterate_controller(
 }
 ```
 
-`max_iterations` 在应用层限制为 1 到 8。每轮执行前记录 action id、action kind、当前 revision 和 findings；如果相同 action 在相同 revision 上再次出现，或执行后 revision 没有增加，则返回 `no_progress`。如果计划没有动作，返回 `completed`；遇到 `trade_study` 返回 `awaiting_decision`；遇到 `collect_input` 返回 `awaiting_input`；达到预算返回 `max_iterations`。证据动作若 Tool Layer 返回等待状态，则保留其工具结果并返回等待状态；成功采集并完成重分析时才进入下一轮。
+`max_iterations` 在应用层限制为 1 到 8。每轮执行前记录 action id、action kind、当前 revision 和 findings；如果相同 action 在相同 revision 上再次出现，或执行后 revision 没有增加，则返回 `no_progress`。如果计划没有动作，返回 `completed`；遇到 `trade_study` 返回 `awaiting_decision`；遇到 `collect_input` 返回 `awaiting_input`；证据工具等待时返回 `awaiting_evidence`；定向重分析明确失败时返回 `failed`；达到预算返回 `max_iterations`。证据动作若 Tool Layer 返回等待状态，则保留其工具结果并返回等待状态；成功采集并完成重分析时才进入下一轮。
 
 ## 审计与错误处理
 
