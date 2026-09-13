@@ -87,6 +87,15 @@
   <pre id="export-result" class="analysis-result" hidden></pre>
 </section>
 
+<section class="panel delivery-panel">
+  <div class="panel-head"><div><h2>完整工程交付物</h2><p>从同一份 ModelGraph 快照生成 SysML、需求、RFLP、追溯矩阵、V&amp;V Plan 和 Architecture Report。</p></div><span class="status-badge info">修订 {{ trace.revision }}</span></div>
+  <p class="table-secondary">Snapshot hash：<code>{{ snapshot_hash }}</code></p>
+  <div class="workbench-actions export-actions">
+    <a class="button primary" href="/projects/{{ project_id }}/deliverables/download">导出完整交付包</a>
+    <a class="button" href="/projects/{{ project_id }}/deliverables" target="_blank" rel="noreferrer">查看交付包 JSON</a>
+  </div>
+</section>
+
 <script>
 (() => {
   const projectId = {{ project_id|tojson }};

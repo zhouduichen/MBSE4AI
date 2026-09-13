@@ -1078,8 +1078,9 @@ def model_page(request: Request, project_id: str):
     services = _v2(request)
     trace = build_trace_view(request, project_id)
     model = services.model(project_id)
-    workbench = build_model_workbench_view(model.graph(project_id), tuple(model.issues(project_id)))
-    return templates.TemplateResponse(request=request, name="model.html", context={"project": services.projects.summary(project_id), "project_id": project_id, "trace": trace, "workbench": workbench, "active": "model"})
+    graph = model.graph(project_id)
+    workbench = build_model_workbench_view(graph, tuple(model.issues(project_id)))
+    return templates.TemplateResponse(request=request, name="model.html", context={"project": services.projects.summary(project_id), "project_id": project_id, "trace": trace, "workbench": workbench, "snapshot_hash": graph.snapshot_hash, "active": "model"})
 
 
 @resource_pages.get("/ui/projects/{project_id}/evidence", name="evidence_page")

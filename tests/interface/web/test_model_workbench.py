@@ -131,3 +131,14 @@ def test_vv_cards_do_not_expose_downstream_continue_action(tmp_path):
 
     assert page.status_code == 200
     assert 'data-review-action="continue"' not in page.text
+
+
+def test_model_page_exposes_complete_delivery_panel(tmp_path):
+    client, _ = _client_with_fixture(tmp_path)
+
+    page = client.get("/ui/projects/p1/model")
+
+    assert page.status_code == 200
+    assert "导出完整交付包" in page.text
+    assert "/projects/p1/deliverables/download" in page.text
+    assert "snapshot" in page.text.lower()
