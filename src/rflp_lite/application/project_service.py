@@ -189,6 +189,19 @@ class ProjectService:
                 for region in parsed.regions
             ),
         )
+        for region in parsed.regions:
+            repository.save_evidence(
+                project_id,
+                {
+                    "id": region.id,
+                    "source_type": "document_region",
+                    "source_id": region.artifact_id,
+                    "locator": region.locator,
+                    "claim": " / ".join(region.heading_path) or region.locator or "文档片段",
+                    "excerpt": region.text,
+                    "relevance": 1.0,
+                },
+            )
         return {
             "document_id": parsed.artifact.id,
             "name": parsed.artifact.path,

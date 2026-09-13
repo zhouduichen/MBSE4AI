@@ -157,7 +157,7 @@ _ANALYSIS_MODULES = (
     ("architecture", "逻辑/物理架构", "逻辑组件、物理块、接口与状态", (EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK, EntityKind.INTERFACE, EntityKind.STATE)),
     ("verification", "验证与确认", "验证、确认、危险源与失效模式", (EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE, EntityKind.HAZARD, EntityKind.FAILURE_MODE)),
     ("evidence", "证据与问题", "证据记录、质量门禁问题与修复入口", (EntityKind.EVIDENCE,)),
-    ("runs", "运行与审计", "当前任务、运行台账、修复与封版", ()),
+    ("runs", "运行与审计", "生成进度、质量反馈、修复与封版", ()),
 )
 _TRACE_STAGES: tuple[tuple[EntityKind, str], ...] = (
     (EntityKind.REQUIREMENT, "Requirement"),

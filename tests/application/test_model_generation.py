@@ -15,11 +15,13 @@ class ScriptedModel:
         self.calls = []
         self.relation_contexts = []
         self.controller_decisions = []
+        self.evidence_contexts = []
 
     def complete_json(self, request):
         self.calls.append(request.lens_id)
         self.relation_contexts.append(request.user_payload["context"]["relations"])
         self.controller_decisions.append(request.user_payload["controller_decisions"])
+        self.evidence_contexts.append(request.user_payload["evidence"])
         entities = request.user_payload["context"]["entities"]
         by_kind = {}
         for item in entities:
@@ -278,6 +280,28 @@ def test_controller_decision_is_passed_to_downstream_structured_runtime(tmp_path
 
     assert result["controller_decision"] == decision
     assert any(decision in context for context in model.controller_decisions)
+
+
+def test_document_regions_are_available_as_structured_generation_evidence(tmp_path: Path):
+    model = ScriptedModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+    )
+    services.projects.create("robot")
+    services.projects.ingest_uploaded(
+        "robot", "requirements.txt", "系统应支持人工接管\n".encode()
+    )
+
+    result = services.generation("robot").generate("robot")
+
+    assert result.status == "completed"
+    assert any(
+        evidence["source_type"] == "document_region"
+        and evidence["excerpt"] == "系统应支持人工接管"
+        for context in model.evidence_contexts
+        for evidence in context
+    )
 
 
 def test_semantic_invalid_output_stays_candidate_and_creates_review_issue(tmp_path: Path):

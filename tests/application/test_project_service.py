@@ -81,6 +81,10 @@ def test_uploaded_text_document_is_saved_and_counts_as_analysis_input(tmp_path: 
     assert result["region_count"] == 1
     assert (project.path / "inputs" / "requirements.txt").read_text(encoding="utf-8") == "系统应支持人工接管\n"
     assert service.has_analysis_input("p1") is True
+    evidence = service.repository("p1").list_evidence("p1")
+    assert len(evidence) == 1
+    assert evidence[0]["source_type"] == "document_region"
+    assert evidence[0]["excerpt"] == "系统应支持人工接管"
 
 
 def test_uploaded_json_fixture_seeds_the_reviewable_graph(tmp_path: Path) -> None:

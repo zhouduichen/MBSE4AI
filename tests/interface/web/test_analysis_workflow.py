@@ -88,6 +88,18 @@ def test_analysis_page_uses_chinese_labels_for_runtime_and_gate(tmp_path: Path) 
     assert "Run full pipeline" not in page.text
 
 
+def test_analysis_page_hides_harness_ledger_behind_advanced_diagnostics(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "workspaces"))
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    page = client.get("/ui/projects/p1/analysis")
+
+    assert page.status_code == 200
+    assert "生成进度" in page.text
+    assert "展开运行诊断（高级）" in page.text
+    assert '<details class="advanced-details">' in page.text
+
+
 def test_analysis_api_supports_pipeline_and_force_run(tmp_path: Path) -> None:
     app = create_app(tmp_path / "workspaces")
     app.state.container.v2.settings.profiles.config_dir = tmp_path / "config"

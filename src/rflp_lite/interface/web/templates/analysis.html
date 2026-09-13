@@ -142,6 +142,9 @@
 
       {% if module.id == 'runs' %}
       <div class="module-subsection">
+        <div class="callout info"><strong>生成进度</strong>：阶段状态、追溯质量和 Controller 动作请查看上方摘要。</div>
+        <details class="advanced-details">
+          <summary>展开运行诊断（高级）</summary>
         <div class="two-column workflow-columns">
           <div class="card">
             <div class="panel-head"><div><h3>当前任务</h3><p>任务上下文、证据和执行台账。</p></div><span class="status-badge info">{{ current_task.status_label }}</span></div>
@@ -155,6 +158,7 @@
             {% if latest_run %}<div class="compact-list run-ledger-list">{% for step in latest_run.steps %}<article><span><strong>{{ step.task_label }}</strong><small class="table-secondary">第 {{ step.attempt }} 次尝试 · {{ step.input_hash or '无输入哈希' }}</small></span><span class="status-badge {% if step.status == 'completed' %}accepted{% elif step.status in ['failed', 'degraded'] %}rejected{% elif step.status == 'blocked' %}blocked{% else %}candidate{% endif %}">{{ step.status_label }}</span></article>{% endfor %}</div>{% else %}<div class="mini-empty">尚未记录运行步骤</div>{% endif %}
           </div>
         </div>
+        </details>
       </div>
       {% endif %}
     </section>
