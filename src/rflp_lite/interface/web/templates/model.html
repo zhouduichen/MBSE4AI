@@ -31,6 +31,34 @@
   {% else %}<div class="mini-empty">暂无需求实体可供追踪。</div>{% endfor %}
 </section>
 
+<section class="panel model-workbench-panel">
+  <div class="panel-head"><div><h2>模型分层工作台</h2><p>按工程层查看真实模型实体，并在此继续审查、编辑或重新分析。</p></div><span class="count-badge">{{ workbench.metrics.entity_count }} 个实体</span></div>
+  <div class="metric-row"><article><span>已分层</span><strong>{{ workbench.metrics.grouped_entity_count }}</strong></article><article><span>关系</span><strong>{{ workbench.metrics.relation_count }}</strong></article><article><span>未归类</span><strong>{{ workbench.metrics.ungrouped_entity_count }}</strong></article></div>
+  <div id="workbench-feedback" class="callout" hidden aria-live="polite"></div>
+  {% for group in workbench.groups %}
+  <section class="panel model-layer-panel" id="model-layer-{{ group.id }}">
+    <div class="panel-head"><div><h3>{{ group.title }}</h3><p>{{ group.description }}</p></div><span class="count-badge">{{ group.count }}</span></div>
+    {% if group.entities %}
+    <div class="module-grid">
+      {% for item in group.entities %}
+      <article class="card model-entity-card" data-entity-id="{{ item.id }}">
+        <div class="panel-head"><div><span class="status-badge info">{{ item.kind }}</span><h3>{{ item.name }}</h3><code>{{ item.id }}</code></div><span class="status-badge {{ item.status }}">{{ item.status }}</span></div>
+        <div class="entity-meta"><span>来源 {{ item.source_count }}</span><span>证据 {{ item.evidence_count }}</span><span>关系 {{ item.relation_count }}</span>{% if item.issue_count %}<span class="status-badge failed">问题 {{ item.issue_count }}</span>{% endif %}</div>
+        <details class="entity-payload"><summary>查看模型属性</summary><pre>{{ item.payload|tojson(indent=2) }}</pre></details>
+        <div class="workbench-actions">
+          {% if item.status in ['candidate', 'validated'] %}<button class="button compact workbench-command" type="button" data-review-action="accept" data-entity-id="{{ item.id }}">接受</button><button class="button compact danger workbench-command" type="button" data-review-action="reject" data-entity-id="{{ item.id }}">拒绝</button>{% elif item.status == 'accepted' %}<button class="button compact workbench-command" type="button" data-review-action="lock" data-entity-id="{{ item.id }}">锁定</button>{% elif item.status == 'locked' %}<button class="button compact workbench-command" type="button" data-review-action="unlock" data-entity-id="{{ item.id }}">解锁</button>{% endif %}
+          {% if item.status != 'locked' %}<button class="button compact" type="button" data-action="edit" data-edit-toggle="{{ item.id }}">编辑</button>{% endif %}
+          <button class="button compact" type="button" data-review-action="reanalyze" data-entity-id="{{ item.id }}">重新分析</button>
+        </div>
+        {% if item.status != 'locked' %}<form class="entity-edit-form" data-edit-form="{{ item.id }}" hidden><label class="field">名称<input name="name" value="{{ item.name }}" required></label><label class="field">模型属性（JSON）<textarea name="payload" rows="8" required>{{ item.payload|tojson(indent=2) }}</textarea></label><div class="workbench-actions"><button class="button compact primary" type="submit">保存编辑</button><button class="button compact" type="button" data-edit-toggle="{{ item.id }}">取消</button></div></form>{% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}<div class="mini-empty">暂无{{ group.title }}实体</div>{% endif %}
+  </section>
+  {% endfor %}
+</section>
+
 {% if trace.issues %}
 <section class="panel">
   <div class="panel-head"><div><h2>追踪问题</h2><p>可在分析工作台的质量门禁与修复区域处理这些缺失链路。</p></div><span class="count-badge">{{ trace.issues|length }} 个</span></div>
@@ -90,6 +118,55 @@
       output.textContent = "导出失败：" + error;
       output.classList.add("warning");
     } finally { button.disabled = false; }
+  }));
+})();
+</script>
+<script>
+(() => {
+  const projectId = {{ project_id|tojson }};
+  const revision = {{ workbench.revision }};
+  const feedback = document.getElementById("workbench-feedback");
+  const showFeedback = (message) => {
+    feedback.hidden = false;
+    feedback.textContent = message;
+    feedback.classList.add("warning");
+  };
+  const readPayload = async (response) => {
+    try { return await response.json(); } catch (_) { return {}; }
+  };
+  document.querySelectorAll("[data-edit-toggle]").forEach((button) => button.addEventListener("click", () => {
+    const form = document.querySelector(`[data-edit-form="${CSS.escape(button.dataset.editToggle)}"]`);
+    if (form) form.hidden = !form.hidden;
+  }));
+  document.querySelectorAll(".workbench-command").forEach((button) => button.addEventListener("click", async () => {
+    button.disabled = true;
+    const action = button.dataset.reviewAction;
+    const endpoint = action === "reanalyze" ? "reanalyze/execute" : action;
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/entities/${encodeURIComponent(button.dataset.entityId)}/${endpoint}`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({expected_revision: revision})});
+      const data = await readPayload(response);
+      if (!response.ok || data.status !== "ok") throw new Error(data.message || data.error || "操作失败");
+      window.location.reload();
+    } catch (error) {
+      showFeedback(error.message);
+      button.disabled = false;
+    }
+  }));
+  document.querySelectorAll("[data-edit-form]").forEach((form) => form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    try {
+      const payload = JSON.parse(form.elements.payload.value);
+      if (!payload || Array.isArray(payload) || typeof payload !== "object") throw new Error("模型属性必须是 JSON 对象");
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/entities/${encodeURIComponent(form.dataset.editForm)}/edit`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({expected_revision: revision, name: form.elements.name.value.trim(), payload})});
+      const data = await readPayload(response);
+      if (!response.ok || data.status !== "ok") throw new Error(data.message || data.error || "保存编辑失败");
+      window.location.reload();
+    } catch (error) {
+      showFeedback(error.message);
+      button.disabled = false;
+    }
   }));
 })();
 </script>

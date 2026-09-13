@@ -37,6 +37,7 @@
 | Controller 决策上下文 | Trade Study 选择进入定向重分析的 ContextBundle、上下文哈希和结构化 LLM 请求，后续阶段能够消费用户已确认的方案 |
 | Controller Tool Layer | 证据缺口先调用文档/历史/本地 FTS 检索工具；结果持久化为 Evidence 后再触发受影响阶段重分析，无结果才等待用户补充 |
 | MBSE 对象纵向覆盖 | 默认五阶段显式生成 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase；方法学报告分别检查风险覆盖、缓解关系、V&V 计划字段和执行证据 |
+| 分层 ModelGraph 工作台 | MBSE 模型页按 System Definition、Functional、Logical、Physical、V&V 展示真实实体，并复用 Review/CAS API 支持编辑、接受、拒绝、锁定、解锁和重新分析 |
 
 ## 历史 Harness 验收边界
 
