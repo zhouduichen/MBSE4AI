@@ -16,9 +16,9 @@ _PHYSICAL_FIELDS = (
     "mass_kg", "power_w", "compute", "memory_mb", "latency_ms",
     "bandwidth_mbps", "cost", "thermal", "reliability", "availability",
 )
-_VV_FIELDS = (
+_VV_PLAN_FIELDS = (
     "method", "precondition", "input", "procedure", "expected_result",
-    "pass_criteria", "evidence_ids",
+    "pass_criteria",
 )
 _STAGE_ORDER = ("requirements", "functional", "logical", "physical", "assurance")
 _TASK_ORDER = (
@@ -288,6 +288,8 @@ class MethodologyEngine:
         validation_count = 0
         structured_verification = 0
         structured_validation = 0
+        verification_evidence = 0
+        validation_evidence = 0
         for requirement in requirements:
             verification_cases = tuple(
                 index[item] for item in verifications.get(requirement.id, ())
@@ -301,6 +303,7 @@ class MethodologyEngine:
             validation_count += bool(validation_cases)
             if verification_cases:
                 structured_verification += any(_complete_vv_case(item) for item in verification_cases)
+                verification_evidence += any(_has_evidence(item) for item in verification_cases)
                 self._vv_findings("verification", verification_cases, findings)
             else:
                 findings.append(MethodologyFinding(
@@ -310,6 +313,7 @@ class MethodologyEngine:
                 ))
             if validation_cases:
                 structured_validation += any(_complete_vv_case(item) for item in validation_cases)
+                validation_evidence += any(_has_evidence(item) for item in validation_cases)
                 self._vv_findings("validation", validation_cases, findings)
             else:
                 findings.append(MethodologyFinding(
@@ -323,6 +327,8 @@ class MethodologyEngine:
         metrics["validation_coverage"] = validation_coverage
         metrics["structured_verification_coverage"] = _ratio(structured_verification, len(requirements))
         metrics["structured_validation_coverage"] = _ratio(structured_validation, len(requirements))
+        metrics["verification_evidence_coverage"] = _ratio(verification_evidence, len(requirements))
+        metrics["validation_evidence_coverage"] = _ratio(validation_evidence, len(requirements))
         metrics["end_to_end_vv_coverage"] = _ratio(
             sum(bool(verifications.get(item.id)) and bool(validations.get(item.id)) for item in requirements),
             len(requirements),
@@ -346,11 +352,17 @@ class MethodologyEngine:
     @staticmethod
     def _vv_findings(label, cases, findings) -> None:
         for case in cases:
-            missing = tuple(field for field in _VV_FIELDS if _missing_value(case.payload.get(field)))
+            missing = tuple(field for field in _VV_PLAN_FIELDS if _missing_value(case.payload.get(field)))
             if missing:
                 findings.append(MethodologyFinding(
                     f"{label}_case_incomplete", "warning", "assurance", (case.id,),
                     f"{label.title()}Case“{case.meta.name}”缺少结构化字段：{', '.join(missing)}。",
+                    ("verification_validation", "global_cross_analysis"),
+                ))
+            if not _has_evidence(case):
+                findings.append(MethodologyFinding(
+                    f"{label}_evidence_missing", "warning", "assurance", (case.id,),
+                    f"{label.title()}Case“{case.meta.name}”尚未关联执行证据。",
                     ("verification_validation", "global_cross_analysis"),
                 ))
 
@@ -518,7 +530,11 @@ def _constraints(requirement: Entity):
 
 
 def _complete_vv_case(case: Entity) -> bool:
-    return all(not _missing_value(case.payload.get(field)) for field in _VV_FIELDS)
+    return all(not _missing_value(case.payload.get(field)) for field in _VV_PLAN_FIELDS)
+
+
+def _has_evidence(case: Entity) -> bool:
+    return not _missing_value(case.payload.get("evidence_ids"))
 
 
 def _missing_value(value: object) -> bool:

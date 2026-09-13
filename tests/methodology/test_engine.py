@@ -122,6 +122,16 @@ def test_vv_analysis_requires_structured_verification_and_validation():
     assert any(item.code == "validation_case_incomplete" for item in report.findings)
 
 
+def test_vv_plan_and_execution_evidence_are_reported_separately():
+    report = MethodologyEngine().analyze(_graph(complete_vv=True))
+
+    assert report.metrics["structured_verification_coverage"] == 1.0
+    assert report.metrics["structured_validation_coverage"] == 1.0
+    assert report.metrics["verification_evidence_coverage"] == 1.0
+    assert report.metrics["validation_evidence_coverage"] == 1.0
+    assert not any(item.code == "verification_case_incomplete" for item in report.findings)
+
+
 def test_impact_analysis_walks_graph_and_routes_concrete_tasks():
     graph = _graph(complete_vv=True)
     requirement_id = next(item.id for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
