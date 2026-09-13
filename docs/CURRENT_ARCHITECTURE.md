@@ -20,7 +20,7 @@ adapters → ports + domain
 
 - `domain/`：Typed Entity、Relation、ModelGraph、Patch、Requirement 和稳定 ID；不依赖外层。
 - `methodology/`：五个产品级 `VerticalStage` 合约和阶段 Prompt；纯 ModelGraph `MethodologyEngine` 负责 Logical 分区/State 信号、Physical 约束/可行性、V&V 计划与证据分层、Hazard/FailureMode 覆盖和四跳 Impact Analysis；23 个细粒度 TaskSpec、四个 Phase、Context/Retrieval、Schema/Validator/Retry、PatchPolicy、谓词感知 Gate/Coverage Matrix、局部 Repair 和 LifecycleOrchestrator 保留为兼容/调试能力。
-- `application/`：Project、ModelGeneration、Analysis、Model、Evidence、Render、Settings、Tool Layer 服务；`ModelGenerationService` 负责五阶段纵向编排、追溯摘要和 Controller 动作执行。`EngineeringToolLayer` 将文档/历史/本地 FTS 证据检索封装为受限工具；工具只采集，应用服务统一持久化 Evidence，不能直接写 ModelGraph。
+- `application/`：Project、ModelGeneration、Analysis、Model、Evidence、Render、EngineeringDeliverable、Settings、Tool Layer 服务；`ModelGenerationService` 负责五阶段纵向编排、追溯摘要和 Controller 动作执行。`EngineeringDeliverableService` 从单一 ModelGraph revision 组合 Requirements、RFLP、Traceability、V&V Plan、Architecture Report、SysML 和 manifest，并可导出固定成员顺序的 ZIP。`EngineeringToolLayer` 将文档/历史/本地 FTS 证据检索封装为受限工具；工具只采集，应用服务统一持久化 Evidence，不能直接写 ModelGraph。
 - `repository/`：SQLite ModelRepository v2，保存 Graph、文档 Source Region 对应的 `document_region` Evidence、Run、Step、Patch、Revision、Issue、Closure 和 FTS，并提供 lease/heartbeat。
 - `runtime/`：RuntimeFactory、结构化模型端口、OpenAI-compatible 适配和离线 RuleRuntime；每次运行动态解析 active profile。
 - `adapters/`：文档解析、OCR 和模型/文档技术实现；由 `bootstrap/container.py` 组装。
@@ -39,6 +39,8 @@ AI 或规则 Runtime 只返回结构化 TaskExecutionResponse。WorkflowRunner �
 
 Review 后的显式“继续生成下游”调用 `ModelGenerationService.continue_generation`，按实体所属层路由到下一个 VerticalStage，使用独立的 `vertical_continuation` Run。接受的实体不会被重复改写；锁定实体可作为只读上下文参与 Logical、Physical 或 V&V 推理。续行结束后重新计算 Traceability、Methodology 和 Controller，V&V 是终止层。
 
+`EngineeringDeliverableService` 是只读的交付投影边界。它先加载一次图和 Issue，再生成带统一 revision/hash 的结构化 artifacts；V&V Plan 从 Verification/Validation 行派生，Architecture Report 同时检查 RFLP gaps 和 V&V gaps，因此后置需求未回接时会明确报告 BLOCKED。ZIP 包固定包含 `manifest.json`、`model.json`、`model.sysml`、`requirements.json`、`rflp.json`、`traceability.json`、`vv-plan.json`、`vv-plan.md`、`architecture-report.json` 和 `architecture-report.md`，SysML 仍通过现有 importer 回读到 ModelGraph。
+
 ## 对外资源
 
 | 资源 | 入口 |
@@ -47,7 +49,7 @@ Review 后的显式“继续生成下游”调用 `ModelGenerationService.contin
 | 分析运行 | `POST /projects/{id}/analysis`（默认五阶段生成；`mode=pipeline/phase` 为兼容入口）、`GET /projects/{id}/controller`、`POST /projects/{id}/controller/execute`（Controller 动作/Trade Study）、`POST /projects/{id}/entities/{entity_id}/reanalyze/execute`（定向重分析）、`POST /projects/{id}/entities/{entity_id}/continue`（Review 后从下一层继续生成）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
 | 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities` |
 | 人工编辑 | `PATCH /projects/{id}/entities/{entity_id}` |
-| 视图 / 导出 | `GET /projects/{id}/views/{view_id}`、`POST /projects/{id}/export`、`POST /projects/{id}/sysml/import` |
+| 视图 / 导出 | `GET /projects/{id}/views/{view_id}`、`POST /projects/{id}/export`、`GET /projects/{id}/deliverables`、`GET /projects/{id}/deliverables/download`、`POST /projects/{id}/sysml/import` |
 | 证据 / Issue | `GET /projects/{id}/evidence`、`GET /projects/{id}/issues`、`POST /projects/{id}/repair`；Controller 证据动作会先调用 Tool Layer 检索 |
 | Trace / 配置 | `GET /projects/{id}/trace`、`/model-profiles`、`POST /model-profiles/test` |
 

@@ -108,7 +108,7 @@ class EngineeringDeliverableService:
         return output.getvalue(), "application/zip"
 
 
-def _artifact(format_id: str, content: object, graph: ModelGraph) -> dict[str, object]:
+def _artifact(format_id: str, content: object, graph: ModelGraph) -> Mapping[str, object]:
     return {
         "format": format_id,
         "project_id": graph.project_id,
@@ -130,7 +130,7 @@ def _artifact_path(name: str) -> str:
     }[name]
 
 
-def _model_content(graph: ModelGraph) -> dict[str, object]:
+def _model_content(graph: ModelGraph) -> Mapping[str, object]:
     return {
         "project_id": graph.project_id,
         "revision": graph.revision,
@@ -149,7 +149,7 @@ def _model_content(graph: ModelGraph) -> dict[str, object]:
     }
 
 
-def _vv_plan(assurance: Mapping[str, object]) -> dict[str, object]:
+def _vv_plan(assurance: Mapping[str, object]) -> Mapping[str, object]:
     rows = []
     for raw in assurance.get("verification_validation", ()):
         row = dict(raw)
@@ -174,8 +174,31 @@ def _vv_plan(assurance: Mapping[str, object]) -> dict[str, object]:
         str(item.get("case_id", "")),
     ))
     gates = list(assurance.get("gates", ()))
-    metrics = dict(gates[-1].get("coverage_summary", {})) if gates else {}
+    gate_metrics = dict(gates[-1].get("coverage_summary", {})) if gates else {}
+    requirement_ids = {str(row.get("requirement_id", "")) for row in rows if row.get("requirement_id")}
+    verification_rows = [row for row in rows if row.get("case_type") == "verification"]
+    validation_rows = [row for row in rows if row.get("case_type") == "validation"]
+    metrics = {
+        "requirement_count": len(requirement_ids),
+        "row_count": len(rows),
+        "pass_row_count": sum(row.get("status") == "PASS" for row in rows),
+        "incomplete_row_count": sum(row.get("status") != "PASS" for row in rows),
+        "verification_coverage_percent": _coverage_percent(requirement_ids, verification_rows),
+        "validation_coverage_percent": _coverage_percent(requirement_ids, validation_rows),
+        "gate_coverage": gate_metrics,
+    }
     return {"rows": rows, "gates": gates, "metrics": metrics}
+
+
+def _coverage_percent(requirement_ids: set[str], rows: list[Mapping[str, object]]) -> float:
+    if not requirement_ids:
+        return 100.0
+    covered = {
+        str(row.get("requirement_id"))
+        for row in rows
+        if row.get("case_id")
+    }
+    return round(len(covered & requirement_ids) / len(requirement_ids) * 100, 2)
 
 
 def _architecture_report(
@@ -184,7 +207,7 @@ def _architecture_report(
     traceability: Mapping[str, object],
     assurance: Mapping[str, object],
     vv_plan: Mapping[str, object],
-) -> dict[str, object]:
+) -> Mapping[str, object]:
     counts = {
         kind.value: sum(entity.kind is kind for entity in graph.entities)
         for kind in EntityKind

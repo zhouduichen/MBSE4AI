@@ -30,7 +30,7 @@
 - Consumes: `ModelService.graph`, `ModelService.issues`, `build_requirements_view`, `build_rflp_view`, `build_traceability_view`, `build_assurance_view`, and `graph_to_sysml`.
 - Produces: `EngineeringDeliverableService.build(project_id) -> Mapping[str, object]` and `EngineeringDeliverableService.export_zip(project_id) -> tuple[bytes, str]`; `V2Services.deliverables(project_id) -> EngineeringDeliverableService`.
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
 Add a complete graph fixture using the existing entity/relation helpers and test:
 
@@ -67,13 +67,13 @@ def test_zip_is_stable_and_sysml_round_trips(tmp_path):
     }
 ```
 
-- [ ] **Step 2: Run the focused tests and verify they fail**
+- [x] **Step 2: Run the focused tests and verify they fail**
 
 Run: `./.venv/bin/pytest tests/application/test_deliverables.py -q`
 
 Expected: FAIL because `V2Services.deliverables` and the service module do not exist.
 
-- [ ] **Step 3: Implement the service and report projections**
+- [x] **Step 3: Implement the service and report projections**
 
 Implement these private helpers in `deliverables.py`:
 
@@ -114,7 +114,7 @@ Render Markdown from the structured V&V and architecture rows in stable ID
 order. `export_zip` must write the exact ten member names with a fixed ZIP
 timestamp `(1980, 1, 1, 0, 0, 0)` and `ZIP_STORED` compression.
 
-- [ ] **Step 4: Wire the service into `V2Services`**
+- [x] **Step 4: Wire the service into `V2Services`**
 
 Import `EngineeringDeliverableService` and add:
 
@@ -123,13 +123,13 @@ def deliverables(self, project_id: str) -> EngineeringDeliverableService:
     return EngineeringDeliverableService(self.model(project_id))
 ```
 
-- [ ] **Step 5: Run the focused tests**
+- [x] **Step 5: Run the focused tests**
 
 Run: `./.venv/bin/pytest tests/application/test_deliverables.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/rflp_lite/application/deliverables.py src/rflp_lite/bootstrap/v2.py tests/application/test_deliverables.py
@@ -146,7 +146,7 @@ git commit -m "feat: build unified engineering deliverables"
 - Consumes: `request.app.state.container.v2.deliverables(project_id)`.
 - Produces: `GET /projects/{project_id}/deliverables` returning `{"status": "ok", "deliverable": package}` and `GET /projects/{project_id}/deliverables/download` returning `application/zip` with `Content-Disposition: attachment; filename="{project_id}-engineering-deliverables.zip"`.
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 ```python
 def test_deliverables_api_returns_single_revision_package(tmp_path):
@@ -167,25 +167,25 @@ def test_deliverables_download_is_zip(tmp_path):
         assert "architecture-report.md" in archive.namelist()
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_deliverables_api.py -q`
 
 Expected: FAIL with HTTP 404 for both routes.
 
-- [ ] **Step 3: Add the endpoints**
+- [x] **Step 3: Add the endpoints**
 
 Add the two routes before the existing generic export route. Catch the same
 `ContractViolation`, `RflpError`, `OSError`, and `ValueError` tuple already
 used by the neighboring read-only endpoints. Return `_error(exc)` on error.
 
-- [ ] **Step 4: Run focused API tests and regression export tests**
+- [x] **Step 4: Run focused API tests and regression export tests**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_deliverables_api.py tests/interface/web/test_resource_api.py -q`
 
 Expected: PASS, including the pre-existing SysML export test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rflp_lite/interface/web/resource_api.py tests/interface/web/test_deliverables_api.py
@@ -203,7 +203,7 @@ git commit -m "feat: expose engineering deliverable endpoints"
 - Consumes: `trace.revision`, `workbench.revision`, and the two read-only delivery URLs.
 - Produces: a visible `导出完整交付包` action, a `查看交付包` link, and a displayed source revision/hash.
 
-- [ ] **Step 1: Write the failing page assertion**
+- [x] **Step 1: Write the failing page assertion**
 
 ```python
 def test_model_page_exposes_complete_delivery_panel(tmp_path):
@@ -215,26 +215,26 @@ def test_model_page_exposes_complete_delivery_panel(tmp_path):
     assert "snapshot" in page.text.lower()
 ```
 
-- [ ] **Step 2: Run the page test to verify it fails**
+- [x] **Step 2: Run the page test to verify it fails**
 
 Run: `./.venv/bin/pytest tests/interface/web/test_model_workbench.py::test_model_page_exposes_complete_delivery_panel -q`
 
 Expected: FAIL because the model page has only individual format buttons.
 
-- [ ] **Step 3: Add the compact delivery panel**
+- [x] **Step 3: Add the compact delivery panel**
 
 Add a server-rendered panel after the existing export panel. Use plain links
 for JSON inspection and ZIP download so the browser does not need a new
 client-side state flow. Pass `graph.snapshot_hash` as `snapshot_hash` from
 `model_page`; do not add a second graph load in the template.
 
-- [ ] **Step 4: Run page and full Web tests**
+- [x] **Step 4: Run page and full Web tests**
 
 Run: `./.venv/bin/pytest tests/interface/web -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rflp_lite/interface/web/templates/model.html src/rflp_lite/interface/web/resource_pages.py tests/interface/web/test_model_workbench.py
@@ -253,31 +253,32 @@ git commit -m "feat: add complete delivery panel to model workbench"
 - Consumes: existing seeded campus fixture, four analysis phases, closure, and `EngineeringDeliverableService`.
 - Produces: a regression proof that the complete fixture has R→F→L→P→V&V coverage and emits every required deliverable.
 
-- [ ] **Step 1: Add the end-to-end assertions**
+- [x] **Step 1: Add the end-to-end assertions**
 
 Extend the existing closure test with:
 
 ```python
 package = services.deliverables("campus").build("campus")
 assert package["revision"] == services.model("campus").graph("campus").revision
-assert package["artifacts"]["traceability"]["content"]["metrics"]["complete_count"] == 5
+    assert package["artifacts"]["traceability"]["content"]["metrics"]["complete_count"] == 7
+    assert package["artifacts"]["traceability"]["content"]["metrics"]["requirement_count"] == 7
 assert package["artifacts"]["architecture_report"]["content"]["status"] == "PASS"
 assert all(row["status"] == "PASS" for row in package["artifacts"]["vv_plan"]["content"]["rows"])
 ```
 
-- [ ] **Step 2: Run the focused end-to-end test**
+- [x] **Step 2: Run the focused end-to-end test**
 
 Run: `./.venv/bin/pytest tests/e2e/test_campus_delivery_robot.py::test_campus_fixture_runs_all_phases_and_closure -q`
 
 Expected: PASS and all 23 catalog tasks remain represented by the four phase runs plus closure.
 
-- [ ] **Step 3: Update product documentation**
+- [x] **Step 3: Update product documentation**
 
 Document the user flow and stable ZIP member names in README and current
 architecture/status docs. State that reports are projections of ModelGraph
 and that incomplete evidence remains visible as a gap.
 
-- [ ] **Step 4: Run complete verification**
+- [x] **Step 4: Run complete verification**
 
 Run:
 
@@ -292,11 +293,10 @@ git diff --check
 
 Expected: every command exits 0; no template files are passed to Ruff.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 ```bash
 git add tests/e2e/test_campus_delivery_robot.py README.md docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md
 git commit -m "test: prove end-to-end engineering deliverables"
 git push origin codex/web-audit-2026-08-18
 ```
-

@@ -39,6 +39,8 @@
 | MBSE 对象纵向覆盖 | 默认五阶段显式生成 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase；方法学报告分别检查风险覆盖、缓解关系、V&V 计划字段和执行证据 |
 | 分层 ModelGraph 工作台 | MBSE 模型页按 System Definition、Functional、Logical、Physical、V&V 展示真实实体，并复用 Review/CAS API 支持编辑、接受、拒绝、锁定、解锁和重新分析 |
 | Review 后继续生成 | 用户确认实体后可从其下一层继续生成至 V&V；使用独立 continuation Run，锁定实体只读，V&V 返回无下游状态 |
+| 统一工程交付包 | 同一 ModelGraph revision 输出 model/SysML/Requirements/RFLP/Traceability/V&V Plan/Architecture Report；提供 JSON、固定成员 ZIP 和 SysML 回读证据 |
+| 23-task 纵向追溯回接 | 后置 functional/technical/reverse requirement 自动回接 Function 与 V&V；校园配送 fixture 交付包验证 7/7 需求完整追溯 |
 
 ## 历史 Harness 验收边界
 
