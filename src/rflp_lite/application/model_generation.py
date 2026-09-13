@@ -27,6 +27,7 @@ from rflp_lite.methodology.vertical_generation import (
     stage_task,
     vertical_stage_specs,
 )
+from rflp_lite.application.tool_layer import EngineeringToolLayer
 from rflp_lite.repository.port import ModelRepository, Run, Step
 
 
@@ -152,6 +153,7 @@ class ModelGenerationService:
         runtime_selection=None,
         methodology_engine: MethodologyEngine | None = None,
         controller: SystemsEngineeringController | None = None,
+        tool_layer: EngineeringToolLayer | None = None,
         methodology_version: str = "v2.1",
         output_budget: int | None = None,
     ) -> None:
@@ -160,6 +162,7 @@ class ModelGenerationService:
         self.runtime_selection = runtime_selection
         self.methodology_engine = methodology_engine or MethodologyEngine()
         self.controller = controller or SystemsEngineeringController(self.methodology_engine)
+        self.tool_layer = tool_layer or EngineeringToolLayer(repository)
         self.methodology_version = methodology_version
         self.output_budget = max(
             256,
@@ -401,6 +404,46 @@ class ModelGenerationService:
             raise ContractViolation(f"controller action not found: {action_id}")
         action_payload = action.as_dict()
         if action.kind in {"collect_evidence", "collect_input"}:
+            if action.kind == "collect_evidence":
+                tool_result = self.tool_layer.collect_evidence(
+                    project_id,
+                    graph,
+                    action_payload,
+                )
+                for evidence in tool_result.evidence:
+                    self.repository.save_evidence(project_id, evidence)
+                if tool_result.status == "completed":
+                    tool_context = {
+                        "action_id": action.id,
+                        "kind": "evidence_collected",
+                        "tool_id": tool_result.tool_id,
+                        "evidence_ids": [
+                            str(item.get("id")) for item in tool_result.evidence
+                        ],
+                    }
+                    target_id = _controller_target(graph, action.entity_ids, action.task_id)
+                    if target_id is None:
+                        raise ContractViolation("evidence action has no editable target")
+                    self._audit(project_id, "controller.evidence_collected", {
+                        **action_payload,
+                        "tool": tool_result.as_dict(),
+                    })
+                    result = self.reanalyze(
+                        project_id,
+                        target_id,
+                        expected_revision=graph.revision,
+                        controller_decision=tool_context,
+                    )
+                    return {
+                        "execution_status": "completed",
+                        "action": action_payload,
+                        "tool": tool_result.as_dict(),
+                        "reanalysis": result,
+                    }
+                action_payload = {
+                    **action_payload,
+                    "tool": tool_result.as_dict(),
+                }
             audit_kind = (
                 "controller.evidence_requested"
                 if action.kind == "collect_evidence"

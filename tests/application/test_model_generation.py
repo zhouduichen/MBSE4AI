@@ -5,6 +5,8 @@ from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_e
 from rflp_lite.domain.model import ModelGraph, Relation
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.application.model_generation import build_traceability_summary
+from rflp_lite.application.model_generation import ModelGenerationService
+from rflp_lite.application.tool_layer import ToolResult
 from rflp_lite.ports.generative_model import GenerationResponse
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
@@ -117,6 +119,28 @@ class IncompleteOperationalModel(ScriptedModel):
                 if item["source_ref"] in keep and item["target_ref"] in keep
             ]
         return response
+
+
+class _ControllerEvidenceTool:
+    def __init__(self):
+        self.calls = []
+
+    def collect_evidence(self, project_id, graph, action):
+        self.calls.append((project_id, graph.revision, action["id"]))
+        return ToolResult(
+            "evidence.test",
+            "completed",
+            "physical power evidence",
+            ({
+                "id": "evidence-controller-test",
+                "source_type": "test",
+                "source_id": "test-source",
+                "locator": "test",
+                "claim": "功耗测量",
+                "excerpt": "功耗为 40 W",
+                "relevance": 1.0,
+            },),
+        )
 
 
 def _trace_graph(*, verification: bool, validation: bool) -> ModelGraph:
@@ -302,6 +326,29 @@ def test_document_regions_are_available_as_structured_generation_evidence(tmp_pa
         for context in model.evidence_contexts
         for evidence in context
     )
+
+
+def test_controller_evidence_action_calls_tool_and_reanalyzes(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    repository = services.repository("robot")
+    tool = _ControllerEvidenceTool()
+    generation = ModelGenerationService(repository, VerticalRuleRuntime(), tool_layer=tool)
+    generated = generation.generate("robot", requirement_text="系统应支持人工接管")
+    action = generated.controller.next_action
+
+    assert action is not None
+    assert action.kind == "collect_evidence"
+    result = generation.execute_controller_action(
+        "robot",
+        action_id=action.id,
+        expected_revision=generated.revision,
+    )
+
+    assert result["execution_status"] == "completed"
+    assert tool.calls == [("robot", generated.revision, action.id)]
+    assert repository.list_evidence("robot")[0]["id"] == "evidence-controller-test"
+    assert result["reanalysis"]["controller_decision"]["kind"] == "evidence_collected"
 
 
 def test_semantic_invalid_output_stays_candidate_and_creates_review_issue(tmp_path: Path):

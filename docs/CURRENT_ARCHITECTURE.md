@@ -20,7 +20,7 @@ adapters → ports + domain
 
 - `domain/`：Typed Entity、Relation、ModelGraph、Patch、Requirement 和稳定 ID；不依赖外层。
 - `methodology/`：五个产品级 `VerticalStage` 合约和阶段 Prompt；纯 ModelGraph `MethodologyEngine` 负责 Logical 分区/State 信号、Physical 约束/可行性、V&V 计划与证据分层、Hazard/FailureMode 覆盖和四跳 Impact Analysis；23 个细粒度 TaskSpec、四个 Phase、Context/Retrieval、Schema/Validator/Retry、PatchPolicy、谓词感知 Gate/Coverage Matrix、局部 Repair 和 LifecycleOrchestrator 保留为兼容/调试能力。
-- `application/`：Project、ModelGeneration、Analysis、Model、Evidence、Render、Settings 服务；`ModelGenerationService` 负责五阶段纵向编排、追溯摘要和 Controller 动作执行。
+- `application/`：Project、ModelGeneration、Analysis、Model、Evidence、Render、Settings、Tool Layer 服务；`ModelGenerationService` 负责五阶段纵向编排、追溯摘要和 Controller 动作执行。`EngineeringToolLayer` 将文档/历史/本地 FTS 证据检索封装为受限工具；工具只采集，应用服务统一持久化 Evidence，不能直接写 ModelGraph。
 - `repository/`：SQLite ModelRepository v2，保存 Graph、文档 Source Region 对应的 `document_region` Evidence、Run、Step、Patch、Revision、Issue、Closure 和 FTS，并提供 lease/heartbeat。
 - `runtime/`：RuntimeFactory、结构化模型端口、OpenAI-compatible 适配和离线 RuleRuntime；每次运行动态解析 active profile。
 - `adapters/`：文档解析、OCR 和模型/文档技术实现；由 `bootstrap/container.py` 组装。
@@ -44,7 +44,7 @@ AI 或规则 Runtime 只返回结构化 TaskExecutionResponse。WorkflowRunner �
 | 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities` |
 | 人工编辑 | `PATCH /projects/{id}/entities/{entity_id}` |
 | 视图 / 导出 | `GET /projects/{id}/views/{view_id}`、`POST /projects/{id}/export`、`POST /projects/{id}/sysml/import` |
-| 证据 / Issue | `GET /projects/{id}/evidence`、`GET /projects/{id}/issues`、`POST /projects/{id}/repair` |
+| 证据 / Issue | `GET /projects/{id}/evidence`、`GET /projects/{id}/issues`、`POST /projects/{id}/repair`；Controller 证据动作会先调用 Tool Layer 检索 |
 | Trace / 配置 | `GET /projects/{id}/trace`、`/model-profiles`、`POST /model-profiles/test` |
 
 ## 质量门禁
