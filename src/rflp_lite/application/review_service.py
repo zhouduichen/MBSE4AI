@@ -9,6 +9,7 @@ from uuid import uuid4
 from rflp_lite.domain.entities import EntityStatus, Producer
 from rflp_lite.domain.errors import ConflictError, ContractViolation, NotFoundError
 from rflp_lite.domain.model import Patch, UpdateEntity
+from rflp_lite.methodology.engine import MethodologyEngine
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +31,7 @@ class ReviewService:
     def __init__(self, model_service):
         self.model_service = model_service
         self.repository = model_service.repository
+        self.methodology_engine = MethodologyEngine()
 
     def _entity(self, project_id: str, entity_id: str):
         entity = self.model_service.graph(project_id).entity_index.get(entity_id)
@@ -97,17 +99,24 @@ class ReviewService:
         graph = self.model_service.graph(project_id)
         if expected_revision is not None and int(expected_revision) != graph.revision:
             raise ConflictError(f"stale re-analysis request: expected {expected_revision}, current {graph.revision}")
+        impact = self.methodology_engine.analyze(graph, changed_entity_ids=(entity_id,))
         task_sets = {
             "requirement": ("system_requirement_derivation", "function_identification", "logical_analysis", "physical_candidates", "verification_validation"),
             "function": ("functional_decomposition", "functional_interaction", "logical_analysis", "physical_candidates", "verification_validation"),
         }
-        selected = task_sets.get(entity.kind.value, ("global_cross_analysis", "verification_validation"))
+        selected = impact.recommended_tasks or task_sets.get(
+            entity.kind.value, ("global_cross_analysis", "verification_validation")
+        )
         request_id = f"reanalysis-{uuid4().hex[:16]}"
         payload = {
             "request_id": request_id,
             "entity_id": entity_id,
             "trigger_revision": graph.revision,
             "selected_tasks": list(selected),
+            "impact": impact.as_dict(),
+            "impacted_stages": list(impact.impacted_stages),
+            "recommended_tasks": list(impact.recommended_tasks),
+            "impact_paths": [list(path) for path in impact.impact_paths],
             "reason": "local impact routing from review action",
             "status": "requested",
             "execution_status": "pending_execution",

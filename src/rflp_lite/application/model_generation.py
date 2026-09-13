@@ -18,6 +18,7 @@ from rflp_lite.methodology.contracts import (
     StepStatus,
 )
 from rflp_lite.methodology.executor import TaskExecutor
+from rflp_lite.methodology.engine import MethodologyEngine, MethodologyReport
 from rflp_lite.methodology.tasks import task_spec_hash
 from rflp_lite.methodology.vertical_generation import (
     VerticalStage,
@@ -101,6 +102,7 @@ class GenerateModelResult:
     traceability: TraceabilitySummary
     warnings: tuple[str, ...] = ()
     sysml_text: str = ""
+    methodology: MethodologyReport | None = None
 
     def as_dict(self) -> Mapping[str, object]:
         return {
@@ -125,6 +127,7 @@ class GenerateModelResult:
             "traceability": self.traceability.as_dict(),
             "warnings": list(self.warnings),
             "sysml_text": self.sysml_text,
+            "methodology": self.methodology.as_dict() if self.methodology else {},
         }
 
 
@@ -144,12 +147,14 @@ class ModelGenerationService:
         runtime,
         *,
         runtime_selection=None,
+        methodology_engine: MethodologyEngine | None = None,
         methodology_version: str = "v2.1",
         output_budget: int | None = None,
     ) -> None:
         self.repository = repository
         self.runtime = runtime
         self.runtime_selection = runtime_selection
+        self.methodology_engine = methodology_engine or MethodologyEngine()
         self.methodology_version = methodology_version
         self.output_budget = max(
             256,
@@ -198,6 +203,12 @@ class ModelGenerationService:
 
         final_graph = self.repository.load_graph(project_id)
         traceability = build_traceability_summary(final_graph)
+        methodology = self.methodology_engine.analyze(final_graph)
+        warnings.extend(
+            f"{finding.stage}: {finding.code}: {finding.message}"
+            for finding in methodology.findings
+            if finding.severity == "error"
+        )
         if traceability.complete_count:
             status = (
                 "completed"
@@ -214,6 +225,10 @@ class ModelGenerationService:
             "revision": final_graph.revision,
             "traceability": traceability.as_dict(),
         })
+        self._audit(project_id, "model_generation.methodology_analyzed", {
+            "run_id": effective_run_id,
+            **methodology.as_dict(),
+        })
         return GenerateModelResult(
             effective_run_id,
             project_id,
@@ -223,6 +238,7 @@ class ModelGenerationService:
             traceability,
             tuple(dict.fromkeys(warnings)),
             _sysml_text(final_graph),
+            methodology,
         )
 
     def _execute_stage(
@@ -554,6 +570,7 @@ class ModelGenerationService:
             build_traceability_summary(graph),
             message,
             _sysml_text(graph),
+            self.methodology_engine.analyze(graph),
         )
 
     def _provider_id(self) -> str:

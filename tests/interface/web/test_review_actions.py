@@ -27,6 +27,9 @@ def test_reanalysis_reports_request_without_claiming_execution(tmp_path):
     assert request["execution_status"] == "pending_execution"
     assert request["execution_status_label"] == "已创建重新分析请求，尚未执行"
     assert request["lifecycle"] == ["requested", "pending_execution", "running", "completed", "failed", "cancelled"]
+    assert requirement_id in request["impact"]["impacted_entity_ids"]
+    assert request["impact"]["impacted_stages"] == ["requirements", "functional", "logical", "physical", "assurance"]
+    assert "function_identification" in request["impact"]["recommended_tasks"]
 
 
 def test_requirement_detail_can_edit_statement_through_review_ui_contract(tmp_path):

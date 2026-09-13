@@ -154,6 +154,16 @@ def test_generation_creates_real_rflp_and_vv_objects_from_one_requirement(tmp_pa
         EntityKind.VALIDATION_CASE,
     } <= {item.kind for item in graph.entities}
     assert result.traceability.complete_count >= 1
+    assert result.methodology.metrics["logical_allocation_coverage"] == 1.0
+    assert result.methodology.metrics["physical_feasibility"] == "needs_measurement"
+    assert any(
+        finding.code == "physical_measurement_required"
+        for finding in result.methodology.findings
+    )
+    assert any(
+        event["kind"] == "model_generation.methodology_analyzed"
+        for event in services.repository("robot").list_audit_events("robot")
+    )
     logical = next(item for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT)
     physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
     assert logical.payload["partition_basis"]
