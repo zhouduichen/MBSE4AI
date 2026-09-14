@@ -11,7 +11,6 @@ from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.errors import ConflictError, ContractViolation, InputRequired, MethodologyValidationError
 from rflp_lite.domain.model import AddEntity, Patch, UpdateEntity
-from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import (
     ContextBundle,
     RunStatus,
@@ -25,7 +24,7 @@ from rflp_lite.methodology.engine import MethodologyEngine, MethodologyReport
 from rflp_lite.methodology.controller import ControllerPlan, SystemsEngineeringController
 from rflp_lite.methodology.impact import ImpactPlan, TypedImpactPlanner
 from rflp_lite.methodology.tasks import task_spec_hash
-from rflp_lite.methodology.trace_rules import is_technical_requirement, requirement_lineage
+from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
 from rflp_lite.methodology.vertical_generation import (
     VerticalStage,
     downstream_vertical_stages,
@@ -1406,39 +1405,11 @@ def _promote_generated_entities(patch: Patch, *, validated: bool = True) -> Patc
     return replace(patch, operations=tuple(operations))
 
 
-def _targets(graph, source_id: str, predicate: RelationPredicate) -> tuple[str, ...]:
-    return tuple(
-        relation.target_id
-        for relation in graph.relations
-        if relation.source_id == source_id and relation.predicate is predicate
-    )
-
-
-_TRACE_READY_STATUSES = frozenset({
-    EntityStatus.VALIDATED,
-    EntityStatus.ACCEPTED,
-    EntityStatus.LOCKED,
-})
-
-
-def _trace_targets(graph, source_id: str, predicate: RelationPredicate, kind: EntityKind) -> tuple[str, ...]:
-    index = graph.entity_index
-    return tuple(sorted({
-        relation.target_id
-        for relation in graph.relations
-        if relation.source_id == source_id
-        and relation.predicate is predicate
-        and index.get(relation.target_id) is not None
-        and index[relation.target_id].kind is kind
-        and index[relation.target_id].meta.status in _TRACE_READY_STATUSES
-    }))
-
-
 def build_traceability_summary(graph) -> TraceabilitySummary:
     active = [
         entity for entity in graph.entities
         if entity.kind is EntityKind.REQUIREMENT
-        and entity.meta.status is not EntityStatus.DEPRECATED
+        and entity.meta.status not in {EntityStatus.REJECTED, EntityStatus.DEPRECATED}
     ]
     rflp_complete = 0
     rflp_partial = 0
@@ -1450,34 +1421,16 @@ def build_traceability_summary(graph) -> TraceabilitySummary:
     end_to_end_missing = 0
     paths: list[tuple[str, ...]] = []
     for requirement in sorted(active, key=lambda item: item.id):
-        lineage = requirement_lineage(graph, requirement.id)
-        functions = tuple(dict.fromkeys(
-            function_id
-            for source_id in lineage
-            for function_id in _trace_targets(
-                graph, source_id, RelationPredicate.SATISFIED_BY, EntityKind.FUNCTION
-            )
-        ))
-        logical = tuple(dict.fromkeys(
-            logical_id
-            for function_id in functions
-            for logical_id in _trace_targets(graph, function_id, RelationPredicate.ALLOCATED_TO, EntityKind.LOGICAL_COMPONENT)
-        ))
-        physical = tuple(dict.fromkeys(
-            physical_id
-            for logical_id in logical
-            for physical_id in _trace_targets(graph, logical_id, RelationPredicate.ALLOCATED_TO, EntityKind.PHYSICAL_BLOCK)
-        ))
-        if is_technical_requirement(requirement):
-            physical = tuple(dict.fromkeys((*physical, *(_trace_targets(
-                graph,
-                requirement.id,
-                RelationPredicate.SATISFIED_BY,
-                EntityKind.PHYSICAL_BLOCK,
-            )))))
-        verification = _trace_targets(graph, requirement.id, RelationPredicate.VERIFIED_BY, EntityKind.VERIFICATION_CASE)
-        validation = _trace_targets(graph, requirement.id, RelationPredicate.VALIDATED_BY, EntityKind.VALIDATION_CASE)
-        rflp = bool(functions and logical and physical)
+        trace = resolve_requirement_trace(graph, requirement.id)
+        functions = trace.function_ids
+        logical = trace.logical_component_ids
+        physical = trace.physical_ids
+        verification = trace.verification_case_ids if trace.stage_coverage["verification"] else ()
+        validation = trace.validation_case_ids if trace.stage_coverage["validation"] else ()
+        rflp = all(
+            trace.stage_coverage[key]
+            for key in ("functional", "logical", "physical")
+        )
         if rflp:
             rflp_complete += 1
         elif functions or logical or physical:
@@ -1486,23 +1439,14 @@ def build_traceability_summary(graph) -> TraceabilitySummary:
             rflp_missing += 1
         verification_complete += bool(verification)
         validation_complete += bool(validation)
-        end_to_end = rflp and bool(verification) and bool(validation)
+        end_to_end = trace.complete
         if end_to_end:
             end_to_end_complete += 1
         elif rflp or verification or validation:
             end_to_end_partial += 1
         else:
             end_to_end_missing += 1
-        path = tuple(
-            item for item in (
-                requirement.id,
-                *(functions[:1]),
-                *(logical[:1]),
-                *(physical[:1]),
-                *(verification[:1]),
-                *(validation[:1]),
-            ) if item
-        )
+        path = tuple(dict.fromkeys((*trace.primary_path, *verification[:1], *validation[:1])))
         paths.append(path)
     return TraceabilitySummary(
         rflp_complete,

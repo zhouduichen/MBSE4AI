@@ -10,9 +10,9 @@ from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.trace_rules import (
-    F_TO_L, L_TO_P, R_TO_F, R_TO_V, R_TO_VALIDATION, is_technical_requirement,
-    requirement_lineage, targets,
+    F_TO_L, L_TO_P, R_TO_F, R_TO_V, R_TO_VALIDATION,
 )
+from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,36 +102,7 @@ def related_cards(graph: ModelGraph, entity_id: str, *, outgoing: bool, issues: 
 
 
 def trace_targets(graph: ModelGraph, requirement_id: str) -> dict[str, tuple[str, ...]]:
-    lineage = requirement_lineage(graph, requirement_id)
-    functions = tuple(sorted({
-        target
-        for source_id in lineage
-        for target in targets(graph, source_id, R_TO_F)
-    }))
-    logical = tuple(sorted({target for function_id in functions for target in targets(graph, function_id, F_TO_L)}))
-    physical = tuple(sorted({target for logical_id in logical for target in targets(graph, logical_id, L_TO_P)}))
-    requirement = graph.entity_index.get(requirement_id)
-    if requirement is not None and is_technical_requirement(requirement):
-        physical = tuple(sorted({
-            *physical,
-            *(
-                relation.target_id
-                for relation in graph.relations
-                if relation.source_id == requirement_id
-                and relation.predicate is RelationPredicate.SATISFIED_BY
-                and graph.entity_index.get(relation.target_id) is not None
-                and graph.entity_index[relation.target_id].kind is EntityKind.PHYSICAL_BLOCK
-            ),
-        }))
-    verification = targets(graph, requirement_id, R_TO_V)
-    validation = targets(graph, requirement_id, R_TO_VALIDATION)
-    return {
-        "functions": functions,
-        "logical": logical,
-        "physical": physical,
-        "verification": verification,
-        "validation": validation,
-    }
+    return dict(resolve_requirement_trace(graph, requirement_id).target_dict())
 
 
 def trace_invalid_predicates(graph: ModelGraph, requirement_id: str) -> tuple[str, ...]:
@@ -166,16 +137,51 @@ def trace_invalid_predicates(graph: ModelGraph, requirement_id: str) -> tuple[st
 
 
 def requirement_trace_status(graph: ModelGraph, requirement: Entity) -> tuple[str, tuple[str, ...], dict[str, tuple[str, ...]]]:
-    trace = trace_targets(graph, requirement.id)
+    canonical = resolve_requirement_trace(graph, requirement.id)
+    trace = dict(canonical.target_dict())
     invalid = trace_invalid_predicates(graph, requirement.id)
     if requirement.meta.status in {EntityStatus.REJECTED, EntityStatus.DEPRECATED}:
         return "REJECTED", ("rejected",), trace
     if invalid:
         return "INVALID_PREDICATE", ("invalid_predicate",), trace
-    gaps = tuple(stage for stage, values in (("function", trace["functions"]), ("logical", trace["logical"]), ("physical", trace["physical"]), ("verification", trace["verification"]), ("validation", trace["validation"])) if not values)
-    gap_codes = {"function": "MISSING_FUNCTION", "logical": "MISSING_LOGICAL", "physical": "MISSING_PHYSICAL", "verification": "MISSING_VERIFICATION", "validation": "MISSING_VALIDATION"}
-    status = "PASS" if not gaps else gap_codes[gaps[0]] if len(gaps) == 1 else "BLOCKED"
+    gaps = canonical.gaps
+    if not gaps:
+        return "PASS", gaps, trace
+    if (
+        "function" in gaps
+        and not trace["functions"]
+        and _has_inactive_function_link(graph, requirement.id)
+    ):
+        return "MISSING_FUNCTION", gaps, trace
+    gap_codes = {
+        "function": "MISSING_FUNCTION",
+        "logical": "MISSING_LOGICAL",
+        "physical": "MISSING_PHYSICAL",
+        "verification": "MISSING_VERIFICATION",
+        "validation": "MISSING_VALIDATION",
+        "verification_scope": "INVALID_VERIFICATION_SCOPE",
+        "validation_scope": "INVALID_VALIDATION_SCOPE",
+        "requirement": "MISSING_REQUIREMENT",
+    }
+    status = gap_codes[gaps[0]] if len(gaps) == 1 else "BLOCKED"
     return status, gaps, trace
+
+
+def _has_inactive_function_link(graph: ModelGraph, requirement_id: str) -> bool:
+    index = graph.entity_index
+    return any(
+        relation.source_id == requirement_id
+        and relation.predicate is RelationPredicate.SATISFIED_BY
+        and index.get(relation.target_id) is not None
+        and index[relation.target_id].kind is EntityKind.FUNCTION
+        and index[relation.target_id].meta.status is not EntityStatus.CANDIDATE
+        and index[relation.target_id].meta.status not in {
+            EntityStatus.VALIDATED,
+            EntityStatus.ACCEPTED,
+            EntityStatus.LOCKED,
+        }
+        for relation in graph.relations
+    )
 
 
 def as_payload(value: object) -> object:

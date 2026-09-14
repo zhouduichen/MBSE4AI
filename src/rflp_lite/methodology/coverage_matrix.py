@@ -7,8 +7,9 @@ from typing import Mapping
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
-from rflp_lite.methodology.trace_rules import (
-    F_TO_L, L_TO_P, R_TO_F, R_TO_V, R_TO_VALIDATION, best_partial_path, rflp_paths, targets,
+from rflp_lite.methodology.vertical_coverage import (
+    resolve_requirement_trace,
+    resolve_rflp_paths,
 )
 
 
@@ -73,35 +74,21 @@ def build_requirement_coverage(graph: ModelGraph) -> CoverageMatrix:
     rows: list[RequirementCoverageRow] = []
     for requirement in _accepted_requirements(graph):
         requirement_id = requirement.id
-        functions = tuple(sorted(targets(graph, requirement_id, R_TO_F)))
-        logical = tuple(sorted({
-            logical_id for function_id in functions
-            for logical_id in targets(graph, function_id, F_TO_L)
-        }))
-        physical = tuple(sorted({
-            physical_id for logical_id in logical
-            for physical_id in targets(graph, logical_id, L_TO_P)
-        }))
-        verification = tuple(sorted(targets(graph, requirement_id, R_TO_V)))
-        validation = tuple(sorted(targets(graph, requirement_id, R_TO_VALIDATION)))
-        paths = rflp_paths(graph, requirement_id)
-        gaps: list[str] = []
-        if not functions:
-            gaps.append("function")
-        if not logical:
-            gaps.append("logical")
-        if not physical:
-            gaps.append("physical")
-        if not verification:
-            gaps.append("verification")
-        if not validation:
-            gaps.append("validation")
+        trace = resolve_requirement_trace(graph, requirement_id)
+        functions = trace.function_ids
+        logical = trace.logical_component_ids
+        physical = trace.physical_ids
+        verification = trace.verification_case_ids if trace.stage_coverage["verification"] else ()
+        validation = trace.validation_case_ids if trace.stage_coverage["validation"] else ()
+        paths = resolve_rflp_paths(graph, requirement_id)
+        gaps = list(trace.gaps)
         if not _evidence_coverage(graph, requirement_id):
             gaps.append("evidence")
+        best_path = paths[0] if paths else trace.primary_path
         rows.append(RequirementCoverageRow(
             requirement_id, _evidence_coverage(graph, requirement_id), functions, logical,
             physical, verification, validation, _hazards_for_requirement(graph, requirement_id),
-            not gaps, tuple(gaps), paths, paths[0] if paths else best_partial_path(graph, requirement_id),
+            not gaps, tuple(gaps), paths, best_path,
         ))
     total = len(rows)
     count = lambda predicate: sum(1 for row in rows if predicate(row))

@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Mapping
 
-from rflp_lite.application.projections.common import header, requirement_trace_status, trace_targets
+from rflp_lite.application.projections.common import header, requirement_trace_status
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.model import ModelGraph
+from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,8 @@ class TraceabilityRowView:
     gaps: tuple[str, ...]
     coverage_percent: float
     status: str
+    stage_coverage: Mapping[str, bool]
+    primary_path: tuple[str, ...]
 
     def as_dict(self) -> Mapping[str, object]:
         return asdict(self)
@@ -32,8 +35,22 @@ def build_traceability_view(graph: ModelGraph, issues: tuple[Mapping[str, object
     matrix = []
     for requirement in sorted((item for item in graph.entities if item.kind is EntityKind.REQUIREMENT), key=lambda item: item.id):
         status, gaps, trace = requirement_trace_status(graph, requirement)
-        coverage = sum(bool(trace[key]) for key in ("functions", "logical", "physical", "verification", "validation")) / 5 * 100
-        row = TraceabilityRowView(requirement.id, requirement.meta.name, trace["functions"], trace["logical"], trace["physical"], trace["verification"], trace["validation"], gaps, coverage, status)
+        canonical = resolve_requirement_trace(graph, requirement.id)
+        coverage = sum(canonical.stage_coverage.values()) / 5 * 100
+        row = TraceabilityRowView(
+            requirement.id,
+            requirement.meta.name,
+            trace["functions"],
+            trace["logical"],
+            trace["physical"],
+            trace["verification"],
+            trace["validation"],
+            gaps,
+            coverage,
+            status,
+            dict(canonical.stage_coverage),
+            canonical.primary_path,
+        )
         rows.append(row.as_dict())
         matrix.extend({"requirement_id": requirement.id, "requirement_name": requirement.meta.name, "function_id": function_id, "present": True, "predicate": "satisfiedBy"} for function_id in trace["functions"])
         if not trace["functions"]:

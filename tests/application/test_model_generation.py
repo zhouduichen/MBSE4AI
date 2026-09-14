@@ -10,6 +10,7 @@ from rflp_lite.domain.model import AddEntity, ModelGraph, Patch, Relation, Updat
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.application.model_generation import build_traceability_summary
 from rflp_lite.application.model_generation import ModelGenerationService
+from rflp_lite.application.projections.traceability import build_traceability_view
 from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
 from rflp_lite.application.tool_layer import ToolResult
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionResponse
@@ -115,8 +116,14 @@ class ScriptedModel:
             if logical:
                 relation(logical[0]["id"], "allocatedTo", "physical")
         elif request.lens_id == "vertical.verification_validation":
-            entity("verification", "verification_case", "验证配送需求", {"method": "test", "precondition": "系统处于可测试初始状态", "input": "配送任务", "procedure": "执行测试步骤并记录实际结果", "expected_result": "实际结果满足需求目标", "pass_criteria": "测试结果满足需求", "requirement_ids": [requirements[0]["id"]] if requirements else [], "scenario_ids": [], "activity_ids": [], "covered_branches": ["人工接管"], "evidence_ids": []})
-            entity("validation", "validation_case", "确认配送体验", {"method": "demonstration", "precondition": "目标用户和典型场景可用", "input": "配送任务", "procedure": "在典型场景执行并收集用户反馈", "expected_result": "用户场景目标达成", "pass_criteria": "用户场景确认通过", "requirement_ids": [requirements[0]["id"]] if requirements else [], "scenario_ids": [], "activity_ids": [], "covered_branches": ["人工接管"], "evidence_ids": []})
+            trace_scope = {
+                "requirement_ids": [requirements[0]["id"]] if requirements else [],
+                "function_ids": [item["id"] for item in by_kind.get("function", [])],
+                "logical_component_ids": [item["id"] for item in by_kind.get("logical_component", [])],
+                "physical_ids": [item["id"] for item in by_kind.get("physical_block", [])],
+            }
+            entity("verification", "verification_case", "验证配送需求", {"method": "test", "precondition": "系统处于可测试初始状态", "input": "配送任务", "procedure": "执行测试步骤并记录实际结果", "expected_result": "实际结果满足需求目标", "pass_criteria": "测试结果满足需求", **trace_scope, "scenario_ids": [], "activity_ids": [], "covered_branches": ["人工接管"], "evidence_ids": []})
+            entity("validation", "validation_case", "确认配送体验", {"method": "demonstration", "precondition": "目标用户和典型场景可用", "input": "配送任务", "procedure": "在典型场景执行并收集用户反馈", "expected_result": "用户场景目标达成", "pass_criteria": "用户场景确认通过", **trace_scope, "scenario_ids": [], "activity_ids": [], "covered_branches": ["人工接管"], "evidence_ids": []})
             entity("hazard", "hazard", "风险：配送任务失败", {"description": "异常分支导致任务目标未达成", "requirement_ids": [requirements[0]["id"]] if requirements else [], "branches": ["人工接管"]})
             entity("failure", "failure_mode", "失效模式：任务未完成", {"effect": "需求未满足", "cause": "执行条件异常", "requirement_ids": [requirements[0]["id"]] if requirements else []})
             if requirements:
@@ -1130,7 +1137,14 @@ def _trace_graph(*, verification: bool, validation: bool) -> ModelGraph:
         case = make_entity(
             EntityKind.VERIFICATION_CASE,
             "验证配送",
-            {"method": "test", "pass_criteria": "满足需求"},
+            {
+                "method": "test",
+                "pass_criteria": "满足需求",
+                "requirement_ids": [requirement.id],
+                "function_ids": [function.id],
+                "logical_component_ids": [logical.id],
+                "physical_ids": [physical.id],
+            },
             status=EntityStatus.VALIDATED,
         )
         entities.append(case)
@@ -1139,7 +1153,14 @@ def _trace_graph(*, verification: bool, validation: bool) -> ModelGraph:
         case = make_entity(
             EntityKind.VALIDATION_CASE,
             "确认体验",
-            {"method": "demonstration", "pass_criteria": "用户认可"},
+            {
+                "method": "demonstration",
+                "pass_criteria": "用户认可",
+                "requirement_ids": [requirement.id],
+                "function_ids": [function.id],
+                "logical_component_ids": [logical.id],
+                "physical_ids": [physical.id],
+            },
             status=EntityStatus.VALIDATED,
         )
         entities.append(case)
@@ -1805,8 +1826,28 @@ def test_traceability_summary_closes_technical_requirement_from_root_to_physical
         {"level": "technical", "constraints": {"max_power_w": 50}},
         status=EntityStatus.VALIDATED,
     )
-    verification = make_entity(EntityKind.VERIFICATION_CASE, "验证计算单元功耗", status=EntityStatus.VALIDATED)
-    validation = make_entity(EntityKind.VALIDATION_CASE, "确认计算单元功耗", status=EntityStatus.VALIDATED)
+    assurance_scope = {
+        "requirement_ids": [technical.id],
+        "function_ids": [
+            item.id for item in graph.entities if item.kind is EntityKind.FUNCTION
+        ],
+        "logical_component_ids": [
+            item.id for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT
+        ],
+        "physical_ids": [physical.id],
+    }
+    verification = make_entity(
+        EntityKind.VERIFICATION_CASE,
+        "验证计算单元功耗",
+        assurance_scope,
+        status=EntityStatus.VALIDATED,
+    )
+    validation = make_entity(
+        EntityKind.VALIDATION_CASE,
+        "确认计算单元功耗",
+        assurance_scope,
+        status=EntityStatus.VALIDATED,
+    )
     graph = ModelGraph(
         graph.project_id,
         (*graph.entities, technical, verification, validation),
@@ -1824,6 +1865,26 @@ def test_traceability_summary_closes_technical_requirement_from_root_to_physical
 
     assert summary.end_to_end_complete_count == 2
     assert any(path[0] == technical.id and physical.id in path for path in summary.paths)
+
+
+def test_traceability_summary_path_uses_the_canonical_projection_ids():
+    graph = _trace_graph(verification=True, validation=True)
+    requirement_id = next(
+        item.id for item in graph.entities if item.kind is EntityKind.REQUIREMENT
+    )
+
+    summary = build_traceability_summary(graph)
+    row = next(
+        item for item in build_traceability_view(graph)["rows"]
+        if item["requirement_id"] == requirement_id
+    )
+
+    assert tuple(summary.paths[0][:4]) == tuple([
+        requirement_id,
+        row["functions"][0],
+        row["logical_components"][0],
+        row["physical_blocks"][0],
+    ])
 
 
 def test_reanalysis_runs_only_from_changed_entity_stage_downstream(tmp_path: Path):

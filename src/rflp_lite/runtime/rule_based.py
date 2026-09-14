@@ -9,7 +9,7 @@ from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_e
 from rflp_lite.domain.model import AddEntity, Deprecate, ModelGraph, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
-from rflp_lite.methodology.trace_rules import requirement_trace_scope
+from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
 from rflp_lite.runtime.lifecycle_rule import (
     LIFECYCLE_TASKS,
     LifecycleTaskRuleRuntime,
@@ -1722,11 +1722,11 @@ def _requirement_trace_scope(context, requirement):
         tuple(context.relations),
         context.revision,
     )
-    scope = requirement_trace_scope(graph, requirement.id)
+    trace = resolve_requirement_trace(graph, requirement.id)
     return {
-        "function_ids": list(scope.function_ids),
-        "logical_component_ids": list(scope.logical_component_ids),
-        "physical_ids": list(scope.physical_ids),
+        "function_ids": list(trace.function_ids),
+        "logical_component_ids": list(trace.logical_component_ids),
+        "physical_ids": list(trace.physical_ids),
     }
 
 
