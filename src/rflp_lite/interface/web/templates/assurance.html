@@ -3,6 +3,60 @@
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">Assurance</p><h1>行为保证与质量门禁</h1><p>V&V、Hazard、FMEA/STPA 与 Gate · 只展示已有事实 · 修订 {{ revision }}</p></div><span class="status-badge info">{{ gates|length }} gates</span></div>
 <section class="panel"><div class="panel-head"><h2>Gate Dashboard</h2><a class="button compact" href="/ui/projects/{{ project_id }}/history">历史与审计</a></div><div class="module-grid">{% for gate in gates %}<article class="card gate-card"><div class="panel-head"><h3>{{ gate.gate_id }}</h3><span class="status-badge {% if gate.passed %}passed{% else %}failed{% endif %}">{% if gate.passed %}✓ PASS{% else %}✗ BLOCKED{% endif %}</span></div><p>Phase: {{ gate.phase }}{% if gate.rollback_phase %} · Rollback: {{ gate.rollback_phase }}{% endif %}</p><div class="compact-list">{% for check in gate.checks[:8] %}<article><span><strong>{{ check.id }}</strong><small class="table-secondary">{{ check.path|join(' → ') if check.path else '' }}</small></span><span class="status-badge {% if check.passed %}passed{% else %}failed{% endif %}">{{ 'PASS' if check.passed else 'FAIL' }}</span></article>{% else %}<div class="mini-empty">暂无细分检查</div>{% endfor %}</div>{% if gate.blocking_issues %}<div class="callout warning">Blocking: {% for issue in gate.blocking_issues %}{{ issue.code }} · {{ issue.entity_ids|join(', ') }}{% if not loop.last %}；{% endif %}{% endfor %}</div>{% endif %}</article>{% endfor %}</div></section>
-<section class="panel"><div class="panel-head"><h2>Verification & Validation Matrix</h2><span class="count-badge">{{ verification_validation|length }}</span></div><div class="table-wrap"><table><thead><tr><th>Type</th><th>Requirement</th><th>Method</th><th>Case</th><th>Pass Criteria</th><th>Status</th></tr></thead><tbody>{% for row in verification_validation %}<tr><td><span class="status-badge info">{{ row.case_type_label }}</span></td><td><code>{{ row.requirement_id }}</code><span class="table-secondary">{{ row.requirement }}</span></td><td>{{ row.method or '—' }}</td><td><code>{{ row.case_id or '—' }}</code><span class="table-secondary">{% if row.case_type == 'verification' %}{{ row.verification_case }}{% else %}{{ row.validation_case }}{% endif %}</span></td><td>{{ row.pass_criteria or '—' }}</td><td><span class="status-badge {% if row.status == 'PASS' %}passed{% else %}failed{% endif %}">{{ row.status }}</span></td></tr>{% else %}<tr><td colspan="6" class="table-empty">暂无验证或确认事实</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="panel">
+  <div class="panel-head"><h2>Verification & Validation Matrix</h2><span class="count-badge">{{ verification_validation|length }}</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Type</th><th>Requirement</th><th>Method</th><th>Case</th><th>Pass Criteria</th><th>计划状态</th><th>执行结果</th><th>记录</th></tr></thead>
+    <tbody>
+      {% for row in verification_validation %}
+      <tr>
+        <td><span class="status-badge info">{{ row.case_type_label }}</span></td>
+        <td><code>{{ row.requirement_id }}</code><span class="table-secondary">{{ row.requirement }}</span></td>
+        <td>{{ row.method or '—' }}</td>
+        <td><code>{{ row.case_id or '—' }}</code><span class="table-secondary">{% if row.case_type == 'verification' %}{{ row.verification_case }}{% else %}{{ row.validation_case }}{% endif %}</span></td>
+        <td>{{ row.pass_criteria or '—' }}</td>
+        <td><span class="status-badge {% if row.plan_status == 'PASS' %}passed{% else %}failed{% endif %}">{{ row.plan_status }}</span></td>
+        <td><span class="status-badge {% if row.execution_status == 'passed' %}passed{% elif row.execution_status in ['failed', 'blocked', 'inconclusive'] %}failed{% else %}candidate{% endif %}">{{ row.execution_status }}</span>{% if row.last_execution %}<small class="table-secondary">{{ row.last_execution.evidence_id }}</small>{% endif %}</td>
+        <td>
+          {% if row.case_id %}
+          <details><summary class="button compact">记录结果</summary>
+            <form class="vv-execution-form compact-form" data-case-id="{{ row.case_id }}">
+              <label class="field">结果<select name="outcome"><option value="passed">passed</option><option value="failed">failed</option><option value="blocked">blocked</option><option value="inconclusive">inconclusive</option></select></label>
+              <label class="field">声明<input name="claim" required placeholder="例如：测试通过"></label>
+              <label class="field">结果摘录<textarea name="excerpt" rows="2" required placeholder="粘贴测试/演示结果"></textarea></label>
+              <label class="field">定位<input name="locator" placeholder="报告、日志或文件路径"></label>
+              <button class="button compact primary" type="submit">提交执行证据</button>
+            </form>
+          </details>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% else %}<tr><td colspan="8" class="table-empty">暂无验证或确认事实</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
 <div class="two-column workflow-columns"><section class="panel"><div class="panel-head"><h2>Hazard / Safety</h2><span class="count-badge">{{ hazards|length }}</span></div>{% for item in hazards %}<article class="card"><strong>{{ item.name }}</strong><code>{{ item.id }}</code><p>Causes: {{ item.causes|join(', ') or '—' }}</p><p>Mitigations: {{ item.mitigations|join(', ') or '—' }}</p><p>Verification: {{ item.verification|join(', ') or '—' }}</p></article>{% else %}<div class="mini-empty">暂无危险源记录</div>{% endfor %}</section><section class="panel"><div class="panel-head"><h2>FMEA / STPA</h2><span class="count-badge">{{ failure_modes|length }}</span></div>{% for item in failure_modes %}<article class="card"><strong>{{ item.name }}</strong><code>{{ item.id }}</code><span class="status-badge {{ item.status }}">{{ item.status }}</span></article>{% else %}<div class="mini-empty">暂无失效模式记录</div>{% endfor %}</section></div>
+<script>
+document.querySelectorAll('.vv-execution-form').forEach((form) => form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  const payload = {
+    outcome: form.elements.outcome.value,
+    claim: form.elements.claim.value.trim(),
+    excerpt: form.elements.excerpt.value.trim(),
+    locator: form.elements.locator.value.trim(),
+    expected_revision: {{ revision }},
+  };
+  try {
+    const response = await fetch(`/projects/{{ project_id }}/vv/${encodeURIComponent(form.dataset.caseId)}/execute`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload)});
+    const data = await response.json();
+    if (!response.ok || data.status !== 'ok') throw new Error(data.message || '记录 V&V 结果失败');
+    window.location.reload();
+  } catch (error) {
+    alert(error.message);
+    button.disabled = false;
+  }
+}));
+</script>
 {% endblock %}

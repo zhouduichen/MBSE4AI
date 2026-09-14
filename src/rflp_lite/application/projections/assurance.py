@@ -67,6 +67,10 @@ def build_assurance_view(graph: ModelGraph, issues: tuple[Mapping[str, object], 
                     "validation_case": case.meta.name if kind == "validation" and case else "",
                     "pass_criteria": case.payload.get("pass_criteria", "") if case else "",
                     "status": "PASS" if case and case.payload.get("method") and case.payload.get("pass_criteria") else code,
+                    "plan_status": "PASS" if case and case.payload.get("method") and case.payload.get("pass_criteria") else code,
+                    "execution_status": case.payload.get("execution_status", "pending") if case else "missing",
+                    "execution_evidence_ids": list(case.payload.get("evidence_ids", ())) if case and isinstance(case.payload.get("evidence_ids", ()), (list, tuple)) else [],
+                    "last_execution": case.payload.get("last_execution", {}) if case else {},
                     "issues": list(issue_index.get(requirement.id, ())),
                 })
     hazards = []

@@ -50,6 +50,7 @@
 | 23-task 纵向追溯回接 | 后置 functional/technical/reverse requirement 自动回接 Function 与 V&V；校园配送 fixture 交付包验证 7/7 需求完整追溯 |
 | 已有 SysML 模型输入 | Web Analysis 支持上传 `.sysml`，通过同一解析器导入 ModelGraph；任意非弃用实体组成的局部模型都可作为分析种子，冲突 ID 在写入前拒绝，并可继续生成、编辑和导出 |
 | 用户目标与历史项目输入 | `project goal`、Web `/projects/{id}/goal` 和 Analysis 页面可把目标写入 System mission/objectives 及候选 Requirement；Controller Tool Layer 通过只读跨项目 FTS 检索历史项目模型、文档区域和证据，并将命中结果作为当前项目 Evidence 使用 |
+| V&V 执行反馈闭环 | `vv record`、Web `/projects/{id}/vv/{case_id}/execute` 和 Assurance 页面接受外部测试/演示的明确结果与证据摘录；结果回写 V&V Case，失败生成 Issue 并沿驱动 Requirement 路由功能/逻辑/物理迭代，重复执行保留历史 |
 
 ## 历史 Harness 验收边界
 
@@ -64,7 +65,7 @@ PR09 的 conformance runner 位于 `tests/contract_conformance/`，默认使用�
 
 最终 live artifact：`docs/superpowers/artifacts/pr09/contract-conformance-1789049206566817000.json`。五阶段主验收位于 `tests/e2e/test_vertical_model_generation.py`；完整 23-task 主验收位于 `tests/e2e/test_legacy_pipeline.py`、`tests/runtime/test_lifecycle_rule_runtime.py` 和 `tests/application/test_sysml_v2.py`。脚本模型验收不等同于真实 Provider 稳定性。
 
-Methodology Engine v1 的边界是确定性反馈；Systems Engineering Controller v1 已将这些反馈转成有限动作，并允许用户比较候选方案后提交 Trade Study 决策。Review 后可显式继续生成下游：系统从已接受实体的下一层运行到 V&V，锁定实体作为只读锚点，V&V 不创建空的后续运行。当前 Controller 仍不替用户无审查地改写工程事实或选择方案，复杂的多轮方案综合、仿真和真实工具执行留作后续迭代。
+Methodology Engine v1 的边界是确定性反馈；Systems Engineering Controller v1 已将这些反馈转成有限动作，并允许用户比较候选方案后提交 Trade Study 决策。Review 后可显式继续生成下游：系统从已接受实体的下一层运行到 V&V，锁定实体作为只读锚点，V&V 不创建空的后续运行。当前 Controller 仍不替用户无审查地改写工程事实或选择方案；V&V 已支持外部结果/证据接入和失败反馈，真正的测试执行沙箱、仿真适配和 CAD/真实工程工具连接留作后续迭代。
 
 ## 当前验收命令
 

@@ -51,6 +51,10 @@ _NON_SEMANTIC_FAILURE_VALUES = frozenset(
 )
 
 
+async def _request_json(request: Request):
+    return await request.json()
+
+
 def _services(request: Request):
     services = getattr(request.app.state, "container", None)
     if services is None or services.v2 is None:
@@ -967,7 +971,7 @@ def list_evidence(request: Request, project_id: str):
 @resource_api.post("/projects/{project_id}/evidence/search")
 async def search_evidence(request: Request, project_id: str):
     try:
-        payload = await request.json()
+        payload = await _request_json(request)
         if not isinstance(payload, Mapping):
             raise ContractViolation("evidence query must be an object")
         graph = _services(request).model(project_id).graph(project_id)
@@ -976,6 +980,29 @@ async def search_evidence(request: Request, project_id: str):
         context = ContextBuilder().build(graph, tasks_for_phase(Phase.OPERATIONAL)[0])
         result = _services(request).evidence(project_id).search(KnowledgeGap("api", str(payload.get("query", ""))), context)
         return {"status": "ok", "candidates": [asdict(item) for item in result.candidates], "gaps": [asdict(item) for item in result.gaps], "workflow_blocked": result.workflow_blocked, "confidence": result.confidence}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/vv/{case_id}/execute")
+async def execute_vv(request: Request, project_id: str, case_id: str):
+    try:
+        payload = await _request_json(request)
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("V&V execution payload must be an object")
+        result = _services(request).vv(project_id).record_result(
+            project_id,
+            case_id,
+            outcome=str(payload.get("outcome", "")),
+            claim=str(payload.get("claim", "")),
+            excerpt=str(payload.get("excerpt", "")),
+            locator=str(payload.get("locator", "")),
+            source_type=str(payload.get("source_type", "vv_execution")),
+            expected_revision=payload.get("expected_revision"),
+            metadata=payload.get("metadata") if isinstance(payload.get("metadata"), Mapping) else None,
+        )
+        execution = result.as_dict()
+        return {"status": "ok", "execution": execution, **execution}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 

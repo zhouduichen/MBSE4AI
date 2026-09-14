@@ -73,6 +73,7 @@ CLI 的主要命令：
 project create|ingest|goal
 analyze generate|run|status
 model export|import-sysml
+vv record
 issue list
 repair run
 model-profile list|save|activate
@@ -84,7 +85,7 @@ model-profile list|save|activate
 .venv/bin/uvicorn rflp_lite.interface.web.app:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-页面收敛为 Projects、Analysis、MBSE Model、Evidence & Issues、Settings；API 资源以 `/projects` 为根，提供项目、分析运行、模型、实体 CAS 编辑、证据、Issue、Repair 和 Export。MBSE Model 页面按 System Definition、Functional、Logical、Physical、V&V 展示真实 ModelGraph 实体，并支持实体编辑、Review、锁定和重新分析。
+页面收敛为 Projects、Analysis、MBSE Model、Evidence & Issues、Settings；API 资源以 `/projects` 为根，提供项目、分析运行、模型、实体 CAS 编辑、证据、V&V 执行结果、Issue、Repair 和 Export。Assurance 页面可以直接为 VerificationCase/ValidationCase 记录真实执行结果；结果进入 Evidence 和 ModelGraph，失败结果生成 Issue 并给出下游迭代动作。MBSE Model 页面按 System Definition、Functional、Logical、Physical、V&V 展示真实 ModelGraph 实体，并支持实体编辑、Review、锁定和重新分析。
 
 Analysis 页面可以直接保存“系统目标 / 项目使命”；目标同时作为 System intent 和候选 Requirement 进入后续 R→F→L→P→V&V。Controller 的历史项目检索只读其他 managed project 的模型、文档区域和证据 FTS，命中结果以 `historical_project` Evidence 回写当前项目，不跨项目修改模型。
 

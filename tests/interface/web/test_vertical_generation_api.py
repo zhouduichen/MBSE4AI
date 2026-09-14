@@ -88,6 +88,40 @@ def test_controller_plan_and_execution_endpoint_expose_next_action(tmp_path: Pat
     assert execution.json()["controller"]["execution_status"] == "awaiting_evidence"
 
 
+def test_vv_execution_endpoint_records_result_and_exposes_failure_feedback(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    generated = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统应支持人工接管"},
+    ).json()["run"]
+    model = client.get("/projects/p1/model").json()
+    verification = next(
+        item for item in model["entities"] if item["kind"] == "verification_case"
+    )
+
+    response = client.post(
+        f"/projects/p1/vv/{verification['id']}/execute",
+        json={
+            "outcome": "failed",
+            "claim": "接管响应超时",
+            "excerpt": "测试日志：响应时间 4.2 s，超过通过准则。",
+            "locator": "test.log:42",
+            "expected_revision": generated["revision"],
+        },
+    )
+
+    assert response.status_code == 200
+    execution = response.json()["execution"]
+    assert execution["outcome"] == "failed"
+    assert execution["evidence_id"]
+    assert execution["methodology"]["metrics"]["vv_execution_failure_count"] == 1
+    assert any(
+        item["code"] == "verification_execution_failed"
+        for item in client.get("/projects/p1/issues").json()["issues"]
+    )
+
+
 def test_controller_iteration_endpoint_returns_waiting_decision(tmp_path: Path):
     client = _client(tmp_path)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200

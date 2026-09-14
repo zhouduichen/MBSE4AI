@@ -69,6 +69,17 @@ def _parser() -> argparse.ArgumentParser:
     repair_run = repair_commands.add_parser("run", help="修复指定问题")
     repair_run.add_argument("project_id", help="项目标识")
     repair_run.add_argument("issue_id", help="问题标识")
+    vv = commands.add_parser("vv", help="记录 Verification/Validation 执行结果")
+    vv_commands = vv.add_subparsers(dest="vv_command", required=True)
+    vv_record = vv_commands.add_parser("record", help="记录一个 V&V Case 的真实结果")
+    vv_record.add_argument("project_id", help="项目标识")
+    vv_record.add_argument("case_id", help="VerificationCase 或 ValidationCase 标识")
+    vv_record.add_argument("outcome", choices=("passed", "failed", "blocked", "inconclusive"), help="执行结果")
+    vv_record.add_argument("--claim", required=True, help="结果声明")
+    vv_record.add_argument("--excerpt", required=True, help="测试/演示结果摘录")
+    vv_record.add_argument("--locator", default="", help="结果文件、日志或报告定位")
+    vv_record.add_argument("--source-type", default="vv_execution", help="结果来源类型")
+    vv_record.add_argument("--expected-revision", type=int, default=None, help="期望的 ModelGraph 修订")
     profile = commands.add_parser("model-profile", help="管理模型服务配置")
     profile_commands = profile.add_subparsers(dest="profile_command", required=True)
     profile_commands.add_parser("list", help="列出模型配置")
@@ -159,6 +170,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "repair" and args.repair_command == "run":
         result = services.analysis(args.project_id).repair(args.project_id, args.issue_id)
         print(canonical_json({"status": "ok", "run": result}))
+        return 0
+    if args.command == "vv" and args.vv_command == "record":
+        result = services.vv(args.project_id).record_result(
+            args.project_id,
+            args.case_id,
+            outcome=args.outcome,
+            claim=args.claim,
+            excerpt=args.excerpt,
+            locator=args.locator,
+            source_type=args.source_type,
+            expected_revision=args.expected_revision,
+        )
+        print(canonical_json({"status": "ok", "execution": result.as_dict()}))
         return 0
     if args.command == "model-profile" and args.profile_command == "list":
         print(canonical_json({"status": "ok", **services.settings.list_profiles()}))

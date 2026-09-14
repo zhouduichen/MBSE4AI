@@ -572,6 +572,8 @@ class MethodologyEngine:
         metrics["hazard_failure_mode_coverage"] = _ratio(
             len(risk_requirement_ids), len(requirements)
         )
+        vv_cases, executed_cases, failed_cases, execution_metrics = _vv_execution_summary(index)
+        metrics.update(execution_metrics)
         for requirement in requirements:
             if requirement.id not in hazard_requirement_ids:
                 findings.append(MethodologyFinding(
@@ -585,20 +587,7 @@ class MethodologyEngine:
                     f"需求“{requirement.meta.name}”没有关联 FailureMode 分析。",
                     ("fmea_stpa_hazard", "reverse_feasibility"),
                 ))
-        for risk in (*hazards, *failure_modes):
-            if not any(
-                index[target_id].kind in {
-                    EntityKind.REQUIREMENT,
-                    EntityKind.FUNCTION,
-                    EntityKind.VERIFICATION_CASE,
-                }
-                for target_id in mitigations.get(risk.id, ())
-            ):
-                findings.append(MethodologyFinding(
-                    "risk_without_mitigation", "warning", "assurance", (risk.id,),
-                    f"风险对象“{risk.meta.name}”没有关联需求、功能或 VerificationCase 缓解措施。",
-                    ("fmea_stpa_hazard", "verification_validation"),
-                ))
+        self._vv_risk_findings(hazards, failure_modes, index, mitigations, findings)
         for requirement in requirements:
             verification_cases = tuple(
                 index[item] for item in verifications.get(requirement.id, ())
@@ -632,6 +621,14 @@ class MethodologyEngine:
                     f"需求“{requirement.meta.name}”没有 ValidationCase。",
                     ("verification_validation",),
                 ))
+            for case in (*verification_cases, *validation_cases):
+                self._vv_execution_findings(
+                    case,
+                    requirements,
+                    verifications,
+                    validations,
+                    findings,
+                )
         verification_coverage = _ratio(verification_count, len(requirements))
         validation_coverage = _ratio(validation_count, len(requirements))
         metrics["verification_coverage"] = verification_coverage
@@ -669,6 +666,14 @@ class MethodologyEngine:
                     if verifications.get(item.id) and validations.get(item.id)
                 ],
             },
+            {
+                "step": "verification_execution_feedback",
+                "decision": (
+                    f"已执行 {len(executed_cases)}/{len(vv_cases)} 个 V&V Case，"
+                    f"其中 {len(failed_cases)} 个需要沿影响链迭代"
+                ),
+                "basis": [item.id for item in executed_cases],
+            },
         ))
 
     @staticmethod
@@ -687,6 +692,54 @@ class MethodologyEngine:
                     f"{label.title()}Case“{case.meta.name}”尚未关联执行证据。",
                     ("verification_validation", "global_cross_analysis"),
                 ))
+
+    @staticmethod
+    def _vv_risk_findings(hazards, failure_modes, index, mitigations, findings) -> None:
+        for risk in (*hazards, *failure_modes):
+            covered = any(
+                index[target_id].kind in {
+                    EntityKind.REQUIREMENT,
+                    EntityKind.FUNCTION,
+                    EntityKind.VERIFICATION_CASE,
+                }
+                for target_id in mitigations.get(risk.id, ())
+            )
+            if not covered:
+                findings.append(MethodologyFinding(
+                    "risk_without_mitigation", "warning", "assurance", (risk.id,),
+                    f"风险对象“{risk.meta.name}”没有关联需求、功能或 VerificationCase 缓解措施。",
+                    ("fmea_stpa_hazard", "verification_validation"),
+                ))
+
+    @staticmethod
+    def _vv_execution_findings(case, requirements, verifications, validations, findings) -> None:
+        outcome = str(case.payload.get("execution_status", "")).strip()
+        if outcome not in {"failed", "blocked", "inconclusive"}:
+            return
+        requirement_ids = {
+            str(item) for item in case.payload.get("requirement_ids", ())
+            if str(item)
+        }
+        requirement_ids.update(
+            requirement.id
+            for requirement in requirements
+            if case.id in verifications.get(requirement.id, ())
+            or case.id in validations.get(requirement.id, ())
+        )
+        label = "Verification" if case.kind is EntityKind.VERIFICATION_CASE else "Validation"
+        actions = (
+            ("function_identification", "logical_analysis", "physical_candidates", "verification_validation")
+            if outcome == "failed"
+            else ("verification_validation", "global_cross_analysis")
+        )
+        findings.append(MethodologyFinding(
+            f"{label.casefold()}_execution_failed",
+            "error" if outcome == "failed" else "warning",
+            "assurance",
+            tuple([case.id, *sorted(requirement_ids)]),
+            f"{label}Case“{case.meta.name}”执行结果为 {outcome}，需要检查驱动需求及其下游架构。",
+            actions,
+        ))
 
     @staticmethod
     def _impact(graph, index, changed_entity_ids):
@@ -720,6 +773,35 @@ class MethodologyEngine:
         }
         tasks = tuple(task for task in _TASK_ORDER if task in task_set)
         return tuple(sorted(visited)), stages, tasks, tuple(paths)
+
+
+def _vv_execution_summary(index):
+    cases = (
+        *_active(index, EntityKind.VERIFICATION_CASE),
+        *_active(index, EntityKind.VALIDATION_CASE),
+    )
+    executed = tuple(
+        item for item in cases
+        if str(item.payload.get("execution_status", "")).strip()
+    )
+    failed = tuple(
+        item for item in executed
+        if item.payload.get("execution_status") in {"failed", "blocked", "inconclusive"}
+    )
+    return (
+        cases,
+        executed,
+        failed,
+        {
+            "vv_execution_case_count": len(cases),
+            "vv_execution_coverage": _ratio(len(executed), len(cases)),
+            "vv_execution_pass_coverage": _ratio(
+                sum(item.payload.get("execution_status") == "passed" for item in executed),
+                len(cases),
+            ),
+            "vv_execution_failure_count": len(failed),
+        },
+    )
 
 
 def _active(index: Mapping[str, Entity], kind: EntityKind | None = None) -> tuple[Entity, ...]:

@@ -19,6 +19,7 @@ from rflp_lite.application.render_service import RenderService
 from rflp_lite.application.review_service import ReviewService
 from rflp_lite.application.settings_service import SettingsService
 from rflp_lite.application.tool_layer import EngineeringToolLayer
+from rflp_lite.application.vv_execution import VvExecutionService
 from rflp_lite.methodology.workflow import WorkflowRunner
 from rflp_lite.repository.sqlite import SQLiteModelRepository
 from rflp_lite.methodology.context import ContextBuilder
@@ -107,6 +108,9 @@ class V2Services:
     def evidence(self, project_id: str) -> EvidenceService:
         repository = self.repository(project_id)
         return EvidenceService(repository, retrieval_engine=self._retrieval_engine(project_id, repository))
+
+    def vv(self, project_id: str) -> VvExecutionService:
+        return VvExecutionService(self.model(project_id))
 
     def _retrieval_engine(self, project_id: str, repository) -> RetrievalEngine:
         sources = tuple(
