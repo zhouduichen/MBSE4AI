@@ -962,6 +962,7 @@ class ModelGenerationService:
                                 producer=Producer.USER,
                                 confidence=1.0,
                                 source_ids=source_ids,
+                                evidence_ids=source_ids,
                                 revision=graph.revision,
                             )
                         )

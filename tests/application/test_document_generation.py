@@ -21,6 +21,18 @@ def test_document_regions_can_seed_the_vertical_generation_path(tmp_path: Path):
     assert any(item.kind is EntityKind.REQUIREMENT for item in graph.entities)
     requirement = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
     assert requirement.meta.source_ids
+    assert requirement.meta.evidence_ids == requirement.meta.source_ids
+    assert all(
+        graph.entity_index[evidence_id].kind is EntityKind.EVIDENCE
+        for evidence_id in requirement.meta.evidence_ids
+    )
+    package = services.deliverables("robot").build("robot")
+    exported_entities = package["artifacts"]["model"]["content"]["entities"]
+    assert any(
+        item["id"] in requirement.meta.evidence_ids
+        and item["kind"] == EntityKind.EVIDENCE.value
+        for item in exported_entities
+    )
 
 
 def test_document_sentences_create_independent_requirements(tmp_path: Path):

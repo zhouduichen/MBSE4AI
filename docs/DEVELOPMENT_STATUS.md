@@ -22,7 +22,7 @@
 | Web 主流程入口 | `/` 重定向到项目列表；分析页支持需求文本和文档上传；无输入项目禁止运行分析并在页面禁用运行按钮 |
 | Web 运行配置 | 设置页支持保存模型配置、激活已有配置和连接测试；API Key 不进入页面或公开响应 |
 | 文档接入 | TXT、Markdown、DOCX、PDF 解析；扫描 PDF 使用可选 OCR 适配器 |
-| 文档证据上下文 | 解析出的每个 Source Region 持久化为 `document_region` Evidence，并进入五阶段结构化 LLM 上下文，可被实体/关系引用 |
+| 文档证据上下文 | 解析出的每个 Source Region 持久化为 `document_region` Evidence，文档 Requirement 同时保存 source/evidence ID，补丁提交时物化为 ModelGraph 节点并进入五阶段结构化 LLM 上下文 |
 | Golden E2E | 校园无人配送机器人 fixture 可导入并跑完整阶段；失败与锁定保护可验证 |
 | 默认产品纵向生成 | 自然语言或已解析文档 → Requirements → Functional → Logical → Physical → V&V；五阶段写入同一 ModelGraph，并返回阶段结果、追溯摘要和 SysML 文本 |
 | 完整 23-task 纵向生命周期 | `analyze run` / Web `mode=pipeline` 共享自然语言、文档区域和 ModelGraph 输入；23 个任务逐任务产生真实 typed entities/relations/updates，形成 R→F→L→P→V&V，并在语义任务失败时阻断后续阶段与 Closure |

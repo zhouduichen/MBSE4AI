@@ -29,4 +29,6 @@ def test_document_input_preserves_region_source_id(tmp_path: Path):
 
     ids = RequirementInputService(repository, "p1").ensure_document_requirements(("doc-1",))
 
-    assert repository.load_graph("p1").entity_index[ids[0]].meta.source_ids == ("region-1",)
+    requirement = repository.load_graph("p1").entity_index[ids[0]]
+    assert requirement.meta.source_ids == ("region-1",)
+    assert requirement.meta.evidence_ids == ("region-1",)
