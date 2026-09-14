@@ -578,9 +578,11 @@ class WorkflowRunner:
     def _context_budget(self) -> int:
         value = getattr(self.runtime_selection, "context_window", None)
         try:
-            return max(512, int(value)) if value is not None else 2000
+            # Match RuntimeFactory's default profile window when the offline
+            # rule runtime is injected without an explicit selection.
+            return max(512, int(value)) if value is not None else 8192
         except (TypeError, ValueError):
-            return 2000
+            return 8192
 
     def _configured_output_budget(self) -> bool:
         return getattr(self.runtime_selection, "max_output_tokens", None) is not None

@@ -1599,7 +1599,7 @@ def test_vertical_generation_bounds_stage_context_to_configured_window(tmp_path:
             "kind": "remote",
             "base_url": "https://example.invalid/v1",
             "model": "engineering-model",
-            "context_window": 2048,
+            "context_window": 4096,
             "max_output_tokens": 1024,
         },
     )
@@ -1622,9 +1622,16 @@ def test_vertical_generation_bounds_stage_context_to_configured_window(tmp_path:
         "vertical.verification_validation",
     ]
     assert all(
-        estimate <= 2048
+        estimate <= 2816
         for estimate in model.context_token_estimates
     )
+    assurance_guidances = [
+        guidance
+        for lens_id, guidance in zip(model.calls, model.methodology_guidances)
+        if lens_id == "vertical.verification_validation"
+    ]
+    assert assurance_guidances
+    assert all("context_selection" in guidance for guidance in assurance_guidances)
 
 
 def test_controller_evidence_action_calls_tool_and_reanalyzes(tmp_path: Path):

@@ -47,8 +47,9 @@ total Runtime context window
    作用域，并优先选取该作用域内的 ready 实体。
 2. 为每条需求选取作用域匹配的 VerificationCase 和 ValidationCase；已有多个用例时按
    canonical ID 排序，直到预算允许。每条需求的 ID 和作用域摘要始终进入 guidance。
-3. 在剩余预算内加入与已选作用域相连的 Activity、FunctionalScenario、Hazard、FailureMode
-   和 Evidence；同一层内按 kind、ID 排序。
+3. 在剩余预算内优先加入与已选作用域相连的 Activity、FunctionalScenario、Hazard、FailureMode
+   和 Evidence；预算仍有余量时再加入其他同类支撑实体，避免小图因缺少显式引用而丢失运行语境。
+   同一层内按“相连优先、kind、ID”排序。
 4. 只保留两端都已选中的关系，并按关系 ID 排序。
 
 每次加入实体都用现有 `TokenEstimator` 估算完整实体 payload；超出预算的实体跳过而不是截断

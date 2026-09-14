@@ -1,7 +1,7 @@
 from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.model import ModelGraph, Relation
 from rflp_lite.domain.relations import RelationPredicate
-from rflp_lite.methodology.context_planner import HeuristicTokenEstimator
+from rflp_lite.methodology.context_planner import ContextPlanner, HeuristicTokenEstimator
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.tasks import tasks_for_phase
@@ -44,7 +44,7 @@ def test_assurance_context_preserves_complete_rflp_scope_for_vv_tasks():
     )
     task = next(item for item in tasks_for_phase(Phase.ASSURANCE) if item.id == "verification_validation")
 
-    context = ContextBuilder().build(graph, task, token_budget=1)
+    context = ContextBuilder().build(graph, task, token_budget=10000)
 
     assert {item.kind for item in context.entities} == {
         EntityKind.REQUIREMENT,
@@ -53,6 +53,60 @@ def test_assurance_context_preserves_complete_rflp_scope_for_vv_tasks():
         EntityKind.PHYSICAL_BLOCK,
     }
     assert len(context.relations) == 3
+
+
+class _FixedContextEstimator:
+    def estimate(self, value):
+        return 10 if isinstance(value, dict) and "kind" in value else 1
+
+
+def test_assurance_context_is_budgeted_and_reports_omissions():
+    requirements = tuple(
+        make_entity(EntityKind.REQUIREMENT, f"需求-{index}")
+        for index in range(2)
+    )
+    functions = tuple(
+        make_entity(EntityKind.FUNCTION, f"功能-{index}")
+        for index in range(2)
+    )
+    logicals = tuple(
+        make_entity(EntityKind.LOGICAL_COMPONENT, f"逻辑-{index}")
+        for index in range(2)
+    )
+    graph = ModelGraph(
+        "p1",
+        (*requirements, *functions, *logicals),
+        (
+            Relation("r0-f0", requirements[0].id, RelationPredicate.SATISFIED_BY, functions[0].id),
+            Relation("f0-l0", functions[0].id, RelationPredicate.ALLOCATED_TO, logicals[0].id),
+            Relation("r1-f1", requirements[1].id, RelationPredicate.SATISFIED_BY, functions[1].id),
+            Relation("f1-l1", functions[1].id, RelationPredicate.ALLOCATED_TO, logicals[1].id),
+        ),
+    )
+    task = next(
+        item for item in tasks_for_phase(Phase.ASSURANCE)
+        if item.id == "verification_validation"
+    )
+
+    context = ContextBuilder(
+        planner=ContextPlanner(_FixedContextEstimator())
+    ).build(graph, task, token_budget=20, output_reserve=0)
+
+    selected_ids = {item.id for item in context.entities}
+    guidance = context.methodology_guidance["context_selection"]
+    assert context.token_estimate <= 20
+    assert selected_ids == {requirements[0].id, requirements[1].id}
+    assert set(guidance["selected_requirement_ids"]) == {
+        requirements[0].id, requirements[1].id,
+    }
+    assert set(guidance["omitted_entity_ids"]) == {
+        functions[0].id, functions[1].id, logicals[0].id, logicals[1].id,
+    }
+    assert guidance["available_budget"] == 20
+    assert all(
+        relation.source_id in selected_ids and relation.target_id in selected_ids
+        for relation in context.relations
+    )
 
 
 def test_vertical_assurance_context_preserves_existing_vv_scope_during_reanalysis():
@@ -76,7 +130,7 @@ def test_vertical_assurance_context_preserves_existing_vv_scope_during_reanalysi
     context = ContextBuilder().build(
         graph,
         stage_task(VerticalStage.VERIFICATION_VALIDATION),
-        token_budget=1,
+        token_budget=10000,
     )
 
     assert {item.kind for item in context.entities} == {
