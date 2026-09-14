@@ -12,7 +12,14 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
-from rflp_lite.domain.entities import Entity, EntityKind, EntityMeta, EntityStatus, Producer
+from rflp_lite.domain.entities import (
+    Entity,
+    EntityKind,
+    EntityMeta,
+    EntityStatus,
+    Producer,
+    make_evidence_entity,
+)
 from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation
 from rflp_lite.domain.model import ModelGraph, Patch, Revision, apply_patch
 from rflp_lite.domain.relations import RelationPredicate
@@ -53,6 +60,26 @@ def _entity_from_dict(raw: Mapping[str, object]) -> Entity:
     if not isinstance(payload, Mapping):
         raise ContractViolation("entity payload must be an object")
     return Entity(meta, dict(payload))
+
+
+def _evidence_from_row(row: sqlite3.Row) -> Mapping[str, object]:
+    return {
+        "id": row["id"],
+        "source_type": row["source_type"],
+        "source_id": row["source_id"],
+        "locator": row["locator"],
+        "claim": row["claim"],
+        "excerpt": row["excerpt"],
+        "authority": row["authority"],
+        "relevance": row["relevance"],
+    }
+
+
+def _payload_evidence_ids(payload: Mapping[str, object]) -> set[str]:
+    values = payload.get("evidence_ids", ())
+    if not isinstance(values, (list, tuple)):
+        return set()
+    return {str(value).strip() for value in values if str(value).strip()}
 
 
 class SQLiteModelRepository(ModelRepository, RunRepository):
@@ -129,6 +156,52 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
         graph = self.load_graph(project_id)
         return tuple(item for item in graph.entities if kind is None or item.kind is kind)
 
+    def _materialize_referenced_evidence(
+        self, graph: ModelGraph
+    ) -> tuple[ModelGraph, tuple[str, ...]]:
+        referenced_ids = {
+            evidence_id
+            for entity in graph.entities
+            for evidence_id in entity.meta.evidence_ids
+        }
+        referenced_ids.update(
+            evidence_id
+            for entity in graph.entities
+            for evidence_id in _payload_evidence_ids(entity.payload)
+        )
+        referenced_ids.update(
+            evidence_id
+            for relation in graph.relations
+            for evidence_id in relation.evidence_ids
+        )
+        missing_node_ids = referenced_ids - set(graph.entity_index)
+        if not missing_node_ids:
+            return graph, ()
+
+        rows = self._connection.execute(
+            "SELECT * FROM evidence WHERE project_id = ? ORDER BY id",
+            (graph.project_id,),
+        ).fetchall()
+        records = {
+            str(row["id"]): _evidence_from_row(row)
+            for row in rows
+            if str(row["id"]) in missing_node_ids
+        }
+        additions = tuple(
+            make_evidence_entity(records[evidence_id], revision=graph.revision)
+            for evidence_id in sorted(records)
+        )
+        if not additions:
+            return graph, ()
+        materialized_ids = tuple(item.id for item in additions)
+        next_graph = ModelGraph(
+            graph.project_id,
+            tuple(sorted((*graph.entities, *additions), key=lambda item: item.id)),
+            graph.relations,
+            graph.revision,
+        )
+        return next_graph, materialized_ids
+
     def _persist_graph(self, graph: ModelGraph, revision: int) -> None:
         for entity in graph.entities:
             meta = replace(
@@ -165,6 +238,7 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
                     f"stale ModelGraph revision: expected {expected_revision}, current {current}"
                 )
             graph = apply_patch(self.load_graph(project_id), patch)
+            graph, materialized_evidence_ids = self._materialize_referenced_evidence(graph)
             revision = Revision(
                 project_id, graph.revision, f"revision-{current}" if current else None,
                 patch.reason, graph.snapshot_hash, run_id,
@@ -188,7 +262,15 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
             )
             self._connection.execute(
                 "INSERT INTO audit_events(project_id, kind, payload) VALUES (?, ?, ?)",
-                (project_id, "model.patch.applied", _json({"patch_id": patch.id, "revision": graph.revision})),
+                (
+                    project_id,
+                    "model.patch.applied",
+                    _json({
+                        "patch_id": patch.id,
+                        "revision": graph.revision,
+                        "materialized_evidence_ids": list(materialized_evidence_ids),
+                    }),
+                ),
             )
             return revision
 
@@ -339,11 +421,7 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
                 "SELECT * FROM evidence WHERE project_id = ? ORDER BY id", (project_id,)
             ).fetchall()
         return tuple(
-            {
-                "id": row["id"], "source_type": row["source_type"], "source_id": row["source_id"],
-                "locator": row["locator"], "claim": row["claim"], "excerpt": row["excerpt"],
-                "authority": row["authority"], "relevance": row["relevance"],
-            }
+            _evidence_from_row(row)
             for row in rows
         )
 
