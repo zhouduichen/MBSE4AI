@@ -10,6 +10,7 @@ from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import CompletionCondition, ContextQuery, FailureAction, FailureRoute, Phase, TaskSpec
 from rflp_lite.methodology.policy import PatchPolicy
 from rflp_lite.methodology.proposal_compiler import proposal_schema
+from rflp_lite.methodology.vv_contract import VV_PLAN_FIELDS
 
 
 def _task(
@@ -288,7 +289,9 @@ def _vv_payload_schema(*, include_cross_analysis: bool = False):
     properties = {
         "method": {"type": "string", "minLength": 1},
         "precondition": {"type": "string", "minLength": 1},
+        "test_condition": {"type": "string", "minLength": 1},
         "input": {"type": "string", "minLength": 1},
+        "stimulus": {"type": "string", "minLength": 1},
         "procedure": {"type": "string", "minLength": 1},
         "expected_result": {"type": "string", "minLength": 1},
         "pass_criteria": {"type": "string", "minLength": 1},
@@ -311,7 +314,12 @@ def _vv_payload_schema(*, include_cross_analysis: bool = False):
             "cross_analysis_status": {"type": "string"},
             "traceability_checked": {"type": "boolean"},
         })
-    return {"type": "object", "additionalProperties": False, "properties": properties}
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": list(VV_PLAN_FIELDS),
+        "properties": properties,
+    }
 
 
 def _physical_payload_schema():

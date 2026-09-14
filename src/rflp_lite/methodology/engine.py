@@ -20,6 +20,7 @@ from rflp_lite.methodology.trace_rules import (
     requirement_trace_scope,
     vv_scope_matches,
 )
+from rflp_lite.methodology.vv_contract import VV_PLAN_FIELDS, missing_vv_plan_fields
 
 
 _INACTIVE = frozenset({EntityStatus.REJECTED, EntityStatus.DEPRECATED})
@@ -32,10 +33,6 @@ _OPERATIONAL_KINDS = (
     EntityKind.LIFECYCLE_STAGE, EntityKind.LIFECYCLE_TRANSITION,
     EntityKind.SCENARIO_HYPOTHESIS, EntityKind.USE_CASE,
     EntityKind.OPERATIONAL_SCENARIO, EntityKind.ACTIVITY, EntityKind.REQUIREMENT,
-)
-_VV_PLAN_FIELDS = (
-    "method", "precondition", "input", "procedure", "expected_result",
-    "pass_criteria",
 )
 _TASK_ORDER = TASK_ORDER
 _VERTICAL_COMPLETION_STAGE_BY_TASK = {
@@ -792,7 +789,7 @@ class MethodologyEngine:
     @staticmethod
     def _vv_findings(label, cases, findings) -> None:
         for case in cases:
-            missing = tuple(field for field in _VV_PLAN_FIELDS if _missing_value(case.payload.get(field)))
+            missing = missing_vv_plan_fields(case.payload)
             if missing:
                 findings.append(MethodologyFinding(
                     f"{label}_case_incomplete", "warning", "assurance", (case.id,),
@@ -1133,7 +1130,7 @@ def _constraints(requirement: Entity):
 
 
 def _complete_vv_case(case: Entity) -> bool:
-    return all(not _missing_value(case.payload.get(field)) for field in _VV_PLAN_FIELDS)
+    return not missing_vv_plan_fields(case.payload)
 
 
 def _requirement_ids_for_risks(risks, requirements, index, derived_from) -> set[str]:
