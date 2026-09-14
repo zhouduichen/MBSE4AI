@@ -5,6 +5,7 @@ from rflp_lite.methodology.context_planner import HeuristicTokenEstimator
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.tasks import tasks_for_phase
+from rflp_lite.methodology.vertical_generation import VerticalStage, stage_task
 from rflp_lite.retrieval.contracts import EvidenceCandidate
 from rflp_lite.retrieval.evidence import EvidenceRetrievalResult
 
@@ -52,6 +53,41 @@ def test_assurance_context_preserves_complete_rflp_scope_for_vv_tasks():
         EntityKind.PHYSICAL_BLOCK,
     }
     assert len(context.relations) == 3
+
+
+def test_vertical_assurance_context_preserves_existing_vv_scope_during_reanalysis():
+    requirement = make_entity(EntityKind.REQUIREMENT, "需求")
+    function = make_entity(EntityKind.FUNCTION, "功能")
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "逻辑")
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "物理")
+    verification = make_entity(EntityKind.VERIFICATION_CASE, "验证")
+    validation = make_entity(EntityKind.VALIDATION_CASE, "确认")
+    graph = ModelGraph(
+        "p1",
+        (requirement, function, logical, physical, verification, validation),
+        (
+            Relation("r-f", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+            Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+            Relation("l-p", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
+            Relation("r-v", requirement.id, RelationPredicate.VERIFIED_BY, verification.id),
+            Relation("r-va", requirement.id, RelationPredicate.VALIDATED_BY, validation.id),
+        ),
+    )
+    context = ContextBuilder().build(
+        graph,
+        stage_task(VerticalStage.VERIFICATION_VALIDATION),
+        token_budget=1,
+    )
+
+    assert {item.kind for item in context.entities} == {
+        EntityKind.REQUIREMENT,
+        EntityKind.FUNCTION,
+        EntityKind.LOGICAL_COMPONENT,
+        EntityKind.PHYSICAL_BLOCK,
+        EntityKind.VERIFICATION_CASE,
+        EntityKind.VALIDATION_CASE,
+    }
+    assert len(context.relations) == 5
 
 
 class _EvidenceRetriever:

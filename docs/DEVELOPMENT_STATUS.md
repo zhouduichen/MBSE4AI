@@ -32,6 +32,7 @@
 | Physical Technical Requirement 闭环 | 对明确的 `max_*`/`min_*` 约束生成可审查的技术需求，回接来源需求和物理候选，进入独立 V&V、Traceability、SysML 和统一交付包；不伪造测量或可行性结论 |
 | Physical→V&V 推理回流证据 | 物理可行性行和 ModelGraph 候选共同保存 Requirement→Function→Logical→Physical 影响链；实测冲突时生成带回流阶段、冲突字段和受影响 ID 的四类 Trade Study 选项，V&V 计划复用同一作用域并显式区分未执行证据 |
 | 数据驱动架构综合 | Fallback 根据 Function 的显式依赖、功能流、分区键、共享状态和稳定 ID 形成可解释的 Logical 分区与跨组件交互证据；每个分区生成 Physical 候选，并沿 Requirement→Function→Logical→Physical 传播已有结构化约束 |
+| 一等架构推理载荷 | LogicalComponent 持久化分区依据、候选架构、评分和选择状态；PhysicalBlock 持久化约束传播、测量缺口、冲突、可行性状态和回流选项；同一 ModelGraph 事实由 Controller、Workbench 和 SysML 往返复用 |
 | LLM 五阶段接入 | 每个纵向阶段通过现有 StructuredModelRuntime 的 TaskProposal → Compiler → Patch 边界执行；测试覆盖五次真实 stage lens 调用 |
 | LLM 阶段反馈闭环 | 结构化 LLM 阶段在首轮写入并完成确定性检查后，若当前阶段仍有缺口则用最新 ModelGraph 和 methodology guidance 再尝试一次；同一 Step/audit 保留最终 attempt，最多两次；离线 RuleRuntime 保持每阶段单次 |
 | SysML v2 子集往返 | 导出实际 `part/requirement/action/interface/state/verification/validation` 声明及关系元数据；Concern、Hazard、FailureMode 使用可编辑的通用 part 声明并保留类型元数据；可重新读入新项目并继续编辑 |

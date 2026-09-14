@@ -261,6 +261,7 @@ def _payload_schemas() -> dict[str, dict[str, object]]:
             "type": "object", "additionalProperties": False,
             "properties": {"function_ids": {"type": "array", "items": {"type": "string"}}, "steps": {"type": "array"}},
         },
+        EntityKind.LOGICAL_COMPONENT.value: _logical_payload_schema(),
         EntityKind.VERIFICATION_CASE.value: _vv_payload_schema(include_cross_analysis=True),
         EntityKind.VALIDATION_CASE.value: _vv_payload_schema(),
         EntityKind.HAZARD.value: {
@@ -282,6 +283,39 @@ def _payload_schemas() -> dict[str, dict[str, object]]:
             },
         },
         EntityKind.PHYSICAL_BLOCK.value: _physical_payload_schema(),
+    }
+
+
+def _logical_payload_schema():
+    return {
+        "type": "object", "additionalProperties": False,
+        "properties": {
+            "responsibility": {"type": "string"},
+            "function_id": {"type": "string"},
+            "allocation_strategy": {"type": "string"},
+            "partition_basis": {"type": "string"},
+            "dependencies": {"type": "array", "items": {"type": "string"}},
+            "dependency_evidence": {"type": "array", "items": {"type": "string"}},
+            "functional_flow_ids": {"type": "array", "items": {"type": "string"}},
+            "cross_component_flow_ids": {"type": "array", "items": {"type": "string"}},
+            "shared_state": {"type": "array", "items": {"type": "string"}},
+            "shared_state_ids": {"type": "array", "items": {"type": "string"}},
+            "timing_constraints": {"type": "array", "items": {"type": "string"}},
+            "safety_isolation": {"type": "array", "items": {"type": "string"}},
+            "source_context_ids": {"type": "array", "items": {"type": "string"}},
+            "cohesion": {"type": ["string", "number"]},
+            "coupling": {"type": ["string", "number"]},
+            "interfaces": {"type": "array"},
+            "alternative_partitions": {"type": "array", "items": {"type": "string"}},
+            "architecture_rationale": {"type": "string"},
+            "architecture_variant": {"type": "string"},
+            "architecture_decision": {"type": "object"},
+            "architecture_reasoning": {"type": "object"},
+            "decision_records": {"type": "array"},
+            "assumptions": {"type": "array", "items": {"type": "string"}},
+            "open_questions": {"type": "array", "items": {"type": "string"}},
+            "blocked_by_locked_entity": {"type": "boolean"},
+        },
     }
 
 
@@ -345,6 +379,7 @@ def _physical_payload_schema():
             "selection_rationale": {"type": "string"},
             "rationale": {"type": "string"},
             "architecture_decision": {"type": "object"},
+            "feasibility_reasoning": {"type": "object"},
             "open_questions": {"type": "array", "items": {"type": "string"}},
             "mass_kg": {"type": ["number", "string", "null"]},
             "power_w": {"type": ["number", "string", "null"]},

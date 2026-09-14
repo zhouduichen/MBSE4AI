@@ -534,6 +534,13 @@ def test_physical_conflict_records_impact_chain_and_reentry_options():
         "physical_ids": [physical.id],
     }
     assert updated.payload["feasibility"]["status"] == "infeasible"
+    reasoning = updated.payload["feasibility_reasoning"]
+    assert reasoning["status"] == "infeasible"
+    assert requirement.id in reasoning["requirement_ids"]
+    assert reasoning["logical_ids"] == [logical.id]
+    assert reasoning["function_ids"] == [function.id]
+    assert reasoning["conflicts"][0]["field"] == "power_w"
+    assert reasoning["resolution_options"]
     assert {item["option"] for item in updated.payload["resolution_options"]} == {
         "降低计算或功耗需求",
         "更换物理候选或计算架构",

@@ -69,7 +69,12 @@ class ContextBuilder:
             root_entity_ids=effective_root_entity_ids,
             token_budget=available_context,
         )
-        if task.id in {"verification_validation", "global_cross_analysis"}:
+        if task.id in {
+            "verification_validation",
+            "global_cross_analysis",
+            "vertical.verification_validation",
+            "vertical.global_cross_analysis",
+        }:
             planned = _assurance_trace_context(graph, self.planner)
         context = ContextBundle(
             graph.project_id,

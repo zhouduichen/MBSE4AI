@@ -4,6 +4,7 @@ from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.model import AddEntity, Patch, Relation, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.application.projections.model_workbench import build_model_workbench_view
 from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
@@ -158,10 +159,29 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
     assert graph.revision >= 6
     assert all("候选" not in entity.meta.name and "待确认" not in entity.meta.name for entity in graph.entities)
 
+    logical = next(item for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT)
+    physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
+    logical_reasoning = logical.payload["architecture_reasoning"]
+    physical_reasoning = physical.payload["feasibility_reasoning"]
+    assert logical_reasoning["basis"]["function_ids"]
+    assert logical_reasoning["alternatives"]
+    assert logical_reasoning["recommended_alternative"]
+    assert physical_reasoning["logical_ids"] == [logical.id]
+    assert physical_reasoning["status"] == "needs_measurement"
+    physical_card = next(
+        entity
+        for group in build_model_workbench_view(graph)["groups"]
+        for entity in group["entities"]
+        if entity["id"] == physical.id
+    )
+    assert physical_card["payload"]["feasibility_reasoning"] == physical_reasoning
+
     exported = graph_to_sysml(graph)
     assert "state def" in exported
     restored = sysml_to_graph(exported, "robot")
     assert {item.id for item in restored.entities} == {item.id for item in graph.entities}
+    assert restored.entity_index[logical.id].payload["architecture_reasoning"] == logical_reasoning
+    assert restored.entity_index[physical.id].payload["feasibility_reasoning"] == physical_reasoning
     assert {(item.source_id, item.predicate, item.target_id) for item in restored.relations} == {
         (item.source_id, item.predicate, item.target_id) for item in graph.relations
     }

@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from itertools import combinations
 import re
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
-from rflp_lite.domain.model import AddEntity, Deprecate, ModelGraph, Patch, Relate, UpdateEntity
+from rflp_lite.domain.model import AddEntity, Deprecate, ModelGraph, Patch, Relate, UpdateEntity, apply_patch
 from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.methodology.architecture_reasoning import (
+    logical_reasoning_payload,
+    physical_reasoning_payload,
+)
+from rflp_lite.methodology.architecture_synthesis import synthesize_architecture
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
 from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
 from rflp_lite.runtime.lifecycle_rule import (
@@ -614,6 +620,7 @@ class VerticalRuleRuntime:
         flow_evidence = _functional_flow_evidence(
             request.context_bundle, functions
         )
+        synthesis = synthesize_architecture(_context_graph(request.context_bundle))
         function_component_index = {
             function.id: index
             for index, group in enumerate(groups)
@@ -629,6 +636,7 @@ class VerticalRuleRuntime:
             blocked,
             flow_evidence,
             function_component_index,
+            synthesis,
         )
         if not logical_components:
             return builder.response()
@@ -683,6 +691,7 @@ class VerticalRuleRuntime:
 
     def _physical(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         builder = _VerticalPatchBuilder(request)
+        physical_entities = []
         decision = _controller_decision(request.context_bundle)
         option = str(decision.get("option", "")).strip()
         physical_variant = option if option in _PHYSICAL_VARIANTS else ""
@@ -720,7 +729,7 @@ class VerticalRuleRuntime:
                 if len(logical_components) == 1
                 else f"{logical.meta.name}执行平台"
             )
-            payload = dict(_physical_payload(logical, requirements))
+            payload = _physical_payload_with_reasoning(logical, requirements, linked_physical)
             if (
                 linked_physical is not None
                 and linked_physical.meta.status is not EntityStatus.LOCKED
@@ -790,7 +799,7 @@ class VerticalRuleRuntime:
                             f"{name}替代候选",
                             alternative_payload,
                         )
-            builder.relate(logical, RelationPredicate.ALLOCATED_TO, physical)
+            _record_physical_entity(builder, physical_entities, logical, physical)
             for requirement in requirements:
                 requirement_payload = dict(requirement.payload)
                 requirement_payload["feasibility_review"] = {
@@ -827,6 +836,7 @@ class VerticalRuleRuntime:
                     builder.update(technical, payload=technical_payload)
                 builder.relate(technical, RelationPredicate.DERIVED_FROM, requirement)
                 builder.relate(technical, RelationPredicate.SATISFIED_BY, physical)
+        _persist_physical_reasoning(builder, physical_entities)
         return builder.response()
 
     def _verification_validation(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
@@ -1052,6 +1062,7 @@ def _build_logical_components(
     blocked,
     flow_evidence,
     function_component_index,
+    synthesis,
 ):
     components = []
     for group in groups:
@@ -1065,6 +1076,7 @@ def _build_logical_components(
             flow_evidence,
             function_component_index,
             functions,
+            synthesis,
         )
         label = _partition_label(group)
         base_name = (
@@ -1093,6 +1105,7 @@ def _logical_component_payload(
     flow_evidence,
     function_component_index,
     functions,
+    synthesis,
 ):
     label = _partition_label(group)
     group_ids = {item.id for item in group}
@@ -1145,6 +1158,17 @@ def _logical_component_payload(
         ],
         "architecture_rationale": _architecture_rationale(
             group, dependency_evidence, cross_component_flow_ids
+        ),
+        "architecture_reasoning": logical_reasoning_payload(
+            synthesis,
+            function_ids=[item.id for item in group],
+            functional_flow_ids=functional_flow_ids,
+            dependency_pairs=_dependency_pairs(group, functions),
+            shared_state=shared_state,
+            timing_constraints=timing_constraints,
+            selected_alternative=variant,
+            selection_status="selected" if variant else "needs_review",
+            names={item.id: item.meta.name for item in functions},
         ),
     }
     if variant:
@@ -1397,6 +1421,90 @@ def _context_entities(context, kind: EntityKind):
     return tuple(item for item in context.entities if item.kind is kind)
 
 
+def _context_graph(context):
+    return ModelGraph(
+        context.project_id,
+        tuple(context.entities),
+        tuple(context.relations),
+        context.revision,
+    )
+
+
+def _dependency_pairs(group, functions):
+    group_ids = {item.id for item in group}
+    pairs = set()
+    for function in group:
+        for target in _resolved_function_dependencies(function, functions):
+            if target.id in group_ids:
+                pairs.add(tuple(sorted((function.id, target.id))))
+    shared_members: dict[str, list[str]] = {}
+    for function in group:
+        values = function.payload.get("shared_state")
+        if not isinstance(values, (list, tuple, set)):
+            continue
+        for value in values:
+            state = str(value).strip()
+            if state:
+                shared_members.setdefault(state, []).append(function.id)
+    for members in shared_members.values():
+        pairs.update(
+            tuple(sorted(pair))
+            for pair in combinations(sorted(set(members)), 2)
+        )
+    return tuple(sorted(pairs))
+
+
+def _persist_physical_reasoning(builder, physical_entities):
+    unique_entities = {
+        item.id: item for item in physical_entities if item is not None
+    }
+    if not unique_entities or not builder.operations:
+        return
+    preview_patch = Patch.create(
+        builder.context.project_id,
+        f"{builder.request.task_id}.reasoning-preview",
+        tuple(builder.operations),
+        "生成物理可行性推理预览",
+        builder.context.revision,
+    )
+    preview = apply_patch(_context_graph(builder.context), preview_patch)
+    rows = {
+        row.physical_id: row
+        for row in synthesize_architecture(preview).physical_rows
+    }
+    for physical_id in sorted(unique_entities):
+        current = preview.entity_index.get(physical_id)
+        row = rows.get(physical_id)
+        if current is None or row is None:
+            continue
+        payload = dict(current.payload)
+        payload["feasibility_reasoning"] = physical_reasoning_payload(row)
+        if physical_id in builder.added:
+            updated = make_entity(
+                EntityKind.PHYSICAL_BLOCK,
+                current.meta.name,
+                payload,
+                status=current.meta.status,
+                producer=current.meta.producer,
+                confidence=current.meta.confidence,
+                source_ids=current.meta.source_ids,
+                evidence_ids=current.meta.evidence_ids,
+                lifecycle_ids=current.meta.lifecycle_ids,
+                revision=builder.context.revision,
+            )
+            if updated.id != physical_id:
+                raise ValueError("physical reasoning changed the canonical physical id")
+            builder.added[physical_id] = updated
+            builder.operations = [
+                AddEntity(updated)
+                if isinstance(operation, AddEntity) and operation.entity.id == physical_id
+                else operation
+                for operation in builder.operations
+            ]
+        else:
+            builder.update(current, payload=payload)
+
+
 def _related_context_entity(
     context,
     source_id: str,
@@ -1628,6 +1736,20 @@ def _physical_payload(logical, requirements=()) -> Mapping[str, object]:
         "selection_rationale": f"优先承载{logical.meta.name}，在测量约束后进行候选选择",
         "rationale": f"承载{logical.meta.name}",
     }
+
+
+def _physical_payload_with_reasoning(logical, requirements, linked_physical):
+    payload = dict(_physical_payload(logical, requirements))
+    if linked_physical is not None and "feasibility_reasoning" in linked_physical.payload:
+        payload["feasibility_reasoning"] = linked_physical.payload[
+            "feasibility_reasoning"
+        ]
+    return payload
+
+
+def _record_physical_entity(builder, physical_entities, logical, physical):
+    physical_entities.append(physical)
+    builder.relate(logical, RelationPredicate.ALLOCATED_TO, physical)
 
 
 _PHYSICAL_MEASUREMENT_FIELDS = (

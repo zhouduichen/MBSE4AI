@@ -96,3 +96,10 @@ Physical 和 V&V Case 仍会留在工作台、架构候选和约束可行性分�
 功能覆盖、分配覆盖或 Verification/Validation 覆盖；候选 Physical 仍可用于发现功耗、
 续航等冲突和形成 Trade Study。这样语义失败输出既不会丢失 Review 上下文，也不会被
 统计为已经确认的工程事实。
+
+LogicalComponent.payload.architecture_reasoning 和
+PhysicalBlock.payload.feasibility_reasoning 是上述分析的持久化事实载荷：前者保存
+功能/功能流/依赖/共享状态/时序依据、候选分区及选择状态，后者保存 Requirement→Function
+→Logical→Physical 作用域、传播约束、测量缺口、明确冲突、可行性状态和回流选项。生成时
+由同一个 ModelGraph 预览计算并通过 Patch/CAS 写入；Workbench 直接展示 payload，SysML
+子集导入导出保留这些字段，避免把推理退化为只存在于审计日志中的结论。
