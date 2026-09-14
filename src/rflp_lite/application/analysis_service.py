@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from rflp_lite.application.pipeline_report import PipelineReportService
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.gates import GateResult
 from rflp_lite.methodology.workflow import RunSummary, WorkflowRunner
@@ -10,6 +13,7 @@ from rflp_lite.methodology.workflow import RunSummary, WorkflowRunner
 class AnalysisService:
     def __init__(self, runner: WorkflowRunner):
         self.runner = runner
+        self.pipeline_reports = PipelineReportService(runner.model_repository)
 
     def run(
         self,
@@ -29,6 +33,9 @@ class AnalysisService:
 
     def run_pipeline(self, project_id: str, *, run_id: str | None = None, force_run: bool = False) -> RunSummary:
         return self.runner.run(project_id, None, run_id=run_id, force_run=force_run)
+
+    def pipeline_report(self, project_id: str) -> Mapping[str, object]:
+        return self.pipeline_reports.build(project_id)
 
     def repair(self, project_id: str, issue_id: str) -> RunSummary:
         return self.runner.repair(project_id, issue_id)

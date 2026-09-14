@@ -471,6 +471,9 @@ def test_structured_llm_executes_all_23_tasks_and_writes_the_graph(tmp_path: Pat
 
     assert summary.status is RunStatus.COMPLETED
     assert model.calls == [task.id for task in task_catalog()]
+    report = services.analysis("robot").pipeline_report("robot")
+    assert report["traceability"]["complete_count"] == 1
+    assert report["report_revision"] == services.model("robot").graph("robot").revision
     stored = services.repository("robot").load_run("robot", summary.run_id)
     assert stored is not None
     assert len(stored.steps) == 23

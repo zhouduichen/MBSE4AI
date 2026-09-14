@@ -9,6 +9,8 @@ AI4MBSE Harness 产品版本为 `0.2.0`，方法论协议版本为 `v2.1`。它�
 
 ModelGraph 是模型唯一真源。产品主入口按 23 个方法论任务逐任务调用 Runtime，将每一步的局部 Patch 写入图并形成可审查的 R→F→L→P→V&V 生命周期；五阶段生成器作为显式 `analyze generate` / `mode=generate` 快速入口保留。两条入口都显式生成 System、Stakeholder、Lifecycle stage/transition、Scenario、Concern、State、Hazard 和 FailureMode，不把它们藏在阶段 payload 中。SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。
 
+完整生命周期入口在写入 ModelGraph 后，会通过只读的 Pipeline Report 统一投影 Traceability、Methodology Engine findings/metrics 和 Systems Engineering Controller 下一步动作。`POST /projects/{id}/analysis` 的默认 pipeline 响应、Analysis 工作台刷新结果和工程交付包都绑定同一 revision/snapshot hash；报告计算不创建 Run/Patch、不改变模型，也不额外调用 LLM。这样产品交付关注的是一份可继续编辑、可追溯并可导出 SysML 的完整工程结果，而不是只返回任务执行台账。
+
 ## 安装
 
 需要 Python 3.11+：
@@ -98,6 +100,8 @@ MBSE Model 页面还提供“导出完整交付包”：同一份 ModelGraph 快
 当前产品验收重点是一次真实的纵向链：`自然语言/文档 → R → F → L → P → V&V → ModelGraph → SysML`。`analyze run` 和 Web/API 未指定模式的主入口执行完整的 23-task 方法论生命周期；`analyze generate` / `mode=generate` 是保留的五阶段快速入口，两个入口都消费同一份输入并写入同一份 Typed ModelGraph。自然语言句子、列表项和文档中的独立条目保持为独立 Requirement，分别进入下游追溯；输入中的显式功耗、质量、时延、带宽、成本和续航边界会被规范化为 canonical constraints，并保留 `constraint_provenance`，再随 R→F→L→P 传播。对明确存在的 `max_*`/`min_*` 工程约束，P 层还会创建 `level=technical` 的 Technical Requirement，通过 `derivedFrom` 回接来源需求、通过 `satisfiedBy` 连接物理候选，并由 V&V 单独覆盖；没有明确约束的普通需求不会被额外拆分。追溯结果分开显示 RFLP、Verification、Validation 和端到端闭环，只有两类 V&V 都存在才算端到端完成。阶段完成还会逐条检查每个活动 Requirement 在 F/L/P/V&V 的覆盖情况，输出缺失的 canonical Requirement ID；结构化反馈轮只针对这些精确缺口补全，并复用已有 ID，避免用总体实体数量掩盖单条需求断链。未配置模型时使用离线规则 Runtime 验证产品闭环；配置并激活 OpenAI-compatible Profile 后，主入口会通过 StructuredModelRuntime 逐任务调用结构化 LLM，并记录 profile/provider/model、Prompt、上下文、Patch 和追溯摘要；五阶段快速入口仍逐阶段调用并在阶段缺口时进行一次受限反馈。未闭合的阶段仍显示为 `needs_review`，离线规则路径不增加重复调用。上传文档解析出的每个 Source Region 会登记为 `document_region` Evidence，文档 Requirement 同时保存对应 `source_ids` 和 `evidence_ids`，模型补丁提交后证据节点会进入同一份 ModelGraph 并随交付包输出。语义校验失败的 LLM 输出只保存为 candidate 并进入 review，不计入完成度。离线 fallback 的 F/L/P 也消费图中的功能职责、分区键、共享状态和 Requirement 关系；未知 SWaP-C/续航仍保持 `needs_measurement`，不会伪造可行性。历史 Ollama conformance artifact 仍只代表结构化边界，不等同于真实 Provider 的 23-task 稳定性。
 
 每次 `POST /projects/{id}/analysis` 成功返回的 `run` 还会携带一个轻量 `deliverable` 清单：它与本次运行的 `revision`、`snapshot_hash` 一致，并提供结构化交付包与 ZIP 下载入口；完整模型内容只通过交付包接口读取，避免在运行响应中重复传输。未填写远程 Profile 的预算时，Harness 默认使用 8192 token 上下文窗口和 4096 token 结构化输出预算；显式配置仍优先。
+
+Pipeline `run` 同时携带 `traceability`、`methodology`、`controller`、`report_revision` 和 `report_snapshot_hash`。Analysis 页面将其呈现为“完整生命周期结果”，直接显示 RFLP/V&V 闭环、逻辑架构候选、物理可行性矩阵、工程问题和下一步动作；`mode=generate` 仍保留原有五阶段摘要。
 
 纵向链完成后由 Methodology Engine 对 ModelGraph 做确定性工程分析：逻辑层报告分配覆盖、State 模型、分区和内聚/耦合信号；物理层传播约束并区分冲突与待测量；V&V 分开报告 Verification、Validation、Hazard/FailureMode 覆盖、计划字段完整度和执行证据。现在 Methodology 还会基于功能流、共享状态、显式依赖和当前分配，生成可比较的 Logical 架构候选，给出分区、跨组件交互、耦合/内聚和评分；同时输出每个 Physical candidate 的约束传播、冲突、缺失测量字段和可行性评分。默认 fallback 的 Function 会保留输入需求驱动的 decomposition，Physical candidate 会保留结构化 trade study 与选择依据。每个生成任务都会收到有界的 `methodology_guidance`，把当前阶段的确定性 findings、关键指标、架构候选和推荐任务交给 LLM 作为下一步工程推理输入，而不是只在生成结束后验收。计划字段和 evidence 始终分层，空 evidence 不会伪装成已执行。Systems Engineering Controller 将这些 findings 汇总为下一步动作：证据缺口先通过 Tool Layer 检索文档、历史项目和本地 FTS，检索到的证据落库后触发受影响阶段重分析；仍无结果时暂停等待用户。逻辑分区或物理约束需要权衡时展示候选方案，用户选择后触发受影响阶段的定向重分析；V&V 失败会沿 R→F→L→P 返回影响实体和 impact paths，并在 Assurance 页面给出功能重构、架构替换、需求调整或修订验证条件等 Trade Study 选项，不自动盲目重跑；其中 `dependency_cluster_search` 也会由离线 Runtime 实际应用为版本化逻辑架构。Review 和 Controller 都沿图返回影响实体、阶段、路径和审计记录，不绕过 CAS，也不替用户无审查地作工程决策。
 

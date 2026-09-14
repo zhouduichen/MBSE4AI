@@ -846,6 +846,20 @@ def _decorate_generation_run(services, project_id: str, graph: ModelGraph, run):
     return decorated
 
 
+def _decorate_pipeline_run(services, project_id: str, run):
+    if not run or run.get("mode") != "pipeline":
+        return run
+    decorated = dict(run)
+    if not decorated.get("methodology") or not decorated.get("controller"):
+        decorated.update(services.analysis(project_id).pipeline_report(project_id))
+    decorated["methodology"] = _decorate_methodology(decorated.get("methodology"))
+    decorated["controller"] = _decorate_controller(decorated.get("controller"))
+    decorated["warnings_label"] = [
+        _warning_label(item) for item in decorated.get("diagnostics", ())
+    ]
+    return decorated
+
+
 def _aggregate_pipeline_steps(services, project_id: str, run: dict[str, object] | None) -> dict[str, object] | None:
     if not run or run.get("steps"):
         return run
@@ -1136,6 +1150,7 @@ def build_analysis_view(request: Request, project_id: str) -> dict[str, object]:
     has_analysis_input = services.projects.has_analysis_input(project_id)
     run = _aggregate_pipeline_steps(services, project_id, _latest_run(request, services, project_id))
     run = _decorate_generation_run(services, project_id, graph, run)
+    run = _decorate_pipeline_run(services, project_id, run)
     runtime = _runtime_metadata(services, run)
     record_gates = _record_gate_results(run)
     gate_results: list[dict[str, object]] = []

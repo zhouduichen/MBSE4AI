@@ -11,6 +11,8 @@
 
 这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `0.2.0`，方法论协议是 `v2.1`。每个项目使用独立工作区和数据库，正式模型和证据仍按项目隔离；Controller 可对其他 managed project 的 FTS 做只读历史检索，命中内容以 Evidence 回写当前项目。`WorkflowRunner` 同时支持完整 23-task 生命周期和单阶段调试；五阶段生成器作为显式快速入口保留。
 
+完整 pipeline 由 `WorkflowRunner` 写入当前 ModelGraph revision 后，由应用层 `PipelineReportService` 做只读结果投影。它一次读取图，复用 `build_traceability_summary`、`MethodologyEngine` 和 `SystemsEngineeringController`，输出追溯指标、架构/物理工程结论和下一步动作；`AnalysisService`、Resource API 和 Web 页面共用这份投影，`report_revision/report_snapshot_hash` 与 deliverable 绑定。报告不是新的持久化事实，不创建 Run、Patch 或 Revision，也不触发 LLM；因此 API、刷新后的工作台和 SysML/交付包继续围绕同一个 ModelGraph 真源。
+
 P→V&V 使用同一条可复核的作用域：物理候选和可行性矩阵记录 Requirement→Function→LogicalComponent→PhysicalBlock 的 canonical IDs；出现实测约束冲突时，四类 Trade Study 选项携带冲突字段、受影响 ID 和回流任务/阶段，仍由用户决定是否重新分析。V&V Case 复用这组下游 IDs，并以统一的九字段可执行计划表达 `method`、`verification_objective`、`precondition`、`test_condition`、`input`、`stimulus`、`procedure`、`expected_result` 和 `pass_criteria`；`evidence_ids`/`execution_evidence_ids` 把输入资料、计划完整度和实际执行证据分开表示，计划完整不等于测试通过。
 
 输入边界会把需求中的显式功耗、质量、时延、带宽、成本和续航比较式规范化为 canonical `constraints`，并保留 `constraint_provenance`。这些字段沿 Requirement→Function→Logical→Physical 传播；物理值未知时仍进入 `needs_measurement`，只有实测值违反 `max_`/`min_` 边界才报告 `physical_constraint_conflict`。P 层对明确的 `max_*`/`min_*` 约束创建 `level=technical` Technical Requirement，以 `derivedFrom` 回接来源需求、以 `satisfiedBy` 连接物理候选；该技术需求复用来源需求的 RFLP 路径并拥有独立 V&V，未声明约束的需求不会额外拆分。

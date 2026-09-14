@@ -200,6 +200,36 @@ def test_generated_analysis_page_shows_requirement_coverage_summary(tmp_path: Pa
     assert "requirement_coverage:" not in page.text
 
 
+def test_pipeline_analysis_page_shows_unified_engineering_result(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "workspaces")
+    app.state.container.v2._runtime_override = VerticalRuleRuntime()
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    assert client.post(
+        "/projects/p1/requirements", json={"text": "系统应支持人工接管"}
+    ).status_code == 200
+    assert client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate"},
+    ).status_code == 200
+
+    pipeline = client.post("/projects/p1/analysis", json={})
+
+    assert pipeline.status_code == 200
+    assert pipeline.json()["run"]["mode"] == "pipeline"
+    page = client.get("/ui/projects/p1/analysis")
+
+    assert page.status_code == 200
+    for label in (
+        "完整生命周期结果",
+        "工程检查",
+        "逻辑架构候选",
+        "物理可行性矩阵",
+        "下一步工程动作",
+    ):
+        assert label in page.text
+
+
 def test_stage_view_exposes_exact_requirement_coverage_gaps() -> None:
     stage = _decorate_stage_result(
         {
@@ -259,6 +289,11 @@ def test_analysis_api_supports_pipeline_and_force_run(tmp_path: Path) -> None:
         "closure",
     ]
     assert "gate_results" in run
+    assert run["traceability"]
+    assert run["methodology"]
+    assert run["controller"]
+    assert run["report_revision"] == run["deliverable"]["revision"]
+    assert run["report_snapshot_hash"] == run["deliverable"]["snapshot_hash"]
 
     refreshed = client.get("/projects/p1/analysis").json()
     assert refreshed["latest_run"]["run_id"] == run["run_id"]
@@ -281,6 +316,9 @@ def test_analysis_api_defaults_to_complete_pipeline(tmp_path: Path) -> None:
     run = response.json()["run"]
     assert run["mode"] == "pipeline"
     assert len(run["completed_tasks"]) == 23
+    assert "traceability" in run
+    assert "methodology" in run
+    assert "controller" in run
 
 
 def test_pipeline_analysis_accepts_natural_language_input(tmp_path: Path) -> None:

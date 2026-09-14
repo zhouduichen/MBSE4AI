@@ -337,6 +337,9 @@ def _invoke_pipeline(analysis, project_id: str, *, run_id: str | None, force_run
         payload = _run_payload(result)
         payload["mode"] = "pipeline"
         payload["force_run"] = force_run
+        report = getattr(analysis, "pipeline_report", None)
+        if callable(report):
+            payload.update(report(project_id))
         return payload
     orchestrator = getattr(getattr(analysis, "runner", None), "orchestrator", None)
     if callable(getattr(orchestrator, "run", None)):
