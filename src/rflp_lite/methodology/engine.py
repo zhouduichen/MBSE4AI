@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
@@ -13,6 +12,7 @@ from rflp_lite.methodology.architecture_synthesis import (
     ArchitectureSynthesis,
     synthesize_architecture,
 )
+from rflp_lite.methodology.impact import TASK_ORDER, TypedImpactPlanner
 from rflp_lite.methodology.trace_rules import is_technical_requirement
 
 
@@ -31,73 +31,7 @@ _VV_PLAN_FIELDS = (
     "method", "precondition", "input", "procedure", "expected_result",
     "pass_criteria",
 )
-_STAGE_ORDER = ("requirements", "functional", "logical", "physical", "assurance")
-_TASK_ORDER = (
-    "system_requirement_derivation", "function_identification", "functional_decomposition",
-    "functional_interaction", "logical_analysis", "dependency_clustering",
-    "architecture_evaluation", "physical_candidates", "allocation_tradeoff",
-    "constraint_propagation", "feasibility_selection", "verification_validation",
-    "reverse_feasibility", "global_cross_analysis",
-)
-_TASKS_BY_KIND = {
-    EntityKind.CONCERN: (
-        "stakeholder_analysis", "system_requirement_derivation",
-    ),
-    EntityKind.LIFECYCLE_TRANSITION: (
-        "lifecycle_analysis", "operational_scenario",
-    ),
-    EntityKind.REQUIREMENT: (
-        "system_requirement_derivation", "function_identification", "logical_analysis",
-        "physical_candidates", "verification_validation",
-    ),
-    EntityKind.FUNCTION: (
-        "functional_decomposition", "functional_interaction", "logical_analysis",
-        "physical_candidates", "verification_validation",
-    ),
-    EntityKind.LOGICAL_COMPONENT: (
-        "logical_analysis", "dependency_clustering", "architecture_evaluation",
-        "physical_candidates", "verification_validation",
-    ),
-    EntityKind.STATE: (
-        "interface_sequence_state", "logical_analysis", "verification_validation",
-    ),
-    EntityKind.PHYSICAL_BLOCK: (
-        "physical_candidates", "constraint_propagation", "feasibility_selection",
-        "verification_validation",
-    ),
-    EntityKind.VERIFICATION_CASE: ("verification_validation", "global_cross_analysis"),
-    EntityKind.VALIDATION_CASE: ("verification_validation", "global_cross_analysis"),
-    EntityKind.HAZARD: (
-        "fmea_stpa_hazard", "verification_validation", "global_cross_analysis",
-    ),
-    EntityKind.FAILURE_MODE: (
-        "fmea_stpa_hazard", "reverse_feasibility", "global_cross_analysis",
-    ),
-}
-_KIND_STAGES = {
-    EntityKind.SYSTEM: "requirements",
-    EntityKind.STAKEHOLDER: "requirements",
-    EntityKind.CONCERN: "requirements",
-    EntityKind.LIFECYCLE_STAGE: "requirements",
-    EntityKind.LIFECYCLE_TRANSITION: "requirements",
-    EntityKind.SCENARIO_HYPOTHESIS: "requirements",
-    EntityKind.USE_CASE: "requirements",
-    EntityKind.OPERATIONAL_SCENARIO: "requirements",
-    EntityKind.ACTIVITY: "requirements",
-    EntityKind.REQUIREMENT: "requirements",
-    EntityKind.FUNCTION: "functional",
-    EntityKind.FUNCTIONAL_FLOW: "functional",
-    EntityKind.FUNCTIONAL_SCENARIO: "functional",
-    EntityKind.LOGICAL_COMPONENT: "logical",
-    EntityKind.INTERFACE: "logical",
-    EntityKind.PHYSICAL_BLOCK: "physical",
-    EntityKind.STATE: "logical",
-    EntityKind.HAZARD: "assurance",
-    EntityKind.FAILURE_MODE: "assurance",
-    EntityKind.VERIFICATION_CASE: "assurance",
-    EntityKind.VALIDATION_CASE: "assurance",
-    EntityKind.EVIDENCE: "assurance",
-}
+_TASK_ORDER = TASK_ORDER
 
 
 @dataclass(frozen=True, slots=True)
@@ -929,36 +863,15 @@ class MethodologyEngine:
 
     @staticmethod
     def _impact(graph, index, changed_entity_ids):
-        seeds = tuple(sorted({item for item in changed_entity_ids if item in index}))
-        if not seeds:
+        if not changed_entity_ids:
             return (), (), (), ()
-        neighbors = {item.id: set() for item in _active(index)}
-        for relation in graph.relations:
-            if relation.source_id in neighbors and relation.target_id in neighbors:
-                neighbors[relation.source_id].add(relation.target_id)
-                neighbors[relation.target_id].add(relation.source_id)
-        queue = deque((seed, (seed,), 0) for seed in seeds)
-        visited = set(seeds)
-        paths = []
-        while queue:
-            entity_id, path, depth = queue.popleft()
-            paths.append(path)
-            if depth >= 4:
-                continue
-            for neighbor in sorted(neighbors.get(entity_id, ())):
-                if neighbor in visited:
-                    continue
-                visited.add(neighbor)
-                queue.append((neighbor, path + (neighbor,), depth + 1))
-        stages = tuple(sorted({
-            _KIND_STAGES.get(index[item].kind, "unknown")
-            for item in visited
-        }, key=lambda item: _STAGE_ORDER.index(item) if item in _STAGE_ORDER else len(_STAGE_ORDER)))
-        task_set = {
-            task for item in visited for task in _TASKS_BY_KIND.get(index[item].kind, ())
-        }
-        tasks = tuple(task for task in _TASK_ORDER if task in task_set)
-        return tuple(sorted(visited)), stages, tasks, tuple(paths)
+        plan = TypedImpactPlanner().plan(graph, changed_entity_ids)
+        return (
+            plan.impacted_entity_ids,
+            plan.impacted_stages,
+            plan.recommended_tasks,
+            tuple(path.entity_ids for path in plan.impact_paths),
+        )
 
 
 def _vv_execution_summary(index):

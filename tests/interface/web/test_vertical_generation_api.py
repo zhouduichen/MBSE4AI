@@ -111,6 +111,59 @@ def test_controller_plan_and_execution_endpoint_expose_next_action(tmp_path: Pat
     assert execution.json()["controller"]["execution_status"] == "awaiting_evidence"
 
 
+def test_entity_impact_endpoint_returns_revision_bound_rflp_vv_plan(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    generated = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统应支持人工接管"},
+    ).json()["run"]
+    model = client.get("/projects/p1/model").json()
+    requirement = next(
+        item for item in model["entities"] if item["kind"] == "requirement"
+    )
+
+    response = client.get(f"/projects/p1/entities/{requirement['id']}/impact")
+
+    assert response.status_code == 200
+    payload = response.json()
+    impact = payload["impact"]
+    assert impact["revision"] == generated["revision"]
+    assert requirement["id"] in impact["trigger_entity_ids"]
+    assert {"functional", "logical", "physical"} <= set(impact["impacted_stages"])
+    assert impact["verification_case_ids"]
+    assert impact["validation_case_ids"]
+    assert impact["impact_paths"]
+    assert payload["controller"]["next_action"]
+
+
+def test_entity_edit_response_includes_impact_and_controller_for_next_iteration(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    generated = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统应支持人工接管"},
+    ).json()["run"]
+    requirement = next(
+        item for item in client.get("/projects/p1/model").json()["entities"]
+        if item["kind"] == "requirement"
+    )
+
+    response = client.post(
+        f"/projects/p1/entities/{requirement['id']}/edit",
+        json={
+            "expected_revision": generated["revision"],
+            "statement": "系统应支持人工接管并记录接管原因",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["impact"]["revision"] == payload["revision"]["sequence"]
+    assert requirement["id"] in payload["impact"]["trigger_entity_ids"]
+    assert payload["controller"]["next_action"]
+
+
 def test_vv_execution_endpoint_records_result_and_exposes_failure_feedback(tmp_path: Path):
     client = _client(tmp_path)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200

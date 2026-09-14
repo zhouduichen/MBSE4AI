@@ -850,6 +850,24 @@ def list_entities(request: Request, project_id: str, kind: str | None = None):
         return _error(exc)
 
 
+@resource_api.get("/projects/{project_id}/entities/{entity_id}/impact")
+def get_entity_impact(request: Request, project_id: str, entity_id: str):
+    try:
+        generation = _services(request).generation(project_id)
+        impact = generation.impact_plan(project_id, (entity_id,))
+        controller = generation.controller_plan(
+            project_id,
+            changed_entity_ids=(entity_id,),
+        )
+        return {
+            "status": "ok",
+            "impact": impact.as_dict(),
+            "controller": controller,
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.patch("/projects/{project_id}/entities/{entity_id}")
 async def patch_entity(request: Request, project_id: str, entity_id: str):
     try:
@@ -889,7 +907,16 @@ async def _run_review_command(request: Request, project_id: str, entity_id: str,
         return {"status": "ok", "reanalysis": service.request_reanalysis(project_id, entity_id, expected_revision=expected)}
     else:
         raise ContractViolation(f"unsupported review action: {action}")
-    return {"status": "ok", "review": result.as_dict(), "revision": result.revision}
+    response = {"status": "ok", "review": result.as_dict(), "revision": result.revision}
+    if action == "edit":
+        generation = _services(request).generation(project_id)
+        impact = generation.impact_plan(project_id, (entity_id,))
+        response["impact"] = impact.as_dict()
+        response["controller"] = generation.controller_plan(
+            project_id,
+            changed_entity_ids=(entity_id,),
+        )
+    return response
 
 
 @resource_api.post("/projects/{project_id}/entities/{entity_id}/accept")

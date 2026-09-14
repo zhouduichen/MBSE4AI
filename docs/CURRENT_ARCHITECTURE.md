@@ -49,13 +49,15 @@ Review 后的显式“继续生成下游”调用 `ModelGenerationService.contin
 
 `EngineeringDeliverableService` 是只读的交付投影边界。它先加载一次图和 Issue，再生成带统一 revision/hash 的结构化 artifacts；V&V Plan 从 Verification/Validation 行派生，Architecture Report 同时检查 RFLP gaps 和 V&V gaps，因此后置需求未回接时会明确报告 BLOCKED。ZIP 包固定包含 `manifest.json`、`model.json`、`evidence.json`、`model.sysml`、`requirements.json`、`rflp.json`、`rflp.svg`、`traceability.json`、`vv-plan.json`、`vv-plan.md`、`architecture-report.json` 和 `architecture-report.md`。`rflp.svg` 与 RFLP JSON 来自同一图快照，便于直接查看 R→F→L→P 关系；`evidence.json` 是项目级证据库的确定性快照，含独立 evidence hash；实体、关系或 V&V payload 引用的已有证据会在模型补丁提交时物化为同一 revision 的 `Evidence` 节点，未绑定证据仍作为外部检索上下文保留；`model.json` 同时携带证据记录，实体/关系仍通过稳定 evidence IDs 引用，导出不会隐式创建 ModelGraph Revision。`model.sysml` 使用明确的声明属性表达实体 kind、name、status、来源、修订和 payload，核心关系使用 `satisfy`/`allocate`/`verify`/`validate` 语句；稳定 ID、非核心谓词和完整追溯通过元数据保留，导入器既能读取无注释声明，也能把声明属性编辑回写为 ModelGraph。
 
+编辑后的影响分析由纯 ModelGraph `TypedImpactPlanner` 计算，并以 revision-bound `ImpactPlan` 同时服务 Resource API、Review 和定向重分析；它不会调用本地模型或改变图，只负责把 typed 关系传播结果交给后续阶段和 Controller。
+
 ## 对外资源
 
 | 资源 | 入口 |
 |---|---|
 | 项目 / 目标 / 文档 | `POST /projects`、`POST /projects/{id}/goal`、`GET /projects/{id}/context`、`POST /projects/{id}/documents` |
 | 分析运行 | `POST /projects/{id}/analysis`（默认五阶段生成；`mode=pipeline` 为完整 23-task；`mode=phase` 为单阶段调试；成功响应中的 `run.deliverable` 绑定本次 revision/snapshot 并提供交付包入口）、`GET /projects/{id}/controller`、`POST /projects/{id}/controller/execute`（Controller 动作/Trade Study）、`POST /projects/{id}/controller/iterate`（有界自动推进安全动作）、`POST /projects/{id}/entities/{entity_id}/reanalyze/execute`（定向重分析）、`POST /projects/{id}/entities/{entity_id}/continue`（Review 后从下一层继续生成）、`POST /projects/{id}/vv/{case_id}/execute`（记录真实 V&V 结果并触发失败反馈）、`GET /projects/{id}/tools`、`POST /projects/{id}/vv/{case_id}/tools/{tool_id}/execute`（运行登记工具并统一写入 V&V）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
-| 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities` |
+| 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities`、`GET /projects/{id}/entities/{entity_id}/impact`（Typed Impact Plan） |
 | 人工编辑 | `PATCH /projects/{id}/entities/{entity_id}` |
 | 视图 / 导出 | `GET /projects/{id}/views/{view_id}`、`POST /projects/{id}/export`、`GET /projects/{id}/deliverables`、`GET /projects/{id}/deliverables/download`、`POST /projects/{id}/sysml/import`、`POST /projects/{id}/sysml/import/upload` |
 | 证据 / Issue | `GET /projects/{id}/evidence`、`GET /projects/{id}/issues`、`POST /projects/{id}/repair`；Controller 证据动作会先调用 Tool Layer 检索 |

@@ -11,6 +11,7 @@ from rflp_lite.domain.errors import ConflictError, ContractViolation, NotFoundEr
 from rflp_lite.domain.model import Patch, UpdateEntity
 from rflp_lite.methodology.controller import SystemsEngineeringController
 from rflp_lite.methodology.engine import MethodologyEngine
+from rflp_lite.methodology.impact import TypedImpactPlanner
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +35,7 @@ class ReviewService:
         self.repository = model_service.repository
         self.methodology_engine = MethodologyEngine()
         self.controller = controller or SystemsEngineeringController(self.methodology_engine)
+        self.impact_planner = TypedImpactPlanner()
 
     def _entity(self, project_id: str, entity_id: str):
         entity = self.model_service.graph(project_id).entity_index.get(entity_id)
@@ -97,19 +99,14 @@ class ReviewService:
         return self._apply(project_id, entity_id, "edit", fields, expected_revision, "user edited engineering entity; downstream trace marked stale")
 
     def request_reanalysis(self, project_id: str, entity_id: str, *, expected_revision: int | None = None) -> Mapping[str, object]:
-        entity = self._entity(project_id, entity_id)
+        self._entity(project_id, entity_id)
         graph = self.model_service.graph(project_id)
         if expected_revision is not None and int(expected_revision) != graph.revision:
             raise ConflictError(f"stale re-analysis request: expected {expected_revision}, current {graph.revision}")
-        impact = self.methodology_engine.analyze(graph, changed_entity_ids=(entity_id,))
-        controller_plan = self.controller.plan(graph, impact)
-        task_sets = {
-            "requirement": ("system_requirement_derivation", "function_identification", "logical_analysis", "physical_candidates", "verification_validation"),
-            "function": ("functional_decomposition", "functional_interaction", "logical_analysis", "physical_candidates", "verification_validation"),
-        }
-        selected = impact.recommended_tasks or task_sets.get(
-            entity.kind.value, ("global_cross_analysis", "verification_validation")
-        )
+        methodology = self.methodology_engine.analyze(graph, changed_entity_ids=(entity_id,))
+        controller_plan = self.controller.plan(graph, methodology)
+        impact = self.impact_planner.plan(graph, (entity_id,))
+        selected = impact.recommended_tasks
         request_id = f"reanalysis-{uuid4().hex[:16]}"
         payload = {
             "request_id": request_id,
@@ -117,9 +114,10 @@ class ReviewService:
             "trigger_revision": graph.revision,
             "selected_tasks": list(selected),
             "impact": impact.as_dict(),
+            "selected_stages": list(impact.selected_stages),
             "impacted_stages": list(impact.impacted_stages),
             "recommended_tasks": list(impact.recommended_tasks),
-            "impact_paths": [list(path) for path in impact.impact_paths],
+            "impact_paths": [list(path.entity_ids) for path in impact.impact_paths],
             "controller": controller_plan.as_dict(),
             "reason": "local impact routing from review action",
             "status": "requested",

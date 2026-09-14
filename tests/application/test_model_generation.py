@@ -784,6 +784,10 @@ def test_reanalysis_runs_only_from_changed_entity_stage_downstream(tmp_path: Pat
     ]
     assert function.id in result["methodology"]["impacted_entity_ids"]
     assert result["methodology"]["recommended_tasks"]
+    assert result["impact"]["revision"] == result["trigger_revision"]
+    assert result["impact"]["trigger_entity_ids"] == [function.id]
+    assert result["before_traceability"]["revision"] <= result["after_traceability"]["revision"]
+    assert result["impacted_vv_case_ids"]
     assert len(result["stage_results"]) == 4
 
 

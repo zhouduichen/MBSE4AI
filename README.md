@@ -109,6 +109,8 @@ Controller 还提供有界的“自动推进安全动作”入口：它可以连
 
 对完整 fixture 的 23-task 兼容链，后置功能/技术/反向需求会回接已有 Function 与 V&V 案例，最终交付包以 7/7 需求形成完整 R→F→L→P→V&V 追溯作为验收证据。
 
+每次编辑都会生成绑定当前 revision/snapshot hash 的 Typed Impact Plan，明确 R→F→L→P→V&V 影响实体、关系路径、V&V 案例和推荐任务；`GET /projects/{id}/entities/{entity_id}/impact` 与编辑响应会把这份计划和 Controller 下一动作交给工作台，定向重分析还返回 before/after Traceability。
+
 ## 开发与验收
 
 ```bash

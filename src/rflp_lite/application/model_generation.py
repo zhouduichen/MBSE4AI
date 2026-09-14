@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from uuid import uuid4
 
 from rflp_lite.domain.canonical import canonical_hash
@@ -21,14 +21,15 @@ from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.engine import MethodologyEngine, MethodologyReport
 from rflp_lite.methodology.controller import ControllerPlan, SystemsEngineeringController
+from rflp_lite.methodology.impact import ImpactPlan, TypedImpactPlanner
 from rflp_lite.methodology.tasks import task_spec_hash
 from rflp_lite.methodology.trace_rules import is_technical_requirement, requirement_lineage
 from rflp_lite.methodology.vertical_generation import (
     VerticalStage,
     downstream_vertical_stages,
     stage_required_kinds,
+    stage_spec,
     stage_task,
-    vertical_stage_index_for_kind,
     vertical_stage_specs,
 )
 from rflp_lite.application.tool_layer import EngineeringToolLayer
@@ -171,6 +172,7 @@ class ModelGenerationService:
         self.runtime_selection = runtime_selection
         self.methodology_engine = methodology_engine or MethodologyEngine()
         self.controller = controller or SystemsEngineeringController(self.methodology_engine)
+        self.impact_planner = TypedImpactPlanner()
         self.tool_layer = tool_layer or EngineeringToolLayer(repository)
         self.context_builder = context_builder or ContextBuilder()
         self.methodology_version = methodology_version
@@ -265,6 +267,18 @@ class ModelGenerationService:
             controller_plan,
         )
 
+    def impact_plan(
+        self,
+        project_id: str,
+        changed_entity_ids: Sequence[str],
+    ) -> ImpactPlan:
+        """Return the revision-bound typed impact of one or more graph changes."""
+
+        return self.impact_planner.plan(
+            self.repository.load_graph(project_id),
+            tuple(changed_entity_ids),
+        )
+
     def reanalyze(
         self,
         project_id: str,
@@ -282,7 +296,12 @@ class ModelGenerationService:
         entity = graph.entity_index.get(entity_id)
         if entity is None:
             raise ContractViolation(f"entity not found: {entity_id}")
-        stages = _reanalysis_stages(entity.kind)
+        impact = self.impact_planner.plan(graph, (entity_id,))
+        stages = tuple(stage_spec(item) for item in impact.selected_stages)
+        before_traceability = {
+            "revision": graph.revision,
+            **build_traceability_summary(graph).as_dict(),
+        }
         effective_run_id = run_id or f"reanalysis-{uuid4().hex[:16]}"
         self._ensure_run(
             effective_run_id,
@@ -311,6 +330,7 @@ class ModelGenerationService:
                     stage.stage,
                     execution.diagnostics,
                 )
+                failed_graph = self.repository.load_graph(project_id)
                 return _reanalysis_payload(
                     failed,
                     entity_id,
@@ -318,6 +338,12 @@ class ModelGenerationService:
                     stages,
                     execution_status="failed",
                     controller_decision=controller_decision,
+                    impact=impact,
+                    before_traceability=before_traceability,
+                    after_traceability={
+                        "revision": failed_graph.revision,
+                        **build_traceability_summary(failed_graph).as_dict(),
+                    },
                 )
             stage_results.append(execution.result)
             warnings.extend(execution.warnings)
@@ -371,6 +397,12 @@ class ModelGenerationService:
             stages,
             execution_status="completed",
             controller_decision=controller_decision,
+            impact=impact,
+            before_traceability=before_traceability,
+            after_traceability={
+                "revision": final_graph.revision,
+                **traceability.as_dict(),
+            },
         )
 
     def continue_generation(
@@ -1163,11 +1195,6 @@ class ModelGenerationService:
             recorder(project_id, kind, payload)
 
 
-def _reanalysis_stages(kind: EntityKind):
-    start = vertical_stage_index_for_kind(kind)
-    return tuple(vertical_stage_specs())[start:]
-
-
 def _controller_target(graph, entity_ids: tuple[str, ...], task_id: str) -> str | None:
     """Choose a canonical graph seed for a controller action."""
 
@@ -1231,6 +1258,9 @@ def _reanalysis_payload(
     *,
     execution_status: str,
     controller_decision: Mapping[str, object] | None = None,
+    impact: ImpactPlan | None = None,
+    before_traceability: Mapping[str, object] | None = None,
+    after_traceability: Mapping[str, object] | None = None,
 ):
     payload = dict(result.as_dict())
     payload.update({
@@ -1242,6 +1272,16 @@ def _reanalysis_payload(
     })
     if controller_decision:
         payload["controller_decision"] = dict(controller_decision)
+    if impact is not None:
+        payload["impact"] = impact.as_dict()
+        payload["impacted_vv_case_ids"] = [
+            *impact.verification_case_ids,
+            *impact.validation_case_ids,
+        ]
+    if before_traceability is not None:
+        payload["before_traceability"] = dict(before_traceability)
+    if after_traceability is not None:
+        payload["after_traceability"] = dict(after_traceability)
     return payload
 
 
