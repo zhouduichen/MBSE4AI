@@ -7,6 +7,51 @@ from rflp_lite.runtime.rule_based import _partition_functions, _partition_label
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 
+def _requirements_request(entities, relations=(), revision=0):
+    context = ContextBundle(
+        "warehouse", "vertical.requirements", revision, tuple(entities), tuple(relations)
+    )
+    return TaskExecutionRequest(
+        "vertical.requirements",
+        "v2.1",
+        context,
+        (),
+        {"output_kinds": [kind.value for kind in EntityKind]},
+        3000,
+    )
+
+
+def test_requirements_stage_derives_one_requirement_from_existing_activity_and_is_idempotent():
+    activity = make_entity(
+        EntityKind.ACTIVITY,
+        "监测并告警活动",
+        {"goal": "监测仓储温度并在超限时告警"},
+    )
+    runtime = VerticalRuleRuntime()
+    request = _requirements_request((activity,))
+
+    response = runtime.execute(request)
+    requirement = next(
+        operation.entity
+        for operation in response.patch.operations
+        if hasattr(operation, "entity") and operation.entity.kind is EntityKind.REQUIREMENT
+    )
+    graph = apply_patch(ModelGraph("warehouse", (activity,)), response.patch)
+
+    assert requirement.payload["statement"] == "系统应监测仓储温度并在超限时告警"
+    assert requirement.payload["derived_from_kind"] == EntityKind.ACTIVITY.value
+    assert requirement.payload["source_context_ids"] == [activity.id]
+    assert any(
+        relation.source_id == requirement.id
+        and relation.predicate is RelationPredicate.DERIVED_FROM
+        and relation.target_id == activity.id
+        for relation in graph.relations
+    )
+
+    repeat = runtime.execute(_requirements_request(graph.entities, graph.relations, graph.revision))
+    assert repeat.patch is None
+
+
 def _logical_request(entities, relations=(), decision=None):
     context = ContextBundle(
         "robot", "vertical.logical", 3, tuple(entities), tuple(relations),

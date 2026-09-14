@@ -1,11 +1,50 @@
 from pathlib import Path
 
 from rflp_lite.bootstrap.v2 import build_v2_services
-from rflp_lite.domain.entities import EntityKind
-from rflp_lite.domain.model import Patch, UpdateEntity
+from rflp_lite.domain.entities import EntityKind, make_entity
+from rflp_lite.domain.model import AddEntity, Patch, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
+
+
+def test_partial_operational_model_derives_requirement_and_completes_vertical_chain(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("warehouse")
+    activity = make_entity(
+        EntityKind.ACTIVITY,
+        "监测并告警活动",
+        {
+            "steps": ["采集温度", "判断阈值", "发送告警"],
+            "goal": "监测仓储温度并在超限时告警",
+        },
+    )
+    graph = services.model("warehouse").graph("warehouse")
+    services.model("warehouse").apply_patch(
+        "warehouse",
+        Patch.create(
+            "warehouse",
+            "import.partial-model",
+            (AddEntity(activity),),
+            "导入部分运行模型",
+            graph.revision,
+        ),
+        graph.revision,
+    )
+
+    result = services.generation("warehouse").generate("warehouse")
+    graph = services.model("warehouse").graph("warehouse")
+
+    requirement = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
+    assert requirement.payload["derived_from_kind"] == EntityKind.ACTIVITY.value
+    assert requirement.payload["source_context_ids"] == [activity.id]
+    assert any(
+        relation.source_id == requirement.id
+        and relation.predicate is RelationPredicate.DERIVED_FROM
+        and relation.target_id == activity.id
+        for relation in graph.relations
+    )
+    assert result.traceability.complete_count == 1
 
 
 def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):

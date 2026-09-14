@@ -330,6 +330,26 @@ class VerticalRuleRuntime:
     def _requirements(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         builder = _VerticalPatchBuilder(request)
         requirements = _requirements(request)
+        if not requirements:
+            subject, source = _derived_requirement_source(builder.context)
+            statement = f"系统应{subject}"
+            derived = builder.add(
+                EntityKind.REQUIREMENT,
+                statement,
+                {
+                    "statement": statement,
+                    "source": "derived_from_existing_model",
+                    "derived_from_kind": source.kind.value if source else "",
+                    "source_context_ids": [source.id] if source else [],
+                    "level": "system",
+                    "type": "functional",
+                    "obligation": "系统应",
+                    "verification_method": "test",
+                },
+            )
+            if source is not None:
+                builder.relate(derived, RelationPredicate.DERIVED_FROM, source)
+            requirements = (derived,)
         domain = _domain_label(requirements) or builder.context.project_id
         system = _context_first(builder.context, EntityKind.SYSTEM) or builder.add(
             EntityKind.SYSTEM, f"{domain}系统", _system_payload(domain)
@@ -839,6 +859,38 @@ def _requirements(request: TaskExecutionRequest):
         if item.kind is EntityKind.REQUIREMENT
         and item.meta.status is not EntityStatus.DEPRECATED
     )
+
+
+_DERIVATION_FIELDS: dict[EntityKind, tuple[str, ...]] = {
+    EntityKind.ACTIVITY: ("goal", "objective", "purpose", "statement"),
+    EntityKind.OPERATIONAL_SCENARIO: ("goal", "outcome", "objective", "statement"),
+    EntityKind.USE_CASE: ("goal", "objective", "success", "statement"),
+    EntityKind.SCENARIO_HYPOTHESIS: ("outcome", "goal", "objective", "statement"),
+    EntityKind.SYSTEM: ("mission", "objective", "statement"),
+}
+_DERIVATION_PLACEHOLDERS = frozenset({"", "待确认", "候选", "unknown", "tbd"})
+
+
+def _derived_requirement_source(context):
+    """Select bounded semantic context for a requirement missing from a partial model."""
+
+    for kind, fields in _DERIVATION_FIELDS.items():
+        for entity in context.entities:
+            if entity.kind is not kind or entity.meta.status is EntityStatus.DEPRECATED:
+                continue
+            for field in fields:
+                raw = entity.payload.get(field)
+                values = raw if isinstance(raw, (list, tuple)) else (raw,)
+                for value in values:
+                    text = " ".join(str(value or "").split()).strip(" ：:、—-\t\n")
+                    if text.casefold() in _DERIVATION_PLACEHOLDERS:
+                        continue
+                    text = re.sub(r"^(?:系统)?\s*(?:应|需|需要|必须)\s*", "", text)
+                    text = re.split(r"(?:；|;|。|！|!|？|\?)", text, maxsplit=1)[0]
+                    text = text.strip(" ：:、—-\t\n")[:48]
+                    if text and text.casefold() not in _DERIVATION_PLACEHOLDERS:
+                        return text, entity
+    return context.project_id, None
 
 
 def _domain_label(requirements) -> str:

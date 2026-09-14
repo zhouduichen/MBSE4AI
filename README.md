@@ -89,7 +89,7 @@ model-profile list|save|activate
 
 Analysis 页面可以直接保存“系统目标 / 项目使命”；目标同时作为 System intent 和候选 Requirement 进入后续 R→F→L→P→V&V。Controller 的历史项目检索只读其他 managed project 的模型、文档区域和证据 FTS，命中结果以 `historical_project` Evidence 回写当前项目，不跨项目修改模型。
 
-Analysis 页面支持上传已有 `.sysml` 模型。导入使用与命令行相同的确定性 SysML v2 子集解析器，写入当前项目的 ModelGraph，并在实体 ID 冲突时拒绝整次导入；任何包含活动实体的已有模型（包括只有部分层的模型）都可以作为分析输入，继续生成、编辑和导出。缺失层和追溯缺口会保留为 warnings/review findings。
+Analysis 页面支持上传已有 `.sysml` 模型。导入使用与命令行相同的确定性 SysML v2 子集解析器，写入当前项目的 ModelGraph，并在实体 ID 冲突时拒绝整次导入；任何包含活动实体的已有模型（包括只有部分层的模型）都可以作为分析输入，继续生成、编辑和导出。如果部分模型只有 Activity、Operational Scenario 或 System 等运行上下文而尚无 Requirement，Requirements 阶段会从这些类型化字段派生一个可 Review 的系统 Requirement，并用 `derivedFrom` 保留来源 ID，再继续贯通 F/L/P/V&V。缺失层和追溯缺口会保留为 warnings/review findings。
 
 MBSE Model 页面还提供“导出完整交付包”：同一份 ModelGraph 快照一次性输出 `model.json`、SysML v2 子集、Requirements、RFLP、Traceability、V&V Plan 和 Architecture Report，并在 manifest 中绑定项目、revision 和 snapshot hash。SysML 子集把实体的 kind、name、status、来源、修订和 payload 写入实际声明属性，同时保留稳定 ID/关系元数据；外部编辑声明属性后重新导入会回写同一 ModelGraph。交付包可以重新读取 SysML 后继续编辑；报告中的缺口仍保留为 BLOCKED/INCOMPLETE，不会被下载过程隐藏。
 
