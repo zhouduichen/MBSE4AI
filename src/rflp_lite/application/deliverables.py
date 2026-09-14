@@ -11,6 +11,7 @@ from rflp_lite.application.projections.requirements import build_requirements_vi
 from rflp_lite.application.projections.rflp import build_rflp_view
 from rflp_lite.application.projections.traceability import build_traceability_view
 from rflp_lite.application.sysml_v2 import graph_to_sysml
+from rflp_lite.diagrams.engineering.rflp import render_rflp_svg
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.model import ModelGraph
@@ -24,6 +25,7 @@ REQUIRED_MEMBERS = (
     "model.sysml",
     "requirements.json",
     "rflp.json",
+    "rflp.svg",
     "traceability.json",
     "vv-plan.json",
     "vv-plan.md",
@@ -59,6 +61,7 @@ class EngineeringDeliverableService:
             "sysml": _artifact("sysml-v2-subset", graph_to_sysml(graph), graph),
             "requirements": _artifact("requirements-view-v1", requirements, graph),
             "rflp": _artifact("rflp-view-v1", rflp, graph),
+            "rflp_svg": _artifact("rflp-svg-v1", render_rflp_svg(rflp), graph),
             "traceability": _artifact("traceability-view-v1", traceability, graph),
             "vv_plan": _artifact("vv-plan-v1", vv_plan, graph),
             "architecture_report": _artifact("architecture-report-v1", architecture_report, graph),
@@ -97,6 +100,7 @@ class EngineeringDeliverableService:
             "model.sysml": str(artifacts["sysml"]["content"]).encode("utf-8"),
             "requirements.json": _json_bytes(artifacts["requirements"]["content"]),
             "rflp.json": _json_bytes(artifacts["rflp"]["content"]),
+            "rflp.svg": str(artifacts["rflp_svg"]["content"]).encode("utf-8"),
             "traceability.json": _json_bytes(artifacts["traceability"]["content"]),
             "vv-plan.json": _json_bytes(vv_plan),
             "vv-plan.md": _vv_markdown(vv_plan).encode("utf-8"),
@@ -130,6 +134,7 @@ def _artifact_path(name: str) -> str:
         "sysml": "model.sysml",
         "requirements": "requirements.json",
         "rflp": "rflp.json",
+        "rflp_svg": "rflp.svg",
         "traceability": "traceability.json",
         "vv_plan": "vv-plan.json",
         "architecture_report": "architecture-report.json",

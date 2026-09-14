@@ -37,6 +37,7 @@ def test_deliverables_download_is_zip(tmp_path):
         assert "architecture-report.md" in archive.namelist()
         assert "vv-plan.md" in archive.namelist()
         assert "evidence.json" in archive.namelist()
+        assert archive.read("rflp.svg").startswith(b"<svg")
 
 
 def test_downloaded_sysml_can_be_imported_and_edited(tmp_path):

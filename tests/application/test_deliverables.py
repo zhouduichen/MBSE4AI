@@ -79,7 +79,7 @@ def test_build_contains_all_required_artifacts(tmp_path: Path):
 
     assert package["format"] == "ai4mbse.engineering-deliverable.v1"
     assert set(package["artifacts"]) == {
-        "model", "evidence", "sysml", "requirements", "rflp", "traceability",
+        "model", "evidence", "sysml", "requirements", "rflp", "rflp_svg", "traceability",
         "vv_plan", "architecture_report",
     }
     assert package["revision"] == package["artifacts"]["traceability"]["content"]["revision"]
@@ -87,6 +87,7 @@ def test_build_contains_all_required_artifacts(tmp_path: Path):
     assert package["artifacts"]["architecture_report"]["content"]["status"] == "BLOCKED"
     assert package["artifacts"]["vv_plan"]["content"]["metrics"]["requirement_count"] == 1
     assert package["artifacts"]["evidence"]["content"]["records"] == []
+    assert package["artifacts"]["rflp_svg"]["content"].startswith("<svg")
 
 
 def test_deliverable_snapshots_evidence_without_changing_model_revision(tmp_path: Path):
@@ -145,7 +146,7 @@ def test_zip_is_stable_and_sysml_round_trips(tmp_path: Path):
     with zipfile.ZipFile(io.BytesIO(first)) as archive:
         assert set(archive.namelist()) == {
             "manifest.json", "model.json", "evidence.json", "model.sysml", "requirements.json",
-            "rflp.json", "traceability.json", "vv-plan.json", "vv-plan.md",
+            "rflp.json", "rflp.svg", "traceability.json", "vv-plan.json", "vv-plan.md",
             "architecture-report.json", "architecture-report.md",
         }
         restored = sysml_to_graph(archive.read("model.sysml").decode(), "p1")
