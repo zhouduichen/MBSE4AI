@@ -1,7 +1,7 @@
 # LLM 纵向阶段反馈闭环设计
 
 **日期：** 2026-09-14  
-**状态：** 执行中  
+**状态：** 已实现并通过测试
 **范围：** 五阶段 ModelGenerationService 的结构化 LLM 生成路径
 
 ## 背景
@@ -71,4 +71,3 @@ ModelGenerationService._execute_stage 以 max_attempts=2 包住现有单次执�
 - 失败 fixture 两次都不完整时，StageResult 为 needs_review，并保留 completion issue code；
 - RuleRuntime 离线生成仍保持每阶段一次调用和原有完整追溯；
 - 全量测试、compileall、Ruff、架构指标、import-linter 和 diff check 通过。
-

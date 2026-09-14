@@ -1,5 +1,7 @@
 # Complete Structured LLM Vertical Acceptance Implementation Plan
 
+**Status:** Completed; offline acceptance is covered by the compiler, complete structured vertical, SysML round-trip, and Controller trade-study tests.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans (recommended). Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Prove and harden one complete structured-LLM R→F→L→P→V&V run, including canonical payload references, SysML round-trip, and Controller-driven physical conflict iteration.
@@ -31,11 +33,11 @@
 - Consumes: `TaskExecutionRequest.context_bundle.entities`, Proposal `local_ref` values, existing `make_entity` and `ContractViolation` boundaries.
 - Produces: `_materialize_payload_references(kind, payload, ref_to_id, known_ids) -> dict[str, object]`, used by AddEntity and UpdateEntity compilation.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add a `vertical.functional` `TaskExecutionRequest` with a Requirement in context. Compile a Proposal containing a Function with local ref `function-1`, a FunctionalFlow with `source_function_ids=["function-1"]` and `target_function_ids=["function-1"]`, and a FunctionalScenario with `function_ids=["function-1"]`. Assert all three compiled payloads contain the generated Function canonical ID rather than `function-1`. Add a second payload with `source_function_ids=["missing-function"]` and assert `ContractViolation`.
 
-- [ ] **Step 2: Run the focused test and verify failure**
+- [x] **Step 2: Run the focused test and verify failure**
 
 ```bash
 ./.venv/bin/pytest -q tests/methodology/test_proposal_compiler.py -k "payload_reference"
@@ -43,7 +45,7 @@ Add a `vertical.functional` `TaskExecutionRequest` with a Requirement in context
 
 Expected: FAIL because payload values currently retain local refs and unknown payload references are not checked.
 
-- [ ] **Step 3: Implement the typed materializer**
+- [x] **Step 3: Implement the typed materializer**
 
 Add an explicit allowlist and recursively materialize only these graph-reference fields:
 
@@ -61,7 +63,7 @@ _GRAPH_REFERENCE_FIELDS = frozenset({
 
 Build all AddEntity canonical IDs before constructing AddEntity operations. For an allowlisted scalar or list item, replace a matching local ref with `ref_to_id`, retain a known Context/output canonical ID, and raise `ContractViolation("unknown payload entity reference: ...")` otherwise. Recurse through mappings and lists so `impact_chain` and `resolution_options[*].impact_entity_ids` are handled. Apply the same helper to UpdateEntity payload patches before validating the merged payload. Do not process `evidence_ids`, `execution_evidence_ids`, external `source_ids`, free text or constraint provenance.
 
-- [ ] **Step 4: Run all compiler tests**
+- [x] **Step 4: Run all compiler tests**
 
 ```bash
 ./.venv/bin/pytest -q tests/methodology/test_proposal_compiler.py
@@ -69,7 +71,7 @@ Build all AddEntity canonical IDs before constructing AddEntity operations. For 
 
 Expected: PASS, including existing schema, local-ref, CAS and partial-update tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rflp_lite/methodology/proposal_compiler.py tests/methodology/test_proposal_compiler.py
@@ -85,7 +87,7 @@ git commit -m "feat: canonicalize llm payload references"
 - Consumes: `StructuredModelRuntime`, `GenerationResponse`, current request context entities and the five vertical stage contracts.
 - Produces: `CompleteVerticalModel.complete_json(request) -> GenerationResponse`, returning a complete stage-specific TaskProposal through the production compiler and validators.
 
-- [ ] **Step 1: Write the failing acceptance test**
+- [x] **Step 1: Write the failing acceptance test**
 
 Add `test_structured_runtime_generates_complete_editable_vertical_model` and run `ModelGenerationService.generate` from `系统应在校园内完成配送并支持人工接管`. Assert:
 
@@ -98,7 +100,7 @@ assert result.traceability.end_to_end_complete_count == 1
 
 Also assert all required entity kinds exist and every graph-reference payload ID points to an entity in the resulting ModelGraph.
 
-- [ ] **Step 2: Run the test and verify failure**
+- [x] **Step 2: Run the test and verify failure**
 
 ```bash
 ./.venv/bin/pytest -q tests/application/test_model_generation.py::test_structured_runtime_generates_complete_editable_vertical_model
@@ -106,11 +108,11 @@ Also assert all required entity kinds exist and every graph-reference payload ID
 
 Expected: FAIL because no complete fixture exists and the existing scripted responses leave several stage completion checks unresolved.
 
-- [ ] **Step 3: Implement one response builder per stage**
+- [x] **Step 3: Implement one response builder per stage**
 
 Read canonical IDs from `request.user_payload["context"]["entities"]`; use local refs only for new entities. Include operational objects and requirement derivation, functional decomposition/flow/scenario plus requirement update, logical allocation/interface/state/evaluation, physical constraints/feasibility/impact chain, and V&V plan/scope/risk objects. Every new object must have a non-empty payload accepted by the existing schemas and every stage response must include the five required proposal arrays/fields. The fixture must reuse existing objects on retry and never create duplicate active entities.
 
-- [ ] **Step 4: Run focused structured tests**
+- [x] **Step 4: Run focused structured tests**
 
 ```bash
 ./.venv/bin/pytest -q tests/application/test_model_generation.py::test_structured_runtime_generates_complete_editable_vertical_model tests/application/test_model_generation.py::test_structured_runtime_retries_one_stage_with_latest_graph_and_guidance
@@ -118,7 +120,7 @@ Read canonical IDs from `request.user_payload["context"]["entities"]`; use local
 
 Expected: PASS; the complete fixture uses one attempt per stage, while the incomplete fixture still exercises the bounded feedback path.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/application/test_model_generation.py
@@ -134,11 +136,11 @@ git commit -m "test: accept complete structured vertical model"
 - Consumes: complete structured generation result, `graph_to_sysml`, `sysml_to_graph`, `ModelService.apply_patch` and Review/CAS behavior.
 - Produces: acceptance evidence that SysML is an interchange projection and the canonical ModelGraph remains editable.
 
-- [ ] **Step 1: Add round-trip assertions**
+- [x] **Step 1: Add round-trip assertions**
 
 Export the complete graph with `graph_to_sysml`, restore it with `sysml_to_graph`, and assert entity IDs, kinds, statuses, payloads and `(source_id, predicate, target_id)` relation triples are equal. Apply one `UpdateEntity` to the current project and assert the revision increments while the edited entity ID remains unchanged.
 
-- [ ] **Step 2: Run the round-trip test**
+- [x] **Step 2: Run the round-trip test**
 
 ```bash
 ./.venv/bin/pytest -q tests/application/test_model_generation.py::test_structured_runtime_generates_complete_editable_vertical_model
@@ -146,7 +148,7 @@ Export the complete graph with `graph_to_sysml`, restore it with `sysml_to_graph
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/application/test_model_generation.py
@@ -162,7 +164,7 @@ git commit -m "test: verify structured model sysml round trip"
 - Consumes: complete structured model, Review/CAS edit, `ModelGenerationService.controller_plan`, `execute_controller_action`, `ImpactPlan` and existing Trade Study behavior.
 - Produces: product-level proof for conflict → impact → user decision → Physical/V&V reanalysis.
 
-- [ ] **Step 1: Write the Controller acceptance test**
+- [x] **Step 1: Write the Controller acceptance test**
 
 After complete generation, edit the Requirement with `constraints={"max_power_w": 50}` and the PhysicalBlock with `power_w=80`. Assert the plan includes `physical_constraint_conflict`, returns a `trade_study` action and does not change revision when called without `option_id`. Select the physical replacement option and assert:
 
@@ -175,7 +177,7 @@ assert payload["reanalysis"]["after_traceability"]
 
 Also assert an alternative PhysicalBlock carries the selected decision and no locked entity changes.
 
-- [ ] **Step 2: Run the focused Controller tests**
+- [x] **Step 2: Run the focused Controller tests**
 
 ```bash
 ./.venv/bin/pytest -q tests/application/test_model_generation.py -k "structured.*controller or complete.*controller"
@@ -183,11 +185,11 @@ Also assert an alternative PhysicalBlock carries the selected decision and no lo
 
 Expected: FAIL until the complete fixture exposes a full structured graph; if existing Controller behavior already passes, retain the test and make no unrelated changes.
 
-- [ ] **Step 3: Implement only required integration fixes**
+- [x] **Step 3: Implement only required integration fixes**
 
 Reuse `execute_controller_action`, `TypedImpactPlanner` and existing Runtime boundaries. If selected-stage context loses the decision or impact metadata, propagate it through the existing `ContextBundle` and audit payload; do not add a second Controller or direct repository write.
 
-- [ ] **Step 4: Run application and API regressions**
+- [x] **Step 4: Run application and API regressions**
 
 ```bash
 ./.venv/bin/pytest -q tests/application/test_model_generation.py tests/interface/web/test_vertical_generation_api.py
@@ -195,7 +197,7 @@ Reuse `execute_controller_action`, `TypedImpactPlanner` and existing Runtime bou
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rflp_lite tests/application/test_model_generation.py tests/interface/web/test_vertical_generation_api.py
@@ -213,11 +215,11 @@ git commit -m "test: accept controller driven architecture iteration"
 - Consumes: Tasks 1–4 and the complete structured acceptance result.
 - Produces: documented product behavior, verified clean worktree and pushed branch.
 
-- [ ] **Step 1: Update product documentation**
+- [x] **Step 1: Update product documentation**
 
 Document canonicalization before CAS, complete structured five-stage acceptance, SysML round-trip and user-decided Controller Trade Study re-entry into only impacted stages.
 
-- [ ] **Step 2: Run all quality gates**
+- [x] **Step 2: Run all quality gates**
 
 ```bash
 ./.venv/bin/pytest -q
@@ -230,7 +232,7 @@ git diff --check
 
 Expected: all tests pass; architecture metrics remain within budget; import contracts remain 5 kept/0 broken; no diff errors.
 
-- [ ] **Step 3: Inspect and push**
+- [x] **Step 3: Inspect and push**
 
 ```bash
 git status --short --branch
