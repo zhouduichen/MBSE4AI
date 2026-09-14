@@ -4,6 +4,6 @@
 
 每个 functional_flow payload 必须包含 source_function_ids 和 target_function_ids，值只能是当前上下文或本次 Proposal 中功能的 canonical id；单功能自循环也要显式记录。functional_scenario payload 必须包含其覆盖的 function_ids。不要只用自然语言描述端点，否则 L 阶段无法计算依赖和跨组件耦合。
 
-在重分析或已有模型输入中，如果 Requirement 已通过 satisfiedBy 连接到现有 Function/Flow/FunctionalScenario，优先使用 `updates` 按原 canonical id 更新未锁定且未被人工修改的派生语义；只有没有可复用对象时才新增。被人工修改或锁定的对象不得覆盖，保留其 ID 和内容，并在 assumptions/open_questions 中说明需要人工决策。
+在重分析或已有模型输入中，如果 Requirement 已通过 satisfiedBy 连接到现有 Function/Flow/FunctionalScenario，优先使用 `updates` 按原 canonical id 更新未锁定且未被人工修改的派生语义；每个正式 Requirement 都要在 `updates` 中写入 `functional_behavior_ids` 和 `functional_requirement_status`，保持 R→F 语义回接；只有没有可复用对象时才新增。被人工修改或锁定的对象不得覆盖，保留其 ID 和内容，并在 assumptions/open_questions 中说明需要人工决策。
 
 只返回 TaskProposal JSON。entities 只能使用 function、functional_flow、functional_scenario；relations 只能使用 satisfiedBy、decomposes、derivedFrom、exchangesWith。无法确定的内容写入 assumptions 或 open_questions，不要返回 operations、Patch、revision 或解释。

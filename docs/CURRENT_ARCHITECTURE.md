@@ -66,3 +66,7 @@ Review 后的显式“继续生成下游”调用 `ModelGenerationService.contin
 ## 质量门禁
 
 仓库以 Golden fixture、领域/仓储/方法论/Runtime/API/E2E 测试、`compileall`、Import Linter 和架构预算作为验收基线。旧版智能发现、Concept/MDO、Project Bridge、测试执行、仿真、旧 Job/Baseline/TaskContract 和 MLflow 不属于 Core，已从主包和主测试集移除。
+
+## 当前纵向推理增强
+
+五阶段生成现在逐项计算其内部 23-task 完成检查，并把结果同时返回给工作台、写入阶段审计摘要、反馈到下一次 `methodology_guidance`。Logical 阶段读取功能依赖和功能流端点，支持有证据的传递聚类；没有明确边界证据的独立需求仍保持独立组件，同时在组件载荷中记录 flow、cross-component、内聚/耦合和备选分区证据。Physical 和 V&V 阶段对约束传播、可行性权衡和交叉分析字段执行同一套确定性完成检查；缺口会进入 `needs_review`，而不是伪报完整。

@@ -67,6 +67,19 @@ def test_vertical_prompts_define_reanalysis_reuse_and_protection():
         assert "人工修改" in prompt.text
 
 
+def test_vertical_prompts_expose_typed_flow_and_closure_evidence():
+    registry = PromptRegistry()
+
+    functional = registry.resolve("vertical.functional")
+    assurance = registry.resolve("vertical.verification_validation")
+
+    assert "source_function_ids" in functional.text
+    assert "target_function_ids" in functional.text
+    assert "functional_behavior_ids" in functional.text
+    assert "feasibility_review" in assurance.text
+    assert "cross_analysis_status" in assurance.text
+
+
 def test_registered_template_text_change_changes_prompt_hash():
     first = PromptRegistry({"custom": "first"}).resolve("custom")
     second = PromptRegistry({"custom": "second"}).resolve("custom")
