@@ -6,6 +6,7 @@ from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import RunStatus
 from rflp_lite.methodology.tasks import task_catalog
 from rflp_lite.ports.generative_model import GenerationResponse
+from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 
 
@@ -98,6 +99,50 @@ def test_pipeline_closes_logical_physical_and_assurance_layers(tmp_path: Path):
         and relation.predicate is RelationPredicate.VALIDATED_BY
         for relation in graph.relations
     )
+
+
+def test_pipeline_delivers_complete_traceable_editable_model(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces")
+    services.projects.create("robot")
+    services.requirements_input("robot").ensure_text_requirements(
+        "系统应支持自主配送并允许人工接管"
+    )
+
+    summary = services.analysis("robot").run("robot", force_new=True)
+    graph = services.model("robot").graph("robot")
+    package = services.deliverables("robot").build("robot")
+    trace_metrics = package["artifacts"]["traceability"]["content"]["metrics"]
+
+    assert summary.status is RunStatus.COMPLETED
+    assert len(summary.completed_tasks) == 23
+    assert set(summary.completed_tasks) == {task.id for task in task_catalog()}
+    assert trace_metrics["requirement_count"] == 1
+    assert trace_metrics["complete_count"] == 1
+    assert package["revision"] == graph.revision
+    assert package["snapshot_hash"] == graph.snapshot_hash
+    assert package["artifacts"]["rflp"]["content"]["edges"]
+    assert package["artifacts"]["vv_plan"]["content"]["rows"]
+
+    restored = sysml_to_graph(graph_to_sysml(graph), "robot")
+    assert {item.id: item.kind for item in restored.entities} == {
+        item.id: item.kind for item in graph.entities
+    }
+    assert {
+        (item.source_id, item.predicate, item.target_id)
+        for item in restored.relations
+    } == {
+        (item.source_id, item.predicate, item.target_id)
+        for item in graph.relations
+    }
+
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+    services.review("robot").edit_entity(
+        "robot",
+        function.id,
+        payload={"review_note": "人工确认功能职责"},
+    )
+    edited = services.model("robot").graph("robot").entity_index[function.id]
+    assert edited.payload["review_note"] == "人工确认功能职责"
 
 
 class LifecycleModel:
