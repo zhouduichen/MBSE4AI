@@ -319,6 +319,8 @@ def test_analysis_page_exposes_default_generation_action(tmp_path: Path):
     assert "Methodology Findings" in page.text
     assert "Physical feasibility" in page.text
     assert "V&amp;V Coverage" in page.text
+    assert "逻辑架构候选" in page.text
+    assert "物理可行性矩阵" in page.text
     assert "Next Tasks" in page.text
     assert "自动推进安全动作" in page.text
     assert "/controller/iterate" in page.text

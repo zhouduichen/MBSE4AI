@@ -92,6 +92,21 @@
   {% if latest_run.methodology %}
   <div class="module-subsection"><div class="panel-head"><div><h3>Methodology Findings</h3><p>方法论引擎基于当前 ModelGraph 给出可追踪的工程判断。</p></div><span class="count-badge">{{ latest_run.methodology.findings|length }} 个</span></div>
     <div class="metric-row"><article><span>Logical allocation</span><strong>{{ latest_run.methodology.metrics.logical_allocation_coverage }}</strong></article><article><span>Physical feasibility</span><strong>{{ latest_run.methodology.metrics.physical_feasibility }}</strong></article><article><span>V&amp;V Coverage</span><strong>{{ latest_run.methodology.metrics.end_to_end_vv_coverage }}</strong></article></div>
+    {% set architecture = latest_run.methodology.metrics.get('architecture_synthesis', {}) %}
+    {% set logical = architecture.get('logical', {}) %}
+    {% set physical = architecture.get('physical', {}) %}
+    {% if logical.get('candidates') or physical.get('rows') %}
+    <div class="two-column workflow-columns architecture-evidence">
+      <div class="card">
+        <div class="panel-head"><div><h3>逻辑架构候选</h3><p>按功能依赖、功能流和共享状态比较分区。</p></div><span class="count-badge">{{ logical.get('candidate_count', 0) }} 个</span></div>
+        {% if logical.get('candidates') %}<div class="compact-list">{% for candidate in logical.get('candidates', []) %}<article><span><strong>{{ candidate.alternative }}</strong><small>评分 {{ candidate.score }} · 内聚 {{ candidate.cohesion }} · 耦合 {{ candidate.coupling }}</small><small>跨组件交互 {{ candidate.cross_component_exchange_count }} · 共享状态切分 {{ candidate.shared_state_cut_count }}</small></span>{% if loop.first %}<span class="status-badge accepted">推荐</span>{% endif %}</article>{% endfor %}</div>{% else %}<div class="mini-empty">暂无逻辑架构候选</div>{% endif %}
+      </div>
+      <div class="card">
+        <div class="panel-head"><div><h3>物理可行性矩阵</h3><p>约束传播、缺失测量和冲突结果。</p></div><span class="count-badge">{{ physical.get('candidate_count', 0) }} 行</span></div>
+        {% if physical.get('rows') %}<div class="compact-list">{% for row in physical.get('rows', []) %}<article><span><strong>{{ row.physical_id }}</strong><small>状态 {{ row.status }} · 评分 {{ row.score }}</small>{% if row.propagated_constraints %}<small>约束：{{ row.propagated_constraints }}</small>{% endif %}{% if row.missing_fields %}<small>待测量：{{ row.missing_fields|join('、') }}</small>{% endif %}</span><span class="status-badge {% if row.status == 'feasible' %}accepted{% elif row.status == 'infeasible' %}failed{% else %}candidate{% endif %}">{{ row.status }}</span></article>{% endfor %}</div>{% else %}<div class="mini-empty">暂无物理可行性记录</div>{% endif %}
+      </div>
+    </div>
+    {% endif %}
     {% if latest_run.methodology.findings %}<div class="compact-list">{% for finding in latest_run.methodology.findings %}<article><span class="status-badge {% if finding.severity == 'error' %}failed{% else %}candidate{% endif %}">{{ finding.code }}</span><span><strong>{{ finding.stage }}</strong><small>{{ finding.message }}</small></span></article>{% endfor %}</div>{% endif %}
     {% if latest_run.methodology.recommended_tasks %}<div class="callout info"><strong>Next Tasks</strong>：{{ latest_run.methodology.recommended_tasks|join('、') }}</div>{% endif %}
     {% if latest_run.controller %}<div class="module-subsection controller-panel"><div class="panel-head"><div><h3>Systems Engineering Controller</h3><p>根据当前模型缺口选择下一步动作；Trade Study 在用户决策前不会改写模型。</p><button class="button compact primary" id="controller-iterate" type="button">自动推进安全动作</button></div><span class="status-badge {% if latest_run.controller.status == 'complete' %}accepted{% else %}candidate{% endif %}">{{ latest_run.controller.status }}</span></div>
