@@ -12,12 +12,13 @@ def _client_with_fixture(tmp_path, runtime=None):
         app.state.container.v2._runtime_override = runtime
     client = TestClient(app)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
-    requirement = make_entity(EntityKind.REQUIREMENT, "Battery shall last 8 hours", {"statement": "Battery shall last 8 hours"})
-    function = make_entity(EntityKind.FUNCTION, "Manage energy")
-    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "Energy controller")
-    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "Battery pack")
-    verification = make_entity(EntityKind.VERIFICATION_CASE, "Endurance test", {"method": "test", "pass_criteria": ">=8h"})
-    validation = make_entity(EntityKind.VALIDATION_CASE, "Operational confirmation", {"method": "demonstration", "pass_criteria": "operator confirms"})
+    requirement = make_entity(EntityKind.REQUIREMENT, "Battery shall last 8 hours", {"statement": "Battery shall last 8 hours"}, status=EntityStatus.VALIDATED)
+    function = make_entity(EntityKind.FUNCTION, "Manage energy", status=EntityStatus.VALIDATED)
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "Energy controller", status=EntityStatus.VALIDATED)
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "Battery pack", status=EntityStatus.VALIDATED)
+    scope = {"requirement_ids": [requirement.id], "function_ids": [function.id], "logical_component_ids": [logical.id], "physical_ids": [physical.id]}
+    verification = make_entity(EntityKind.VERIFICATION_CASE, "Endurance test", {"method": "test", "pass_criteria": ">=8h", **scope}, status=EntityStatus.VALIDATED)
+    validation = make_entity(EntityKind.VALIDATION_CASE, "Operational confirmation", {"method": "demonstration", "pass_criteria": "operator confirms", **scope}, status=EntityStatus.VALIDATED)
     relations = (Relate(requirement.id, RelationPredicate.SATISFIED_BY, function.id), Relate(function.id, RelationPredicate.ALLOCATED_TO, logical.id), Relate(logical.id, RelationPredicate.ALLOCATED_TO, physical.id), Relate(requirement.id, RelationPredicate.VERIFIED_BY, verification.id), Relate(requirement.id, RelationPredicate.VALIDATED_BY, validation.id))
     patch = Patch.create("p1", "fixture", (AddEntity(requirement), AddEntity(function), AddEntity(logical), AddEntity(physical), AddEntity(verification), AddEntity(validation), *relations), "fixture", 0)
     app.state.container.v2.repository("p1").append_patch("p1", patch, 0)

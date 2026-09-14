@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import asdict, is_dataclass
 from enum import Enum
 import json
@@ -228,6 +227,18 @@ _TRACE_STAGE_LABELS = {
     "Physical": "物理",
     "Verification": "验证",
     "Validation": "确认",
+}
+_TRACE_GAP_LABELS = {
+    "requirement": "Requirement",
+    "function": "Function",
+    "logical": "Logical",
+    "physical": "Physical",
+    "verification": "Verification",
+    "validation": "Validation",
+    "verification_scope": "Verification scope",
+    "validation_scope": "Validation scope",
+    "invalid_predicate": "Invalid predicate",
+    "rejected": "Rejected",
 }
 _ROOT_CAUSES = {
     "missing_stakeholder": "stakeholder",
@@ -1245,73 +1256,56 @@ def _trace_node(project_id: str, entity, stage: str) -> dict[str, object]:
     }
 
 
-def _kind_path(graph: ModelGraph, adjacency: Mapping[str, tuple[str, ...]], start_id: str, target_kind: EntityKind) -> tuple[str, ...] | None:
-    index = graph.entity_index
-    queue: deque[tuple[str, tuple[str, ...]]] = deque([(start_id, (start_id,))])
-    visited = {start_id}
-    while queue:
-        current, path = queue.popleft()
-        if current != start_id and index.get(current) and index[current].kind is target_kind:
-            return path
-        for target in adjacency.get(current, ()):
-            if target not in visited and target in index:
-                visited.add(target)
-                queue.append((target, path + (target,)))
-    return None
-
-
 def build_trace_view(request: Request, project_id: str) -> dict[str, object]:
     services = _services(request)
     graph = services.model(project_id).graph(project_id)
     index = graph.entity_index
-    adjacency: dict[str, list[str]] = {}
-    for relation in graph.relations:
-        adjacency.setdefault(relation.source_id, []).append(relation.target_id)
-    adjacency_tuple = {key: tuple(value) for key, value in adjacency.items()}
     paths: list[dict[str, object]] = []
     issues: list[dict[str, object]] = []
-    for requirement in sorted((item for item in graph.entities if item.kind is EntityKind.REQUIREMENT), key=lambda item: item.id):
-        ids: list[str | None] = [requirement.id]
-        function_path = _kind_path(graph, adjacency_tuple, requirement.id, EntityKind.FUNCTION)
-        ids.append(function_path[-1] if function_path else None)
-        logical_path = _kind_path(graph, adjacency_tuple, ids[-1], EntityKind.LOGICAL_COMPONENT) if ids[-1] else None
-        ids.append(logical_path[-1] if logical_path else None)
-        physical_path = _kind_path(graph, adjacency_tuple, ids[-1], EntityKind.PHYSICAL_BLOCK) if ids[-1] else None
-        ids.append(physical_path[-1] if physical_path else None)
-        verification_path = _kind_path(graph, adjacency_tuple, requirement.id, EntityKind.VERIFICATION_CASE)
-        ids.append(verification_path[-1] if verification_path else None)
-        validation_path = _kind_path(graph, adjacency_tuple, requirement.id, EntityKind.VALIDATION_CASE)
-        validation_node = _trace_node(project_id, index[validation_path[-1]], "Validation") if validation_path else None
+    traceability = build_traceability_view(graph, ())
+    for row in traceability["rows"]:
+        requirement = index.get(str(row["requirement_id"]))
+        if requirement is None:
+            continue
+        ids: list[str | None] = [
+            requirement.id,
+            (row["functions"] or (None,))[0],
+            (row["logical_components"] or (None,))[0],
+            (row["physical_blocks"] or (None,))[0],
+            (row["verification_cases"] or (None,))[0],
+        ]
+        validation_id = (row["validation_cases"] or (None,))[0]
+        validation_node = (
+            _trace_node(project_id, index[validation_id], "Validation")
+            if validation_id in index else None
+        )
         nodes: list[dict[str, object] | None] = []
-        missing: list[str] = []
+        missing = [
+            _TRACE_GAP_LABELS.get(str(gap), str(gap))
+            for gap in row["gaps"]
+        ]
         for entity_id, (_kind, stage) in zip(ids, _TRACE_STAGES):
             entity = index.get(entity_id) if entity_id else None
             nodes.append(_trace_node(project_id, entity, stage) if entity else None)
-            if entity is None:
-                missing.append(stage)
-                issues.append({
-                    "code": f"missing_trace_{stage.casefold()}",
-                    "message": f"{requirement.meta.name}暂无{stage}链路",
-                    "entity_ids": [requirement.id],
-                    "severity": "warning",
-                    "severity_label": "警告",
-                })
-        if validation_node is None:
-            missing.append("Validation")
+        for gap in row["gaps"]:
+            label = _TRACE_GAP_LABELS.get(str(gap), str(gap))
             issues.append({
-                "code": "missing_trace_validation",
-                "message": f"{requirement.meta.name}暂无Validation链路",
+                "code": f"trace_{gap}",
+                "message": f"{requirement.meta.name}暂无{label}链路",
                 "entity_ids": [requirement.id],
                 "severity": "warning",
                 "severity_label": "警告",
             })
         path: dict[str, object] = {
             "path_id": f"trace-{canonical_hash((project_id, requirement.id))[:12]}",
-            "complete": not missing,
+            "complete": row["status"] == "PASS",
             "missing": missing,
             "nodes": nodes,
             "validation": validation_node,
-            "vv_complete": bool(nodes[-1] and validation_node),
+            "vv_complete": bool(
+                row["stage_coverage"]["verification"]
+                and row["stage_coverage"]["validation"]
+            ),
         }
         for node, (_kind, stage) in zip(nodes, _TRACE_STAGES):
             path[stage.casefold()] = node
