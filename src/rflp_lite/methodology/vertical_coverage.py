@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from typing import Mapping
 
 from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
@@ -12,7 +12,6 @@ from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.trace_rules import (
     is_technical_requirement,
     requirement_lineage,
-    vv_scope_matches,
 )
 
 
@@ -77,6 +76,142 @@ class VerticalCoverage:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class CanonicalRequirementTrace:
+    """One semantic, ready-only trace projection for a Requirement."""
+
+    requirement_id: str
+    function_ids: tuple[str, ...]
+    logical_component_ids: tuple[str, ...]
+    physical_ids: tuple[str, ...]
+    verification_case_ids: tuple[str, ...]
+    validation_case_ids: tuple[str, ...]
+    gaps: tuple[str, ...]
+    stage_coverage: Mapping[str, bool]
+    primary_path: tuple[str, ...]
+    complete: bool
+
+    def target_dict(self) -> Mapping[str, tuple[str, ...]]:
+        return {
+            "functions": self.function_ids,
+            "logical": self.logical_component_ids,
+            "physical": self.physical_ids,
+            "verification": self.verification_case_ids,
+            "validation": self.validation_case_ids,
+        }
+
+    def as_dict(self) -> Mapping[str, object]:
+        return {
+            "requirement_id": self.requirement_id,
+            **{key: list(value) for key, value in self.target_dict().items()},
+            "gaps": list(self.gaps),
+            "stage_coverage": dict(self.stage_coverage),
+            "primary_path": list(self.primary_path),
+            "complete": self.complete,
+        }
+
+
+def resolve_requirement_trace(
+    graph: ModelGraph,
+    requirement_id: str,
+) -> CanonicalRequirementTrace:
+    """Resolve one Requirement into the canonical ready-only trace contract."""
+
+    requirement = graph.entity_index.get(requirement_id)
+    if requirement is None or requirement.kind is not EntityKind.REQUIREMENT:
+        return CanonicalRequirementTrace(
+            requirement_id,
+            (), (), (), (), (),
+            ("requirement",),
+            {
+                "functional": False,
+                "logical": False,
+                "physical": False,
+                "verification": False,
+                "validation": False,
+            },
+            (requirement_id,),
+            False,
+        )
+
+    rflp = _resolve_row(graph, requirement, CoverageStage.PHYSICAL)
+    assurance = _resolve_row(
+        graph,
+        requirement,
+        CoverageStage.VERIFICATION_VALIDATION,
+    )
+    stage_coverage = {
+        "functional": bool(rflp.function_ids),
+        "logical": bool(rflp.logical_component_ids),
+        "physical": bool(rflp.physical_ids),
+        "verification": bool(assurance.verification_case_ids)
+        and "verification_scope" not in assurance.missing,
+        "validation": bool(assurance.validation_case_ids)
+        and "validation_scope" not in assurance.missing,
+    }
+    gaps = tuple(
+        _canonical_gap_name(value)
+        for value in (*rflp.missing, *assurance.missing)
+    )
+    primary_path = [requirement_id]
+    for entity_id in (
+        rflp.function_ids,
+        rflp.logical_component_ids,
+        rflp.physical_ids,
+    ):
+        if entity_id:
+            primary_path.append(entity_id[0])
+    return CanonicalRequirementTrace(
+        requirement_id,
+        rflp.function_ids,
+        rflp.logical_component_ids,
+        rflp.physical_ids,
+        assurance.verification_case_ids,
+        assurance.validation_case_ids,
+        gaps,
+        stage_coverage,
+        tuple(primary_path),
+        not gaps,
+    )
+
+
+def resolve_rflp_paths(
+    graph: ModelGraph,
+    requirement_id: str,
+) -> tuple[tuple[str, ...], ...]:
+    """Enumerate all deterministic, ready-only R→F→L→P paths."""
+
+    requirement = graph.entity_index.get(requirement_id)
+    if requirement is None or requirement.kind is not EntityKind.REQUIREMENT:
+        return ()
+    row = _resolve_row(graph, requirement, CoverageStage.PHYSICAL)
+    paths = [
+        (requirement_id, function_id, logical_id, physical_id)
+        for function_id in row.function_ids
+        for logical_id in _target_ids(
+            graph,
+            (function_id,),
+            (RelationPredicate.ALLOCATED_TO, RelationPredicate.SATISFIED_BY),
+            EntityKind.LOGICAL_COMPONENT,
+        )
+        for physical_id in _target_ids(
+            graph,
+            (logical_id,),
+            (RelationPredicate.ALLOCATED_TO, RelationPredicate.REALIZED_BY),
+            EntityKind.PHYSICAL_BLOCK,
+        )
+        if logical_id in row.logical_component_ids
+        and physical_id in row.physical_ids
+    ]
+    return tuple(sorted(paths))
+
+
+def _canonical_gap_name(value: str) -> str:
+    return {
+        "logical_component": "logical",
+    }.get(value, value)
+
+
 def resolve_vertical_coverage(
     graph: ModelGraph,
     stage: CoverageStage | str,
@@ -118,7 +253,7 @@ def _resolve_row(
     requirement: Entity,
     stage: CoverageStage,
 ) -> RequirementCoverageRow:
-    source_ids = tuple(dict.fromkeys((requirement.id, *requirement_lineage(graph, requirement.id))))
+    source_ids = _source_ids(graph, requirement.id)
     function_ids = _target_ids(
         graph,
         source_ids,
@@ -234,11 +369,82 @@ def _has_matching_scope(
     requirement_id: str,
     case_ids: tuple[str, ...],
 ) -> bool:
+    expected = _canonical_scope(graph, requirement_id)
     return any(
         case_id in graph.entity_index
-        and vv_scope_matches(graph, requirement_id, graph.entity_index[case_id])
+        and _scope_matches(graph.entity_index[case_id], expected)
         for case_id in case_ids
     )
+
+
+def _source_ids(graph: ModelGraph, requirement_id: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys((requirement_id, *requirement_lineage(graph, requirement_id))))
+
+
+def _canonical_scope(
+    graph: ModelGraph,
+    requirement_id: str,
+) -> Mapping[str, tuple[str, ...]]:
+    requirement = graph.entity_index.get(requirement_id)
+    if requirement is None or requirement.kind is not EntityKind.REQUIREMENT:
+        return {
+            "requirement_ids": (requirement_id,),
+            "function_ids": (),
+            "logical_component_ids": (),
+            "physical_ids": (),
+        }
+    source_ids = _source_ids(graph, requirement_id)
+    function_ids = _target_ids(
+        graph,
+        source_ids,
+        (RelationPredicate.SATISFIED_BY,),
+        EntityKind.FUNCTION,
+    )
+    logical_component_ids = _target_ids(
+        graph,
+        function_ids,
+        (RelationPredicate.ALLOCATED_TO, RelationPredicate.SATISFIED_BY),
+        EntityKind.LOGICAL_COMPONENT,
+    )
+    physical_ids = _target_ids(
+        graph,
+        logical_component_ids,
+        (RelationPredicate.ALLOCATED_TO, RelationPredicate.REALIZED_BY),
+        EntityKind.PHYSICAL_BLOCK,
+    )
+    if is_technical_requirement(requirement):
+        physical_ids = tuple(dict.fromkeys((
+            *physical_ids,
+            *_target_ids(
+                graph,
+                source_ids,
+                (RelationPredicate.SATISFIED_BY,),
+                EntityKind.PHYSICAL_BLOCK,
+            ),
+        )))
+    return {
+        "requirement_ids": (requirement_id,),
+        "function_ids": function_ids,
+        "logical_component_ids": logical_component_ids,
+        "physical_ids": physical_ids,
+    }
+
+
+def _scope_matches(
+    case: Entity,
+    expected: Mapping[str, tuple[str, ...]],
+) -> bool:
+    aliases = {"logical_component_ids": ("logical_component_ids", "logical_ids")}
+    for field, expected_ids in expected.items():
+        actual_ids = ()
+        for key in aliases.get(field, (field,)):
+            value = case.payload.get(key)
+            if isinstance(value, (list, tuple, set)):
+                actual_ids = tuple(str(item) for item in value)
+                break
+        if set(actual_ids) != set(expected_ids):
+            return False
+    return True
 
 
 def _target_ids(

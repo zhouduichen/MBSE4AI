@@ -1,7 +1,11 @@
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.model import ModelGraph, Relation
 from rflp_lite.domain.relations import RelationPredicate
-from rflp_lite.methodology.vertical_coverage import resolve_vertical_coverage
+from rflp_lite.methodology.vertical_coverage import (
+    resolve_requirement_trace,
+    resolve_rflp_paths,
+    resolve_vertical_coverage,
+)
 
 
 def _make(kind, name, payload=None, *, status=EntityStatus.VALIDATED):
@@ -124,3 +128,67 @@ def test_technical_requirement_can_use_direct_physical_satisfaction():
 
     assert result.passed is True
     assert _row(result, requirement.id).physical_ids == (physical.id,)
+
+
+def test_canonical_trace_returns_ready_targets_and_semantic_coverage():
+    graph, first, _second = _two_requirement_graph()
+
+    trace = resolve_requirement_trace(graph, first.id)
+
+    assert trace.function_ids
+    assert trace.logical_component_ids
+    assert trace.physical_ids
+    assert trace.verification_case_ids
+    assert trace.validation_case_ids
+    assert trace.gaps == ()
+    assert trace.stage_coverage == {
+        "functional": True,
+        "logical": True,
+        "physical": True,
+        "verification": True,
+        "validation": True,
+    }
+    assert trace.primary_path == (
+        first.id,
+        trace.function_ids[0],
+        trace.logical_component_ids[0],
+        trace.physical_ids[0],
+    )
+    assert trace.complete is True
+
+
+def test_canonical_trace_excludes_non_ready_targets_and_reports_scope_gaps():
+    graph, first, _second = _two_requirement_graph()
+    verification = next(
+        item for item in graph.entities
+        if item.kind is EntityKind.VERIFICATION_CASE
+    )
+    stale = verification.__class__(
+        verification.meta,
+        {**verification.payload, "physical_ids": []},
+    )
+    graph = ModelGraph(
+        graph.project_id,
+        tuple(stale if item.id == stale.id else item for item in graph.entities),
+        graph.relations,
+        graph.revision,
+    )
+
+    trace = resolve_requirement_trace(graph, first.id)
+
+    assert trace.function_ids
+    assert "verification_scope" in trace.gaps
+    assert "validation" not in trace.gaps
+    assert trace.stage_coverage["verification"] is False
+    assert trace.complete is False
+
+
+def test_canonical_rflp_paths_are_deterministic_and_ready_only():
+    graph, first, second = _two_requirement_graph()
+    physical = resolve_vertical_coverage(graph, "physical")
+    row = _row(physical, first.id)
+
+    assert resolve_rflp_paths(graph, first.id) == (
+        (first.id, row.function_ids[0], row.logical_component_ids[0], row.physical_ids[0]),
+    )
+    assert resolve_rflp_paths(graph, second.id) == ()
