@@ -182,6 +182,39 @@ def test_first_operational_tasks_expose_task_level_relation_predicates():
             assert relation["maxItems"] == 0
 
 
+def test_concern_payload_accepts_structured_engineering_context():
+    task = next(item for item in task_catalog() if item.id == "stakeholder_analysis")
+    request = TaskExecutionRequest(
+        task.id,
+        "v2.1",
+        ContextBundle("p1", task.id, 0, (make_entity(EntityKind.SYSTEM, "系统"),)),
+        (),
+        output_contract(task),
+        100,
+        patch_policy=task.patch_policy,
+    )
+    patch = compile_task_proposal(request, {
+        "entities": [{
+            "local_ref": "concern-1",
+            "kind": EntityKind.CONCERN.value,
+            "name": "人工接管可用性",
+            "payload": {
+                "topic": "人工接管",
+                "description": "异常时操作员可以接管任务",
+                "type": "operational_goal",
+                "rationale": "输入需求明确要求人工接管",
+            },
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "记录操作关注点",
+    })
+
+    assert patch is not None
+    assert patch.operations[0].entity.payload["type"] == "operational_goal"
+
+
 def test_scenario_and_operational_scenario_expose_endpoint_valid_predicates():
     expected = {
         "scenario_exploration": {RelationPredicate.DERIVED_FROM.value},

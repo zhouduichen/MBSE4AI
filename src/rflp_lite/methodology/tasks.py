@@ -231,6 +231,12 @@ def _payload_schemas() -> dict[str, dict[str, object]]:
             "type": "object", "additionalProperties": False,
             "properties": {
                 "topic": {"type": "string", "minLength": 1},
+                "description": {"type": "string"},
+                "type": {"type": "string"},
+                "risk": {"type": "string"},
+                "goal": {"type": "string"},
+                "constraint": {"type": "string"},
+                "rationale": {"type": "string"},
                 "stakeholder_ids": {"type": "array", "items": {"type": "string"}},
             },
         },

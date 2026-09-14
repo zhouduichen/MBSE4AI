@@ -30,3 +30,6 @@ Concern 必须是利益、风险、目标或约束，不是实现方案；无证
 
 # Self-check Before Emitting Patch
 确认每个 stakeholder 是角色而非部件，每个 concern 可解释且关系端点合法。
+
+# Concern Payload
+Concern payload 只能使用 `topic`、`description`、`type`、`risk`、`goal`、`constraint`、`rationale` 和 `stakeholder_ids`；至少填写 `topic` 或一种具体的风险、目标、约束描述。不要把实现组件或未经依据支持的组织事实写入 concern。

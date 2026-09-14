@@ -25,6 +25,47 @@ class FakeModel:
         return GenerationResponse("task-1", self.payload, "input", "output", False, "fake", "fake-model")
 
 
+class CompilerRepairModel:
+    def __init__(self):
+        self.calls = []
+
+    def complete_json(self, request):
+        self.calls.append(request)
+        concern = {
+            "local_ref": "concern-1",
+            "kind": "concern",
+            "name": "任务可控",
+            "payload": {"topic": "人工接管"},
+        }
+        stakeholder = {
+            "local_ref": "stakeholder-1",
+            "kind": "stakeholder",
+            "name": "操作员",
+            "payload": {"role": "执行任务"},
+        }
+        target = "missing-concern" if len(self.calls) == 1 else "concern-1"
+        return GenerationResponse(
+            request.lens_id,
+            {
+                "entities": [stakeholder, concern],
+                "relations": [{
+                    "source_ref": "stakeholder-1",
+                    "predicate": RelationPredicate.HAS_CONCERN.value,
+                    "target_ref": target,
+                    "evidence_ids": [],
+                }],
+                "updates": [],
+                "deprecations": [],
+                "reason": "补充操作员关注点",
+            },
+            "input",
+            f"output-{len(self.calls)}",
+            False,
+            "fake",
+            "fake-model",
+        )
+
+
 def test_runtime_adapts_task_context_to_generation_request():
     model = FakeModel()
     runtime = StructuredModelRuntime(model)
@@ -55,6 +96,30 @@ def test_runtime_turns_allowed_output_into_patch():
     assert result.patch is not None
     assert result.patch.expected_revision == 3
     assert result.patch.operations[0].entity.kind is EntityKind.REQUIREMENT
+
+
+def test_runtime_repairs_a_compilable_proposal_after_reference_feedback():
+    model = CompilerRepairModel()
+    runtime = StructuredModelRuntime(model)
+    task = next(item for item in task_catalog() if item.id == "stakeholder_analysis")
+    context = ContextBundle("p1", task.id, 3, (make_entity(EntityKind.SYSTEM, "系统"),))
+
+    result = runtime.execute(TaskExecutor(model).request(task, context, "v2.0"))
+
+    assert result.patch is not None
+    assert len(model.calls) == 2
+    assert "compiler:repaired" in result.diagnostics
+    concern_id = next(
+        operation.entity.id
+        for operation in result.patch.operations
+        if hasattr(operation, "entity")
+        and operation.entity.kind is EntityKind.CONCERN
+    )
+    assert any(
+        operation.target_id == concern_id
+        for operation in result.patch.operations
+        if hasattr(operation, "target_id")
+    )
 
 
 def test_runtime_returns_stage_review_metadata():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Mapping
 
 from rflp_lite.domain.canonical import canonical_hash
@@ -64,23 +65,50 @@ class StructuredModelRuntime:
                 request.token_budget,
             )
         )
+        compiler_repaired = False
         try:
             proposal = parse_task_proposal(request, response.payload)
             patch = compile_task_proposal(request, response.payload)
-        except ContractViolation as exc:
-            raise ProposalCompileFailure(
-                str(exc),
-                raw_response=json.dumps(response.payload, ensure_ascii=False, sort_keys=True),
-                schema_hash=canonical_hash(contract),
-                provider_id=response.provider_id,
-                model_id=response.model_id,
-                finish_reason=response.finish_reason,
-                usage=response.usage,
-            ) from exc
+        except ContractViolation as first_error:
+            repair_payload = {
+                **payload,
+                "compiler_feedback": {
+                    "error": str(first_error),
+                    "invalid_proposal": response.payload,
+                },
+            }
+            repair_response = self.model.complete_json(
+                GenerationRequest(
+                    request.task_id,
+                    _compiler_repair_prompt(request.prompt_text, first_error),
+                    repair_payload,
+                    contract,
+                    request.token_budget,
+                )
+            )
+            try:
+                proposal = parse_task_proposal(request, repair_response.payload)
+                patch = compile_task_proposal(request, repair_response.payload)
+            except ContractViolation as second_error:
+                raise ProposalCompileFailure(
+                    str(second_error),
+                    raw_response=json.dumps(repair_response.payload, ensure_ascii=False, sort_keys=True),
+                    initial_raw_response=json.dumps(response.payload, ensure_ascii=False, sort_keys=True),
+                    schema_hash=canonical_hash(contract),
+                    retry_count=1,
+                    provider_id=repair_response.provider_id or response.provider_id,
+                    model_id=repair_response.model_id or response.model_id,
+                    finish_reason=repair_response.finish_reason,
+                    usage=repair_response.usage,
+                ) from second_error
+            response = replace(repair_response, repaired=True)
+            compiler_repaired = True
         diagnostics = [
             f"provider={response.provider_id}",
             f"output_hash={response.output_hash}",
         ]
+        if compiler_repaired:
+            diagnostics.append("compiler:repaired")
         if response.finish_reason:
             diagnostics.append(f"finish_reason={response.finish_reason}")
         if response.usage:
@@ -104,6 +132,18 @@ class StructuredModelRuntime:
             open_questions=proposal.open_questions,
             decision_records=proposal.decision_records,
         )
+
+
+def _compiler_repair_prompt(prompt: str, error: ContractViolation) -> str:
+    return (
+        f"{prompt.strip()}\n\n"
+        "上一版 TaskProposal 的 JSON 结构正确，但无法编译为 ModelGraph Patch。"
+        f"编译错误：{str(error)[:500]}\n"
+        "请根据当前 context 和 compiler_feedback 只返回一个修正后的最小 TaskProposal JSON。"
+        "每个 relation 的 source_ref 和 target_ref 必须是当前 context.entities 中存在的 canonical id，"
+        "或是本次 entities 中定义且唯一的 local_ref；不得引用未定义的临时名称。"
+        "保留可用事实，删除无法证明或无法连接的关系；不要返回解释、Patch、revision 或 DSL。"
+    )
 
 
 def _output_schema(contract: Mapping[str, object]) -> dict[str, object]:
