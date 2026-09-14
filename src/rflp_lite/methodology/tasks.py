@@ -260,40 +260,8 @@ def _payload_schemas() -> dict[str, dict[str, object]]:
             "type": "object", "additionalProperties": False,
             "properties": {"function_ids": {"type": "array", "items": {"type": "string"}}, "steps": {"type": "array"}},
         },
-        EntityKind.VERIFICATION_CASE.value: {
-            "type": "object", "additionalProperties": False,
-            "properties": {
-                "method": {"type": "string", "minLength": 1},
-                "precondition": {"type": "string", "minLength": 1},
-                "input": {"type": "string", "minLength": 1},
-                "procedure": {"type": "string", "minLength": 1},
-                "expected_result": {"type": "string", "minLength": 1},
-                "pass_criteria": {"type": "string", "minLength": 1},
-                "requirement_ids": {"type": "array", "items": {"type": "string"}},
-                "scenario_ids": {"type": "array", "items": {"type": "string"}},
-                "activity_ids": {"type": "array", "items": {"type": "string"}},
-                "covered_branches": {"type": "array", "items": {"type": "string"}},
-                "evidence_ids": {"type": "array", "items": {"type": "string"}},
-                "cross_analysis_status": {"type": "string"},
-                "traceability_checked": {"type": "boolean"},
-            },
-        },
-        EntityKind.VALIDATION_CASE.value: {
-            "type": "object", "additionalProperties": False,
-            "properties": {
-                "method": {"type": "string", "minLength": 1},
-                "precondition": {"type": "string", "minLength": 1},
-                "input": {"type": "string", "minLength": 1},
-                "procedure": {"type": "string", "minLength": 1},
-                "expected_result": {"type": "string", "minLength": 1},
-                "pass_criteria": {"type": "string", "minLength": 1},
-                "requirement_ids": {"type": "array", "items": {"type": "string"}},
-                "scenario_ids": {"type": "array", "items": {"type": "string"}},
-                "activity_ids": {"type": "array", "items": {"type": "string"}},
-                "covered_branches": {"type": "array", "items": {"type": "string"}},
-                "evidence_ids": {"type": "array", "items": {"type": "string"}},
-            },
-        },
+        EntityKind.VERIFICATION_CASE.value: _vv_payload_schema(include_cross_analysis=True),
+        EntityKind.VALIDATION_CASE.value: _vv_payload_schema(),
         EntityKind.HAZARD.value: {
             "type": "object", "additionalProperties": False,
             "properties": {
@@ -312,16 +280,60 @@ def _payload_schemas() -> dict[str, dict[str, object]]:
                 "activity_ids": {"type": "array", "items": {"type": "string"}},
             },
         },
-        EntityKind.PHYSICAL_BLOCK.value: {
-            "type": "object", "additionalProperties": False,
-            "properties": {
-                "candidate_type": {"type": "string"}, "vendor": {"type": "string"},
-                "part_number": {"type": "string"}, "constraints": {"type": ["array", "object"]},
-                "constraint_provenance": {"type": "array"},
-                "logical_id": {"type": "string"}, "measurement_status": {"type": "string"},
-                "technical_requirement_status": {"type": "string"},
-                "trade_study": {"type": "object"},
-                "rationale": {"type": "string"},
-            },
+        EntityKind.PHYSICAL_BLOCK.value: _physical_payload_schema(),
+    }
+
+
+def _vv_payload_schema(*, include_cross_analysis: bool = False):
+    properties = {
+        "method": {"type": "string", "minLength": 1},
+        "precondition": {"type": "string", "minLength": 1},
+        "input": {"type": "string", "minLength": 1},
+        "procedure": {"type": "string", "minLength": 1},
+        "expected_result": {"type": "string", "minLength": 1},
+        "pass_criteria": {"type": "string", "minLength": 1},
+        "requirement_ids": {"type": "array", "items": {"type": "string"}},
+        "scenario_ids": {"type": "array", "items": {"type": "string"}},
+        "activity_ids": {"type": "array", "items": {"type": "string"}},
+        "covered_branches": {"type": "array", "items": {"type": "string"}},
+        "evidence_ids": {"type": "array", "items": {"type": "string"}},
+        "execution_evidence_ids": {"type": "array", "items": {"type": "string"}},
+        "verification_objective": {"type": "string"},
+        "function_ids": {"type": "array", "items": {"type": "string"}},
+        "logical_component_ids": {"type": "array", "items": {"type": "string"}},
+        "physical_ids": {"type": "array", "items": {"type": "string"}},
+        "constraint_fields": {"type": "array", "items": {"type": "string"}},
+        "evidence_required": {"type": "boolean"},
+        "open_questions": {"type": "array", "items": {"type": "string"}},
+    }
+    if include_cross_analysis:
+        properties.update({
+            "cross_analysis_status": {"type": "string"},
+            "traceability_checked": {"type": "boolean"},
+        })
+    return {"type": "object", "additionalProperties": False, "properties": properties}
+
+
+def _physical_payload_schema():
+    return {
+        "type": "object", "additionalProperties": False,
+        "properties": {
+            "candidate_type": {"type": "string"}, "vendor": {"type": "string"},
+            "part_number": {"type": "string"}, "constraints": {"type": ["array", "object"]},
+            "constraint_provenance": {"type": "array"},
+            "logical_id": {"type": "string"}, "measurement_status": {"type": "string"},
+            "technical_requirement_status": {"type": "string"},
+            "trade_study": {"type": "object"},
+            "source_logical_ids": {"type": "array", "items": {"type": "string"}},
+            "source_function_ids": {"type": "array", "items": {"type": "string"}},
+            "source_requirement_ids": {"type": "array", "items": {"type": "string"}},
+            "propagated_constraints": {"type": "object"},
+            "propagated_constraint_provenance": {"type": "array"},
+            "impact_chain": {"type": "object"},
+            "resolution_options": {"type": "array"},
+            "feasibility": {"type": "object"},
+            "alternatives": {"type": "array", "items": {"type": "string"}},
+            "selection_rationale": {"type": "string"},
+            "rationale": {"type": "string"},
         },
     }

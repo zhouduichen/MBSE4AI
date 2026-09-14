@@ -37,6 +37,7 @@ def test_vv_execution_result_is_persisted_and_failure_routes_iteration(tmp_path:
     assert result.revision == updated.revision
     assert case.payload["execution_status"] == "failed"
     assert result.evidence_id in case.payload["evidence_ids"]
+    assert case.payload["execution_evidence_ids"] == [result.evidence_id]
     evidence = updated.entity_index[result.evidence_id]
     assert evidence.kind is EntityKind.EVIDENCE
     assert evidence.payload["excerpt"] == "测试日志显示响应时间为 4.2 s，超过通过准则。"

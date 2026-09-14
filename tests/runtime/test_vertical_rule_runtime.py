@@ -497,6 +497,56 @@ def test_physical_constraints_create_idempotent_technical_requirement():
     assert second.patch is None
 
 
+def test_physical_conflict_records_impact_chain_and_reentry_options():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "任务功耗约束",
+        {"constraints": {"max_power_w": 50}},
+    )
+    function = make_entity(EntityKind.FUNCTION, "执行任务")
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "任务控制器")
+    physical = make_entity(
+        EntityKind.PHYSICAL_BLOCK,
+        "计算平台",
+        {
+            "power_w": 80,
+            "measurement_status": "measured",
+        },
+    )
+    relations = (
+        Relation("r-f", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+        Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+        Relation("l-p", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
+    )
+    response = VerticalRuleRuntime().execute(
+        _physical_request((requirement, function, logical, physical), relations)
+    )
+    graph = apply_patch(
+        ModelGraph("robot", (requirement, function, logical, physical), relations, revision=3),
+        response.patch,
+    )
+    updated = graph.entity_index[physical.id]
+
+    assert updated.payload["impact_chain"] == {
+        "requirement_ids": [requirement.id],
+        "function_ids": [function.id],
+        "logical_ids": [logical.id],
+        "physical_ids": [physical.id],
+    }
+    assert updated.payload["feasibility"]["status"] == "infeasible"
+    assert {item["option"] for item in updated.payload["resolution_options"]} == {
+        "降低计算或功耗需求",
+        "更换物理候选或计算架构",
+        "调整需求约束或资源预算",
+        "增加电池质量或资源预算",
+    }
+    assert all(
+        set(item["impact_entity_ids"]) >= {requirement.id, function.id, logical.id, physical.id}
+        and item["reentry_stage"]
+        for item in updated.payload["resolution_options"]
+    )
+
+
 def test_physical_replacement_candidate_gets_its_own_technical_requirement():
     requirement = make_entity(
         EntityKind.REQUIREMENT,

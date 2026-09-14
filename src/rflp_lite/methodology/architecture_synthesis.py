@@ -80,6 +80,9 @@ class PhysicalFeasibilityRow:
     conflicts: tuple[Mapping[str, object], ...]
     status: str
     score: float
+    logical_ids: tuple[str, ...] = ()
+    function_ids: tuple[str, ...] = ()
+    resolution_options: tuple[Mapping[str, object], ...] = ()
 
     def as_dict(self) -> Mapping[str, object]:
         return {
@@ -90,6 +93,9 @@ class PhysicalFeasibilityRow:
             "conflicts": [dict(item) for item in self.conflicts],
             "status": self.status,
             "score": self.score,
+            "logical_ids": list(self.logical_ids),
+            "function_ids": list(self.function_ids),
+            "resolution_options": [dict(item) for item in self.resolution_options],
         }
 
 
@@ -369,13 +375,18 @@ def _function_links(graph, functions):
 def _physical_rows(graph, entities, physicals, allocations):
     index = {item.id: item for item in entities}
     requirements_by_physical = _requirements_by_physical(graph, index, allocations)
+    scope_by_physical = _scope_by_physical(index, allocations)
     return tuple(
-        _physical_row(physical, requirements_by_physical.get(physical.id, ()))
+        _physical_row(
+            physical,
+            requirements_by_physical.get(physical.id, ()),
+            **scope_by_physical.get(physical.id, {}),
+        )
         for physical in sorted(physicals, key=lambda item: item.id)
     )
 
 
-def _physical_row(physical, requirements):
+def _physical_row(physical, requirements, logical_ids=(), function_ids=()):
     propagated = {}
     conflicts = []
     for requirement in requirements:
@@ -403,15 +414,107 @@ def _physical_row(physical, requirements):
         else "feasible"
     )
     score = round(max(0.0, 100.0 - 35 * len(conflicts) - 5 * len(missing)), 2)
+    requirement_ids = tuple(sorted(item.id for item in requirements))
     return PhysicalFeasibilityRow(
         physical.id,
-        tuple(sorted(item.id for item in requirements)),
+        requirement_ids,
         dict(sorted(propagated.items())),
         missing,
         tuple(conflicts),
         status,
         score,
+        tuple(sorted(set(logical_ids))),
+        tuple(sorted(set(function_ids))),
+        _resolution_options(
+            physical.id,
+            requirement_ids,
+            tuple(sorted(set(logical_ids))),
+            tuple(sorted(set(function_ids))),
+            conflicts,
+        ),
     )
+
+
+def _scope_by_physical(index, allocations):
+    """Resolve the RFLP owners of each physical candidate."""
+
+    logical_by_physical = defaultdict(set)
+    functions_by_logical = defaultdict(set)
+    for source_id, targets in allocations.items():
+        source = index.get(source_id)
+        if source is None:
+            continue
+        for target_id in targets:
+            target = index.get(target_id)
+            if target is None:
+                continue
+            if source.kind is EntityKind.LOGICAL_COMPONENT and target.kind is EntityKind.PHYSICAL_BLOCK:
+                logical_by_physical[target.id].add(source.id)
+            elif source.kind is EntityKind.FUNCTION and target.kind is EntityKind.LOGICAL_COMPONENT:
+                functions_by_logical[target.id].add(source.id)
+    return {
+        physical_id: {
+            "logical_ids": tuple(sorted(logical_ids)),
+            "function_ids": tuple(sorted({
+                function_id
+                for logical_id in logical_ids
+                for function_id in functions_by_logical.get(logical_id, ())
+            })),
+        }
+        for physical_id, logical_ids in logical_by_physical.items()
+    }
+
+
+def _resolution_options(
+    physical_id,
+    requirement_ids,
+    logical_ids,
+    function_ids,
+    conflicts,
+):
+    """Build actionable re-entry choices only when a measured conflict exists."""
+
+    if not conflicts:
+        return ()
+    impact_entity_ids = list(dict.fromkeys(
+        (*requirement_ids, *function_ids, *logical_ids, physical_id)
+    ))
+    fields = sorted({str(item.get("field", "")) for item in conflicts if item.get("field")})
+    return tuple({
+        "id": f"physical-resolution-{index}",
+        "option": option,
+        "task": task,
+        "reentry_stage": stage,
+        "impact_entity_ids": impact_entity_ids,
+        "conflict_fields": fields,
+        "impact": impact,
+        "requires_user_decision": True,
+    } for index, (option, task, stage, impact) in enumerate((
+        (
+            "降低计算或功耗需求",
+            "constraint_propagation",
+            "physical",
+            "可能改变功能性能或系统资源约束",
+        ),
+        (
+            "更换物理候选或计算架构",
+            "allocation_tradeoff",
+            "physical",
+            "保持需求，重新分配物理实现",
+        ),
+        (
+            "调整需求约束或资源预算",
+            "system_requirement_derivation",
+            "requirements",
+            "需要利益相关者确认后重新生成下游链路",
+        ),
+        (
+            "增加电池质量或资源预算",
+            "system_requirement_derivation",
+            "requirements",
+            "需要重新评估质量、续航和利益相关者约束",
+        ),
+    ), start=1))
 
 
 def _requirements_by_physical(graph, index, allocations):

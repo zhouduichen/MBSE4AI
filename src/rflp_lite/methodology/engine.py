@@ -588,6 +588,13 @@ class MethodologyEngine:
                 "selection_rationale": str(item.payload.get("selection_rationale", "")),
                 "feasibility": item.payload.get("feasibility", {}),
                 "constraint_evidence": feasibility_rows.get(item.id, {}),
+                "impact_chain": {
+                    "requirement_ids": feasibility_rows.get(item.id, {}).get("requirement_ids", []),
+                    "function_ids": feasibility_rows.get(item.id, {}).get("function_ids", []),
+                    "logical_ids": feasibility_rows.get(item.id, {}).get("logical_ids", []),
+                    "physical_ids": [item.id],
+                },
+                "resolution_options": feasibility_rows.get(item.id, {}).get("resolution_options", []),
             }
             for item in physicals
         ]
@@ -607,25 +614,11 @@ class MethodologyEngine:
             })
         metrics["physical_resolution_options"] = [
             {
-                "option": "降低计算或功耗需求",
-                "task": "constraint_propagation",
-                "impact": "可能影响功能性能需求",
-            },
-            {
-                "option": "更换物理候选或计算架构",
-                "task": "allocation_tradeoff",
-                "impact": "保持需求但重新分配实现",
-            },
-            {
-                "option": "调整需求约束或资源预算",
-                "task": "system_requirement_derivation",
-                "impact": "需要用户和利益相关者确认",
-            },
-            {
-                "option": "增加电池质量或资源预算",
-                "task": "system_requirement_derivation",
-                "impact": "需要重新评估质量、续航和利益相关者约束",
-            },
+                **dict(option),
+                "physical_id": row["physical_id"],
+            }
+            for row in feasibility_rows.values()
+            for option in row.get("resolution_options", [])
         ] if conflicts else []
 
     def _analyze_vv(self, graph, index, findings, decisions, metrics) -> None:
@@ -1099,6 +1092,8 @@ def _requirement_ids_for_risks(risks, requirements, index, derived_from) -> set[
 
 
 def _has_evidence(case: Entity) -> bool:
+    if "execution_evidence_ids" in case.payload:
+        return not _missing_value(case.payload.get("execution_evidence_ids"))
     return not _missing_value(case.payload.get("evidence_ids"))
 
 

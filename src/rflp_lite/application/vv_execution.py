@@ -137,6 +137,9 @@ class VvExecutionService:
         records = case.payload.get("execution_records", ())
         previous_records = list(records) if isinstance(records, (list, tuple)) else []
         next_evidence_ids = list(dict.fromkeys([*existing_ids, evidence_id]))
+        execution_evidence_ids = list(dict.fromkeys([
+            *list(_execution_evidence_ids(case.payload)), evidence_id
+        ]))
         patch = Patch.create(
             project_id,
             "vv.execute",
@@ -159,6 +162,7 @@ class VvExecutionService:
                     "evidence_ids": next_evidence_ids,
                     "payload": {
                         "evidence_ids": next_evidence_ids,
+                        "execution_evidence_ids": execution_evidence_ids,
                         "execution_status": normalized,
                         "last_execution": record,
                         "execution_records": [*previous_records, record],
@@ -275,6 +279,15 @@ def _normalize_outcome(value: str) -> str:
 def _evidence_ids(payload: Mapping[str, object]):
     values = payload.get("evidence_ids", ())
     if isinstance(values, (list, tuple)):
+        return tuple(str(item) for item in values if str(item).strip())
+    return ()
+
+
+def _execution_evidence_ids(payload: Mapping[str, object]):
+    values = payload.get("execution_evidence_ids", ())
+    if isinstance(values, str):
+        values = (values,)
+    if isinstance(values, (list, tuple, set)):
         return tuple(str(item) for item in values if str(item).strip())
     return ()
 

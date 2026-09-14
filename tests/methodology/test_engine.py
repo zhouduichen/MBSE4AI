@@ -66,6 +66,7 @@ def _graph(
         "expected_result": "任务完成",
         "pass_criteria": "结果满足需求",
         "evidence_ids": ["evidence-1"],
+        "execution_evidence_ids": ["execution-1"],
     }
     validation_payload = {
         "method": "demonstration",
@@ -75,6 +76,7 @@ def _graph(
         "expected_result": "用户认可结果",
         "pass_criteria": "场景目标达成",
         "evidence_ids": ["evidence-2"],
+        "execution_evidence_ids": ["execution-2"],
     }
     verification = make_entity(
         EntityKind.VERIFICATION_CASE,
@@ -162,6 +164,25 @@ def test_vv_plan_and_execution_evidence_are_reported_separately():
     assert report.metrics["verification_evidence_coverage"] == 1.0
     assert report.metrics["validation_evidence_coverage"] == 1.0
     assert not any(item.code == "verification_case_incomplete" for item in report.findings)
+
+
+def test_source_evidence_does_not_count_as_vv_execution_evidence():
+    graph = _graph(complete_vv=True)
+    entities = tuple(
+        item.__class__(item.meta, {**item.payload, "execution_evidence_ids": []})
+        if item.kind in {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}
+        else item
+        for item in graph.entities
+    )
+
+    report = MethodologyEngine().analyze(
+        ModelGraph(graph.project_id, entities, graph.relations, graph.revision)
+    )
+
+    assert report.metrics["verification_evidence_coverage"] == 0.0
+    assert report.metrics["validation_evidence_coverage"] == 0.0
+    assert any(item.code == "verification_evidence_missing" for item in report.findings)
+    assert any(item.code == "validation_evidence_missing" for item in report.findings)
 
 
 def test_impact_analysis_walks_graph_and_routes_concrete_tasks():

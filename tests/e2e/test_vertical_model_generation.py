@@ -303,6 +303,12 @@ def test_natural_language_constraints_reach_physical_candidate(tmp_path: Path):
     assert physical.payload["source_requirement_ids"]
     assert physical.payload["endurance_h"] is None
     assert physical.payload["propagated_constraint_provenance"]
+    impact_chain = physical.payload["impact_chain"]
+    assert impact_chain["physical_ids"] == [physical.id]
+    assert impact_chain["requirement_ids"] == physical.payload["source_requirement_ids"]
+    assert impact_chain["function_ids"] == physical.payload["source_function_ids"]
+    assert impact_chain["logical_ids"] == physical.payload["source_logical_ids"]
+    assert physical.payload["resolution_options"] == []
 
     technical = [
         item for item in graph.entities
@@ -338,6 +344,35 @@ def test_natural_language_constraints_reach_physical_candidate(tmp_path: Path):
         and relation.predicate is RelationPredicate.VALIDATED_BY
         for relation in graph.relations
     )
+    verification = next(
+        item for item in graph.entities
+        if item.kind is EntityKind.VERIFICATION_CASE
+        and technical_requirement.id in item.payload["requirement_ids"]
+    )
+    validation = next(
+        item for item in graph.entities
+        if item.kind is EntityKind.VALIDATION_CASE
+        and technical_requirement.id in item.payload["requirement_ids"]
+    )
+    for case in (verification, validation):
+        assert case.payload["physical_ids"] == [physical.id]
+        assert case.payload["constraint_fields"] == ["max_power_w", "min_endurance_h"]
+        assert case.payload["verification_objective"]
+        assert case.payload["evidence_required"] is True
+        assert case.payload["open_questions"]
+    primary_requirement = next(
+        item for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and item.payload.get("level") != "technical"
+    )
+    primary_verification = next(
+        item for item in graph.entities
+        if item.kind is EntityKind.VERIFICATION_CASE
+        and item.payload["requirement_ids"] == [primary_requirement.id]
+    )
+    assert primary_verification.payload["function_ids"] == impact_chain["function_ids"]
+    assert primary_verification.payload["logical_component_ids"] == impact_chain["logical_ids"]
+    assert primary_verification.payload["physical_ids"] == [physical.id]
     assert result.traceability.end_to_end_complete_count >= 2
     assert not any(
         finding.code == "functional_requirement_uncovered"

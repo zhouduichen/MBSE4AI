@@ -40,6 +40,8 @@ def _conflicting_graph() -> ModelGraph:
 
 def test_controller_routes_physical_conflict_to_trade_study_options():
     graph = _conflicting_graph()
+    requirement = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
+    physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
     report = MethodologyEngine().analyze(graph)
 
     plan = SystemsEngineeringController().plan(graph, report)
@@ -53,6 +55,12 @@ def test_controller_routes_physical_conflict_to_trade_study_options():
         "增加电池质量或资源预算",
     }
     assert all(item["requires_user_decision"] for item in action.options)
+    assert all(
+        physical.id in item["impact_entity_ids"]
+        and requirement.id in item["impact_entity_ids"]
+        and item["reentry_stage"]
+        for item in action.options
+    )
 
 
 def test_controller_plan_is_read_only_until_an_action_is_executed():

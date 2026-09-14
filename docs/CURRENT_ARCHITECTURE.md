@@ -11,6 +11,8 @@
 
 这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `0.2.0`，方法论协议是 `v2.1`。每个项目使用独立工作区和数据库，正式模型和证据仍按项目隔离；Controller 可对其他 managed project 的 FTS 做只读历史检索，命中内容以 Evidence 回写当前项目。`WorkflowRunner` 同时支持完整 23-task 生命周期和单阶段调试；五阶段生成器仍是默认的快速产品入口。
 
+P→V&V 使用同一条可复核的作用域：物理候选和可行性矩阵记录 Requirement→Function→LogicalComponent→PhysicalBlock 的 canonical IDs；出现实测约束冲突时，四类 Trade Study 选项携带冲突字段、受影响 ID 和回流任务/阶段，仍由用户决定是否重新分析。V&V Case 复用这组下游 IDs，并以 `evidence_ids`/`execution_evidence_ids` 把输入资料、计划完整度和实际执行证据分开表示。
+
 输入边界会把需求中的显式功耗、质量、时延、带宽、成本和续航比较式规范化为 canonical `constraints`，并保留 `constraint_provenance`。这些字段沿 Requirement→Function→Logical→Physical 传播；物理值未知时仍进入 `needs_measurement`，只有实测值违反 `max_`/`min_` 边界才报告 `physical_constraint_conflict`。P 层对明确的 `max_*`/`min_*` 约束创建 `level=technical` Technical Requirement，以 `derivedFrom` 回接来源需求、以 `satisfiedBy` 连接物理候选；该技术需求复用来源需求的 RFLP 路径并拥有独立 V&V，未声明约束的需求不会额外拆分。
 
 ## 分层与依赖

@@ -29,6 +29,7 @@
 | 多需求输入保真 | 自然语言句子/列表项和文档独立条目分别形成 Requirement；文档来源保留 Source Region，三条输入需求可形成三条 Function 和三条完整 RFLP/V&V 路径 |
 | 自然语言工程约束抽取 | 显式功耗、质量、时延、带宽、成本和续航边界规范化为 canonical constraints，保留 constraint provenance，并随 R→F→L→P 进入物理可行性分析；未知值仍要求测量/评审 |
 | Physical Technical Requirement 闭环 | 对明确的 `max_*`/`min_*` 约束生成可审查的技术需求，回接来源需求和物理候选，进入独立 V&V、Traceability、SysML 和统一交付包；不伪造测量或可行性结论 |
+| Physical→V&V 推理回流证据 | 物理可行性行和 ModelGraph 候选共同保存 Requirement→Function→Logical→Physical 影响链；实测冲突时生成带回流阶段、冲突字段和受影响 ID 的四类 Trade Study 选项，V&V 计划复用同一作用域并显式区分未执行证据 |
 | 数据驱动架构综合 | Fallback 根据 Function 的显式依赖、功能流、分区键、共享状态和稳定 ID 形成可解释的 Logical 分区与跨组件交互证据；每个分区生成 Physical 候选，并沿 Requirement→Function→Logical→Physical 传播已有结构化约束 |
 | LLM 五阶段接入 | 每个纵向阶段通过现有 StructuredModelRuntime 的 TaskProposal → Compiler → Patch 边界执行；测试覆盖五次真实 stage lens 调用 |
 | SysML v2 子集往返 | 导出实际 `part/requirement/action/interface/state/verification/validation` 声明及关系元数据；Concern、Hazard、FailureMode 使用可编辑的通用 part 声明并保留类型元数据；可重新读入新项目并继续编辑 |
@@ -50,7 +51,7 @@
 | 23-task 纵向追溯回接 | 后置 functional/technical/reverse requirement 自动回接 Function 与 V&V；校园配送 fixture 交付包验证 7/7 需求完整追溯 |
 | 已有 SysML 模型输入 | Web Analysis 支持上传 `.sysml`，通过同一解析器导入 ModelGraph；任意非弃用实体组成的局部模型都可作为分析种子，冲突 ID 在写入前拒绝，并可继续生成、编辑和导出 |
 | 用户目标与历史项目输入 | `project goal`、Web `/projects/{id}/goal` 和 Analysis 页面可把目标写入 System mission/objectives 及候选 Requirement；Controller Tool Layer 通过只读跨项目 FTS 检索历史项目模型、文档区域和证据，并将命中结果作为当前项目 Evidence 使用 |
-| V&V 执行反馈闭环 | `vv record`、Web `/projects/{id}/vv/{case_id}/execute` 和 Assurance 页面接受外部测试/演示的明确结果与证据摘录；结果回写 V&V Case，并在同一 Revision 物化 `Evidence` 节点及 `describedBy` 关系；失败生成包含 R→F→L→P 影响实体的 Issue，并在 Assurance 页面给出需人工选择的 Trade Study 迭代入口，重复执行保留历史 |
+| V&V 执行反馈闭环 | `vv record`、Web `/projects/{id}/vv/{case_id}/execute` 和 Assurance 页面接受外部测试/演示的明确结果与证据摘录；输入资料与实际执行结果分别写入 `evidence_ids`/`execution_evidence_ids`，结果回写 V&V Case，并在同一 Revision 物化 `Evidence` 节点及 `describedBy` 关系；失败生成包含 R→F→L→P 影响实体的 Issue，并在 Assurance 页面给出需人工选择的 Trade Study 迭代入口，重复执行保留历史 |
 | 工程工具结果闭环 | `vv tool`、`/projects/{id}/tools` 和 `/projects/{id}/vv/{case_id}/tools/{tool_id}/execute` 提供显式注册的工具适配器；内置模型约束检查器把物理可行性分析结果写入 V&V Evidence，缺少测量字段保持 `inconclusive`，失败沿 Controller 进入迭代 |
 | 方法论驱动生成上下文 | Methodology Engine 将当前阶段的 findings、指标、架构候选、影响实体和推荐任务以有界 `methodology_guidance` 注入五阶段及 23-task LLM 请求，确定性工程检查从事后验收前移为生成约束 |
 | 垂直阶段完成质量 | 五阶段结果逐项报告其内部 23-task 检查；关键关系、架构评价、约束传播、可行性权衡和 V&V 交叉分析缺失时标记 `needs_review`，并保留结构化候选供 Review/Controller 继续处理 |

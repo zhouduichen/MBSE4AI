@@ -76,8 +76,13 @@ def test_vertical_prompts_expose_typed_flow_and_closure_evidence():
     assert "source_function_ids" in functional.text
     assert "target_function_ids" in functional.text
     assert "functional_behavior_ids" in functional.text
+    physical = registry.resolve("vertical.physical")
+    assert "impact_chain" in physical.text
+    assert "resolution_options" in physical.text
     assert "feasibility_review" in assurance.text
     assert "cross_analysis_status" in assurance.text
+    assert "verification_objective" in assurance.text
+    assert "execution_evidence_ids" in assurance.text
 
 
 def test_registered_template_text_change_changes_prompt_hash():

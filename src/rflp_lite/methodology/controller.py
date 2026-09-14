@@ -211,16 +211,23 @@ class SystemsEngineeringController:
         for raw in raw_options:
             if not isinstance(raw, Mapping):
                 continue
+            physical_id = str(raw.get("physical_id", "")).strip()
+            if physical_id and physical_id not in finding.entity_ids:
+                continue
             option = str(raw.get("option", raw.get("alternative", ""))).strip()
             task = str(raw.get("task", "architecture_evaluation")).strip()
             if not option or not task:
                 continue
             options.append({
-                "id": f"trade-option-{canonical_hash((finding.code, option, task))[:12]}",
+                "id": f"trade-option-{canonical_hash((finding.code, physical_id, option, task))[:12]}",
                 "option": option,
                 "task_id": task,
                 "stage": _TASK_TO_STAGE.get(task, finding.stage),
                 "impact": str(raw.get("impact", raw.get("rationale", ""))),
+                "physical_id": physical_id,
+                "impact_entity_ids": list(raw.get("impact_entity_ids", ())),
+                "reentry_stage": str(raw.get("reentry_stage", _TASK_TO_STAGE.get(task, finding.stage))),
+                "conflict_fields": list(raw.get("conflict_fields", ())),
                 "requires_user_decision": True,
             })
         return tuple(options)

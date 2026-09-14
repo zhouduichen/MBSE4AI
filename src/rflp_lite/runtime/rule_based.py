@@ -697,10 +697,33 @@ class VerticalRuleRuntime:
                 else f"{logical.meta.name}执行平台"
             )
             payload = dict(_physical_payload(logical, requirements))
+            if (
+                linked_physical is not None
+                and linked_physical.meta.status is not EntityStatus.LOCKED
+                and not bool(linked_physical.payload.get("user_modified"))
+            ):
+                payload.update({
+                    field: linked_physical.payload[field]
+                    for field in _PHYSICAL_MEASUREMENT_FIELDS
+                    if field in linked_physical.payload
+                    and linked_physical.payload[field] not in (None, "", [], {})
+                })
+            conflicts = _physical_constraint_conflicts(payload, requirements)
+            if conflicts:
+                payload["feasibility"] = {
+                    **dict(payload.get("feasibility", {})),
+                    "status": "infeasible",
+                    "conflicts": conflicts,
+                }
             if not any(_explicit_constraint_map(item) for item in requirements):
                 payload["technical_requirement_status"] = "no_explicit_constraints"
             if physical_variant == "更换物理候选或计算架构":
                 name = f"{name}替代候选"
+                _set_physical_reasoning_scope(
+                    payload, logical, functions, requirements,
+                    make_entity(EntityKind.PHYSICAL_BLOCK, name).id,
+                    conflicts,
+                )
                 payload.update({
                     "candidate_variant": "alternative",
                     "architecture_decision": dict(_decision_payload(decision)),
@@ -714,6 +737,12 @@ class VerticalRuleRuntime:
                         "architecture_decision": dict(_decision_payload(decision)),
                         "open_questions": ["需要用户/利益相关者确认该 Trade Study 决策并重新验证"],
                     })
+                _set_physical_reasoning_scope(
+                    payload, logical, functions, requirements,
+                    existing.id if existing is not None
+                    else make_entity(EntityKind.PHYSICAL_BLOCK, name).id,
+                    conflicts,
+                )
                 physical = existing or builder.add(EntityKind.PHYSICAL_BLOCK, name, payload)
                 if existing is not None and not physical_variant:
                     builder.update(physical, payload=payload)
@@ -779,6 +808,13 @@ class VerticalRuleRuntime:
     def _verification_validation(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         builder = _VerticalPatchBuilder(request)
         activities = _context_entities(request.context_bundle, EntityKind.ACTIVITY)
+        scenario_ids = [
+            item.id for item in request.context_bundle.entities
+            if item.kind in {
+                EntityKind.OPERATIONAL_SCENARIO,
+                EntityKind.FUNCTIONAL_SCENARIO,
+            }
+        ]
         branch_names = [
             branch
             for activity in activities
@@ -787,25 +823,16 @@ class VerticalRuleRuntime:
         ]
         activity_ids = [item.id for item in activities]
         for requirement in _requirements(request):
-            verification_payload = {
-                "method": "test",
-                "precondition": "系统处于可测试初始状态",
-                "input": _requirement_text(requirement),
-                "procedure": "执行测试步骤并记录实际结果",
-                "expected_result": "实际结果满足需求目标",
-                "pass_criteria": f"测试结果满足：{_requirement_text(requirement)}",
-                "evidence_ids": list(requirement.meta.evidence_ids),
-                "requirement_ids": [requirement.id],
-                "scenario_ids": [],
-                "activity_ids": activity_ids,
-                "covered_branches": branch_names,
-                "cross_analysis_status": "checked",
-            }
+            trace_scope = _requirement_trace_scope(request.context_bundle, requirement)
             verification = _related_context_entity(
                 request.context_bundle,
                 requirement.id,
                 RelationPredicate.VERIFIED_BY,
                 EntityKind.VERIFICATION_CASE,
+            )
+            verification_payload = _vertical_vv_plan_payload(
+                "verification", requirement, trace_scope, scenario_ids,
+                activity_ids, branch_names, verification,
             )
             if verification is None:
                 verification = builder.add(
@@ -817,26 +844,17 @@ class VerticalRuleRuntime:
                 builder.update(
                     verification,
                     name=f"验证：{_requirement_text(requirement)[:32]}",
-                    payload=verification_payload,
+                    payload={**dict(verification.payload), **verification_payload},
                 )
-            validation_payload = {
-                "method": "demonstration",
-                "precondition": "目标用户和典型场景可用",
-                "input": _requirement_text(requirement),
-                "procedure": "在典型场景执行并收集用户反馈",
-                "expected_result": "用户场景目标达成",
-                "pass_criteria": f"用户场景确认：{_requirement_text(requirement)}",
-                "evidence_ids": list(requirement.meta.evidence_ids),
-                "requirement_ids": [requirement.id],
-                "scenario_ids": [],
-                "activity_ids": activity_ids,
-                "covered_branches": branch_names,
-            }
             validation = _related_context_entity(
                 request.context_bundle,
                 requirement.id,
                 RelationPredicate.VALIDATED_BY,
                 EntityKind.VALIDATION_CASE,
+            )
+            validation_payload = _vertical_vv_plan_payload(
+                "validation", requirement, trace_scope, scenario_ids,
+                activity_ids, branch_names, validation,
             )
             if validation is None:
                 validation = builder.add(
@@ -848,7 +866,7 @@ class VerticalRuleRuntime:
                 builder.update(
                     validation,
                     name=f"确认：{_requirement_text(requirement)[:32]}",
-                    payload=validation_payload,
+                    payload={**dict(validation.payload), **validation_payload},
                 )
             hazard_payload = {
                 "description": "异常分支、资源异常或人工接管不当导致任务目标未达成",
@@ -906,6 +924,66 @@ class VerticalRuleRuntime:
             builder.relate(hazard, RelationPredicate.MITIGATED_BY, verification)
             builder.relate(failure_mode, RelationPredicate.MITIGATED_BY, verification)
         return builder.response()
+
+
+def _vertical_vv_plan_payload(
+    case_type, requirement, trace_scope, scenario_ids, activity_ids,
+    branch_names, existing=None,
+):
+    evidence_ids = list(requirement.meta.evidence_ids)
+    execution_evidence_ids = []
+    if existing is not None:
+        evidence_ids = list(dict.fromkeys(
+            (*existing.payload.get("evidence_ids", ()), *evidence_ids)
+        ))
+        execution_evidence_ids = list(existing.payload.get("execution_evidence_ids", ()))
+    text = _requirement_text(requirement)
+    is_verification = case_type == "verification"
+    payload = {
+        "method": "test" if is_verification else "demonstration",
+        "precondition": (
+            "系统处于可测试初始状态"
+            if is_verification else "目标用户和典型场景可用"
+        ),
+        "input": text,
+        "procedure": (
+            "执行测试步骤并记录实际结果"
+            if is_verification else "在典型场景执行并收集用户反馈"
+        ),
+        "expected_result": (
+            "实际结果满足需求目标"
+            if is_verification else "用户场景目标达成"
+        ),
+        "pass_criteria": (
+            f"测试结果满足：{text}"
+            if is_verification else f"用户场景确认：{text}"
+        ),
+        "evidence_ids": evidence_ids,
+        "execution_evidence_ids": execution_evidence_ids,
+        "requirement_ids": [requirement.id],
+        "scenario_ids": scenario_ids,
+        "activity_ids": activity_ids,
+        "covered_branches": branch_names,
+        "verification_objective": (
+            f"证明需求“{text}”在规定条件下满足"
+            if is_verification else f"确认用户场景目标“{text}”实际达成"
+        ),
+        "function_ids": trace_scope["function_ids"],
+        "logical_component_ids": trace_scope["logical_component_ids"],
+        "physical_ids": trace_scope["physical_ids"],
+        "constraint_fields": sorted(_explicit_constraint_map(requirement)),
+        "evidence_required": not bool(execution_evidence_ids),
+        "open_questions": (
+            [] if execution_evidence_ids else [
+                "执行证据待补充；计划字段完整不代表测试已通过"
+                if is_verification else
+                "演示或用户确认依据待补充；计划字段完整不代表确认已通过"
+            ]
+        ),
+    }
+    if is_verification:
+        payload["cross_analysis_status"] = "checked"
+    return payload
 
 
 def _logical_groups(builder, functions, variant):
@@ -1517,6 +1595,169 @@ def _physical_payload(logical, requirements=()) -> Mapping[str, object]:
         },
         "selection_rationale": f"优先承载{logical.meta.name}，在测量约束后进行候选选择",
         "rationale": f"承载{logical.meta.name}",
+    }
+
+
+_PHYSICAL_MEASUREMENT_FIELDS = (
+    "mass_kg", "power_w", "compute", "memory_mb", "latency_ms",
+    "bandwidth_mbps", "cost", "thermal", "reliability", "availability",
+    "endurance_h",
+)
+
+
+def _set_physical_reasoning_scope(
+    payload, logical, functions, requirements, physical_id, conflicts=()
+):
+    """Keep physical impact and re-entry choices alongside the candidate."""
+
+    requirement_ids = [item.id for item in requirements]
+    function_ids = [item.id for item in functions]
+    payload.update({
+        "source_logical_ids": [logical.id],
+        "source_function_ids": function_ids,
+        "impact_chain": {
+            "requirement_ids": requirement_ids,
+            "function_ids": function_ids,
+            "logical_ids": [logical.id],
+            "physical_ids": [physical_id],
+        },
+        "resolution_options": _physical_resolution_options(
+            logical, functions, requirements, physical_id, conflicts
+        ),
+    })
+
+
+def _physical_resolution_options(logical, functions, requirements, physical_id, conflicts=()):
+    """Return bounded alternatives with an explicit re-entry point."""
+
+    if not conflicts:
+        return []
+    requirement_ids = [item.id for item in requirements]
+    impact_entity_ids = list(dict.fromkeys(
+        (*requirement_ids, *(item.id for item in functions), logical.id, physical_id)
+    ))
+    fields = sorted({
+        key for requirement in requirements
+        for key in _explicit_constraint_map(requirement)
+    })
+    return [
+        {
+            "id": f"{logical.id}:physical-resolution:{index}",
+            "option": option,
+            "task": task,
+            "reentry_stage": stage,
+            "impact_entity_ids": impact_entity_ids,
+            "conflict_fields": fields,
+            "impact": impact,
+            "requires_user_decision": True,
+        }
+        for index, (option, task, stage, impact) in enumerate((
+            (
+                "降低计算或功耗需求",
+                "constraint_propagation",
+                "physical",
+                "可能改变功能性能或系统资源约束",
+            ),
+            (
+                "更换物理候选或计算架构",
+                "allocation_tradeoff",
+                "physical",
+                "保持需求，重新分配物理实现",
+            ),
+            (
+                "调整需求约束或资源预算",
+                "system_requirement_derivation",
+                "requirements",
+                "需要利益相关者确认后重新生成下游链路",
+            ),
+            (
+                "增加电池质量或资源预算",
+                "system_requirement_derivation",
+                "requirements",
+                "需要重新评估质量、续航和利益相关者约束",
+            ),
+        ), start=1)
+    ]
+
+
+def _physical_constraint_conflicts(payload, requirements):
+    conflicts = []
+    for requirement in requirements:
+        for key, raw_limit in _explicit_constraint_map(requirement).items():
+            limit = _runtime_number(raw_limit)
+            value = _runtime_number(payload.get(key[4:]))
+            if limit is None or value is None:
+                continue
+            operator = "max" if key.startswith("max_") else "min"
+            violates = operator == "max" and value > limit or operator == "min" and value < limit
+            if violates:
+                conflicts.append({
+                    "requirement_id": requirement.id,
+                    "field": key[4:],
+                    "operator": operator,
+                    "limit": limit,
+                    "value": value,
+                })
+    return conflicts
+
+
+def _runtime_number(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _requirement_trace_scope(context, requirement):
+    """Resolve one requirement's downstream RFLP scope for V&V planning."""
+
+    index = {item.id: item for item in context.entities}
+    functions = {
+        relation.target_id
+        for relation in context.relations
+        if relation.source_id == requirement.id
+        and relation.predicate is RelationPredicate.SATISFIED_BY
+        and index.get(relation.target_id) is not None
+        and index[relation.target_id].kind is EntityKind.FUNCTION
+    }
+    logicals = {
+        relation.target_id
+        for relation in context.relations
+        if relation.source_id in functions
+        and relation.predicate is RelationPredicate.ALLOCATED_TO
+        and index.get(relation.target_id) is not None
+        and index[relation.target_id].kind is EntityKind.LOGICAL_COMPONENT
+    }
+    physicals = {
+        relation.target_id
+        for relation in context.relations
+        if relation.predicate is RelationPredicate.SATISFIED_BY
+        and relation.source_id == requirement.id
+        and index.get(relation.target_id) is not None
+        and index[relation.target_id].kind is EntityKind.PHYSICAL_BLOCK
+    }
+    physicals.update(
+        relation.target_id
+        for relation in context.relations
+        if relation.source_id in logicals
+        and relation.predicate is RelationPredicate.ALLOCATED_TO
+        and index.get(relation.target_id) is not None
+        and index[relation.target_id].kind is EntityKind.PHYSICAL_BLOCK
+    )
+    payload_physical_ids = requirement.payload.get("source_physical_ids", ())
+    if isinstance(payload_physical_ids, (list, tuple, set)):
+        physicals.update(
+            str(item) for item in payload_physical_ids
+            if str(item) in index and index[str(item)].kind is EntityKind.PHYSICAL_BLOCK
+        )
+    return {
+        "function_ids": sorted(functions),
+        "logical_component_ids": sorted(logicals),
+        "physical_ids": sorted(physicals),
     }
 
 

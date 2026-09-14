@@ -43,6 +43,7 @@ def _architecture_graph() -> ModelGraph:
             Relation("f2-flow", second.id, RelationPredicate.EXCHANGES_WITH, flow.id),
             Relation("f1-l", first.id, RelationPredicate.ALLOCATED_TO, logical.id),
             Relation("f2-l", second.id, RelationPredicate.ALLOCATED_TO, logical.id),
+            Relation("l-p", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
             Relation("r-p", requirement.id, RelationPredicate.SATISFIED_BY, physical.id),
         ),
         revision=2,
@@ -91,6 +92,25 @@ def test_physical_synthesis_produces_propagated_constraint_evidence():
     assert row.propagated_constraints == {"power_w": 50.0}
     assert row.status == "infeasible"
     assert row.conflicts[0]["field"] == "power_w"
+    assert row.logical_ids == (
+        next(item.id for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT),
+    )
+    assert set(row.function_ids) == {
+        item.id for item in graph.entities if item.kind is EntityKind.FUNCTION
+        and item.meta.name in {"采集", "调度"}
+    }
+    assert {item["option"] for item in row.resolution_options} == {
+        "降低计算或功耗需求",
+        "更换物理候选或计算架构",
+        "调整需求约束或资源预算",
+        "增加电池质量或资源预算",
+    }
+    assert all(
+        row.physical_id in item["impact_entity_ids"]
+        and row.requirement_ids[0] in item["impact_entity_ids"]
+        and item["reentry_stage"]
+        for item in row.resolution_options
+    )
 
 
 def test_methodology_report_exposes_synthesis_and_decision_evidence():

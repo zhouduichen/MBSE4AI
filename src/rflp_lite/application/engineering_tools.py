@@ -289,4 +289,7 @@ def _row_summary(row) -> Mapping[str, object]:
         "propagated_constraints": dict(row.propagated_constraints),
         "missing_fields": list(row.missing_fields),
         "conflicts": [dict(item) for item in row.conflicts],
+        "logical_ids": list(row.logical_ids),
+        "function_ids": list(row.function_ids),
+        "resolution_options": [dict(item) for item in row.resolution_options],
     }
