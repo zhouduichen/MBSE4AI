@@ -49,6 +49,7 @@ class ScriptedModel:
             entity("stakeholder", "stakeholder", "配送运营人员", {"role": "任务运营"})
             entity("concern", "concern", "任务可靠性与运营可用性", {"topic": "异常场景下任务仍可追踪"})
             entity("lifecycle", "lifecycle_stage", "设计—运行生命周期", {"stage": "operation", "sequence": ["设计", "部署", "运行", "维护"]})
+            entity("transition", "lifecycle_transition", "部署到运行", {"from_stage": "部署", "to_stage": "运行", "trigger": "部署验收完成", "guard": "运行环境可用"})
             entity("hypothesis", "scenario_hypothesis", "典型配送场景假设", {"category": "normal", "trigger": "提交配送任务", "outcome": "完成任务"})
             entity("use_case", "use_case", "执行一次配送任务", {"primary_actor": "配送运营人员", "goal": "完成可追踪配送"})
             entity("scenario", "operational_scenario", "典型配送场景", {"actor_ids": ["stakeholder"], "steps": ["提交任务", "完成配送"], "exchanges": [], "internal_component_ids": []})
@@ -60,6 +61,7 @@ class ScriptedModel:
             relation("use_case", "derivedFrom", "hypothesis")
             relation("scenario", "derivedFrom", "use_case")
             relation("activity", "occursIn", "lifecycle")
+            relation("transition", "derivedFrom", "lifecycle")
             if requirements:
                 relation(requirements[0]["id"], "derivedFrom", "activity")
         elif request.lens_id == "vertical.functional":

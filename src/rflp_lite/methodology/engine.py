@@ -23,7 +23,7 @@ _PHYSICAL_FIELDS = (
 )
 _OPERATIONAL_KINDS = (
     EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.CONCERN,
-    EntityKind.LIFECYCLE_STAGE,
+    EntityKind.LIFECYCLE_STAGE, EntityKind.LIFECYCLE_TRANSITION,
     EntityKind.SCENARIO_HYPOTHESIS, EntityKind.USE_CASE,
     EntityKind.OPERATIONAL_SCENARIO, EntityKind.ACTIVITY, EntityKind.REQUIREMENT,
 )
@@ -42,6 +42,9 @@ _TASK_ORDER = (
 _TASKS_BY_KIND = {
     EntityKind.CONCERN: (
         "stakeholder_analysis", "system_requirement_derivation",
+    ),
+    EntityKind.LIFECYCLE_TRANSITION: (
+        "lifecycle_analysis", "operational_scenario",
     ),
     EntityKind.REQUIREMENT: (
         "system_requirement_derivation", "function_identification", "logical_analysis",
@@ -76,6 +79,7 @@ _KIND_STAGES = {
     EntityKind.STAKEHOLDER: "requirements",
     EntityKind.CONCERN: "requirements",
     EntityKind.LIFECYCLE_STAGE: "requirements",
+    EntityKind.LIFECYCLE_TRANSITION: "requirements",
     EntityKind.SCENARIO_HYPOTHESIS: "requirements",
     EntityKind.USE_CASE: "requirements",
     EntityKind.OPERATIONAL_SCENARIO: "requirements",
@@ -310,6 +314,7 @@ class MethodologyEngine:
             EntityKind.STAKEHOLDER: ("stakeholder_analysis",),
             EntityKind.CONCERN: ("stakeholder_analysis",),
             EntityKind.LIFECYCLE_STAGE: ("lifecycle_analysis",),
+            EntityKind.LIFECYCLE_TRANSITION: ("lifecycle_analysis",),
             EntityKind.SCENARIO_HYPOTHESIS: ("scenario_exploration",),
             EntityKind.USE_CASE: ("use_case_analysis",),
             EntityKind.OPERATIONAL_SCENARIO: ("operational_scenario",),

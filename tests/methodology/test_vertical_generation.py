@@ -40,6 +40,7 @@ def test_requirements_stage_requires_operational_model_kinds_and_internal_steps(
         EntityKind.STAKEHOLDER,
         EntityKind.CONCERN,
         EntityKind.LIFECYCLE_STAGE,
+        EntityKind.LIFECYCLE_TRANSITION,
         EntityKind.SCENARIO_HYPOTHESIS,
         EntityKind.USE_CASE,
         EntityKind.OPERATIONAL_SCENARIO,

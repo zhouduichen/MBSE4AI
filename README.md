@@ -7,7 +7,7 @@ AI4MBSE Harness 产品版本为 `0.2.0`，方法论协议版本为 `v2.1`。它�
                → Typed ModelGraph → SysML v2 subset / 可编辑模型
 ```
 
-ModelGraph 是模型唯一真源。默认纵向生成器按五个阶段调用结构化 Runtime，将每一阶段的局部 Patch 写入图并保留完整追溯链；显式的 `analyze run` 入口则按 23 个方法论任务逐任务执行同一份 ModelGraph，形成可审查的 R→F→L→P→V&V 生命周期。两条入口都显式生成 Concern、State、Hazard 和 FailureMode，不把它们藏在阶段 payload 中。SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。
+ModelGraph 是模型唯一真源。默认纵向生成器按五个阶段调用结构化 Runtime，将每一阶段的局部 Patch 写入图并保留完整追溯链；显式的 `analyze run` 入口则按 23 个方法论任务逐任务执行同一份 ModelGraph，形成可审查的 R→F→L→P→V&V 生命周期。两条入口都显式生成 System、Stakeholder、Lifecycle stage/transition、Scenario、Concern、State、Hazard 和 FailureMode，不把它们藏在阶段 payload 中。SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。
 
 ## 安装
 

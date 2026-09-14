@@ -37,6 +37,7 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
     )
     assert {
         EntityKind.CONCERN,
+        EntityKind.LIFECYCLE_TRANSITION,
         EntityKind.STATE,
         EntityKind.HAZARD,
         EntityKind.FAILURE_MODE,
@@ -45,6 +46,14 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
         EntityKind.PHYSICAL_BLOCK,
     } <= {
         entity.kind for entity in graph.entities
+    }
+    transitions = [
+        entity for entity in graph.entities
+        if entity.kind is EntityKind.LIFECYCLE_TRANSITION
+    ]
+    assert len(transitions) == 3
+    assert {(item.payload["from_stage"], item.payload["to_stage"]) for item in transitions} == {
+        ("设计", "部署"), ("部署", "运行"), ("运行", "维护"),
     }
     assert graph.revision >= 6
     assert all("候选" not in entity.meta.name and "待确认" not in entity.meta.name for entity in graph.entities)

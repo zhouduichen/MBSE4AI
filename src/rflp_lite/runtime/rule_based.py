@@ -357,6 +357,19 @@ class VerticalRuleRuntime:
                 "exit_criteria": "进入可持续运行和维护",
             }
         )
+        transitions = []
+        for source, target in (("设计", "部署"), ("部署", "运行"), ("运行", "维护")):
+            transition = builder.add(
+                EntityKind.LIFECYCLE_TRANSITION,
+                f"生命周期转移：{source}→{target}",
+                {
+                    "from_stage": source,
+                    "to_stage": target,
+                    "trigger": f"完成{source}阶段退出准则",
+                    "guard": "满足进入下一阶段的工程条件",
+                },
+            )
+            transitions.append(transition)
         hypothesis = _context_first(builder.context, EntityKind.SCENARIO_HYPOTHESIS) or builder.add(
             EntityKind.SCENARIO_HYPOTHESIS, "典型配送场景假设", {
                 "category": "normal",
@@ -385,6 +398,8 @@ class VerticalRuleRuntime:
         builder.relate(use_case, RelationPredicate.DERIVED_FROM, hypothesis)
         builder.relate(scenario, RelationPredicate.DERIVED_FROM, use_case)
         builder.relate(activity, RelationPredicate.OCCURS_IN, lifecycle)
+        for transition in transitions:
+            builder.relate(transition, RelationPredicate.DERIVED_FROM, lifecycle)
         for requirement in requirements:
             builder.relate(requirement, RelationPredicate.DERIVED_FROM, activity)
         return builder.response()
