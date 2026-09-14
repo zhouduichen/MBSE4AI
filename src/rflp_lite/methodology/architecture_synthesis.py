@@ -27,6 +27,11 @@ _LINK_PAYLOAD_KEYS = (
     "source_function_ids", "target_function_ids", "producer_ids",
     "consumer_ids", "source_ids", "target_ids",
 )
+_MEASUREMENT_PENDING = frozenset({
+    "待确认", "待测量", "待试验", "待基准测试", "待热设计评估",
+    "待可靠性试验", "待运行数据", "待运行数据确认", "unknown", "tbd",
+    "needs_measurement", "requires_measurement",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,7 +177,7 @@ def _logical_candidates(graph, functions, components, allocations):
             dependency,
             (),
             links,
-            "按功能流、共享状态和显式依赖形成最小耦合的候选分区",
+            "按共享状态和显式依赖形成最小耦合的候选分区；功能流只用于评估跨组件交互",
         ),
         _score_logical(
             "one_component_per_function",
@@ -368,7 +373,12 @@ def _function_links(graph, functions):
         "shared_state": shared_state,
         "dependency": dependency,
         "flows": flow_links,
-        "all": shared_state | dependency | flow_pairs,
+        # A functional flow expresses an exchange boundary, not proof that
+        # the participating functions belong in one logical component.
+        # Keep it separate so dependency clustering remains evidence-driven;
+        # the scorer still exposes its cross-component exchange count.
+        "all": shared_state | dependency,
+        "flow_pairs": flow_pairs,
     }
 
 
@@ -617,4 +627,14 @@ def _number(value):
 
 
 def _missing_value(value):
-    return value is None or value == "" or value == "待确认" or value == "unknown"
+    return is_unknown_measurement(value)
+
+
+def is_unknown_measurement(value: object) -> bool:
+    """Return whether a physical field still needs engineering evidence."""
+
+    if value is None or value == "" or value == [] or value == {}:
+        return True
+    return isinstance(value, str) and value.strip().casefold() in {
+        item.casefold() for item in _MEASUREMENT_PENDING
+    }

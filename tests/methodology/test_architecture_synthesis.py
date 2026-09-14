@@ -80,6 +80,55 @@ def test_logical_synthesis_uses_shared_state_and_flow_to_cluster_functions():
     )
 
 
+def test_functional_flow_alone_remains_a_cross_component_boundary():
+    first = make_entity(
+        EntityKind.FUNCTION,
+        "采集",
+        status=EntityStatus.VALIDATED,
+    )
+    second = make_entity(
+        EntityKind.FUNCTION,
+        "调度",
+        status=EntityStatus.VALIDATED,
+    )
+    third = make_entity(
+        EntityKind.FUNCTION,
+        "告警",
+        status=EntityStatus.VALIDATED,
+    )
+    flow = make_entity(
+        EntityKind.FUNCTIONAL_FLOW,
+        "任务流",
+        {
+            "source_function_ids": [first.id],
+            "target_function_ids": [second.id, third.id],
+        },
+        status=EntityStatus.VALIDATED,
+    )
+    graph = ModelGraph(
+        "robot",
+        (first, second, third, flow),
+        (
+            Relation("first-flow", first.id, RelationPredicate.EXCHANGES_WITH, flow.id),
+            Relation("second-flow", second.id, RelationPredicate.EXCHANGES_WITH, flow.id),
+            Relation("third-flow", third.id, RelationPredicate.EXCHANGES_WITH, flow.id),
+        ),
+    )
+
+    result = synthesize_architecture(graph)
+    dependency = next(
+        item for item in result.logical_candidates
+        if item.alternative == "dependency_cluster_search"
+    )
+
+    assert dependency.partitions == tuple(
+        (item.id,)
+        for item in sorted((first, second, third), key=lambda item: item.id)
+    )
+    assert dependency.cross_component_exchange_count == 1
+    assert dependency.dependency_cut_count == 0
+
+
 def test_physical_synthesis_produces_propagated_constraint_evidence():
     graph = _architecture_graph()
 
@@ -111,6 +160,42 @@ def test_physical_synthesis_produces_propagated_constraint_evidence():
         and item["reentry_stage"]
         for item in row.resolution_options
     )
+
+
+def test_measurement_pending_values_do_not_count_as_feasible():
+    graph = _architecture_graph()
+    physical = next(
+        item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK
+    )
+    measured_payload = {
+        **physical.payload,
+        "power_w": 40,
+        "mass_kg": 1,
+        "compute": "待基准测试",
+        "memory_mb": 512,
+        "latency_ms": 10,
+        "bandwidth_mbps": 100,
+        "cost": 100,
+        "thermal": "待热设计评估",
+        "reliability": "待可靠性试验",
+        "availability": "待运行数据确认",
+        "endurance_h": 10,
+    }
+    edited = physical.__class__(physical.meta, measured_payload)
+    graph = ModelGraph(
+        graph.project_id,
+        tuple(edited if item.id == physical.id else item for item in graph.entities),
+        graph.relations,
+        graph.revision,
+    )
+
+    row = synthesize_architecture(graph).physical_rows[0]
+
+    assert row.status == "needs_measurement"
+    assert set(row.missing_fields) >= {
+        "compute", "thermal", "reliability", "availability",
+    }
+    assert MethodologyEngine().analyze(graph).metrics["physical_feasibility"] == "needs_measurement"
 
 
 def test_methodology_report_exposes_synthesis_and_decision_evidence():

@@ -11,6 +11,7 @@ from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.completion import CompletionResult, evaluate_vertical_stage
 from rflp_lite.methodology.architecture_synthesis import (
     ArchitectureSynthesis,
+    is_unknown_measurement,
     synthesize_architecture,
 )
 from rflp_lite.methodology.impact import TASK_ORDER, TypedImpactPlanner
@@ -564,7 +565,10 @@ class MethodologyEngine:
         unknown_fields = 0
         conflicts = []
         for physical in physicals:
-            missing = tuple(field for field in _PHYSICAL_FIELDS if _missing_value(physical.payload.get(field)))
+            missing = tuple(
+                field for field in _PHYSICAL_FIELDS
+                if is_unknown_measurement(physical.payload.get(field))
+            )
             unknown_fields += len(missing)
             constraints = tuple(
                 (requirement, field_name, operator, limit)
