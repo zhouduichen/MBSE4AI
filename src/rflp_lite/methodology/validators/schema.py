@@ -7,6 +7,9 @@ from rflp_lite.domain.model import Patch
 from rflp_lite.methodology.validation import ValidationContext
 
 
+_OFFLINE_BATCH_DIAGNOSTIC = "offline:lifecycle-runtime"
+
+
 def validate(context: ValidationContext) -> None:
     response = context.response
     if not hasattr(response, "status"):
@@ -21,5 +24,11 @@ def validate(context: ValidationContext) -> None:
         )
     if not isinstance(response.patch.operations, tuple):
         raise MethodologyValidationError("schema_invalid", "patch operations must be a tuple")
-    if len(response.patch.operations) > 32:
+    # The 32-operation limit bounds untrusted structured outputs.  The
+    # deterministic lifecycle runtime already owns the typed Patch and needs
+    # to batch one independent V&V pair per requirement in a single task.
+    if (
+        len(response.patch.operations) > 32
+        and _OFFLINE_BATCH_DIAGNOSTIC not in response.diagnostics
+    ):
         raise MethodologyValidationError("schema_invalid", "patch exceeds the 32-operation contract")

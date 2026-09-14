@@ -27,6 +27,7 @@
 | 默认产品纵向生成 | 自然语言或已解析文档 → Requirements → Functional → Logical → Physical → V&V；五阶段写入同一 ModelGraph，并返回阶段结果、追溯摘要和 SysML 文本 |
 | 完整 23-task 纵向生命周期 | `analyze run` / Web `mode=pipeline` 共享自然语言、文档区域和 ModelGraph 输入；23 个任务逐任务产生真实 typed entities/relations/updates，形成 R→F→L→P→V&V，并在语义任务失败时阻断后续阶段与 Closure |
 | 多需求输入保真 | 自然语言句子/列表项和文档独立条目分别形成 Requirement；文档来源保留 Source Region，三条输入需求可形成三条 Function 和三条完整 RFLP/V&V 路径 |
+| 23-task 需求作用域 | 多条自然语言 Requirement 在 Function→Logical→Physical→Technical Requirement→V&V 之间保持局部追溯；物理约束不再跨候选污染，FMEA 风险按运行活动聚合以保持任务 Patch 有界 |
 | 自然语言工程约束抽取 | 显式功耗、质量、时延、带宽、成本和续航边界规范化为 canonical constraints，保留 constraint provenance，并随 R→F→L→P 进入物理可行性分析；未知值仍要求测量/评审 |
 | Physical Technical Requirement 闭环 | 对明确的 `max_*`/`min_*` 约束生成可审查的技术需求，回接来源需求和物理候选，进入独立 V&V、Traceability、SysML 和统一交付包；不伪造测量或可行性结论 |
 | Physical→V&V 推理回流证据 | 物理可行性行和 ModelGraph 候选共同保存 Requirement→Function→Logical→Physical 影响链；实测冲突时生成带回流阶段、冲突字段和受影响 ID 的四类 Trade Study 选项，V&V 计划复用同一作用域并显式区分未执行证据 |

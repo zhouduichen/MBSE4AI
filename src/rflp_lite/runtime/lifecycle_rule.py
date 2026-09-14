@@ -393,7 +393,7 @@ class LifecycleTaskRuleRuntime:
         return builder.response("生命周期任务推导系统需求")
 
     def _function_identification(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
-        requirements = builder.active(EntityKind.REQUIREMENT)
+        requirements = _analysis_requirements(builder)
         for requirement in requirements:
             function = builder.find_payload(EntityKind.FUNCTION, "requirement_id", requirement.id)
             if function is None:
@@ -454,8 +454,12 @@ class LifecycleTaskRuleRuntime:
 
     def _functional_requirement(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
         functions = builder.active(EntityKind.FUNCTION)
-        function_ids = [item.id for item in functions]
-        for requirement in builder.active(EntityKind.REQUIREMENT):
+        for requirement in _analysis_requirements(builder):
+            function_ids = [
+                function.id
+                for function in functions
+                if function.id in _function_ids_for_requirement(builder, requirement)
+            ]
             builder.update_payload(requirement, {
                 "functional_behavior_ids": function_ids,
                 "functional_requirement_status": "allocated",
@@ -493,21 +497,36 @@ class LifecycleTaskRuleRuntime:
 
     def _physical_candidates(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
         for logical in builder.active(EntityKind.LOGICAL_COMPONENT):
-            physical = builder.find_payload(EntityKind.PHYSICAL_BLOCK, "logical_id", logical.id)
+            functions = _functions_for_logical(builder, logical)
+            related_requirements = _requirements_for_functions(builder, functions)
+            physical = _physical_for_logical(builder, logical)
+            physical_payload = {
+                "logical_id": logical.id,
+                "candidate_type": "implementation_candidate",
+                "constraints": _constraint_map(related_requirements),
+                "constraint_provenance": _constraint_provenance(related_requirements),
+                "source_logical_ids": [logical.id],
+                "source_function_ids": [item.id for item in functions],
+                "source_requirement_ids": [item.id for item in related_requirements],
+                "propagated_constraints": _constraint_map(related_requirements),
+                "propagated_constraint_provenance": _constraint_provenance(related_requirements),
+                "measurement_status": "needs_measurement",
+                "feasibility": {
+                    "status": "needs_measurement",
+                    "checks": ["mass", "power", "compute", "memory", "latency", "thermal"],
+                },
+                "alternatives": ["集中式执行单元", "分布式执行单元"],
+                "selection_rationale": f"优先承载{logical.meta.name}，在测量约束后进行候选选择",
+                "requires_human_review": True,
+            }
             if physical is None:
-                related_requirements = builder.active(EntityKind.REQUIREMENT)
                 physical = builder.add(
                     EntityKind.PHYSICAL_BLOCK,
                     f"物理候选：{logical.meta.name}",
-                    {
-                        "logical_id": logical.id,
-                        "candidate_type": "implementation_candidate",
-                        "constraints": _constraint_map(related_requirements),
-                        "constraint_provenance": _constraint_provenance(related_requirements),
-                        "measurement_status": "needs_measurement",
-                        "requires_human_review": True,
-                    },
+                    physical_payload,
                 )
+            else:
+                builder.update_payload(physical, physical_payload)
             builder.relate(logical, RelationPredicate.ALLOCATED_TO, physical)
         return builder.response("生命周期任务生成物理候选")
 
@@ -524,15 +543,12 @@ class LifecycleTaskRuleRuntime:
 
     def _technical_requirement(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
         physicals = builder.active(EntityKind.PHYSICAL_BLOCK)
-        roots = tuple(
-            item for item in builder.active(EntityKind.REQUIREMENT)
-            if str(item.payload.get("level", "")).lower() != "technical"
-        )
+        roots = _analysis_requirements(builder)
         for requirement in roots:
             constraints = _constraint_map((requirement,))
             if not constraints:
                 continue
-            matching = physicals
+            matching = _physicals_for_requirement(builder, requirement)
             for physical in matching:
                 name = f"技术约束：{requirement.meta.name}→{physical.meta.name}"
                 technical = builder.find(EntityKind.REQUIREMENT, name) or builder.add(
@@ -544,12 +560,8 @@ class LifecycleTaskRuleRuntime:
                 builder.relate(technical, RelationPredicate.DERIVED_FROM, requirement)
                 builder.relate(technical, RelationPredicate.SATISFIED_BY, physical)
         for physical in physicals:
-            if not any(
-                relation.source_id != relation.target_id
-                and relation.predicate is RelationPredicate.SATISFIED_BY
-                and relation.target_id == physical.id
-                for relation in builder.context.relations
-            ) and not _constraint_map(roots):
+            related_requirements = _requirements_for_physical(builder, physical)
+            if not _constraint_map(related_requirements):
                 builder.update_payload(physical, {
                     "technical_requirement_status": "no_explicit_constraints",
                 })
@@ -590,29 +602,35 @@ class LifecycleTaskRuleRuntime:
     def _fmea_stpa_hazard(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
         activities = builder.active(EntityKind.ACTIVITY)
         activity = activities[0] if activities else None
-        for requirement in builder.active(EntityKind.REQUIREMENT):
-            hazard = builder.find_payload(EntityKind.HAZARD, "requirement_id", requirement.id) or builder.add(
-                EntityKind.HAZARD,
-                f"需求失效危险：{requirement.meta.name}",
-                {
-                    "requirement_id": requirement.id,
-                    "description": "需求未满足可能导致任务失败或异常处置失效",
-                    "requirement_ids": [requirement.id],
-                    "activity_ids": [activity.id] if activity else [],
-                },
-            )
-            failure = builder.find_payload(EntityKind.FAILURE_MODE, "requirement_id", requirement.id) or builder.add(
-                EntityKind.FAILURE_MODE,
-                f"需求失效模式：{requirement.meta.name}",
-                {
-                    "requirement_id": requirement.id,
-                    "effect": "任务结果不符合需求",
-                    "cause": "功能、架构或运行过程未满足需求",
-                    "requirement_ids": [requirement.id],
-                    "activity_ids": [activity.id] if activity else [],
-                },
-            )
-            builder.relate(hazard, RelationPredicate.CAUSES, failure)
+        requirements = _analysis_requirements(builder)
+        if not requirements:
+            return builder.response("生命周期任务保留危险与失效模式")
+        requirement_ids = [item.id for item in requirements]
+        activity_ids = [item.id for item in activities]
+        hazard = builder.find(EntityKind.HAZARD, "运行任务需求失效危险") or builder.add(
+            EntityKind.HAZARD,
+            "运行任务需求失效危险",
+            {
+                "description": "一个或多个运行需求未满足可能导致任务失败或异常处置失效",
+                "requirement_ids": requirement_ids,
+                "activity_ids": activity_ids,
+                "branches": ["人工接管", "任务失败后重试"],
+            },
+        )
+        failure = builder.find(EntityKind.FAILURE_MODE, "运行任务需求失效模式") or builder.add(
+            EntityKind.FAILURE_MODE,
+            "运行任务需求失效模式",
+            {
+                "effect": "一个或多个需求结果不符合预期",
+                "cause": "功能、架构或运行过程未满足对应需求",
+                "requirement_ids": requirement_ids,
+                "activity_ids": activity_ids,
+            },
+        )
+        builder.relate(hazard, RelationPredicate.CAUSES, failure)
+        if activity is not None:
+            builder.relate(hazard, RelationPredicate.DERIVED_FROM, activity)
+        for requirement in requirements:
             builder.relate(hazard, RelationPredicate.MITIGATED_BY, requirement)
             builder.relate(failure, RelationPredicate.MITIGATED_BY, requirement)
         return builder.response("生命周期任务生成危险与失效模式")
@@ -772,6 +790,167 @@ def _constraint_map(requirements: tuple[Entity, ...]) -> dict[str, object]:
                 if key.startswith(("max_", "min_")):
                     values[key] = value
     return dict(sorted(values.items()))
+
+
+def _analysis_requirements(builder: TaskGraphBuilder) -> tuple[Entity, ...]:
+    """Return user/system requirements, excluding physical derived requirements."""
+
+    return tuple(
+        item
+        for item in builder.active(EntityKind.REQUIREMENT)
+        if str(item.payload.get("level", "")).strip().lower() != "technical"
+    )
+
+
+def _function_ids_for_requirement(
+    builder: TaskGraphBuilder, requirement: Entity
+) -> set[str]:
+    function_ids = {
+        function.id
+        for function in builder.active(EntityKind.FUNCTION)
+        if str(function.payload.get("requirement_id", "")).strip() == requirement.id
+    }
+    function_ids.update(
+        target_id
+        for source_id, predicate, target_id in builder.relation_keys
+        if source_id == requirement.id
+        and predicate is RelationPredicate.SATISFIED_BY
+        and target_id in {item.id for item in builder.active(EntityKind.FUNCTION)}
+    )
+    return function_ids
+
+
+def _functions_for_logical(
+    builder: TaskGraphBuilder, logical: Entity
+) -> tuple[Entity, ...]:
+    function_ids = {
+        relation[0]
+        for relation in builder.relation_keys
+        if relation[1] is RelationPredicate.ALLOCATED_TO
+        and relation[2] == logical.id
+        and relation[0] in {item.id for item in builder.active(EntityKind.FUNCTION)}
+    }
+    function_id = str(logical.payload.get("function_id", "")).strip()
+    if function_id:
+        function_ids.add(function_id)
+    return tuple(
+        item for item in builder.active(EntityKind.FUNCTION)
+        if item.id in function_ids
+    )
+
+
+def _requirements_for_functions(
+    builder: TaskGraphBuilder, functions: tuple[Entity, ...]
+) -> tuple[Entity, ...]:
+    function_ids = {item.id for item in functions}
+    return tuple(
+        requirement
+        for requirement in _analysis_requirements(builder)
+        if _function_ids_for_requirement(builder, requirement) & function_ids
+    )
+
+
+def _physical_for_logical(
+    builder: TaskGraphBuilder, logical: Entity
+) -> Entity | None:
+    physical = builder.find_payload(EntityKind.PHYSICAL_BLOCK, "logical_id", logical.id)
+    if physical is not None:
+        return physical
+    return next(
+        (
+            item
+            for item in builder.active(EntityKind.PHYSICAL_BLOCK)
+            if any(
+                source_id == logical.id
+                and predicate is RelationPredicate.ALLOCATED_TO
+                and target_id == item.id
+                for source_id, predicate, target_id in builder.relation_keys
+            )
+        ),
+        None,
+    )
+
+
+def _physicals_for_requirement(
+    builder: TaskGraphBuilder, requirement: Entity
+) -> tuple[Entity, ...]:
+    physical_ids = {
+        physical.id
+        for function in builder.active(EntityKind.FUNCTION)
+        if function.id in _function_ids_for_requirement(builder, requirement)
+        for logical in _logicals_for_function(builder, function)
+        for physical in _physicals_for_logical(builder, logical)
+    }
+    physical_ids.update(
+        physical.id
+        for physical in builder.active(EntityKind.PHYSICAL_BLOCK)
+        if requirement.id in {
+            str(item)
+            for item in physical.payload.get("source_requirement_ids", ())
+            if str(item).strip()
+        }
+    )
+    return tuple(
+        item for item in builder.active(EntityKind.PHYSICAL_BLOCK)
+        if item.id in physical_ids
+    )
+
+
+def _logicals_for_function(
+    builder: TaskGraphBuilder, function: Entity
+) -> tuple[Entity, ...]:
+    logical_ids = {
+        target_id
+        for source_id, predicate, target_id in builder.relation_keys
+        if source_id == function.id
+        and predicate is RelationPredicate.ALLOCATED_TO
+        and target_id in {item.id for item in builder.active(EntityKind.LOGICAL_COMPONENT)}
+    }
+    return tuple(
+        item for item in builder.active(EntityKind.LOGICAL_COMPONENT)
+        if item.id in logical_ids
+    )
+
+
+def _physicals_for_logical(
+    builder: TaskGraphBuilder, logical: Entity
+) -> tuple[Entity, ...]:
+    physical = _physical_for_logical(builder, logical)
+    return (physical,) if physical is not None else ()
+
+
+def _requirements_for_physical(
+    builder: TaskGraphBuilder, physical: Entity
+) -> tuple[Entity, ...]:
+    source_requirement_ids = {
+        str(item)
+        for item in physical.payload.get("source_requirement_ids", ())
+        if str(item).strip()
+    }
+    logical_ids = {
+        source_id
+        for source_id, predicate, target_id in builder.relation_keys
+        if predicate is RelationPredicate.ALLOCATED_TO
+        and target_id == physical.id
+        and source_id in {item.id for item in builder.active(EntityKind.LOGICAL_COMPONENT)}
+    }
+    requirements = tuple(
+        requirement
+        for logical in builder.active(EntityKind.LOGICAL_COMPONENT)
+        if logical.id in logical_ids
+        for requirement in _requirements_for_functions(
+            builder, _functions_for_logical(builder, logical)
+        )
+    )
+    unique = {requirement.id: requirement for requirement in (
+        *requirements,
+        *(
+            requirement
+            for requirement in _analysis_requirements(builder)
+            if requirement.id in source_requirement_ids
+        ),
+    )}
+    return tuple(unique.values())
 
 
 def _constraint_provenance(requirements: tuple[Entity, ...]) -> list[object]:

@@ -55,10 +55,18 @@ class ContextBuilder:
             0,
             total_budget - max(0, int(output_reserve)) - max(0, int(prompt_reserve)),
         )
+        effective_root_entity_ids = root_entity_ids
+        if not effective_root_entity_ids:
+            effective_root_entity_ids = {
+                "functional_requirement": _functional_requirement_context_roots(graph),
+                "physical_candidates": _physical_candidate_context_roots(graph),
+                "allocation_tradeoff": _allocation_tradeoff_context_roots(graph),
+                "technical_requirement": _technical_context_roots(graph),
+            }.get(task.id, ())
         planned = self.planner.plan(
             graph,
             task,
-            root_entity_ids=root_entity_ids,
+            root_entity_ids=effective_root_entity_ids,
             token_budget=available_context,
         )
         if task.id in {"verification_validation", "global_cross_analysis"}:
@@ -178,3 +186,88 @@ def _assurance_trace_context(graph: ModelGraph, planner: ContextPlanner) -> Plan
         planner._estimate(graph, ids, relations),
         (("ASSURANCE_TRACE", tuple(item.id for item in entities)),),
     )
+
+
+def _technical_context_roots(graph: ModelGraph) -> tuple[str, ...]:
+    """Keep every explicit constraint and its physical candidate in scope."""
+
+    requirements = tuple(
+        item
+        for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and str(item.payload.get("level", "")).strip().lower() != "technical"
+        and (
+            bool(item.payload.get("constraints"))
+            or any(str(key).startswith(("max_", "min_")) for key in item.payload)
+        )
+    )
+    requirement_ids = {item.id for item in requirements}
+    physical_ids = {
+        item.id
+        for item in graph.entities
+        if item.kind is EntityKind.PHYSICAL_BLOCK
+        and requirement_ids.intersection(
+            str(source_id)
+            for source_id in item.payload.get("source_requirement_ids", ())
+        )
+    }
+    return tuple(sorted((*requirement_ids, *physical_ids)))
+
+
+def _functional_requirement_context_roots(graph: ModelGraph) -> tuple[str, ...]:
+    """Keep every Requirement and its directly allocated Function in scope."""
+
+    requirement_ids = {
+        item.id
+        for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and str(item.payload.get("level", "")).strip().lower() != "technical"
+    }
+    function_ids = {
+        item.id
+        for item in graph.entities
+        if item.kind is EntityKind.FUNCTION
+        and (
+            str(item.payload.get("requirement_id", "")).strip() in requirement_ids
+            or any(
+                relation.source_id in requirement_ids
+                and relation.target_id == item.id
+                and relation.predicate.value == "satisfiedBy"
+                for relation in graph.relations
+            )
+        )
+    }
+    return tuple(sorted((*requirement_ids, *function_ids)))
+
+
+def _physical_candidate_context_roots(graph: ModelGraph) -> tuple[str, ...]:
+    """Keep every Function→Logical allocation available for physical mapping."""
+
+    requirement_ids = {
+        item.id
+        for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and str(item.payload.get("level", "")).strip().lower() != "technical"
+    }
+    logical_ids = {
+        item.id for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT
+    }
+    function_ids = {
+        relation.source_id
+        for relation in graph.relations
+        if relation.predicate.value == "allocatedTo"
+        and relation.target_id in logical_ids
+        and graph.entity_index.get(relation.source_id) is not None
+        and graph.entity_index[relation.source_id].kind is EntityKind.FUNCTION
+    }
+    return tuple(sorted((*requirement_ids, *logical_ids, *function_ids)))
+
+
+def _allocation_tradeoff_context_roots(graph: ModelGraph) -> tuple[str, ...]:
+    """Keep every logical/physical pair available for trade-study updates."""
+
+    return tuple(sorted(
+        item.id
+        for item in graph.entities
+        if item.kind in {EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK}
+    ))

@@ -101,6 +101,52 @@ def test_pipeline_closes_logical_physical_and_assurance_layers(tmp_path: Path):
     )
 
 
+def test_pipeline_preserves_requirement_scope_for_multi_requirement_input(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces")
+    services.projects.create("robot")
+    services.requirements_input("robot").ensure_text_requirements(
+        "系统应完成配送。功耗不超过 120 W。时延不超过 200 ms。系统应支持人工接管。"
+    )
+
+    summary = services.analysis("robot").run("robot", force_new=True)
+    graph = services.model("robot").graph("robot")
+
+    assert summary.status is RunStatus.COMPLETED
+    assert len(summary.completed_tasks) == 23
+    physicals = {
+        item.payload["source_requirement_ids"][0]: item
+        for item in graph.entities
+        if item.kind is EntityKind.PHYSICAL_BLOCK
+    }
+    requirements = {
+        item.payload["statement"]: item
+        for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and item.payload.get("level") != "technical"
+    }
+    assert physicals[requirements["功耗不超过 120 W"].id].payload["constraints"] == {
+        "max_power_w": 120.0
+    }
+    assert physicals[requirements["时延不超过 200 ms"].id].payload["constraints"] == {
+        "max_latency_ms": 200.0
+    }
+    assert not physicals[requirements["系统应完成配送"].id].payload["constraints"]
+    assert not physicals[requirements["系统应支持人工接管"].id].payload["constraints"]
+    technical = [
+        item for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and item.payload.get("level") == "technical"
+    ]
+    assert len(technical) == 2
+    assert all(item.payload["source_physical_ids"] == [
+        physicals[item.payload["source_requirement_ids"][0]].id
+    ] for item in technical)
+    hazard = next(item for item in graph.entities if item.kind is EntityKind.HAZARD)
+    assert set(hazard.payload["requirement_ids"]) == {
+        item.id for item in requirements.values()
+    }
+
+
 def test_pipeline_delivers_complete_traceable_editable_model(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces")
     services.projects.create("robot")

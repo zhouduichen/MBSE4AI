@@ -1,8 +1,9 @@
 import pytest
 
 from rflp_lite.domain.errors import MethodologyValidationError
-from rflp_lite.domain.model import ModelGraph, Patch
+from rflp_lite.domain.model import ModelGraph, Patch, Relate
 from rflp_lite.methodology.contracts import ContextBundle, StepStatus, TaskExecutionResponse
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.tasks import task_catalog
 from rflp_lite.methodology.validation import ValidationContext
 from rflp_lite.methodology.validators.schema import validate
@@ -22,4 +23,35 @@ def test_schema_validator_rejects_non_patch_response():
     response = TaskExecutionResponse(StepStatus.COMPLETED, patch="not-a-patch")
 
     with pytest.raises(MethodologyValidationError, match="schema_invalid"):
+        validate(_context(response))
+
+
+def test_schema_validator_allows_large_patch_from_offline_lifecycle_batch():
+    patch = Patch.create(
+        "p1",
+        "task",
+        tuple(Relate(f"source-{index}", RelationPredicate.DERIVED_FROM, f"target-{index}") for index in range(33)),
+        "offline batch",
+        0,
+    )
+    response = TaskExecutionResponse(
+        StepStatus.COMPLETED,
+        patch=patch,
+        diagnostics=("offline:lifecycle-runtime",),
+    )
+
+    validate(_context(response))
+
+
+def test_schema_validator_keeps_large_patch_limit_for_other_runtimes():
+    patch = Patch.create(
+        "p1",
+        "task",
+        tuple(Relate(f"source-{index}", RelationPredicate.DERIVED_FROM, f"target-{index}") for index in range(33)),
+        "external batch",
+        0,
+    )
+    response = TaskExecutionResponse(StepStatus.COMPLETED, patch=patch)
+
+    with pytest.raises(MethodologyValidationError, match="32-operation"):
         validate(_context(response))
