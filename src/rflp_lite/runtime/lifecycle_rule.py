@@ -11,9 +11,16 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus, Producer, make_entity
-from rflp_lite.domain.model import AddEntity, ModelGraph, Patch, Relate, UpdateEntity
+from rflp_lite.domain.model import (
+    AddEntity,
+    ModelGraph,
+    Patch,
+    Relate,
+    UpdateEntity,
+)
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import ContextBundle, StepStatus, TaskExecutionRequest, TaskExecutionResponse
+from rflp_lite.methodology.architecture_persistence import enrich_architecture_patch
 from rflp_lite.methodology.trace_rules import requirement_trace_scope
 
 
@@ -172,6 +179,13 @@ class TaskGraphBuilder:
             reason,
             self.context.revision,
         )
+        graph = ModelGraph(
+            self.context.project_id,
+            tuple(self.context.entities),
+            tuple(self.context.relations),
+            self.context.revision,
+        )
+        patch = enrich_architecture_patch(graph, patch)
         return TaskExecutionResponse(
             StepStatus.COMPLETED,
             patch=patch,

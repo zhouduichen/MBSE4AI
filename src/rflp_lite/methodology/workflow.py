@@ -20,6 +20,7 @@ from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.completion import evaluate_completion
 from rflp_lite.methodology.contracts import ContextBundle, FailureStage, Phase, RunStatus, StepStatus, TaskExecutionResponse, TaskRuntime
 from rflp_lite.methodology.coverage import CoverageGap, CoverageReport
+from rflp_lite.methodology.architecture_persistence import enrich_architecture_patch
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.gates import GateResult, gate_for_phase
 from rflp_lite.methodology.identity import RunIdentity
@@ -252,6 +253,11 @@ class WorkflowRunner:
                     self.methodology_version,
                     token_budget=self._output_budget(),
                 )
+                if response.patch is not None:
+                    response = replace(
+                        response,
+                        patch=enrich_architecture_patch(current, response.patch),
+                    )
                 patch_id = None
                 if response.patch is not None and response.status is not StepStatus.COMPLETED:
                     raise WorkflowInvariantError(

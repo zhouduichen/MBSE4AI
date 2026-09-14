@@ -73,3 +73,30 @@ def test_remaining_tasks_create_logical_physical_and_assurance_objects(tmp_path:
         EntityKind.VERIFICATION_CASE,
         EntityKind.VALIDATION_CASE,
     } <= _active_kinds(repository)
+
+    graph = repository.load_graph("p1")
+    logical = next(
+        item for item in graph.entities
+        if item.kind is EntityKind.LOGICAL_COMPONENT
+    )
+    logical_reasoning = logical.payload["architecture_reasoning"]
+    assert logical_reasoning["basis"]["function_ids"] == [
+        logical.payload["function_id"]
+    ]
+    assert logical_reasoning["alternatives"]
+    assert logical_reasoning["selection_status"] == "needs_review"
+
+    physical = next(
+        item for item in graph.entities
+        if item.kind is EntityKind.PHYSICAL_BLOCK
+    )
+    physical_reasoning = physical.payload["feasibility_reasoning"]
+    assert physical_reasoning["logical_ids"] == [logical.id]
+    assert physical_reasoning["propagated_constraints"] == {
+        "endurance_h": 10.0,
+        "power_w": 50.0,
+    }
+    assert physical_reasoning["status"] == "needs_measurement"
+    assert set(physical_reasoning["missing_fields"]) >= {
+        "power_w", "endurance_h", "thermal"
+    }

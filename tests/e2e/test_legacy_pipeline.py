@@ -499,6 +499,21 @@ def test_structured_llm_executes_all_23_tasks_and_writes_the_graph(tmp_path: Pat
         item.kind is EntityKind.VALIDATION_CASE
         for item in graph.entities
     )
+    logical = next(
+        item for item in graph.entities
+        if item.kind is EntityKind.LOGICAL_COMPONENT
+    )
+    assert logical.payload["architecture_reasoning"]["basis"]["function_ids"] == [
+        logical.payload["function_id"]
+    ]
+    physical = next(
+        item for item in graph.entities
+        if item.kind is EntityKind.PHYSICAL_BLOCK
+    )
+    assert physical.payload["feasibility_reasoning"]["logical_ids"] == [
+        physical.payload["logical_id"]
+    ]
+    assert physical.payload["feasibility_reasoning"]["status"] == "needs_measurement"
     package = services.deliverables("robot").build("robot")
     trace_metrics = package["artifacts"]["traceability"]["content"]["metrics"]
     assert trace_metrics["requirement_count"] == 1
