@@ -35,11 +35,16 @@ def run_benchmark(
     track: str = BenchmarkTrack.HARNESS.value,
     profile: str | None = None,
     runtime_config: Mapping[str, object] | None = None,
+    analysis_path: str = "lifecycle",
 ) -> dict[str, object]:
     if track not in {item.value for item in BenchmarkTrack if item is not BenchmarkTrack.ROBUSTNESS}:
         raise ValueError(f"run_benchmark only executes harness or llm tracks: {track}")
     if track == BenchmarkTrack.LLM.value and not runtime_config:
         raise ValueError("runtime_config is required for the explicit llm track")
+    if analysis_path not in {"lifecycle", "vertical"}:
+        raise ValueError(f"unknown analysis path: {analysis_path}")
+    if analysis_path == "vertical" and track != BenchmarkTrack.LLM.value:
+        raise ValueError("the vertical analysis path is only available on the explicit llm track")
     cases = load_cases(cases_dir)
     expectations = load_expectations(cases_dir.parent / "expected")
     if selected_case:
@@ -58,6 +63,7 @@ def run_benchmark(
                 repeat_index=index,
                 timeout_seconds=timeout_seconds,
                 runtime_config=runtime_config,
+                analysis_path=analysis_path,
             )
             for index in range(1, max(1, repeats) + 1)
         ]
@@ -80,7 +86,12 @@ def run_benchmark(
         "test_date": datetime.now(timezone.utc).isoformat(),
         "commit": _git_value(["rev-parse", "HEAD"]),
         "branch": _git_value(["branch", "--show-current"]),
-        "entrypoint": "build_v2_services -> ProjectService -> AnalysisService.run -> WorkflowRunner",
+        "entrypoint": (
+            "build_v2_services -> ProjectService -> ModelGenerationService.generate -> five-stage vertical path"
+            if analysis_path == "vertical"
+            else "build_v2_services -> ProjectService -> AnalysisService.run -> WorkflowRunner"
+        ),
+        "analysis_path": analysis_path,
         "runtime": "RuleRuntime" if track == BenchmarkTrack.HARNESS.value else "configured-llm",
         "model_profile": profile or "offline-rule",
         "provider": str(runtime_config.get("provider_id", runtime_config.get("provider", "offline"))) if runtime_config else "offline",
@@ -193,6 +204,13 @@ def main() -> int:
     parser.add_argument("--report-dir", type=Path, default=Path("tests/mbse_benchmark/reports"))
     parser.add_argument("--track", choices=[item.value for item in BenchmarkTrack], default=BenchmarkTrack.HARNESS.value)
     parser.add_argument("--profile", help="explicit LLM profile ID; required by --track llm")
+    parser.add_argument(
+        "--path",
+        dest="analysis_path",
+        choices=("lifecycle", "vertical"),
+        default="lifecycle",
+        help="analysis path; vertical runs the five-stage product generation path",
+    )
     parser.add_argument("--baseline", choices=("harness", "bare", "both"), default="both", help="LLM track comparison baseline")
     args = parser.parse_args()
     if args.track == BenchmarkTrack.ROBUSTNESS.value:
@@ -226,6 +244,7 @@ def main() -> int:
         track=args.track,
         profile=args.profile,
         runtime_config=runtime_config,
+        analysis_path=args.analysis_path,
     )
     if args.track == BenchmarkTrack.LLM.value and args.baseline in {"bare", "both"}:
         from tests.mbse_benchmark.tracks.llm import run_bare_baseline

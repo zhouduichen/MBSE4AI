@@ -141,10 +141,30 @@ def _apply_fault_injection(services, project_id: str, case: Mapping[str, object]
     return {"status": "applied", "patch_id": patch.id, "revision": revision.sequence}
 
 
+def _run_analysis(
+    services,
+    project_id: str,
+    ingest_result: Mapping[str, object],
+    runtime_config: Mapping[str, object] | None,
+    analysis_path: str,
+):
+    if analysis_path == "vertical":
+        if not runtime_config:
+            raise ValueError("vertical benchmark path requires an explicit LLM runtime config")
+        document_id = str(ingest_result.get("document_id", ""))
+        return services.generation(project_id).generate(
+            project_id,
+            document_ids=(document_id,) if document_id else (),
+            force_new=True,
+        )
+    return services.analysis(project_id).run(project_id, force_new=True)
+
+
 def _run_case_inner(
     case: Mapping[str, object],
     output_dir: Path,
     runtime_config: Mapping[str, object] | None = None,
+    analysis_path: str = "lifecycle",
 ) -> None:
     started = time.time()
     case_id = str(case["case_id"])
@@ -156,7 +176,12 @@ def _run_case_inner(
         "project_id": project_id,
         "workspace": str(workspace),
         "runtime": "configured-llm" if runtime_config else "offline-rule",
-        "entrypoint": "build_v2_services -> AnalysisService.run -> WorkflowRunner",
+        "entrypoint": (
+            "build_v2_services -> ModelGenerationService.generate -> five-stage vertical path"
+            if analysis_path == "vertical"
+            else "build_v2_services -> AnalysisService.run -> WorkflowRunner"
+        ),
+        "analysis_path": analysis_path,
         "started_at": started,
     }
     services = None
@@ -175,12 +200,18 @@ def _run_case_inner(
         services.projects.create(project_id, str(case.get("system", project_id)))
         input_path = output_dir / "input.json"
         _write_json(input_path, case)
-        services.projects.ingest(project_id, input_path)
+        ingest_result = services.projects.ingest(project_id, input_path)
         injection = None
         if case_id == "CASE-05":
             injection = _apply_fault_injection(services, project_id, case)
             _write_json(output_dir / "fault_injection.json", injection)
-        summary = services.analysis(project_id).run(project_id, force_new=True)
+        summary = _run_analysis(
+            services,
+            project_id,
+            ingest_result if isinstance(ingest_result, Mapping) else {},
+            runtime_config,
+            analysis_path,
+        )
         repository = services.repository(project_id)
         graph = services.model(project_id).graph(project_id)
         run = repository.load_run(project_id, summary.run_id)
@@ -224,8 +255,9 @@ def _child_entry(
     case: Mapping[str, object],
     output_dir: str,
     runtime_config: Mapping[str, object] | None = None,
+    analysis_path: str = "lifecycle",
 ) -> None:
-    _run_case_inner(case, Path(output_dir), runtime_config)
+    _run_case_inner(case, Path(output_dir), runtime_config, analysis_path)
 
 
 def run_case(
@@ -235,6 +267,7 @@ def run_case(
     repeat_index: int = 1,
     timeout_seconds: int = 60,
     runtime_config: Mapping[str, object] | None = None,
+    analysis_path: str = "lifecycle",
 ) -> dict[str, object]:
     """Run one isolated real-system case and always return a result record."""
 
@@ -243,7 +276,12 @@ def run_case(
     context = multiprocessing.get_context("spawn")
     process = context.Process(
         target=_child_entry,
-        args=(dict(case), str(output_dir), dict(runtime_config) if runtime_config else None),
+        args=(
+            dict(case),
+            str(output_dir),
+            dict(runtime_config) if runtime_config else None,
+            analysis_path,
+        ),
     )
     started = time.time()
     process.start()

@@ -104,3 +104,15 @@ Track B 需要显式配置 profile，不能在无密钥 CI 中默认运行：
 ```bash
 ./.venv/bin/python tests/mbse_benchmark/run_benchmark.py --track llm --profile <profile-id>
 ```
+
+要验收产品五阶段纵向链（而不是兼容性的 23-task `WorkflowRunner`），显式选择
+`--path vertical`：
+
+```bash
+./.venv/bin/python tests/mbse_benchmark/run_benchmark.py \
+  --track llm --profile windows-5080-ollama --path vertical \
+  --case CASE-04 --repeats 1 --timeout 900 --baseline bare
+```
+
+该命令要求显式 LLM profile；不会回退到本机模型。默认 `--path lifecycle`
+仍保留旧的 23-task benchmark 入口。
