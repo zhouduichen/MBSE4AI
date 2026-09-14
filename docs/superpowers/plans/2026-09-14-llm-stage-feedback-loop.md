@@ -30,25 +30,25 @@ Interfaces:
 - Consumes: existing StageResult construction and serialized stage results.
 - Produces: StageResult.attempts: int = 1, serialized as attempts for every stage result.
 
-- [ ] Step 1: Write the failing test
+- [x] Step 1: Write the failing test
 
 Extend the structured generation test to assert every stage result exposes attempts as a positive integer and its serialized representation contains the same value.
 
-- [ ] Step 2: Run the test
+- [x] Step 2: Run the test
 
 Run: ./.venv/bin/python -m pytest -q tests/application/test_model_generation.py::test_generation_uses_structured_llm_runtime_for_all_five_stages
 
 Expected: FAIL because StageResult has no attempts field.
 
-- [ ] Step 3: Implement
+- [x] Step 3: Implement
 
 Extend StageResult with attempts: int = 1 and add attempts to the stage mapping in GenerateModelResult.as_dict. Keep all existing fields and order compatible.
 
-- [ ] Step 4: Verify
+- [x] Step 4: Verify
 
 Run the same targeted test. Expected: PASS.
 
-- [ ] Step 5: Commit
+- [x] Step 5: Commit
 
     git add src/rflp_lite/application/model_generation.py tests/application/test_model_generation.py
     git commit -m "feat: record vertical stage attempts"
@@ -63,17 +63,17 @@ Interfaces:
 - Consumes: ContextBuilder.build, TaskExecutor.execute, _context, _promote_generated_entities, evaluate_vertical_stage and StageResult.
 - Produces: _execute_stage may invoke the same stage twice, commits each valid Patch, and returns the final completion result plus attempts.
 
-- [ ] Step 1: Write the failing test
+- [x] Step 1: Write the failing test
 
 Add a deterministic FeedbackFunctionalModel. Its first vertical.functional response updates no requirement; its second response updates the first requirement with functional_behavior_ids and functional_requirement_status=allocated. Record each request context revision and assert the second request sees a greater revision and the final Functional stage has no functional_requirement completion issue.
 
-- [ ] Step 2: Run the test
+- [x] Step 2: Run the test
 
 Run: ./.venv/bin/python -m pytest -q tests/application/test_model_generation.py::test_structured_stage_feedback_closes_functional_completion_gap
 
 Expected: FAIL because the current coordinator invokes vertical.functional only once.
 
-- [ ] Step 3: Implement
+- [x] Step 3: Implement
 
 Refactor the current single-attempt body into a bounded loop:
 
@@ -96,13 +96,13 @@ Refactor the current single-attempt body into a bounded loop:
 
 The second pass must rebuild context from the repository after the first Patch. Enable the loop only when _feedback_enabled returns true for configured or explicitly injected structured Runtime; keep offline RuleRuntime single-pass. Preserve all existing exception and semantic-invalid handling.
 
-- [ ] Step 4: Run focused tests
+- [x] Step 4: Run focused tests
 
 Run: ./.venv/bin/python -m pytest -q tests/application/test_model_generation.py tests/e2e/test_vertical_model_generation.py
 
 Expected: PASS.
 
-- [ ] Step 5: Commit
+- [x] Step 5: Commit
 
     git add src/rflp_lite/application/model_generation.py tests/application/test_model_generation.py
     git commit -m "feat: close llm stage gaps with bounded feedback"
@@ -117,25 +117,25 @@ Interfaces:
 - Consumes: attempt number from Task 2 and existing Step/audit constructors.
 - Produces: final stage Step with last attempt number and stage completion audit carrying attempts.
 
-- [ ] Step 1: Write the failing assertion
+- [x] Step 1: Write the failing assertion
 
 Extend the feedback test to load the generation Run and assert the Functional Step has attempt == 2; assert the matching model_generation.stage_completed audit event contains attempts == 2.
 
-- [ ] Step 2: Run the test
+- [x] Step 2: Run the test
 
 Run: ./.venv/bin/python -m pytest -q tests/application/test_model_generation.py::test_structured_stage_feedback_closes_functional_completion_gap
 
 Expected: FAIL because current Step and audit data are hard-coded to attempt 1 and omit the field.
 
-- [ ] Step 3: Implement
+- [x] Step 3: Implement
 
 Use the loop attempt value in both Step writes and add attempts to the stage audit payload. Do not create a new Run, Patch table, or non-CAS write path.
 
-- [ ] Step 4: Verify
+- [x] Step 4: Verify
 
 Run the same targeted test. Expected: PASS.
 
-- [ ] Step 5: Commit
+- [x] Step 5: Commit
 
     git add src/rflp_lite/application/model_generation.py tests/application/test_model_generation.py
     git commit -m "feat: audit llm feedback attempts"
@@ -152,25 +152,25 @@ Interfaces:
 - Consumes: bounded feedback behavior and existing offline generation acceptance tests.
 - Produces: proof that unresolved structured gaps remain needs_review, offline stages remain single-pass, and documentation describes the feedback loop.
 
-- [ ] Step 1: Add regression assertions
+- [x] Step 1: Add regression assertions
 
 Add a fixture that returns the same incomplete Functional proposal twice. Assert stage.status == needs_review, the issue code remains, and no false completed status is returned. Assert existing VerticalRuleRuntime generation reports one attempt per stage.
 
-- [ ] Step 2: Run targeted tests
+- [x] Step 2: Run targeted tests
 
 Run: ./.venv/bin/python -m pytest -q tests/application/test_model_generation.py tests/e2e/test_vertical_model_generation.py
 
 Expected: new assertions fail until the final status and offline gate are wired.
 
-- [ ] Step 3: Implement and document
+- [x] Step 3: Implement and document
 
 Use _stage_feedback_needed only for missing kinds, completion issue codes or semantic-invalid output; leave measurement warnings and ordinary methodology findings as review feedback without retry. Document that the retry is a bounded LLM feedback loop and not an automatic engineering decision.
 
-- [ ] Step 4: Verify
+- [x] Step 4: Verify
 
 Run the same targeted test command. Expected: PASS.
 
-- [ ] Step 5: Commit
+- [x] Step 5: Commit
 
     git add tests/application/test_model_generation.py tests/e2e/test_vertical_model_generation.py docs/CURRENT_ARCHITECTURE.md docs/DEVELOPMENT_STATUS.md
     git commit -m "test: verify bounded llm stage feedback"
@@ -207,4 +207,3 @@ Expected: only intended commits are present and no generated artifacts are untra
     git push origin HEAD
 
 Expected: origin/codex/web-audit-2026-08-18 advances to the final implementation commit.
-
