@@ -18,6 +18,8 @@ from rflp_lite.methodology.architecture_synthesis import synthesize_architecture
 _ARCHITECTURE_TASK_KINDS = {
     "logical_analysis": (EntityKind.LOGICAL_COMPONENT, "architecture_reasoning"),
     "physical_candidates": (EntityKind.PHYSICAL_BLOCK, "feasibility_reasoning"),
+    "vertical.logical": (EntityKind.LOGICAL_COMPONENT, "architecture_reasoning"),
+    "vertical.physical": (EntityKind.PHYSICAL_BLOCK, "feasibility_reasoning"),
 }
 
 

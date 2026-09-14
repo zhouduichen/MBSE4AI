@@ -1358,6 +1358,30 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
     assert {"id", "source_id", "predicate", "target_id", "evidence_ids"} <= set(relation_context[0])
 
 
+def test_structured_vertical_path_persists_missing_architecture_reasoning(tmp_path: Path):
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(ScriptedModel()),
+    )
+    services.projects.create("robot")
+
+    services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+    graph = services.model("robot").graph("robot")
+    logical = next(
+        item for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT
+    )
+    physical = next(
+        item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK
+    )
+
+    assert logical.payload["architecture_reasoning"]["basis"]["function_ids"]
+    assert logical.payload["architecture_reasoning"]["alternatives"]
+    assert physical.payload["feasibility_reasoning"]["physical_id"] == physical.id
+    assert physical.payload["feasibility_reasoning"]["status"] == "needs_measurement"
+
+
 def test_structured_runtime_retries_one_stage_with_latest_graph_and_guidance(tmp_path: Path):
     model = FeedbackFunctionalModel()
     services = build_v2_services(
