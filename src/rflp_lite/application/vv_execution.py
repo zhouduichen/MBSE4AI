@@ -188,6 +188,17 @@ class VvExecutionService:
     def _record_execution_issue(self, project_id, case, outcome, evidence_id, excerpt):
         requirement_ids = _requirement_ids(self.model_service.graph(project_id), case)
         issue_id = f"issue-vv-{canonical_hash((project_id, case.id))[:16]}"
+        existing = next(
+            (item for item in self.repository.list_issues(project_id) if item.get("id") == issue_id),
+            None,
+        )
+        impact_ids = _execution_impact(
+            self.methodology_engine.analyze(self.model_service.graph(project_id)),
+            case.id,
+        )
+        entity_ids = tuple(
+            str(item) for item in (existing or {}).get("entity_ids", ()) if str(item)
+        ) or impact_ids or (case.id, *requirement_ids)
         case_label = (
             "verification"
             if case.kind is EntityKind.VERIFICATION_CASE
@@ -198,7 +209,7 @@ class VvExecutionService:
             "id": issue_id,
             "code": code,
             "severity": "error" if outcome == "failed" else "warning",
-            "entity_ids": [case.id, *requirement_ids],
+            "entity_ids": list(entity_ids),
             "evidence_ids": [evidence_id],
             "status": "open" if outcome in _FAILURE_OUTCOMES else "resolved",
             "outcome": outcome,
@@ -212,6 +223,20 @@ class VvExecutionService:
             self.repository.save_issue(project_id, issue)
             return issue_id
         return ""
+
+
+def _execution_impact(report, case_id: str):
+    finding = next(
+        (
+            item for item in report.findings
+            if item.code in {"verification_execution_failed", "validation_execution_failed"}
+            and case_id in item.entity_ids
+        ),
+        None,
+    )
+    if finding is None:
+        return ()
+    return tuple(finding.entity_ids)
 
 
 def _normalize_outcome(value: str) -> str:

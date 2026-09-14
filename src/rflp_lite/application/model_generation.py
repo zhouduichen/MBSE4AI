@@ -1009,6 +1009,7 @@ class ModelGenerationService:
             evidence,
             0,
             (dict(controller_decision),) if controller_decision else (),
+            self.methodology_engine.context_guidance(graph, task_id),
         )
 
     def _ensure_run(

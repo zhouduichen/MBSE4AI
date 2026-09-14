@@ -7,13 +7,15 @@ from typing import Any
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.methodology.context_planner import ContextPlanner, PlannedContext
 from rflp_lite.methodology.contracts import ContextBundle, TaskSpec
+from rflp_lite.methodology.engine import MethodologyEngine
 from rflp_lite.retrieval.planner import KnowledgeGap, build_gap_query
 
 
 class ContextBuilder:
-    def __init__(self, retrieval_engine: Any | None = None, *, retrieval: Any | None = None, planner: ContextPlanner | None = None):
+    def __init__(self, retrieval_engine: Any | None = None, *, retrieval: Any | None = None, planner: ContextPlanner | None = None, methodology_engine: MethodologyEngine | None = None):
         self.retrieval_engine = retrieval_engine or retrieval
         self.planner = planner or ContextPlanner()
+        self.methodology_engine = methodology_engine or MethodologyEngine()
 
     def build(
         self,
@@ -41,7 +43,16 @@ class ContextBuilder:
         )
         if task.id == "global_cross_analysis":
             planned = _global_analysis_context(graph, task, self.planner)
-        context = ContextBundle(graph.project_id, task.id, graph.revision, planned.entities, planned.relations, (), planned.token_estimate)
+        context = ContextBundle(
+            graph.project_id,
+            task.id,
+            graph.revision,
+            planned.entities,
+            planned.relations,
+            (),
+            planned.token_estimate,
+            methodology_guidance=self.methodology_engine.context_guidance(graph, task.id),
+        )
         if self.retrieval_engine is None or not task.context_query.include_evidence:
             return context
         gap = knowledge_gap or KnowledgeGap(
@@ -74,6 +85,8 @@ class ContextBuilder:
             context.project_id, context.task_id, context.revision, context.entities,
             context.relations, tuple(bounded_evidence),
             context.token_estimate + sum(self.planner.estimator.estimate(item) for item in bounded_evidence),
+            context.controller_decisions,
+            context.methodology_guidance,
         )
 
 

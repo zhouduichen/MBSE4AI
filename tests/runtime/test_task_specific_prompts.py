@@ -31,3 +31,6 @@ def test_structured_runtime_sends_task_specific_prompt_to_model():
     assert all(item in model.requests[0].system_prompt for item in (
         "entities", "relations", "updates", "deprecations", "reason", "local_ref",
     ))
+    guidance = model.requests[0].user_payload["methodology_guidance"]
+    assert guidance["version"] == "methodology-guidance.v1"
+    assert guidance["task_id"] == task.id

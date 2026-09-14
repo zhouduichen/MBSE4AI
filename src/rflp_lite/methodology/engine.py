@@ -104,6 +104,7 @@ class MethodologyFinding:
     entity_ids: tuple[str, ...] = ()
     message: str = ""
     recommended_actions: tuple[str, ...] = ()
+    impact_paths: tuple[tuple[str, ...], ...] = ()
 
     def as_dict(self) -> Mapping[str, object]:
         return {
@@ -113,6 +114,7 @@ class MethodologyFinding:
             "entity_ids": list(self.entity_ids),
             "message": self.message,
             "recommended_actions": list(self.recommended_actions),
+            "impact_paths": [list(path) for path in self.impact_paths],
         }
 
 
@@ -136,6 +138,115 @@ class MethodologyReport:
             "recommended_tasks": list(self.recommended_tasks),
             "impact_paths": [list(path) for path in self.impact_paths],
         }
+
+
+_GUIDANCE_STAGE_BY_TASK = {
+    "vertical.requirements": "requirements",
+    "vertical.functional": "functional",
+    "vertical.logical": "logical",
+    "vertical.physical": "physical",
+    "vertical.verification_validation": "assurance",
+    "system_definition": "requirements",
+    "stakeholder_analysis": "requirements",
+    "stakeholder_requirements": "requirements",
+    "lifecycle_analysis": "requirements",
+    "scenario_exploration": "requirements",
+    "use_case_analysis": "requirements",
+    "operational_scenario": "requirements",
+    "activity_analysis": "requirements",
+    "system_requirement_derivation": "requirements",
+    "function_identification": "functional",
+    "functional_decomposition": "functional",
+    "functional_interaction": "functional",
+    "functional_scenario": "functional",
+    "functional_requirement": "functional",
+    "logical_analysis": "logical",
+    "interface_sequence_state": "logical",
+    "dependency_clustering": "logical",
+    "architecture_evaluation": "logical",
+    "physical_candidates": "physical",
+    "allocation_tradeoff": "physical",
+    "technical_requirement": "physical",
+    "constraint_propagation": "physical",
+    "feasibility_selection": "physical",
+    "fmea_stpa_hazard": "assurance",
+    "verification_validation": "assurance",
+    "reverse_feasibility": "assurance",
+    "global_cross_analysis": "assurance",
+}
+_GUIDANCE_METRICS = {
+    "requirements": (
+        "operational_context_coverage", "operational_requirement_count",
+    ),
+    "functional": (
+        "functional_requirement_coverage", "functional_flow_coverage",
+        "functional_scenario_coverage",
+    ),
+    "logical": (
+        "logical_allocation_coverage", "logical_state_model_coverage",
+        "logical_partition_quality", "logical_cross_component_exchange_count",
+    ),
+    "physical": (
+        "physical_allocation_coverage", "physical_feasibility",
+        "physical_conflict_count", "physical_unknown_field_count",
+    ),
+    "assurance": (
+        "hazard_requirement_coverage", "failure_mode_requirement_coverage",
+        "structured_verification_coverage", "structured_validation_coverage",
+        "verification_evidence_coverage", "validation_evidence_coverage",
+    ),
+}
+
+
+def build_methodology_guidance(
+    report: MethodologyReport,
+    task_id: str,
+) -> Mapping[str, object]:
+    """Expose bounded deterministic guidance to the next generation task."""
+
+    stage = _GUIDANCE_STAGE_BY_TASK.get(task_id, "")
+    metrics = {
+        key: report.metrics[key]
+        for key in _GUIDANCE_METRICS.get(stage, ())
+        if key in report.metrics
+    }
+    guidance = {
+        "version": "methodology-guidance.v1",
+        "task_id": task_id,
+        "stage": stage,
+        "metrics": metrics,
+        "findings": [
+            finding.as_dict()
+            for finding in report.findings
+            if not stage or finding.stage == stage
+        ][:12],
+        "recommended_tasks": list(report.recommended_tasks[:8]),
+        "decisions": [dict(item) for item in report.decisions[-8:]],
+        "impacted_entity_ids": list(report.impacted_entity_ids[:24]),
+    }
+    synthesis = report.metrics.get("architecture_synthesis")
+    if isinstance(synthesis, Mapping) and stage in {"logical", "physical"}:
+        section = synthesis.get(stage)
+        if isinstance(section, Mapping):
+            guidance["architecture_synthesis"] = {
+                stage: _bounded_architecture_guidance(section, stage),
+            }
+    return guidance
+
+
+def _bounded_architecture_guidance(
+    section: Mapping[str, object],
+    stage: str,
+) -> Mapping[str, object]:
+    """Keep candidate evidence useful without consuming the task context."""
+
+    bounded = dict(section)
+    item_key = "candidates" if stage == "logical" else "rows"
+    items = section.get(item_key)
+    if isinstance(items, (list, tuple)):
+        bounded[item_key] = list(items[:8])
+        bounded[f"{item_key}_truncated"] = len(items) > 8
+    return bounded
 
 
 class MethodologyEngine:
@@ -177,6 +288,11 @@ class MethodologyEngine:
             recommended_tasks,
             impact[3],
         )
+
+    def context_guidance(self, graph: ModelGraph, task_id: str) -> Mapping[str, object]:
+        """Return the current report in a bounded form suitable for an LLM."""
+
+        return build_methodology_guidance(self.analyze(graph), task_id)
 
     def _analyze_operational(self, graph, index, findings, decisions, metrics) -> None:
         present = {
@@ -574,6 +690,7 @@ class MethodologyEngine:
         )
         vv_cases, executed_cases, failed_cases, execution_metrics = _vv_execution_summary(index)
         metrics.update(execution_metrics)
+        metrics["vv_execution_resolution_options"] = self._vv_resolution_options(failed_cases)
         for requirement in requirements:
             if requirement.id not in hazard_requirement_ids:
                 findings.append(MethodologyFinding(
@@ -627,6 +744,7 @@ class MethodologyEngine:
                     requirements,
                     verifications,
                     validations,
+                    graph,
                     findings,
                 )
         verification_coverage = _ratio(verification_count, len(requirements))
@@ -677,6 +795,33 @@ class MethodologyEngine:
         ))
 
     @staticmethod
+    def _vv_resolution_options(failed_cases):
+        if not any(item.payload.get("execution_status") == "failed" for item in failed_cases):
+            return []
+        return [
+            {
+                "option": "重构受影响功能",
+                "task": "function_identification",
+                "impact": "从失败的验证结果回到功能分解并重新检查下游链路",
+            },
+            {
+                "option": "更换物理候选或计算架构",
+                "task": "allocation_tradeoff",
+                "impact": "保留需求，重新选择受影响的逻辑/物理实现",
+            },
+            {
+                "option": "调整需求或资源预算",
+                "task": "system_requirement_derivation",
+                "impact": "需要利益相关者确认需求、预算或验收条件变化",
+            },
+            {
+                "option": "修订验证条件并重新执行",
+                "task": "verification_validation",
+                "impact": "修订测试条件、程序或通过准则后重新执行",
+            },
+        ]
+
+    @staticmethod
     def _vv_findings(label, cases, findings) -> None:
         for case in cases:
             missing = tuple(field for field in _VV_PLAN_FIELDS if _missing_value(case.payload.get(field)))
@@ -712,7 +857,14 @@ class MethodologyEngine:
                 ))
 
     @staticmethod
-    def _vv_execution_findings(case, requirements, verifications, validations, findings) -> None:
+    def _vv_execution_findings(
+        case,
+        requirements,
+        verifications,
+        validations,
+        graph,
+        findings,
+    ) -> None:
         outcome = str(case.payload.get("execution_status", "")).strip()
         if outcome not in {"failed", "blocked", "inconclusive"}:
             return
@@ -732,13 +884,21 @@ class MethodologyEngine:
             if outcome == "failed"
             else ("verification_validation", "global_cross_analysis")
         )
+        index = graph.entity_index
+        impacted_ids, _stages, _tasks, impact_paths = MethodologyEngine._impact(
+            graph,
+            index,
+            tuple(sorted(requirement_ids)),
+        )
+        entity_ids = tuple(dict.fromkeys((case.id, *sorted(requirement_ids), *impacted_ids)))
         findings.append(MethodologyFinding(
             f"{label.casefold()}_execution_failed",
             "error" if outcome == "failed" else "warning",
             "assurance",
-            tuple([case.id, *sorted(requirement_ids)]),
+            entity_ids,
             f"{label}Case“{case.meta.name}”执行结果为 {outcome}，需要检查驱动需求及其下游架构。",
             actions,
+            impact_paths[:24],
         ))
 
     @staticmethod

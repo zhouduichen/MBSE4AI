@@ -162,6 +162,9 @@ class SystemsEngineeringController:
         if finding.code in {"physical_constraint_conflict", "logical_partition_needs_review"}:
             action_kind = "trade_study"
             options = self._trade_options(finding, report)
+        elif finding.code in {"verification_execution_failed", "validation_execution_failed"}:
+            action_kind = "trade_study" if finding.severity == "error" else "collect_evidence"
+            options = self._trade_options(finding, report) if action_kind == "trade_study" else ()
         elif finding.code in {
             "physical_measurement_required",
             "verification_evidence_missing",
@@ -197,6 +200,8 @@ class SystemsEngineeringController:
         metric_name = (
             "physical_resolution_options"
             if finding.code == "physical_constraint_conflict"
+            else "vv_execution_resolution_options"
+            if finding.code in {"verification_execution_failed", "validation_execution_failed"}
             else "logical_trade_study"
         )
         raw_options = report.metrics.get(metric_name, ())

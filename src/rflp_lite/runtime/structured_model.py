@@ -40,6 +40,9 @@ class StructuredModelRuntime:
             "controller_decisions": [
                 dict(item) for item in request.context_bundle.controller_decisions
             ],
+            "methodology_guidance": dict(
+                request.context_bundle.methodology_guidance
+            ),
             "context_hash": canonical_hash(request.context_bundle),
         }
         contract = _output_schema(request.output_contract)
@@ -53,6 +56,7 @@ class StructuredModelRuntime:
                     "除非任务明确要求修改或弃用既有实体，否则 updates 和 deprecations 必须为空数组；"
                     "每个 entities[i].local_ref 必须在当前 Proposal 内唯一；local_ref 只是本轮临时引用，不是领域 ID；"
                     "relations 只能引用当前上下文中的 canonical entity id 或本 Proposal 内唯一的 local_ref；"
+                    "读取 methodology_guidance 中的确定性检查结果，优先补齐其指出的当前阶段缺口；不要把 guidance 当作新的实体事实；"
                     "不要返回 operations、Patch ID、revision、status、producer 或 kind/value/path 更新 DSL；不要解释。"
                 ),
                 payload,

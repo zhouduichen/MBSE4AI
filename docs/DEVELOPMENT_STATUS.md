@@ -50,8 +50,9 @@
 | 23-task 纵向追溯回接 | 后置 functional/technical/reverse requirement 自动回接 Function 与 V&V；校园配送 fixture 交付包验证 7/7 需求完整追溯 |
 | 已有 SysML 模型输入 | Web Analysis 支持上传 `.sysml`，通过同一解析器导入 ModelGraph；任意非弃用实体组成的局部模型都可作为分析种子，冲突 ID 在写入前拒绝，并可继续生成、编辑和导出 |
 | 用户目标与历史项目输入 | `project goal`、Web `/projects/{id}/goal` 和 Analysis 页面可把目标写入 System mission/objectives 及候选 Requirement；Controller Tool Layer 通过只读跨项目 FTS 检索历史项目模型、文档区域和证据，并将命中结果作为当前项目 Evidence 使用 |
-| V&V 执行反馈闭环 | `vv record`、Web `/projects/{id}/vv/{case_id}/execute` 和 Assurance 页面接受外部测试/演示的明确结果与证据摘录；结果回写 V&V Case，失败生成 Issue 并沿驱动 Requirement 路由功能/逻辑/物理迭代，重复执行保留历史 |
+| V&V 执行反馈闭环 | `vv record`、Web `/projects/{id}/vv/{case_id}/execute` 和 Assurance 页面接受外部测试/演示的明确结果与证据摘录；结果回写 V&V Case，失败生成包含 R→F→L→P 影响实体的 Issue，并在 Assurance 页面给出需人工选择的 Trade Study 迭代入口，重复执行保留历史 |
 | 工程工具结果闭环 | `vv tool`、`/projects/{id}/tools` 和 `/projects/{id}/vv/{case_id}/tools/{tool_id}/execute` 提供显式注册的工具适配器；内置模型约束检查器把物理可行性分析结果写入 V&V Evidence，缺少测量字段保持 `inconclusive`，失败沿 Controller 进入迭代 |
+| 方法论驱动生成上下文 | Methodology Engine 将当前阶段的 findings、指标、架构候选、影响实体和推荐任务以有界 `methodology_guidance` 注入五阶段及 23-task LLM 请求，确定性工程检查从事后验收前移为生成约束 |
 
 ## 历史 Harness 验收边界
 

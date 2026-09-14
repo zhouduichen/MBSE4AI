@@ -23,12 +23,14 @@ class ScriptedModel:
         self.relation_contexts = []
         self.controller_decisions = []
         self.evidence_contexts = []
+        self.methodology_guidances = []
 
     def complete_json(self, request):
         self.calls.append(request.lens_id)
         self.relation_contexts.append(request.user_payload["context"]["relations"])
         self.controller_decisions.append(request.user_payload["controller_decisions"])
         self.evidence_contexts.append(request.user_payload["evidence"])
+        self.methodology_guidances.append(request.user_payload["methodology_guidance"])
         entities = request.user_payload["context"]["entities"]
         by_kind = {}
         for item in entities:
@@ -311,6 +313,15 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
     ]
     assert result.traceability.complete_count == 1
     assert result.stage_results[2].decision_records[0]["step"] == "vertical.logical"
+    assert [item["task_id"] for item in model.methodology_guidances] == [
+        "vertical.requirements",
+        "vertical.functional",
+        "vertical.logical",
+        "vertical.physical",
+        "vertical.verification_validation",
+    ]
+    assert model.methodology_guidances[2]["architecture_synthesis"]["logical"]
+    assert "functional_requirement_coverage" in model.methodology_guidances[1]["metrics"]
     relation_context = [
         model_relation
         for context in model.relation_contexts

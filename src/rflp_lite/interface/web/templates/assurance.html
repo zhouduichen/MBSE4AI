@@ -2,6 +2,17 @@
 {% block title %}Assurance Workbench · {{ project_id }}{% endblock %}
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">Assurance</p><h1>行为保证与质量门禁</h1><p>V&V、Hazard、FMEA/STPA 与 Gate · 只展示已有事实 · 修订 {{ revision }}</p></div><span class="status-badge info">{{ gates|length }} gates</span></div>
+<section class="panel controller-panel">
+  <div class="panel-head"><div><h2>系统工程下一步</h2><p>根据当前 ModelGraph、V&amp;V 结果和方法论分析，选择下一步动作；Trade Study 需要人工决策。</p></div><span class="status-badge {% if controller.status == 'complete' %}accepted{% else %}candidate{% endif %}">{{ controller.status }}</span></div>
+  {% if controller.next_action %}
+  {% set action = controller.next_action %}
+  <article class="controller-action">
+    <span><span class="status-badge {% if action.priority == 'P0' %}failed{% else %}candidate{% endif %}">{{ action.kind }}</span><strong>{{ action.task_id }}</strong><small>{{ action.reason }}</small>{% if action.entity_ids %}<small class="table-secondary">影响实体：{{ action.entity_ids|join('、') }}</small>{% endif %}</span>
+    {% if action.kind == 'trade_study' %}<span class="controller-options">{% for option in action.options %}<button class="button compact controller-execute" type="button" data-controller-action-id="{{ action.id }}" data-controller-option-id="{{ option.id }}">{{ option.option }}<small>{{ option.task_id }}</small></button>{% endfor %}</span>{% else %}<button class="button compact primary controller-execute" type="button" data-controller-action-id="{{ action.id }}">执行</button>{% endif %}
+  </article>
+  {% else %}<div class="mini-empty">当前没有待处理系统工程动作</div>{% endif %}
+  <pre id="assurance-controller-result" class="analysis-result" hidden></pre>
+</section>
 <section class="panel"><div class="panel-head"><h2>Gate Dashboard</h2><a class="button compact" href="/ui/projects/{{ project_id }}/history">历史与审计</a></div><div class="module-grid">{% for gate in gates %}<article class="card gate-card"><div class="panel-head"><h3>{{ gate.gate_id }}</h3><span class="status-badge {% if gate.passed %}passed{% else %}failed{% endif %}">{% if gate.passed %}✓ PASS{% else %}✗ BLOCKED{% endif %}</span></div><p>Phase: {{ gate.phase }}{% if gate.rollback_phase %} · Rollback: {{ gate.rollback_phase }}{% endif %}</p><div class="compact-list">{% for check in gate.checks[:8] %}<article><span><strong>{{ check.id }}</strong><small class="table-secondary">{{ check.path|join(' → ') if check.path else '' }}</small></span><span class="status-badge {% if check.passed %}passed{% else %}failed{% endif %}">{{ 'PASS' if check.passed else 'FAIL' }}</span></article>{% else %}<div class="mini-empty">暂无细分检查</div>{% endfor %}</div>{% if gate.blocking_issues %}<div class="callout warning">Blocking: {% for issue in gate.blocking_issues %}{{ issue.code }} · {{ issue.entity_ids|join(', ') }}{% if not loop.last %}；{% endif %}{% endfor %}</div>{% endif %}</article>{% endfor %}</div></section>
 <section class="panel">
   <div class="panel-head"><h2>Verification & Validation Matrix</h2><span class="count-badge">{{ verification_validation|length }}</span></div>
@@ -68,6 +79,24 @@ document.querySelectorAll('[data-model-check-case]').forEach((button) => button.
     window.location.reload();
   } catch (error) {
     alert(error.message);
+    button.disabled = false;
+  }
+}));
+document.querySelectorAll('[data-controller-action-id]').forEach((button) => button.addEventListener('click', async () => {
+  const output = document.getElementById('assurance-controller-result');
+  button.disabled = true;
+  output.hidden = false;
+  output.textContent = '正在执行系统工程动作…';
+  const payload = {action_id: button.dataset.controllerActionId, expected_revision: {{ revision }}};
+  if (button.dataset.controllerOptionId) payload.option_id = button.dataset.controllerOptionId;
+  try {
+    const response = await fetch('/projects/{{ project_id }}/controller/execute', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload)});
+    const data = await response.json();
+    if (!response.ok || data.status !== 'ok') throw new Error(data.message || '执行系统工程动作失败');
+    window.location.reload();
+  } catch (error) {
+    output.textContent = '请求失败：' + error;
+    output.classList.add('warning');
     button.disabled = false;
   }
 }));

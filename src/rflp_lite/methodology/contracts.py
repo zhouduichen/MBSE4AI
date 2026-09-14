@@ -115,6 +115,7 @@ class ContextBundle:
     evidence: tuple[Mapping[str, object], ...] = ()
     token_estimate: int = 0
     controller_decisions: tuple[Mapping[str, object], ...] = ()
+    methodology_guidance: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
