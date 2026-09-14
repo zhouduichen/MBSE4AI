@@ -20,7 +20,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev,web,documents]'
 ```
 
-不安装远程模型也可以完整运行离线规则 Runtime。OpenAI-compatible 模型是可选的，配置由 `model-profile` 管理。
+配置并使用 LLM Profile 时，`analyze generate` 会由结构化 LLM 驱动五阶段模型生成；没有可用模型时仍可完整运行离线规则 Runtime。配置由 `model-profile` 管理，单次生成可用 `--profile` 选择档案而不改变全局 active profile。
 
 ## 最短路径
 
@@ -31,6 +31,14 @@ python3 -m venv .venv
 .venv/bin/ai4mbse --workspace-root .local-workspaces analyze generate campus-demo \
   --text "系统应在校园内完成配送，并允许运营人员人工接管"
 .venv/bin/ai4mbse --workspace-root .local-workspaces model export campus-demo --format sysml > campus-demo.sysml
+```
+
+使用已保存的远程 SSH/Tailscale Ollama Profile 做本次真实 LLM 生成（不会启动本机模型，也不会切换 active profile）：
+
+```bash
+.venv/bin/ai4mbse --workspace-root .local-workspaces analyze generate campus-demo \
+  --profile windows-5080-ollama \
+  --text "系统应在校园内完成配送，并允许运营人员人工接管"
 ```
 
 也可以先输入项目目标；目标会进入 System 的 mission/objectives，并生成一条可继续追溯的候选需求：
@@ -73,7 +81,7 @@ CLI 的主要命令：
 
 ```text
 project create|ingest|goal
-analyze generate|run|status
+analyze generate|run|status（generate 支持 `--profile`）
 model export|import-sysml
 vv record|tool
 issue list

@@ -371,6 +371,14 @@ class LLMProfileService:
             return None
         return {**profile, "provider": _provider(profile), "api_key": self._key(str(profile["id"])) or ""}
 
+    def config_for_profile(self, profile_id: str) -> Mapping[str, object]:
+        profile_id = _profile_id(profile_id)
+        data = self._read()
+        profile = next((item for item in data["profiles"] if item.get("id") == profile_id), None)
+        if not isinstance(profile, dict):
+            raise InvariantViolation("LLM 档案不存在")
+        return self.config_for(profile)
+
     def config_for(self, payload: object) -> dict[str, object]:
         profile = normalize_profile(payload)
         api_key = payload.get("api_key") if isinstance(payload, dict) else ""

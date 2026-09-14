@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from rflp_lite.bootstrap.v2 import build_v2_services
-from rflp_lite.application.llm_profiles import default_config_dir
+from rflp_lite.application.llm_profiles import LLMProfileService, default_config_dir
 from rflp_lite.application.model_export import graph_sysml
 from rflp_lite.application.sysml_v2 import sysml_to_graph
 from rflp_lite.domain.canonical import canonical_json
@@ -47,6 +47,7 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--text", default="", help="自然语言需求文本")
     generate.add_argument("--input", type=Path, default=None, help="包含自然语言需求的 UTF-8 文件")
     generate.add_argument("--goal", default="", help="将用户目标作为系统使命和目标需求输入")
+    generate.add_argument("--profile", default=None, help="本次生成使用的已保存 LLM 档案，不改变 active profile")
     generate.add_argument("--force-new", action="store_true", help="强制创建新的生成运行")
     status = analyze_commands.add_parser("status", help="查看运行台账")
     status.add_argument("project_id", help="项目标识")
@@ -102,7 +103,17 @@ def _graph_sysml(graph) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    services = build_v2_services(args.workspace_root.resolve(), config_dir=default_config_dir())
+    config_dir = default_config_dir()
+    profile_id = getattr(args, "profile", None)
+    if profile_id:
+        runtime_config = LLMProfileService(config_dir).config_for_profile(profile_id)
+        services = build_v2_services(
+            args.workspace_root.resolve(),
+            config_dir=config_dir,
+            runtime_config=runtime_config,
+        )
+    else:
+        services = build_v2_services(args.workspace_root.resolve(), config_dir=config_dir)
     if args.command == "project" and args.project_command == "create":
         print(canonical_json({"status": "ok", "project": services.projects.create(args.project_id, args.name)}))
         return 0

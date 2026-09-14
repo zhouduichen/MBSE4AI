@@ -76,8 +76,9 @@ class V2Services:
 
     def analysis(self, project_id: str) -> AnalysisService:
         repository = self.repository(project_id)
+        config = self._runtime_config if self._runtime_config is not None else self.settings.active_config()
         selection = self.runtime_factory.select(
-            self.settings.active_config() or self._runtime_config,
+            config,
             runtime_override=self._runtime_override,
         )
         return AnalysisService(
@@ -92,8 +93,9 @@ class V2Services:
 
     def generation(self, project_id: str) -> ModelGenerationService:
         repository = self.repository(project_id)
+        config = self._runtime_config if self._runtime_config is not None else self.settings.active_config()
         selection = self.runtime_factory.select(
-            self.settings.active_config() or self._runtime_config,
+            config,
             runtime_override=self._runtime_override,
         )
         retrieval_engine = self._retrieval_engine(project_id, repository)
