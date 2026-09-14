@@ -831,8 +831,20 @@ def _case_payload(
         "requirement_id": requirement.id,
         "scenario_ids": [scenario.id] if scenario else [],
         "method": method,
+        "verification_objective": (
+            f"证明需求“{statement}”在规定条件下满足"
+            if method == "test" else f"确认用户场景目标“{statement}”实际达成"
+        ),
         "precondition": "系统已部署并处于可执行状态",
+        "test_condition": (
+            "标准运行环境、额定负载和需求边界条件"
+            if method == "test" else "典型用户、真实运行场景和代表性任务条件"
+        ),
         "input": statement,
+        "stimulus": (
+            "提交需求并施加正常、异常及人工接管事件"
+            if method == "test" else "由运营人员执行任务并触发必要的用户操作"
+        ),
         "procedure": "执行需求对应的任务并记录系统响应",
         "expected_result": "系统行为满足需求并留下可审查结果",
         "pass_criteria": "需求约束和行为结果均满足",

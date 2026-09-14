@@ -61,8 +61,11 @@ def _graph(
     )
     verification_payload = {
         "method": "test",
+        "verification_objective": "证明任务可用性需求满足",
         "precondition": "设备上电",
+        "test_condition": "标准运行环境和需求边界条件",
         "input": "配送任务",
+        "stimulus": "提交配送任务并触发运行事件",
         "procedure": "执行任务并采集结果",
         "expected_result": "任务完成",
         "pass_criteria": "结果满足需求",
@@ -71,8 +74,11 @@ def _graph(
     }
     validation_payload = {
         "method": "demonstration",
+        "verification_objective": "确认任务场景目标达成",
         "precondition": "用户在场",
+        "test_condition": "典型用户和代表性任务条件",
         "input": "配送任务",
+        "stimulus": "用户执行配送操作",
         "procedure": "用户观察执行",
         "expected_result": "用户认可结果",
         "pass_criteria": "场景目标达成",

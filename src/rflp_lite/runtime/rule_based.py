@@ -108,8 +108,19 @@ class RuleRuntime:
             }
         if kind is EntityKind.REQUIREMENT:
             payload.update({"level": "system", "type": "functional", "obligation": "待确认", "verification_method": "review"})
-        if kind is EntityKind.VERIFICATION_CASE:
-            payload.update({"method": "review", "pass_criteria": "待确认的通过准则"})
+        if kind in {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}:
+            is_verification = kind is EntityKind.VERIFICATION_CASE
+            payload.update({
+                "method": "review" if is_verification else "demonstration",
+                "verification_objective": "待确认的需求验证或场景确认目标",
+                "precondition": "待确认的系统和执行初始状态",
+                "test_condition": "待确认的环境、配置、工况和边界条件",
+                "input": "待确认的测试数据、对象或任务",
+                "stimulus": "待确认的系统事件、操作或输入序列",
+                "procedure": "待确认的可重复执行步骤",
+                "expected_result": "待确认的可观察结果",
+                "pass_criteria": "待确认的通过准则",
+            })
         if kind is EntityKind.OPERATIONAL_SCENARIO:
             payload.update({"actor_ids": [item.id for item in request.context_bundle.entities if item.kind is EntityKind.STAKEHOLDER], "exchanges": [], "steps": [], "internal_component_ids": []})
         entity = make_entity(kind, name, payload, status=EntityStatus.CANDIDATE, producer=Producer.RULE, confidence=0.5, revision=request.context_bundle.revision)
@@ -210,7 +221,19 @@ class RuleRuntime:
                 case = make_entity(
                     kind,
                     name,
-                    {"task_id": request.task_id, "method": method, "pass_criteria": "待确认的通过准则", "requires_human_review": True},
+                    {
+                        "task_id": request.task_id,
+                        "method": method,
+                        "verification_objective": "待确认的需求验证或场景确认目标",
+                        "precondition": "待确认的系统和执行初始状态",
+                        "test_condition": "待确认的环境、配置、工况和边界条件",
+                        "input": "待确认的测试数据、对象或任务",
+                        "stimulus": "待确认的系统事件、操作或输入序列",
+                        "procedure": "待确认的可重复执行步骤",
+                        "expected_result": "待确认的可观察结果",
+                        "pass_criteria": "待确认的通过准则",
+                        "requires_human_review": True,
+                    },
                     status=EntityStatus.CANDIDATE,
                     producer=Producer.RULE,
                     confidence=0.5,
@@ -942,11 +965,23 @@ def _vertical_vv_plan_payload(
     is_verification = case_type == "verification"
     payload = {
         "method": "test" if is_verification else "demonstration",
+        "verification_objective": (
+            f"证明需求“{text}”在规定条件下满足"
+            if is_verification else f"确认用户场景目标“{text}”实际达成"
+        ),
         "precondition": (
             "系统处于可测试初始状态"
             if is_verification else "目标用户和典型场景可用"
         ),
+        "test_condition": (
+            "标准运行环境、额定负载和需求边界条件"
+            if is_verification else "典型用户、真实运行场景和代表性任务条件"
+        ),
         "input": text,
+        "stimulus": (
+            "提交需求并施加正常、异常及人工接管事件"
+            if is_verification else "由运营人员执行任务并触发必要的用户操作"
+        ),
         "procedure": (
             "执行测试步骤并记录实际结果"
             if is_verification else "在典型场景执行并收集用户反馈"
@@ -965,10 +1000,6 @@ def _vertical_vv_plan_payload(
         "scenario_ids": scenario_ids,
         "activity_ids": activity_ids,
         "covered_branches": branch_names,
-        "verification_objective": (
-            f"证明需求“{text}”在规定条件下满足"
-            if is_verification else f"确认用户场景目标“{text}”实际达成"
-        ),
         "function_ids": trace_scope["function_ids"],
         "logical_component_ids": trace_scope["logical_component_ids"],
         "physical_ids": trace_scope["physical_ids"],

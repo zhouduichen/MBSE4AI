@@ -122,8 +122,8 @@ class ScriptedModel:
                 "logical_component_ids": [item["id"] for item in by_kind.get("logical_component", [])],
                 "physical_ids": [item["id"] for item in by_kind.get("physical_block", [])],
             }
-            entity("verification", "verification_case", "验证配送需求", {"method": "test", "precondition": "系统处于可测试初始状态", "input": "配送任务", "procedure": "执行测试步骤并记录实际结果", "expected_result": "实际结果满足需求目标", "pass_criteria": "测试结果满足需求", **trace_scope, "scenario_ids": [], "activity_ids": [], "covered_branches": ["人工接管"], "evidence_ids": []})
-            entity("validation", "validation_case", "确认配送体验", {"method": "demonstration", "precondition": "目标用户和典型场景可用", "input": "配送任务", "procedure": "在典型场景执行并收集用户反馈", "expected_result": "用户场景目标达成", "pass_criteria": "用户场景确认通过", **trace_scope, "scenario_ids": [], "activity_ids": [], "covered_branches": ["人工接管"], "evidence_ids": []})
+            entity("verification", "verification_case", "验证配送需求", {"method": "test", "verification_objective": "证明配送需求满足", "precondition": "系统处于可测试初始状态", "test_condition": "标准运行环境、额定负载和需求边界条件", "input": "配送任务", "stimulus": "提交配送任务并施加人工接管事件", "procedure": "执行测试步骤并记录实际结果", "expected_result": "实际结果满足需求目标", "pass_criteria": "测试结果满足需求", **trace_scope, "scenario_ids": [], "activity_ids": [], "covered_branches": ["人工接管"], "evidence_ids": []})
+            entity("validation", "validation_case", "确认配送体验", {"method": "demonstration", "verification_objective": "确认用户场景目标达成", "precondition": "目标用户和典型场景可用", "test_condition": "典型用户、真实运行场景和代表性任务条件", "input": "配送任务", "stimulus": "由运营人员执行配送并触发必要的用户操作", "procedure": "在典型场景执行并收集用户反馈", "expected_result": "用户场景目标达成", "pass_criteria": "用户场景确认通过", **trace_scope, "scenario_ids": [], "activity_ids": [], "covered_branches": ["人工接管"], "evidence_ids": []})
             entity("hazard", "hazard", "风险：配送任务失败", {"description": "异常分支导致任务目标未达成", "requirement_ids": [requirements[0]["id"]] if requirements else [], "branches": ["人工接管"]})
             entity("failure", "failure_mode", "失效模式：任务未完成", {"effect": "需求未满足", "cause": "执行条件异常", "requirement_ids": [requirements[0]["id"]] if requirements else []})
             if requirements:
@@ -456,6 +456,8 @@ class CompleteVerticalModel(ScriptedModel):
                     {
                         **scope,
                         "method": "test",
+                        "test_condition": "标准运行环境、额定负载和需求边界条件",
+                        "stimulus": "提交配送任务并施加正常、失败和人工接管事件",
                         "precondition": "系统处于可测试初始状态",
                         "input": "配送任务和人工接管指令",
                         "procedure": "执行正常、失败和人工接管分支并记录结果",
@@ -479,6 +481,8 @@ class CompleteVerticalModel(ScriptedModel):
                     {
                         **scope,
                         "method": "demonstration",
+                        "test_condition": "典型用户、真实运行场景和代表性任务条件",
+                        "stimulus": "由运营人员执行配送并触发必要的用户操作",
                         "precondition": "目标用户和典型配送场景可用",
                         "input": "真实配送任务和用户接管操作",
                         "procedure": "邀请运营人员执行典型场景并确认任务体验",
@@ -806,6 +810,8 @@ class TwoRequirementFeedbackModel(CompleteVerticalModel):
             validation_ref = f"validation-feedback-{index}"
             shared = {
                 **scope,
+                "test_condition": "标准运行环境、额定负载和需求边界条件",
+                "stimulus": "提交需求并执行正常、异常及人工接管事件",
                 "precondition": "系统处于可测试状态",
                 "input": requirement["name"],
                 "procedure": "执行需求场景并记录结果",
@@ -1139,6 +1145,13 @@ def _trace_graph(*, verification: bool, validation: bool) -> ModelGraph:
             "验证配送",
             {
                 "method": "test",
+                "verification_objective": "证明需求在规定条件下满足",
+                "precondition": "设备上电",
+                "test_condition": "标准运行环境和需求边界条件",
+                "input": "配送任务",
+                "stimulus": "提交配送任务",
+                "procedure": "执行任务并采集结果",
+                "expected_result": "任务完成",
                 "pass_criteria": "满足需求",
                 "requirement_ids": [requirement.id],
                 "function_ids": [function.id],
@@ -1155,6 +1168,13 @@ def _trace_graph(*, verification: bool, validation: bool) -> ModelGraph:
             "确认体验",
             {
                 "method": "demonstration",
+                "verification_objective": "确认用户场景目标达成",
+                "precondition": "用户在场",
+                "test_condition": "典型用户和代表性任务条件",
+                "input": "配送任务",
+                "stimulus": "用户执行配送操作",
+                "procedure": "用户观察执行",
+                "expected_result": "用户认可结果",
                 "pass_criteria": "用户认可",
                 "requirement_ids": [requirement.id],
                 "function_ids": [function.id],
