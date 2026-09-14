@@ -122,6 +122,33 @@ def test_vv_execution_endpoint_records_result_and_exposes_failure_feedback(tmp_p
     )
 
 
+def test_engineering_tool_endpoint_lists_and_executes_registered_model_check(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    generated = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统应支持人工接管"},
+    ).json()["run"]
+    tools = client.get("/projects/p1/tools")
+    assert tools.status_code == 200
+    assert any(item["tool_id"] == "model.constraint_check" for item in tools.json()["tools"])
+    model = client.get("/projects/p1/model").json()
+    verification = next(
+        item for item in model["entities"] if item["kind"] == "verification_case"
+    )
+
+    response = client.post(
+        f"/projects/p1/vv/{verification['id']}/tools/model.constraint_check/execute",
+        json={"expected_revision": generated["revision"]},
+    )
+
+    assert response.status_code == 200
+    execution = response.json()["tool_execution"]
+    assert execution["tool_id"] == "model.constraint_check"
+    assert execution["outcome"] == "inconclusive"
+    assert execution["metadata"]["measurement"] is False
+
+
 def test_controller_iteration_endpoint_returns_waiting_decision(tmp_path: Path):
     client = _client(tmp_path)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200

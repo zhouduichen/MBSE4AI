@@ -80,6 +80,12 @@ def _parser() -> argparse.ArgumentParser:
     vv_record.add_argument("--locator", default="", help="结果文件、日志或报告定位")
     vv_record.add_argument("--source-type", default="vv_execution", help="结果来源类型")
     vv_record.add_argument("--expected-revision", type=int, default=None, help="期望的 ModelGraph 修订")
+    vv_tool = vv_commands.add_parser("tool", help="运行已登记的工程工具并记录 V&V 结果")
+    vv_tool.add_argument("project_id", help="项目标识")
+    vv_tool.add_argument("case_id", help="VerificationCase 或 ValidationCase 标识")
+    vv_tool.add_argument("tool_id", help="已登记的工程工具标识")
+    vv_tool.add_argument("--parameters", default="{}", help="传给工具的 JSON 参数对象")
+    vv_tool.add_argument("--expected-revision", type=int, default=None, help="期望的 ModelGraph 修订")
     profile = commands.add_parser("model-profile", help="管理模型服务配置")
     profile_commands = profile.add_subparsers(dest="profile_command", required=True)
     profile_commands.add_parser("list", help="列出模型配置")
@@ -183,6 +189,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             expected_revision=args.expected_revision,
         )
         print(canonical_json({"status": "ok", "execution": result.as_dict()}))
+        return 0
+    if args.command == "vv" and args.vv_command == "tool":
+        parameters = json.loads(args.parameters)
+        if not isinstance(parameters, dict):
+            raise ContractViolation("--parameters must be a JSON object")
+        result = services.tools(args.project_id).execute(
+            args.project_id,
+            args.case_id,
+            args.tool_id,
+            parameters=parameters,
+            expected_revision=args.expected_revision,
+        )
+        print(canonical_json({"status": "ok", "tool_execution": result.as_dict()}))
         return 0
     if args.command == "model-profile" and args.profile_command == "list":
         print(canonical_json({"status": "ok", **services.settings.list_profiles()}))

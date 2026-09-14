@@ -968,6 +968,17 @@ def list_evidence(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.get("/projects/{project_id}/tools")
+def list_engineering_tools(request: Request, project_id: str):
+    try:
+        return {
+            "status": "ok",
+            "tools": list(_services(request).tools(project_id).list_tools()),
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/evidence/search")
 async def search_evidence(request: Request, project_id: str):
     try:
@@ -1003,6 +1014,33 @@ async def execute_vv(request: Request, project_id: str, case_id: str):
         )
         execution = result.as_dict()
         return {"status": "ok", "execution": execution, **execution}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/vv/{case_id}/tools/{tool_id}/execute")
+async def execute_engineering_tool(
+    request: Request,
+    project_id: str,
+    case_id: str,
+    tool_id: str,
+):
+    try:
+        payload = await _request_json(request)
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("engineering tool payload must be an object")
+        parameters = payload.get("parameters", {})
+        if not isinstance(parameters, Mapping):
+            raise ContractViolation("engineering tool parameters must be an object")
+        result = _services(request).tools(project_id).execute(
+            project_id,
+            case_id,
+            tool_id,
+            parameters=parameters,
+            expected_revision=payload.get("expected_revision"),
+        )
+        tool_execution = result.as_dict()
+        return {"status": "ok", "tool_execution": tool_execution, **tool_execution}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 

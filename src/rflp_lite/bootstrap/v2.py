@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Mapping
 
 from rflp_lite.adapters.document_intelligence import LocalDocumentParser
@@ -10,6 +11,10 @@ from rflp_lite.adapters.llm_client import test_connection as test_llm_connection
 from rflp_lite.application.analysis_service import AnalysisService
 from rflp_lite.application.deliverables import EngineeringDeliverableService
 from rflp_lite.application.evidence_service import EvidenceService
+from rflp_lite.application.engineering_tools import (
+    EngineeringTool,
+    EngineeringToolService,
+)
 from rflp_lite.application.model_service import ModelService
 from rflp_lite.application.model_generation import ModelGenerationService
 from rflp_lite.application.project_service import ProjectService
@@ -36,10 +41,12 @@ class V2Services:
         runtime=None,
         runtime_config: Mapping[str, object] | None = None,
         config_dir: Path | None = None,
+        engineering_tools: Sequence[EngineeringTool] = (),
     ):
         self.workspace_root = workspace_root.resolve()
         self._runtime_override = runtime
         self._runtime_config = dict(runtime_config) if runtime_config else None
+        self._engineering_tools = tuple(engineering_tools)
         self.runtime_factory = RuntimeFactory()
         self.settings = SettingsService(config_dir)
         self.projects = ProjectService(
@@ -112,6 +119,13 @@ class V2Services:
     def vv(self, project_id: str) -> VvExecutionService:
         return VvExecutionService(self.model(project_id))
 
+    def tools(self, project_id: str) -> EngineeringToolService:
+        return EngineeringToolService(
+            self.model(project_id),
+            self.vv(project_id),
+            tools=self._engineering_tools,
+        )
+
     def _retrieval_engine(self, project_id: str, repository) -> RetrievalEngine:
         sources = tuple(
             (
@@ -147,6 +161,7 @@ def build_v2_services(
     runtime=None,
     runtime_config: Mapping[str, object] | None = None,
     config_dir: Path | None = None,
+    engineering_tools: Sequence[EngineeringTool] = (),
 ) -> V2Services:
     # Library/test callers are isolated by default.  The real CLI and web
     # composition roots pass the user profile directory explicitly.
@@ -156,4 +171,5 @@ def build_v2_services(
         runtime=runtime,
         runtime_config=runtime_config,
         config_dir=effective_config_dir,
+        engineering_tools=engineering_tools,
     )

@@ -26,6 +26,7 @@
               <label class="field">结果摘录<textarea name="excerpt" rows="2" required placeholder="粘贴测试/演示结果"></textarea></label>
               <label class="field">定位<input name="locator" placeholder="报告、日志或文件路径"></label>
               <button class="button compact primary" type="submit">提交执行证据</button>
+              {% if row.case_type == 'verification' %}<button class="button compact" type="button" data-model-check-case="{{ row.case_id }}">运行模型约束检查</button>{% endif %}
             </form>
           </details>
           {% else %}—{% endif %}
@@ -52,6 +53,18 @@ document.querySelectorAll('.vv-execution-form').forEach((form) => form.addEventL
     const response = await fetch(`/projects/{{ project_id }}/vv/${encodeURIComponent(form.dataset.caseId)}/execute`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload)});
     const data = await response.json();
     if (!response.ok || data.status !== 'ok') throw new Error(data.message || '记录 V&V 结果失败');
+    window.location.reload();
+  } catch (error) {
+    alert(error.message);
+    button.disabled = false;
+  }
+}));
+document.querySelectorAll('[data-model-check-case]').forEach((button) => button.addEventListener('click', async () => {
+  button.disabled = true;
+  try {
+    const response = await fetch(`/projects/{{ project_id }}/vv/${encodeURIComponent(button.dataset.modelCheckCase)}/tools/model.constraint_check/execute`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({expected_revision: {{ revision }}})});
+    const data = await response.json();
+    if (!response.ok || data.status !== 'ok') throw new Error(data.message || '运行模型约束检查失败');
     window.location.reload();
   } catch (error) {
     alert(error.message);
