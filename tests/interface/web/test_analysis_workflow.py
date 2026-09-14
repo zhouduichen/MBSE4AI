@@ -6,6 +6,7 @@ from rflp_lite.application.sysml_v2 import graph_to_sysml
 from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.interface.web.app import create_app
+from rflp_lite.interface.web.resource_pages import _decorate_stage_result
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 
@@ -177,6 +178,47 @@ def test_generated_analysis_page_uses_engineering_language_for_primary_summary(t
     ):
         assert internal_term not in page.text
     assert 'data-action-id="' in page.text
+
+
+def test_generated_analysis_page_shows_requirement_coverage_summary(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "workspaces")
+    app.state.container.v2._runtime_override = VerticalRuleRuntime()
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    assert client.post(
+        "/projects/p1/requirements",
+        json={"text": "系统应支持人工接管；系统应在断网后继续安全运行"},
+    ).status_code == 200
+
+    generated = client.post("/projects/p1/analysis", json={"mode": "generate"})
+
+    assert generated.status_code == 200
+    page = client.get("/ui/projects/p1/analysis")
+    assert page.status_code == 200
+    assert "逐条需求覆盖" in page.text
+    assert "逐条需求覆盖完整" in page.text
+    assert "requirement_coverage:" not in page.text
+
+
+def test_stage_view_exposes_exact_requirement_coverage_gaps() -> None:
+    stage = _decorate_stage_result(
+        {
+            "stage": "functional",
+            "status": "needs_review",
+            "completion_checks": [
+                {
+                    "id": "requirement_coverage:functional",
+                    "stage": "functional",
+                    "passed": False,
+                    "missing_requirement_ids": ["requirement-2"],
+                }
+            ],
+            "completion_issue_codes": ["completion_requirement_coverage:functional"],
+        }
+    )
+
+    assert stage["requirement_coverage_summary"] == "1 条需求待补全"
+    assert stage["requirement_coverage_missing_ids"] == ["requirement-2"]
 
 
 def test_analysis_api_supports_pipeline_and_force_run(tmp_path: Path) -> None:

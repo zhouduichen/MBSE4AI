@@ -31,6 +31,8 @@
 - [真实 23-task 端到端生命周期设计](specs/2026-09-13-real-23-task-lifecycle-design.md)
 - [真实 23-task 端到端生命周期实施计划](plans/2026-09-13-real-23-task-lifecycle.md)
 - [自然语言工程约束抽取实施计划](plans/2026-09-13-natural-language-constraints.md)
+- [逐需求纵向覆盖闭环设计](specs/2026-09-14-per-requirement-coverage-design.md)
+- [逐需求纵向覆盖闭环实施计划](plans/2026-09-14-per-requirement-coverage-loop.md)
 
 ## Superseded
 

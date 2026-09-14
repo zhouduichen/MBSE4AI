@@ -83,7 +83,7 @@
   <div class="panel-head"><div><h2>完整模型生成结果</h2><p>自然语言需求已按 R → F → L → P → V&amp;V 纵向形成可编辑模型。</p></div><span class="status-badge {% if latest_run.status == 'completed' %}accepted{% else %}candidate{% endif %}">{{ latest_run.status_label }}</span></div>
   <div class="phase-rail" aria-label="模型生成阶段">
     {% for stage in latest_run.stage_results %}
-    <article class="phase-node phase-{{ stage.status }}"><span class="phase-index">{{ loop.index }}</span><div><strong>{{ stage.stage_label }}</strong><small>{{ stage.entity_count }} 个实体 · {{ stage.relation_count }} 条关系</small><small>{{ stage.quality_summary }} · {{ stage.next_step_label }}</small></div><span class="status-badge {% if stage.status == 'completed' and stage.quality_status == 'passed' %}accepted{% else %}candidate{% endif %}">{{ stage.status_label }}</span></article>
+    <article class="phase-node phase-{{ stage.status }}"><span class="phase-index">{{ loop.index }}</span><div><strong>{{ stage.stage_label }}</strong><small>{{ stage.entity_count }} 个实体 · {{ stage.relation_count }} 条关系</small><small>{{ stage.quality_summary }} · {{ stage.next_step_label }}</small>{% if stage.requirement_coverage %}<small>逐条需求覆盖：{{ stage.requirement_coverage_summary }}</small>{% if stage.requirement_coverage_missing_ids %}<details class="stage-coverage-details"><summary>查看待补全需求</summary><small>{{ stage.requirement_coverage_missing_ids|join('、') }}</small></details>{% endif %}{% endif %}</div><span class="status-badge {% if stage.status == 'completed' and stage.quality_status == 'passed' %}accepted{% else %}candidate{% endif %}">{{ stage.status_label }}</span></article>
     {% endfor %}
   </div>
   {% if latest_run.traceability %}

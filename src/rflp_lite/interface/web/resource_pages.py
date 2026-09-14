@@ -380,12 +380,37 @@ def _completion_view(stage: Mapping[str, object]) -> View:
     }
 
 
+def _requirement_coverage_view(stage: Mapping[str, object]) -> View:
+    checks = stage.get("completion_checks", ())
+    values = checks if isinstance(checks, (tuple, list)) else ()
+    coverage = next(
+        (
+            _mapping(item)
+            for item in values
+            if str(_mapping(item).get("id") or "").startswith("requirement_coverage:")
+        ),
+        {},
+    )
+    missing = coverage.get("missing_requirement_ids", ())
+    missing_ids = [str(item) for item in missing] if isinstance(missing, (tuple, list)) else []
+    passed = coverage.get("passed") is True
+    return {
+        "requirement_coverage": coverage,
+        "requirement_coverage_passed": passed,
+        "requirement_coverage_summary": (
+            "逐条需求覆盖完整" if passed else f"{len(missing_ids)} 条需求待补全"
+        ),
+        "requirement_coverage_missing_ids": missing_ids,
+    }
+
+
 def _decorate_stage_result(raw: object) -> View:
     stage = _mapping(raw)
     value = dict(stage)
     stage_id = str(stage.get("stage") or "")
     status = _status_value(stage.get("status"), "pending")
     value.update(_completion_view(stage))
+    value.update(_requirement_coverage_view(stage))
     value.update({
         "stage_label": _VERTICAL_STAGE_LABELS.get(stage_id, _engineering_stage_label(stage_id)),
         "status": status,

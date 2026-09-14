@@ -268,3 +268,28 @@ def test_technical_requirements_are_vv_inputs_but_not_functional_inputs():
         item.code == "verification_missing" and technical.id in item.entity_ids
         for item in report.findings
     )
+
+
+def test_vertical_guidance_contains_bounded_requirement_coverage_gaps():
+    graph = _graph(complete_vv=True)
+    missing = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应支持人工接管",
+        {"level": "system"},
+    )
+    graph = ModelGraph(
+        graph.project_id,
+        (*graph.entities, missing),
+        graph.relations,
+        revision=graph.revision,
+    )
+
+    guidance = MethodologyEngine().context_guidance(graph, "vertical.functional")
+    coverage = guidance["stage_completion"]["checks"][-1]
+
+    assert coverage["id"] == "requirement_coverage:functional"
+    assert coverage["stage"] == "functional"
+    assert coverage["missing_requirement_ids"] == [missing.id]
+    assert coverage["gaps"][0]["requirement_id"] == missing.id
+    assert len(coverage["gaps"]) <= 24
+    assert guidance["requirement_coverage"] == coverage

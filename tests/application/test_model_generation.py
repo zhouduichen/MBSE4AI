@@ -583,6 +583,290 @@ class CompleteVerticalModel(ScriptedModel):
         return payload
 
 
+class TwoRequirementFeedbackModel(CompleteVerticalModel):
+    """Structured model double that repairs the second requirement on feedback."""
+
+    def __init__(self):
+        super().__init__()
+        self.functional_attempts = 0
+        self.functional_guidances = []
+
+    def complete_json(self, request):
+        if request.lens_id == "vertical.functional":
+            self.functional_attempts += 1
+            self.functional_guidances.append(
+                request.user_payload["methodology_guidance"]
+            )
+            if self.functional_attempts == 2:
+                return GenerationResponse(
+                    request.lens_id,
+                    self._missing_function_proposal(request),
+                    "input",
+                    "feedback-output",
+                    False,
+                    "fake",
+                    "scripted",
+                )
+        if request.lens_id == "vertical.verification_validation":
+            return GenerationResponse(
+                request.lens_id,
+                self._assurance_proposal(request),
+                "input",
+                "assurance-output",
+                False,
+                "fake",
+                "scripted",
+            )
+        return super().complete_json(request)
+
+    @staticmethod
+    def _context_by_kind(request):
+        values = {}
+        for item in request.user_payload["context"]["entities"]:
+            values.setdefault(item["kind"], []).append(item)
+        return values
+
+    @staticmethod
+    def _relation_targets(request, source_id, predicate, target_kind=None):
+        result = []
+        for relation in request.user_payload["context"]["relations"]:
+            if relation["source_id"] != source_id or relation["predicate"] != predicate:
+                continue
+            if target_kind is not None:
+                target = next(
+                    (
+                        item
+                        for item in request.user_payload["context"]["entities"]
+                        if item["id"] == relation["target_id"]
+                    ),
+                    None,
+                )
+                if target is None or target["kind"] != target_kind:
+                    continue
+            result.append(relation["target_id"])
+        return tuple(sorted(set(result)))
+
+    def _missing_function_proposal(self, request):
+        by_kind = self._context_by_kind(request)
+        requirements = by_kind[EntityKind.REQUIREMENT.value]
+        existing_function_sources = {
+            relation["source_id"]
+            for relation in request.user_payload["context"]["relations"]
+            if relation["predicate"] == RelationPredicate.SATISFIED_BY.value
+            and relation["source_id"] in {item["id"] for item in requirements}
+            and relation["target_id"] in {
+                item["id"] for item in by_kind.get(EntityKind.FUNCTION.value, [])
+            }
+        }
+        requirement = next(
+            item for item in requirements if item["id"] not in existing_function_sources
+        )
+        flow = by_kind[EntityKind.FUNCTIONAL_FLOW.value][0]
+        function_ref = "function-feedback-2"
+        return {
+            "entities": [{
+                "local_ref": function_ref,
+                "kind": EntityKind.FUNCTION.value,
+                "name": f"执行：{requirement['name']}",
+                "payload": {
+                    "behavior": f"实现{requirement['name']}",
+                    "inputs": ["任务"],
+                    "outputs": ["结果"],
+                    "decomposition": ["解析需求", "执行行为", "反馈结果"],
+                    "source_requirement_id": requirement["id"],
+                },
+                "confidence": 0.95,
+                "source_ids": [],
+                "evidence_ids": [],
+                "lifecycle_ids": [],
+            }],
+            "relations": [
+                {
+                    "source_ref": requirement["id"],
+                    "predicate": RelationPredicate.SATISFIED_BY.value,
+                    "target_ref": function_ref,
+                    "evidence_ids": [],
+                },
+                {
+                    "source_ref": function_ref,
+                    "predicate": RelationPredicate.EXCHANGES_WITH.value,
+                    "target_ref": flow["id"],
+                    "evidence_ids": [],
+                },
+            ],
+            "updates": [{
+                "entity_id": requirement["id"],
+                "field_patch": {"payload": {
+                    "functional_behavior_ids": [function_ref],
+                    "functional_requirement_status": "allocated",
+                }},
+            }],
+            "deprecations": [],
+            "reason": "根据逐需求 coverage feedback 补齐缺失功能",
+            "assumptions": [],
+            "open_questions": [],
+            "decision_records": [{
+                "step": "requirement_coverage_feedback",
+                "decision": "补齐反馈中列出的第二条需求功能",
+                "basis": [requirement["id"]],
+            }],
+        }
+
+    def _assurance_proposal(self, request):
+        by_kind = self._context_by_kind(request)
+        requirements = by_kind[EntityKind.REQUIREMENT.value]
+        activities = by_kind.get(EntityKind.ACTIVITY.value, [])
+        scenarios = (
+            by_kind.get(EntityKind.OPERATIONAL_SCENARIO.value, [])
+            + by_kind.get(EntityKind.FUNCTIONAL_SCENARIO.value, [])
+        )
+        proposal = {
+            "entities": [],
+            "relations": [],
+            "updates": [],
+            "deprecations": [],
+            "reason": "为每条需求建立独立且作用域一致的 V&V 计划",
+            "assumptions": [],
+            "open_questions": [],
+            "decision_records": [{
+                "step": "verification_validation",
+                "decision": "逐条需求检查 verification 和 validation coverage",
+                "basis": [item["id"] for item in requirements],
+            }],
+        }
+
+        def add(local_ref, kind, name, payload):
+            proposal["entities"].append({
+                "local_ref": local_ref,
+                "kind": kind,
+                "name": name,
+                "payload": payload,
+                "confidence": 0.95,
+                "source_ids": [],
+                "evidence_ids": [],
+                "lifecycle_ids": [],
+            })
+
+        def relate(source_ref, predicate, target_ref):
+            proposal["relations"].append({
+                "source_ref": source_ref,
+                "predicate": predicate,
+                "target_ref": target_ref,
+                "evidence_ids": [],
+            })
+
+        def update(entity_id, payload):
+            proposal["updates"].append({
+                "entity_id": entity_id,
+                "field_patch": {"payload": payload},
+            })
+
+        all_requirement_ids = [item["id"] for item in requirements]
+        for index, requirement in enumerate(requirements, start=1):
+            function_ids = self._relation_targets(
+                request,
+                requirement["id"],
+                RelationPredicate.SATISFIED_BY.value,
+                EntityKind.FUNCTION.value,
+            )
+            logical_ids = tuple(sorted({
+                logical_id
+                for function_id in function_ids
+                for logical_id in self._relation_targets(
+                    request,
+                    function_id,
+                    RelationPredicate.ALLOCATED_TO.value,
+                    EntityKind.LOGICAL_COMPONENT.value,
+                )
+            }))
+            physical_ids = tuple(sorted({
+                physical_id
+                for logical_id in logical_ids
+                for physical_id in self._relation_targets(
+                    request,
+                    logical_id,
+                    RelationPredicate.ALLOCATED_TO.value,
+                    EntityKind.PHYSICAL_BLOCK.value,
+                )
+            }))
+            scope = {
+                "requirement_ids": [requirement["id"]],
+                "function_ids": list(function_ids),
+                "logical_component_ids": list(logical_ids),
+                "physical_ids": list(physical_ids),
+            }
+            verification_ref = f"verification-feedback-{index}"
+            validation_ref = f"validation-feedback-{index}"
+            shared = {
+                **scope,
+                "precondition": "系统处于可测试状态",
+                "input": requirement["name"],
+                "procedure": "执行需求场景并记录结果",
+                "expected_result": "系统行为满足需求",
+                "pass_criteria": "结果满足需求义务",
+                "scenario_ids": [item["id"] for item in scenarios],
+                "activity_ids": [item["id"] for item in activities],
+                "covered_branches": ["人工接管"] if activities else [],
+                "evidence_ids": [],
+                "execution_evidence_ids": [],
+                "verification_objective": f"检查{requirement['name']}",
+                "constraint_fields": [],
+                "evidence_required": False,
+                "open_questions": ["尚未执行真实测试"],
+            }
+            add(
+                verification_ref,
+                EntityKind.VERIFICATION_CASE.value,
+                f"验证：{requirement['name']}",
+                {**shared, "method": "test", "cross_analysis_status": "checked", "traceability_checked": True},
+            )
+            add(
+                validation_ref,
+                EntityKind.VALIDATION_CASE.value,
+                f"确认：{requirement['name']}",
+                {**shared, "method": "demonstration"},
+            )
+            relate(requirement["id"], RelationPredicate.VERIFIED_BY.value, verification_ref)
+            relate(requirement["id"], RelationPredicate.VALIDATED_BY.value, validation_ref)
+            update(requirement["id"], {
+                "feasibility_review": {
+                    "status": "reviewed",
+                    "physical_candidate_ids": list(physical_ids),
+                },
+            })
+
+        hazard_ref = "hazard-feedback"
+        failure_ref = "failure-feedback"
+        first_requirement_id = all_requirement_ids[0]
+        add(
+            hazard_ref,
+            EntityKind.HAZARD.value,
+            "风险：需求目标未达成",
+            {
+                "description": "异常分支导致一项或多项需求目标未达成",
+                "requirement_ids": all_requirement_ids,
+                "activity_ids": [item["id"] for item in activities],
+                "branches": ["人工接管"] if activities else [],
+            },
+        )
+        add(
+            failure_ref,
+            EntityKind.FAILURE_MODE.value,
+            "失效模式：任务结果不可追踪",
+            {
+                "effect": "需求结果不满足",
+                "cause": "异常处理未形成可追踪结果",
+                "requirement_ids": all_requirement_ids,
+                "activity_ids": [item["id"] for item in activities],
+            },
+        )
+        relate(hazard_ref, RelationPredicate.CAUSES.value, failure_ref)
+        relate(hazard_ref, RelationPredicate.DERIVED_FROM.value, first_requirement_id)
+        relate(hazard_ref, RelationPredicate.MITIGATED_BY.value, "verification-feedback-1")
+        relate(failure_ref, RelationPredicate.MITIGATED_BY.value, "verification-feedback-1")
+        return proposal
+
+
 def test_structured_runtime_generates_complete_editable_vertical_model(tmp_path: Path):
     model = CompleteVerticalModel()
     services = build_v2_services(
@@ -1081,6 +1365,30 @@ def test_structured_runtime_retries_one_stage_with_latest_graph_and_guidance(tmp
         and event["payload"]["next_attempt"] == 2
         for event in services.repository("robot").list_audit_events("robot")
     )
+
+
+def test_multi_requirement_feedback_repairs_the_exact_missing_requirement(tmp_path: Path):
+    model = TwoRequirementFeedbackModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+    )
+    services.projects.create("robot")
+    requirement_ids = services.requirements_input("robot").ensure_text_requirements(
+        "系统应自主配送；系统应支持人工接管"
+    )
+
+    result = services.generation("robot").generate("robot")
+
+    assert model.functional_attempts == 2
+    assert result.stage_results[1].status == "completed"
+    assert result.stage_results[1].attempts == 2
+    first_gap = model.functional_guidances[0]["requirement_coverage"]
+    second_gap = model.functional_guidances[1]["requirement_coverage"]
+    assert set(first_gap["missing_requirement_ids"]) == set(requirement_ids)
+    assert len(second_gap["missing_requirement_ids"]) == 1
+    assert set(second_gap["missing_requirement_ids"]) < set(first_gap["missing_requirement_ids"])
+    assert result.traceability.end_to_end_complete_count == 2
 
 
 def test_controller_decision_is_passed_to_downstream_structured_runtime(tmp_path: Path):

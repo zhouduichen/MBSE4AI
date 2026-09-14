@@ -12,6 +12,7 @@ from rflp_lite.methodology.contracts import TaskExecutionResponse, TaskSpec
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
 from rflp_lite.methodology.trace_rules import vv_scope_matches
 from rflp_lite.methodology.vertical_generation import VerticalStageSpec, stage_spec
+from rflp_lite.methodology.vertical_coverage import resolve_vertical_coverage
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +36,17 @@ def evaluate_vertical_stage(
         checks.append({"id": task_id, "passed": passed})
         if not passed:
             issues.append(f"completion_semantic:{task_id}")
+    coverage_stage = {
+        "functional": "functional",
+        "logical": "logical",
+        "physical": "physical",
+        "verification_validation": "verification_validation",
+    }.get(spec.stage.value)
+    if coverage_stage is not None:
+        coverage = resolve_vertical_coverage(graph, coverage_stage)
+        checks.append(dict(coverage.as_check()))
+        if not coverage.passed:
+            issues.append(f"completion_requirement_coverage:{coverage_stage}")
     return CompletionResult(not issues, tuple(checks), tuple(issues))
 
 

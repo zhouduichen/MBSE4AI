@@ -1,0 +1,126 @@
+from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
+from rflp_lite.domain.model import ModelGraph, Relation
+from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.methodology.vertical_coverage import resolve_vertical_coverage
+
+
+def _make(kind, name, payload=None, *, status=EntityStatus.VALIDATED):
+    return make_entity(
+        kind,
+        name,
+        payload,
+        status=status,
+        producer=Producer.RULE,
+    )
+
+
+def _two_requirement_graph() -> tuple[ModelGraph, object, object]:
+    first = _make(EntityKind.REQUIREMENT, "系统应完成配送", {"level": "system"})
+    second = _make(EntityKind.REQUIREMENT, "系统应支持人工接管", {"level": "system"})
+    function = _make(EntityKind.FUNCTION, "执行配送")
+    logical = _make(EntityKind.LOGICAL_COMPONENT, "配送控制逻辑")
+    physical = _make(EntityKind.PHYSICAL_BLOCK, "配送执行平台")
+    verification = _make(
+        EntityKind.VERIFICATION_CASE,
+        "验证配送",
+        {
+            "requirement_ids": [first.id],
+            "function_ids": [function.id],
+            "logical_component_ids": [logical.id],
+            "physical_ids": [physical.id],
+        },
+    )
+    validation = _make(
+        EntityKind.VALIDATION_CASE,
+        "确认配送",
+        {
+            "requirement_ids": [first.id],
+            "function_ids": [function.id],
+            "logical_component_ids": [logical.id],
+            "physical_ids": [physical.id],
+        },
+    )
+    deprecated_function = _make(
+        EntityKind.FUNCTION,
+        "已废弃人工接管功能",
+        status=EntityStatus.DEPRECATED,
+    )
+    relations = (
+        Relation("r-f", first.id, RelationPredicate.SATISFIED_BY, function.id),
+        Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+        Relation("l-p", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
+        Relation("r-v", first.id, RelationPredicate.VERIFIED_BY, verification.id),
+        Relation("r-va", first.id, RelationPredicate.VALIDATED_BY, validation.id),
+        Relation("deprecated-r-f", second.id, RelationPredicate.SATISFIED_BY, deprecated_function.id),
+    )
+    graph = ModelGraph(
+        "coverage",
+        (first, second, function, logical, physical, verification, validation, deprecated_function),
+        relations,
+        revision=4,
+    )
+    return graph, first, second
+
+
+def _row(result, requirement_id):
+    return next(item for item in result.rows if item.requirement_id == requirement_id)
+
+
+def test_functional_coverage_names_the_requirement_missing_a_live_function():
+    graph, first, second = _two_requirement_graph()
+
+    result = resolve_vertical_coverage(graph, "functional")
+
+    assert result.passed is False
+    assert _row(result, first.id).missing == ()
+    assert _row(result, second.id).missing == ("function",)
+    assert _row(result, second.id).function_ids == ()
+
+
+def test_logical_and_physical_coverage_preserve_the_earliest_gap():
+    graph, first, second = _two_requirement_graph()
+
+    logical = resolve_vertical_coverage(graph, "logical")
+    physical = resolve_vertical_coverage(graph, "physical")
+
+    assert _row(logical, first.id).path == (
+        first.id,
+        _row(logical, first.id).function_ids[0],
+        _row(logical, first.id).logical_component_ids[0],
+    )
+    assert _row(logical, second.id).missing == ("function", "logical_component")
+    assert _row(physical, second.id).missing == (
+        "function",
+        "logical_component",
+        "physical",
+    )
+
+
+def test_assurance_coverage_requires_both_typed_cases_and_matching_scope():
+    graph, first, second = _two_requirement_graph()
+
+    result = resolve_vertical_coverage(graph, "verification_validation")
+
+    assert result.passed is False
+    assert _row(result, first.id).missing == ()
+    assert _row(result, second.id).missing == ("verification", "validation")
+
+
+def test_technical_requirement_can_use_direct_physical_satisfaction():
+    requirement = _make(
+        EntityKind.REQUIREMENT,
+        "系统功耗不超过 50 W",
+        {"level": "technical", "constraints": {"max_power_w": 50}},
+    )
+    physical = _make(EntityKind.PHYSICAL_BLOCK, "功耗受限计算平台")
+    graph = ModelGraph(
+        "technical",
+        (requirement, physical),
+        (Relation("technical-p", requirement.id, RelationPredicate.SATISFIED_BY, physical.id),),
+        revision=1,
+    )
+
+    result = resolve_vertical_coverage(graph, "physical")
+
+    assert result.passed is True
+    assert _row(result, requirement.id).physical_ids == (physical.id,)

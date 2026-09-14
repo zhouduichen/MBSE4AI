@@ -31,13 +31,14 @@ def test_vertical_stage_reports_each_internal_task_and_failed_checks():
         ModelGraph("p1", (function,)),
     )
 
-    assert len(result.checks) == 5
+    assert len(result.checks) == 6
     assert {item["id"] for item in result.checks} == {
         "function_identification",
         "functional_decomposition",
         "functional_interaction",
         "functional_scenario",
         "functional_requirement",
+        "requirement_coverage:functional",
     }
     assert "completion_semantic:functional_interaction" in result.issue_codes
 

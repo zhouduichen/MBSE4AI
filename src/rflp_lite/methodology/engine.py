@@ -201,6 +201,15 @@ def build_methodology_guidance(
             "checks": [dict(check) for check in stage_completion.checks],
             "issue_codes": list(stage_completion.issue_codes),
         }
+        coverage = next(
+            (
+                check for check in stage_completion.checks
+                if str(check.get("id", "")).startswith("requirement_coverage:")
+            ),
+            None,
+        )
+        if coverage is not None:
+            guidance["requirement_coverage"] = dict(coverage)
     return guidance
 
 
