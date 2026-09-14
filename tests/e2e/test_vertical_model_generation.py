@@ -117,6 +117,7 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
 
     assert result.status == "completed"
     assert result.traceability.complete_count == 1
+    assert all(stage.attempts == 1 for stage in result.stage_results)
     assert result.methodology.metrics["operational_context_coverage"] == 1.0
     assert result.methodology.metrics["functional_requirement_coverage"] == 1.0
     assert result.methodology.metrics["functional_flow_coverage"] == 1.0

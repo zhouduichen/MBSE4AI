@@ -47,6 +47,29 @@ class ScriptedModel:
         def relation(source_ref, predicate, target_ref):
             payload["relations"].append({"source_ref": source_ref, "predicate": predicate, "target_ref": target_ref, "evidence_ids": []})
 
+        required_by_lens = {
+            "vertical.requirements": {
+                "system", "stakeholder", "concern", "lifecycle_stage",
+                "lifecycle_transition", "scenario_hypothesis", "use_case",
+                "operational_scenario", "activity", "requirement",
+            },
+            "vertical.functional": {"function"},
+            "vertical.logical": {"logical_component", "interface", "state"},
+            "vertical.physical": {"physical_block"},
+            "vertical.verification_validation": {
+                "verification_case", "validation_case", "hazard", "failure_mode",
+            },
+        }
+        if required_by_lens.get(request.lens_id, set()) <= set(by_kind):
+            payload["assumptions"] = ["脚本模型用于测试结构化边界"]
+            payload["open_questions"] = []
+            payload["decision_records"] = [{
+                "step": request.lens_id,
+                "decision": "按照阶段契约产生结构化模型",
+                "basis": [],
+            }]
+            return GenerationResponse(request.lens_id, payload, "input", "output", False, "fake", "scripted")
+
         requirements = by_kind.get("requirement", [])
         if request.lens_id == "vertical.requirements":
             entity("system", "system", "校园配送系统", {"mission": "完成校园配送", "system_boundary": {"inside": ["配送服务"], "outside": ["校园环境"]}, "objectives": ["按时完成任务"], "environment_assumptions": ["道路可通行"], "exclusions": [], "open_questions": []})
@@ -114,8 +137,42 @@ class ScriptedModel:
 class SemanticInvalidModel(ScriptedModel):
     def complete_json(self, request):
         response = super().complete_json(request)
-        if request.lens_id == "vertical.functional":
+        if request.lens_id == "vertical.functional" and response.payload["entities"]:
             response.payload["entities"][0]["name"] = "配送传感器控制"
+        return response
+
+
+class FeedbackFunctionalModel(ScriptedModel):
+    def __init__(self):
+        super().__init__()
+        self.functional_attempts = 0
+        self.functional_context_revisions = []
+
+    def complete_json(self, request):
+        if request.lens_id == "vertical.functional":
+            self.functional_context_revisions.append(request.user_payload["context"]["revision"])
+        response = super().complete_json(request)
+        if request.lens_id == "vertical.functional":
+            self.functional_attempts += 1
+            if self.functional_attempts == 2:
+                context_entities = request.user_payload["context"]["entities"]
+                requirement = next(
+                    item for item in context_entities if item["kind"] == "requirement"
+                )
+                function = next(
+                    item for item in context_entities if item["kind"] == "function"
+                )
+                response.payload["entities"] = []
+                response.payload["relations"] = []
+                response.payload["updates"] = [{
+                    "entity_id": requirement["id"],
+                    "field_patch": {
+                        "payload": {
+                            "functional_behavior_ids": [function["id"]],
+                            "functional_requirement_status": "allocated",
+                        },
+                    },
+                }]
         return response
 
 
@@ -131,6 +188,9 @@ class IncompleteOperationalModel(ScriptedModel):
                 item for item in response.payload["relations"]
                 if item["source_ref"] in keep and item["target_ref"] in keep
             ]
+            if request.user_payload["context"]["revision"] > 1:
+                response.payload["entities"] = []
+                response.payload["relations"] = []
         return response
 
 
@@ -300,6 +360,7 @@ def test_generation_is_recorded_as_one_five_stage_run(tmp_path: Path):
         "vertical.verification_validation",
     }
     assert all(step.status == "completed" for step in run.steps)
+    assert all(step.attempt == 1 for step in run.steps)
 
 
 def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Path):
@@ -317,11 +378,22 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
     assert result.status == "completed_with_warnings"
     assert model.calls == [
         "vertical.requirements",
+        "vertical.requirements",
+        "vertical.functional",
         "vertical.functional",
         "vertical.logical",
+        "vertical.logical",
+        "vertical.physical",
         "vertical.physical",
         "vertical.verification_validation",
+        "vertical.verification_validation",
     ]
+    assert all(stage.attempts >= 1 for stage in result.stage_results)
+    assert all(stage.attempts == 2 for stage in result.stage_results)
+    assert all(
+        item["attempts"] == stage.attempts
+        for item, stage in zip(result.as_dict()["stage_results"], result.stage_results)
+    )
     assert result.traceability.complete_count == 1
     functional_stage = result.stage_results[1]
     assert functional_stage.status == "needs_review"
@@ -331,20 +403,33 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
         for check in functional_stage.completion_checks
     )
     assert result.stage_results[2].decision_records[0]["step"] == "vertical.logical"
-    assert model.methodology_guidances[1]["stage_completion"]["issue_codes"]
+    functional_guidance = next(
+        item for item in model.methodology_guidances
+        if item["task_id"] == "vertical.functional"
+    )
+    logical_guidance = next(
+        item for item in model.methodology_guidances
+        if item["task_id"] == "vertical.logical"
+    )
+    assert functional_guidance["stage_completion"]["issue_codes"]
     assert any(
         check["id"] == "functional_requirement" and not check["passed"]
-        for check in model.methodology_guidances[1]["stage_completion"]["checks"]
+        for check in functional_guidance["stage_completion"]["checks"]
     )
     assert [item["task_id"] for item in model.methodology_guidances] == [
         "vertical.requirements",
+        "vertical.requirements",
+        "vertical.functional",
         "vertical.functional",
         "vertical.logical",
+        "vertical.logical",
+        "vertical.physical",
         "vertical.physical",
         "vertical.verification_validation",
+        "vertical.verification_validation",
     ]
-    assert model.methodology_guidances[2]["architecture_synthesis"]["logical"]
-    assert "functional_requirement_coverage" in model.methodology_guidances[1]["metrics"]
+    assert logical_guidance["architecture_synthesis"]["logical"]
+    assert "functional_requirement_coverage" in functional_guidance["metrics"]
     relation_context = [
         model_relation
         for context in model.relation_contexts
@@ -352,6 +437,56 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
     ]
     assert any(model_relation["predicate"] == "satisfiedBy" for model_relation in relation_context)
     assert {"id", "source_id", "predicate", "target_id", "evidence_ids"} <= set(relation_context[0])
+
+
+def test_structured_runtime_retries_one_stage_with_latest_graph_and_guidance(tmp_path: Path):
+    model = FeedbackFunctionalModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+    )
+    services.projects.create("robot")
+
+    result = services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+
+    assert result.stage_results[1].status == "completed"
+    assert result.stage_results[1].attempts == 2
+    assert result.stage_results[1].completion_issue_codes == ()
+    assert model.functional_context_revisions == [2, 3]
+    assert model.calls == [
+        "vertical.requirements",
+        "vertical.requirements",
+        "vertical.functional",
+        "vertical.functional",
+        "vertical.logical",
+        "vertical.logical",
+        "vertical.physical",
+        "vertical.physical",
+        "vertical.verification_validation",
+        "vertical.verification_validation",
+    ]
+    graph = services.model("robot").graph("robot")
+    assert len(tuple(item for item in graph.entities if item.kind is EntityKind.FUNCTION)) == 1
+    run = services.repository("robot").load_run("robot", result.run_id)
+    functional_step = next(
+        step for step in run.steps if step.task_id == "vertical.functional"
+    )
+    assert functional_step.attempt == 2
+    stage_events = [
+        event["payload"]
+        for event in services.repository("robot").list_audit_events("robot")
+        if event["kind"] == "model_generation.stage_completed"
+        and event["payload"]["stage"] == "functional"
+    ]
+    assert stage_events[-1]["attempts"] == 2
+    assert any(
+        event["kind"] == "model_generation.stage_feedback"
+        and event["payload"]["stage"] == "functional"
+        and event["payload"]["next_attempt"] == 2
+        for event in services.repository("robot").list_audit_events("robot")
+    )
 
 
 def test_controller_decision_is_passed_to_downstream_structured_runtime(tmp_path: Path):
@@ -509,9 +644,14 @@ def test_vertical_generation_bounds_stage_context_to_configured_window(tmp_path:
 
     assert model.calls == [
         "vertical.requirements",
+        "vertical.requirements",
+        "vertical.functional",
         "vertical.functional",
         "vertical.logical",
+        "vertical.logical",
         "vertical.physical",
+        "vertical.physical",
+        "vertical.verification_validation",
         "vertical.verification_validation",
     ]
     assert all(

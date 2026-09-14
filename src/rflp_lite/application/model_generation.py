@@ -16,6 +16,7 @@ from rflp_lite.methodology.contracts import (
     ContextBundle,
     RunStatus,
     StepStatus,
+    TaskExecutionResponse,
 )
 from rflp_lite.methodology.completion import evaluate_vertical_stage
 from rflp_lite.methodology.context import ContextBuilder
@@ -63,6 +64,7 @@ class StageResult:
     decision_records: tuple[Mapping[str, object], ...] = ()
     completion_checks: tuple[Mapping[str, object], ...] = ()
     completion_issue_codes: tuple[str, ...] = ()
+    attempts: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +140,7 @@ class GenerateModelResult:
                     "decision_records": [dict(record) for record in item.decision_records],
                     "completion_checks": [dict(check) for check in item.completion_checks],
                     "completion_issue_codes": list(item.completion_issue_codes),
+                    "attempts": item.attempts,
                 }
                 for item in self.stage_results
             ],
@@ -154,6 +157,16 @@ class _StageExecution:
     result: StageResult | None
     warnings: tuple[str, ...] = ()
     diagnostics: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _StageAttemptResult:
+    result: StageResult | None
+    warnings: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+    response: TaskExecutionResponse | None = None
+    context_hash: str = ""
+    started_at: float = 0.0
 
 
 class ModelGenerationService:
@@ -811,6 +824,60 @@ class ModelGenerationService:
         controller_decision: Mapping[str, object] | None = None,
     ) -> _StageExecution:
         task = stage_task(stage.stage)
+        max_attempts = 2 if self._feedback_enabled() else 1
+        warnings: list[str] = []
+        for attempt in range(1, max_attempts + 1):
+            current = graph if attempt == 1 else self.repository.load_graph(project_id)
+            try:
+                execution = self._execute_stage_attempt(
+                    project_id,
+                    run_id,
+                    stage,
+                    task,
+                    current,
+                    document_ids,
+                    controller_decision=controller_decision,
+                    attempt=attempt,
+                )
+            except Exception as exc:
+                return _StageExecution(None, diagnostics=(str(exc),))
+            if execution.result is None:
+                return _StageExecution(None, diagnostics=execution.diagnostics)
+            if attempt < max_attempts and execution.result.status == "needs_review":
+                self._audit(project_id, "model_generation.stage_feedback", {
+                    "run_id": run_id,
+                    "stage": execution.result.stage,
+                    "attempt": attempt,
+                    "next_attempt": attempt + 1,
+                    "revision": execution.result.revision,
+                    "completion_issue_codes": list(execution.result.completion_issue_codes),
+                })
+                continue
+            warnings.extend(execution.warnings)
+            self._finalize_stage_attempt(
+                project_id,
+                run_id,
+                task,
+                execution,
+            )
+            return _StageExecution(
+                execution.result,
+                tuple(dict.fromkeys(warnings)),
+            )
+        return _StageExecution(None, diagnostics=("stage feedback loop exhausted",))
+
+    def _execute_stage_attempt(
+        self,
+        project_id: str,
+        run_id: str,
+        stage,
+        task,
+        graph,
+        document_ids: tuple[str, ...],
+        *,
+        controller_decision: Mapping[str, object] | None,
+        attempt: int,
+    ) -> _StageAttemptResult:
         context = self._context(
             graph,
             task.id,
@@ -824,7 +891,7 @@ class ModelGenerationService:
                 run_id,
                 task.id,
                 StepStatus.RUNNING.value,
-                1,
+                attempt,
                 context_hash,
                 None,
                 (),
@@ -842,113 +909,142 @@ class ModelGenerationService:
                 0,
             )
         )
-        try:
-            response = self.executor.execute(
-                task,
-                context,
-                self.methodology_version,
-                evidence_bundle=context.evidence,
-                token_budget=self.output_budget,
-            )
-            if response.status is not StepStatus.COMPLETED:
-                return _StageExecution(None, diagnostics=response.diagnostics)
-            warnings: list[str] = []
-            semantic_invalid = ""
-            if response.patch is None:
-                if not self._stage_already_present(graph, stage.stage):
-                    return _StageExecution(None, diagnostics=("stage produced no model patch",))
-                revision = graph.revision
-            else:
-                try:
-                    self.executor.validate_response(project_id, task, graph, context, response)
-                except MethodologyValidationError as exc:
-                    if exc.code != "semantic_invalid":
-                        raise
-                    semantic_invalid = str(exc)
-                    relaxed = replace(
-                        task,
-                        validators=tuple(item for item in task.validators if item != "semantic"),
-                    )
-                    self.executor.validate_response(project_id, relaxed, graph, context, response)
-                patch = _promote_generated_entities(response.patch, validated=not semantic_invalid)
-                revision = self.repository.append_patch(
-                    project_id, patch, graph.revision, run_id=run_id
-                ).sequence
-                if semantic_invalid:
-                    self._save_semantic_issue(project_id, run_id, task.id, patch, semantic_invalid)
-                    warnings.append(f"{stage.stage.value}: semantic_invalid: {semantic_invalid}")
-            current = self.repository.load_graph(project_id)
-            missing_kinds = self._missing_stage_kinds(current, stage.stage)
-            completion = evaluate_vertical_stage(stage.stage, current)
-            if missing_kinds:
-                warnings.append(
-                    f"{stage.stage.value}: missing required kinds: "
-                    + ", ".join(kind.value for kind in missing_kinds)
+        response = self.executor.execute(
+            task,
+            context,
+            self.methodology_version,
+            evidence_bundle=context.evidence,
+            token_budget=self.output_budget,
+        )
+        if response.status is not StepStatus.COMPLETED:
+            return _StageAttemptResult(
+                None,
+                diagnostics=response.diagnostics,
+                response=response,
+                context_hash=context_hash,
+                started_at=started,
+        )
+        warnings: list[str] = []
+        semantic_invalid = ""
+        if response.patch is None:
+            if attempt == 1 and not self._stage_already_present(graph, stage.stage):
+                return _StageAttemptResult(
+                    None,
+                    diagnostics=("stage produced no model patch",),
+                    response=response,
+                    context_hash=context_hash,
+                    started_at=started,
                 )
-            completion_warning = _stage_completion_warning(stage.stage.value, completion.issue_codes)
-            if completion_warning:
-                warnings.append(completion_warning)
-            stage_result = StageResult(
-                stage.stage.value,
-                "needs_review"
-                if semantic_invalid or missing_kinds or completion.issue_codes
-                else "completed",
-                revision,
-                sum(
-                    1
-                    for entity in current.entities
-                    if entity.kind in stage.output_kinds
-                    and entity.meta.status is not EntityStatus.DEPRECATED
-                ),
-                len(current.relations),
-                tuple(response.assumptions),
-                tuple(response.open_questions),
+            revision = graph.revision
+        else:
+            try:
+                self.executor.validate_response(project_id, task, graph, context, response)
+            except MethodologyValidationError as exc:
+                if exc.code != "semantic_invalid":
+                    raise
+                semantic_invalid = str(exc)
+                relaxed = replace(
+                    task,
+                    validators=tuple(item for item in task.validators if item != "semantic"),
+                )
+                self.executor.validate_response(project_id, relaxed, graph, context, response)
+            patch = _promote_generated_entities(response.patch, validated=not semantic_invalid)
+            revision = self.repository.append_patch(
+                project_id, patch, graph.revision, run_id=run_id
+            ).sequence
+            if semantic_invalid:
+                self._save_semantic_issue(project_id, run_id, task.id, patch, semantic_invalid)
+                warnings.append(f"{stage.stage.value}: semantic_invalid: {semantic_invalid}")
+        current = self.repository.load_graph(project_id)
+        missing_kinds = self._missing_stage_kinds(current, stage.stage)
+        completion = evaluate_vertical_stage(stage.stage, current)
+        if missing_kinds:
+            warnings.append(
+                f"{stage.stage.value}: missing required kinds: "
+                + ", ".join(kind.value for kind in missing_kinds)
+            )
+        completion_warning = _stage_completion_warning(stage.stage.value, completion.issue_codes)
+        if completion_warning:
+            warnings.append(completion_warning)
+        stage_result = StageResult(
+            stage.stage.value,
+            "needs_review"
+            if semantic_invalid or missing_kinds or completion.issue_codes
+            else "completed",
+            revision,
+            sum(
+                1
+                for entity in current.entities
+                if entity.kind in stage.output_kinds
+                and entity.meta.status is not EntityStatus.DEPRECATED
+            ),
+            len(current.relations),
+            tuple(response.assumptions),
+            tuple(response.open_questions),
+            tuple(response.diagnostics),
+            tuple(response.decision_records),
+            completion.checks,
+            completion.issue_codes,
+            attempt,
+        )
+        warnings.extend(response.open_questions)
+        return _StageAttemptResult(
+            stage_result,
+            tuple(warnings),
+            response=response,
+            context_hash=context_hash,
+            started_at=started,
+        )
+
+    def _finalize_stage_attempt(
+        self,
+        project_id: str,
+        run_id: str,
+        task,
+        execution: _StageAttemptResult,
+    ) -> None:
+        response = execution.response
+        result = execution.result
+        if response is None or result is None:
+            return
+        self.repository.update_step(
+            Step(
+                run_id,
+                task.id,
+                StepStatus.COMPLETED.value,
+                result.attempts,
+                response.input_hash or execution.context_hash,
+                response.patch.id if response.patch else None,
                 tuple(response.diagnostics),
-                tuple(response.decision_records),
-                completion.checks,
-                completion.issue_codes,
+                response.output_hash,
+                response.provider_id or self._provider_id(),
+                response.model_id or self._model_id(),
+                task.prompt_template_id,
+                execution.context_hash,
+                execution.started_at,
+                time.time(),
+                "v1",
+                "",
+                task_spec_hash(task),
+                "",
+                0,
             )
-            warnings.extend(response.open_questions)
-            self.repository.update_step(
-                Step(
-                    run_id,
-                    task.id,
-                    StepStatus.COMPLETED.value,
-                    1,
-                    response.input_hash or context_hash,
-                    response.patch.id if response.patch else None,
-                    tuple(response.diagnostics),
-                    response.output_hash,
-                    response.provider_id or self._provider_id(),
-                    response.model_id or self._model_id(),
-                    task.prompt_template_id,
-                    context_hash,
-                    started,
-                    time.time(),
-                    "v1",
-                    "",
-                    task_spec_hash(task),
-                    "",
-                    0,
-                )
-            )
-            self._audit(project_id, "model_generation.stage_completed", {
-                "run_id": run_id,
-                "stage": stage_result.stage,
-                "status": stage_result.status,
-                "revision": stage_result.revision,
-                "entity_count": stage_result.entity_count,
-                "relation_count": stage_result.relation_count,
-                "assumptions": list(stage_result.assumptions),
-                "open_questions": list(stage_result.open_questions),
-                "diagnostics": list(stage_result.diagnostics),
-                "decision_records": [dict(record) for record in stage_result.decision_records],
-                "completion_checks": [dict(check) for check in stage_result.completion_checks],
-                "completion_issue_codes": list(stage_result.completion_issue_codes),
-            })
-            return _StageExecution(stage_result, tuple(warnings))
-        except Exception as exc:
-            return _StageExecution(None, diagnostics=(str(exc),))
+        )
+        self._audit(project_id, "model_generation.stage_completed", {
+            "run_id": run_id,
+            "stage": result.stage,
+            "status": result.status,
+            "revision": result.revision,
+            "entity_count": result.entity_count,
+            "relation_count": result.relation_count,
+            "assumptions": list(result.assumptions),
+            "open_questions": list(result.open_questions),
+            "diagnostics": list(result.diagnostics),
+            "decision_records": [dict(record) for record in result.decision_records],
+            "completion_checks": [dict(check) for check in result.completion_checks],
+            "completion_issue_codes": list(result.completion_issue_codes),
+            "attempts": result.attempts,
+        })
 
     def _ensure_input(self, request: GenerateModelRequest) -> None:
         graph = self.repository.load_graph(request.project_id)
@@ -1203,6 +1299,11 @@ class ModelGenerationService:
 
     def _mode(self) -> str:
         return str(getattr(self.runtime_selection, "mode", "offline"))
+
+    def _feedback_enabled(self) -> bool:
+        """Enable one same-stage retry only for structured model runtimes."""
+
+        return self._mode() in {"configured", "injected"} and hasattr(self.runtime, "model")
 
     def _audit(self, project_id: str, kind: str, payload: Mapping[str, object]) -> None:
         recorder = getattr(self.repository, "record_audit", None)
