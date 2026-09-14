@@ -20,7 +20,7 @@
 
 <section class="panel intake-panel">
   <div class="panel-head">
-    <div><h2>输入需求或模型</h2><p>先提交需求、上传文档或导入已有模型，再运行生命周期分析。</p></div>
+    <div><h2>输入需求或模型</h2><p>先提交需求、上传文档或导入已有模型，再生成完整 MBSE 模型。</p></div>
     <span class="status-badge {% if has_analysis_input %}accepted{% else %}candidate{% endif %}">{% if has_analysis_input %}已有输入{% else %}等待输入{% endif %}</span>
   </div>
   <form id="goal-input-form" class="intake-form goal-form">
@@ -57,7 +57,7 @@
 
 <section class="panel workflow-panel">
   <div class="panel-head">
-    <div><h2>生命周期阶段</h2><p>运行场景 → 功能分析 → 逻辑/物理架构 → 验证与确认 → 封版归档；默认生成完整生命周期模型</p></div>
+    <div><h2>生命周期阶段</h2><p>需求 → 功能 → 逻辑 → 物理 → 验证与确认；默认生成完整五阶段纵向模型</p></div>
     <span class="status-badge info">{{ runtime.mode_label }}</span>
   </div>
   <div class="phase-rail" aria-label="生命周期阶段">
@@ -70,7 +70,7 @@
     {% endfor %}
   </div>
   <form id="analysis-form" class="workbench-actions">
-    <button class="button primary" type="submit" data-mode="pipeline"{% if not has_analysis_input %} disabled title="请先提交需求、上传文档或导入已有模型"{% endif %}>生成完整 MBSE 模型</button>
+    <button class="button primary" type="submit" data-mode="generate"{% if not has_analysis_input %} disabled title="请先提交需求、上传文档或导入已有模型"{% endif %}>生成完整 MBSE 模型</button>
     {% for phase in phases if phase.phase != 'closure' %}<button class="button" type="button" data-phase="{{ phase.phase }}"{% if not has_analysis_input %} disabled title="请先提交需求、上传文档或导入已有模型"{% endif %}>执行{{ phase.action_label }}</button>{% endfor %}
     <label class="checkbox-control"><input id="force-run" type="checkbox"{% if not has_analysis_input %} disabled{% endif %}> 强制新运行</label>
     <span class="htmx-indicator" id="analysis-indicator"><span class="spinner"></span> 正在运行…</span>
@@ -323,7 +323,7 @@
       output.classList.add("warning");
     } finally { indicator.style.display = "none"; }
   }
-  form.addEventListener("submit", (event) => { event.preventDefault(); runAnalysis("pipeline", null); });
+  form.addEventListener("submit", (event) => { event.preventDefault(); runAnalysis("generate", null); });
   form.querySelectorAll("[data-phase]").forEach((button) => button.addEventListener("click", () => runAnalysis("phase", button.dataset.phase)));
   document.querySelectorAll(".repair-button").forEach((button) => button.addEventListener("click", async () => {
     const repairOutput = document.getElementById("repair-result");

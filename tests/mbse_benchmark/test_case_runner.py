@@ -41,14 +41,29 @@ def test_vertical_benchmark_path_calls_product_generation_service() -> None:
     result = _run_analysis(
         services,
         "case-04",
-        {"document_id": "fixture-case-04"},
+        {"document_id": "document-case-04", "region_count": 3},
         {"provider": "remote"},
         "vertical",
     )
 
     assert result == "vertical-result"
-    assert services.generation_service.calls == [("case-04", ("fixture-case-04",))]
+    assert services.generation_service.calls == [("case-04", ("document-case-04",))]
     assert services.analysis_service.calls == []
+
+
+def test_vertical_benchmark_path_does_not_treat_fixture_id_as_readable_document() -> None:
+    services = _Services()
+
+    result = _run_analysis(
+        services,
+        "case-04",
+        {"document_id": "fixture-case-04", "region_count": 0},
+        {"provider": "remote"},
+        "vertical",
+    )
+
+    assert result == "vertical-result"
+    assert services.generation_service.calls == [("case-04", ())]
 
 
 def test_lifecycle_benchmark_path_keeps_legacy_workflow_entrypoint() -> None:

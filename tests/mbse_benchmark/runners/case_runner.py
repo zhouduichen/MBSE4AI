@@ -152,9 +152,13 @@ def _run_analysis(
         if not runtime_config:
             raise ValueError("vertical benchmark path requires an explicit LLM runtime config")
         document_id = str(ingest_result.get("document_id", ""))
+        try:
+            region_count = int(ingest_result.get("region_count", 0) or 0)
+        except (TypeError, ValueError):
+            region_count = 0
         return services.generation(project_id).generate(
             project_id,
-            document_ids=(document_id,) if document_id else (),
+            document_ids=(document_id,) if document_id and region_count > 0 else (),
             force_new=True,
         )
     return services.analysis(project_id).run(project_id, force_new=True)

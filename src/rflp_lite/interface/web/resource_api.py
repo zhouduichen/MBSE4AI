@@ -571,12 +571,10 @@ async def run_analysis(request: Request, project_id: str):
         if payload is not None and not isinstance(payload, Mapping):
             raise ContractViolation("analysis payload must be an object")
         payload = payload if isinstance(payload, Mapping) else {}
-        # The product entry point is the complete lifecycle.  Keep the
-        # five-stage generator available only when callers explicitly ask for
-        # ``mode=generate``; otherwise a natural-language analysis must reach
-        # the full Operational → Functional → Logical/Physical → Assurance
-        # chain.
-        mode = str(payload.get("mode", "pipeline" if "phase" not in payload else "phase")).casefold()
+        # The product entry point is the five-stage vertical generator.  Keep
+        # the legacy 23-task lifecycle available as an explicit
+        # ``mode=pipeline`` compatibility path.
+        mode = str(payload.get("mode", "generate" if "phase" not in payload else "phase")).casefold()
         force_run = bool(payload.get("force_run", False))
         requested_run_id = str(payload.get("run_id", "")).strip() or None
         requirement_text = str(payload.get("requirement_text", "")).strip() or None

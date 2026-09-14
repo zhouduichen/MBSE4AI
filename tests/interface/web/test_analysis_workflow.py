@@ -101,7 +101,7 @@ def test_analysis_page_enables_generation_after_partial_sysml_import(tmp_path: P
     page = client.get("/ui/projects/p1/analysis")
 
     assert page.status_code == 200
-    assert 'data-mode="pipeline" disabled' not in page.text
+    assert 'data-mode="generate" disabled' not in page.text
     assert "导入模型也可以作为分析输入" in page.text
 
 
@@ -200,7 +200,7 @@ def test_generated_analysis_page_shows_requirement_coverage_summary(tmp_path: Pa
     assert "requirement_coverage:" not in page.text
 
 
-def test_pipeline_analysis_page_shows_unified_engineering_result(tmp_path: Path) -> None:
+def test_explicit_pipeline_analysis_page_shows_unified_engineering_result(tmp_path: Path) -> None:
     app = create_app(tmp_path / "workspaces")
     app.state.container.v2._runtime_override = VerticalRuleRuntime()
     client = TestClient(app)
@@ -213,7 +213,7 @@ def test_pipeline_analysis_page_shows_unified_engineering_result(tmp_path: Path)
         json={"mode": "generate"},
     ).status_code == 200
 
-    pipeline = client.post("/projects/p1/analysis", json={})
+    pipeline = client.post("/projects/p1/analysis", json={"mode": "pipeline"})
 
     assert pipeline.status_code == 200
     assert pipeline.json()["run"]["mode"] == "pipeline"
@@ -300,7 +300,7 @@ def test_analysis_api_supports_pipeline_and_force_run(tmp_path: Path) -> None:
     assert refreshed["global_gate"]["gate_id"] == "Global-Gate"
 
 
-def test_analysis_api_defaults_to_complete_pipeline(tmp_path: Path) -> None:
+def test_analysis_api_defaults_to_complete_vertical_generation(tmp_path: Path) -> None:
     app = create_app(tmp_path / "workspaces")
     app.state.container.v2.settings.profiles.config_dir = tmp_path / "config"
     app.state.container.v2.settings.profiles.path = tmp_path / "config" / "llm-profiles.json"
@@ -314,8 +314,10 @@ def test_analysis_api_defaults_to_complete_pipeline(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     run = response.json()["run"]
-    assert run["mode"] == "pipeline"
-    assert len(run["completed_tasks"]) == 23
+    assert run["mode"] == "generate"
+    assert [item["stage"] for item in run["stage_results"]] == [
+        "requirements", "functional", "logical", "physical", "verification_validation"
+    ]
     assert "traceability" in run
     assert "methodology" in run
     assert "controller" in run
