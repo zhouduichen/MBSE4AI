@@ -71,6 +71,29 @@ def test_requirements_stage_derives_from_existing_function_context():
     assert requirement.payload["statement"] == "系统应监测仓储温度并在超限时告警"
 
 
+def test_requirements_stage_reuses_semantically_matching_lifecycle_transition():
+    stage = make_entity(
+        EntityKind.LIFECYCLE_STAGE,
+        "设计到运行",
+        {"sequence": ["设计", "部署", "运行"]},
+    )
+    transition = make_entity(
+        EntityKind.LIFECYCLE_TRANSITION,
+        "部署到运行",
+        {"from_stage": "部署", "to_stage": "运行", "trigger": "部署验收完成"},
+    )
+
+    response = VerticalRuleRuntime().execute(_requirements_request((stage, transition)))
+
+    assert not any(
+        hasattr(operation, "entity")
+        and operation.entity.kind is EntityKind.LIFECYCLE_TRANSITION
+        and operation.entity.payload.get("from_stage") == "部署"
+        and operation.entity.payload.get("to_stage") == "运行"
+        for operation in response.patch.operations
+    )
+
+
 def _logical_request(entities, relations=(), decision=None):
     context = ContextBundle(
         "robot", "vertical.logical", 3, tuple(entities), tuple(relations),

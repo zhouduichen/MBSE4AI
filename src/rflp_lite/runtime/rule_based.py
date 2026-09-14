@@ -380,16 +380,18 @@ class VerticalRuleRuntime:
         )
         transitions = []
         for source, target in (("设计", "部署"), ("部署", "运行"), ("运行", "维护")):
-            transition = builder.add(
-                EntityKind.LIFECYCLE_TRANSITION,
-                f"生命周期转移：{source}→{target}",
-                {
-                    "from_stage": source,
-                    "to_stage": target,
-                    "trigger": f"完成{source}阶段退出准则",
-                    "guard": "满足进入下一阶段的工程条件",
-                },
-            )
+            transition = _existing_lifecycle_transition(builder, source, target)
+            if transition is None:
+                transition = builder.add(
+                    EntityKind.LIFECYCLE_TRANSITION,
+                    f"生命周期转移：{source}→{target}",
+                    {
+                        "from_stage": source,
+                        "to_stage": target,
+                        "trigger": f"完成{source}阶段退出准则",
+                        "guard": "满足进入下一阶段的工程条件",
+                    },
+                )
             transitions.append(transition)
         hypothesis = _context_first(builder.context, EntityKind.SCENARIO_HYPOTHESIS) or builder.add(
             EntityKind.SCENARIO_HYPOTHESIS, f"典型{domain}场景假设", {
@@ -890,6 +892,23 @@ def _source_context_ids(entity) -> set[str]:
     if not isinstance(raw, (list, tuple, set)):
         return set()
     return {str(item).strip() for item in raw if str(item).strip()}
+
+
+def _existing_lifecycle_transition(builder, source: str, target: str):
+    names = {
+        f"生命周期转移：{source}→{target}",
+        f"{source}→{target}",
+        f"{source}到{target}",
+    }
+    for transition in _builder_entities(builder, EntityKind.LIFECYCLE_TRANSITION):
+        if transition.meta.status is EntityStatus.DEPRECATED:
+            continue
+        if (
+            str(transition.payload.get("from_stage", "")).strip() == source
+            and str(transition.payload.get("to_stage", "")).strip() == target
+        ) or transition.meta.name in names:
+            return transition
+    return None
 
 
 def _existing_logical_for_group(context, group):
