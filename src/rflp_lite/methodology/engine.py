@@ -491,12 +491,20 @@ class MethodologyEngine:
             decisions.extend(_logical_decisions(component, function_ids))
         crossings = _count_interface_crossings(graph, index, function_to_components)
         metrics["logical_cross_component_exchange_count"] = crossings
-        metrics["logical_partition_quality"] = _partition_quality(components)
+        partition_quality = _partition_quality(components)
+        if crossings and len(components) > 1 and partition_quality == "reviewed":
+            partition_quality = "needs_review"
+        metrics["logical_partition_quality"] = partition_quality
         if components and metrics["logical_partition_quality"] == "needs_review":
             findings.append(MethodologyFinding(
                 "logical_partition_needs_review", "warning", "logical",
                 tuple(item.id for item in components),
-                "逻辑架构的内聚/耦合或分区依据仍需评审，不能直接视为已完成架构权衡。",
+                (
+                    "逻辑架构存在跨组件交互，且内聚/耦合或分区依据仍需评审，"
+                    "不能直接视为已完成架构权衡。"
+                    if crossings
+                    else "逻辑架构的内聚/耦合或分区依据仍需评审，不能直接视为已完成架构权衡。"
+                ),
                 ("dependency_clustering", "architecture_evaluation"),
             ))
         metrics["logical_partition_candidates"] = [

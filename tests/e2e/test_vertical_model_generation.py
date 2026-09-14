@@ -131,6 +131,12 @@ def test_multiple_requirements_derive_separate_logical_and_physical_architecture
         )
         for logical in logicals
     )
+    assert result.methodology.metrics["logical_cross_component_exchange_count"] >= 1
+    assert result.methodology.metrics["logical_partition_quality"] == "needs_review"
+    assert any(
+        item.kind == "trade_study" and item.stage == "logical"
+        for item in result.controller.actions
+    )
 
 
 def test_physical_architecture_propagates_structured_requirement_constraints(tmp_path: Path):
