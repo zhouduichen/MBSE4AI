@@ -287,11 +287,26 @@ class _VerticalPatchBuilder:
         self.operations.append(Deprecate(entity.id))
 
     def update_payload(self, entity, payload: Mapping[str, object]) -> bool:
+        return self.update(entity, payload=payload)
+
+    def update(
+        self,
+        entity,
+        *,
+        name: str | None = None,
+        payload: Mapping[str, object] | None = None,
+    ) -> bool:
         if entity.meta.status in {EntityStatus.DEPRECATED, EntityStatus.LOCKED}:
             return False
         if bool(entity.payload.get("user_modified")):
             return False
-        self.operations.append(UpdateEntity(entity.id, {"payload": dict(payload)}))
+        fields = {}
+        if name is not None and str(name).strip() and str(name).strip() != entity.meta.name:
+            fields["name"] = str(name).strip()
+        if payload is not None and dict(payload) != dict(entity.payload):
+            fields["payload"] = dict(payload)
+        if fields:
+            self.operations.append(UpdateEntity(entity.id, fields))
         return True
 
     def response(self) -> TaskExecutionResponse:
@@ -443,27 +458,76 @@ class VerticalRuleRuntime:
                 None,
             )
             if function is None:
-                function = builder.add(EntityKind.FUNCTION, f"执行：{requirement.meta.name[:36]}", {
-                    "behavior": f"实现{requirement.meta.name}",
-                    "inputs": [],
-                    "outputs": ["执行结果"],
-                    "decomposition": [
-                        f"解析{requirement.meta.name}",
-                        f"执行{requirement.meta.name}",
-                        "产生并反馈结果",
-                    ],
-                    "source_requirement_id": requirement.id,
-                    "source_context_ids": sorted(source_context_ids),
-                })
+                function = _related_context_entity(
+                    request.context_bundle,
+                    requirement.id,
+                    RelationPredicate.SATISFIED_BY,
+                    EntityKind.FUNCTION,
+                )
+            function_name = f"执行：{_requirement_text(requirement)[:36]}"
+            function_payload = {
+                "behavior": f"实现{_requirement_text(requirement)}",
+                "inputs": [],
+                "outputs": ["执行结果"],
+                "decomposition": [
+                    f"解析{_requirement_text(requirement)}",
+                    f"执行{_requirement_text(requirement)}",
+                    "产生并反馈结果",
+                ],
+                "source_requirement_id": requirement.id,
+                "source_context_ids": sorted(source_context_ids),
+            }
+            if function is None:
+                function = builder.add(EntityKind.FUNCTION, function_name, function_payload)
+            else:
+                builder.update(function, name=function_name, payload=function_payload)
             builder.relate(requirement, RelationPredicate.SATISFIED_BY, function)
         functions = _builder_entities(builder, EntityKind.FUNCTION)
-        flow = builder.add(EntityKind.FUNCTIONAL_FLOW, f"{domain}信息交互流", {
-            "direction": "双向", "content": f"{domain}任务与结果"
-        })
-        scenario = builder.add(EntityKind.FUNCTIONAL_SCENARIO, f"完成{domain}核心功能场景", {
+        flow_payload = {"direction": "双向", "content": f"{domain}任务与结果"}
+        flow = next(
+            (
+                item for item in _context_entities(
+                    request.context_bundle, EntityKind.FUNCTIONAL_FLOW
+                )
+                if any(
+                    relation.source_id in {function.id for function in functions}
+                    and relation.predicate is RelationPredicate.EXCHANGES_WITH
+                    and relation.target_id == item.id
+                    for relation in request.context_bundle.relations
+                )
+            ),
+            None,
+        )
+        if flow is None:
+            flow = builder.add(EntityKind.FUNCTIONAL_FLOW, f"{domain}信息交互流", flow_payload)
+        else:
+            builder.update(flow, payload=flow_payload)
+        scenario_payload = {
             "function_ids": [item.id for item in functions],
             "steps": ["输入", "处理", "输出"],
-        })
+        }
+        scenario = next(
+            (
+                item for item in _context_entities(
+                    request.context_bundle, EntityKind.FUNCTIONAL_SCENARIO
+                )
+                if any(
+                    relation.source_id in {function.id for function in functions}
+                    and relation.predicate is RelationPredicate.DERIVED_FROM
+                    and relation.target_id == item.id
+                    for relation in request.context_bundle.relations
+                )
+            ),
+            None,
+        )
+        if scenario is None:
+            scenario = builder.add(
+                EntityKind.FUNCTIONAL_SCENARIO,
+                f"完成{domain}核心功能场景",
+                scenario_payload,
+            )
+        else:
+            builder.update(scenario, payload=scenario_payload)
         for function in functions:
             builder.relate(function, RelationPredicate.EXCHANGES_WITH, flow)
             builder.relate(function, RelationPredicate.DERIVED_FROM, scenario)
@@ -562,13 +626,14 @@ class VerticalRuleRuntime:
                 if not variant
                 else None
             )
-            logical_components.append(
-                existing or builder.add(EntityKind.LOGICAL_COMPONENT, name, payload)
-            )
+            logical = existing or builder.add(EntityKind.LOGICAL_COMPONENT, name, payload)
+            if existing is not None:
+                builder.update(logical, name=name, payload=payload)
+            logical_components.append(logical)
         if not logical_components:
             return builder.response()
         suffix = f"（{variant}）" if variant else ""
-        state = builder.add(EntityKind.STATE, f"{domain}任务状态{suffix}", {
+        state_payload = {
             "values": ["待受理", "执行中", "人工接管", "完成", "失败"],
             "transitions": [
                 "待受理->执行中", "执行中->人工接管", "执行中->完成",
@@ -576,12 +641,36 @@ class VerticalRuleRuntime:
             ],
             "owner_id": logical_components[0].id,
             "owner_ids": [item.id for item in logical_components],
-        })
-        interface = builder.add(EntityKind.INTERFACE, f"{domain}任务交互接口{suffix}", {
+        }
+        state = _related_context_entity(
+            request.context_bundle,
+            logical_components[0].id,
+            RelationPredicate.DECOMPOSES,
+            EntityKind.STATE,
+        )
+        if state is None:
+            state = builder.add(EntityKind.STATE, f"{domain}任务状态{suffix}", state_payload)
+        else:
+            builder.update(state, payload=state_payload)
+        interface_payload = {
             "protocol": "logical-message",
             "exchanges": ["task_request", "task_status", "handover"],
             "connected_component_ids": [item.id for item in logical_components],
-        })
+        }
+        interface = _related_context_entity(
+            request.context_bundle,
+            logical_components[0].id,
+            RelationPredicate.CONNECTED_TO,
+            EntityKind.INTERFACE,
+        )
+        if interface is None:
+            interface = builder.add(
+                EntityKind.INTERFACE,
+                f"{domain}任务交互接口{suffix}",
+                interface_payload,
+            )
+        else:
+            builder.update(interface, payload=interface_payload)
         for logical in logical_components:
             builder.relate(logical, RelationPredicate.CONNECTED_TO, interface)
             builder.relate(logical, RelationPredicate.DECOMPOSES, state)
@@ -647,7 +736,9 @@ class VerticalRuleRuntime:
                         "architecture_decision": dict(_decision_payload(decision)),
                         "open_questions": ["需要用户/利益相关者确认该 Trade Study 决策并重新验证"],
                     })
-                physical = builder.add(EntityKind.PHYSICAL_BLOCK, name, payload)
+                physical = existing or builder.add(EntityKind.PHYSICAL_BLOCK, name, payload)
+                if existing is not None and not physical_variant:
+                    builder.update(physical, payload=payload)
                 if physical_variant and existing is not None and not _same_decision(existing, decision):
                     decision_fields = {
                         "architecture_decision": dict(_decision_payload(decision)),
@@ -673,11 +764,28 @@ class VerticalRuleRuntime:
                 constraints = _explicit_constraint_map(requirement)
                 if not constraints:
                     continue
-                technical = builder.add(
-                    EntityKind.REQUIREMENT,
-                    f"{physical.meta.name}技术约束：{requirement.meta.name[:24]}",
-                    _technical_requirement_payload(requirement, physical, constraints),
+                technical_payload = _technical_requirement_payload(
+                    requirement, physical, constraints
                 )
+                technical = next(
+                    (
+                        item for item in _context_entities(
+                            request.context_bundle, EntityKind.REQUIREMENT
+                        )
+                        if item.payload.get("level") == "technical"
+                        and requirement.id in item.payload.get("source_requirement_ids", ())
+                        and physical.id in item.payload.get("source_physical_ids", ())
+                    ),
+                    None,
+                )
+                if technical is None:
+                    technical = builder.add(
+                        EntityKind.REQUIREMENT,
+                        f"{physical.meta.name}技术约束：{requirement.meta.name[:24]}",
+                        technical_payload,
+                    )
+                else:
+                    builder.update(technical, payload=technical_payload)
                 builder.relate(technical, RelationPredicate.DERIVED_FROM, requirement)
                 builder.relate(technical, RelationPredicate.SATISFIED_BY, physical)
         return builder.response()
@@ -693,44 +801,117 @@ class VerticalRuleRuntime:
         ]
         activity_ids = [item.id for item in activities]
         for requirement in _requirements(request):
-            verification = builder.add(EntityKind.VERIFICATION_CASE, f"验证：{requirement.meta.name[:32]}", {
+            verification_payload = {
                 "method": "test",
                 "precondition": "系统处于可测试初始状态",
-                "input": requirement.meta.name,
+                "input": _requirement_text(requirement),
                 "procedure": "执行测试步骤并记录实际结果",
                 "expected_result": "实际结果满足需求目标",
-                    "pass_criteria": f"测试结果满足：{requirement.meta.name}",
-                    "evidence_ids": [],
-                    "requirement_ids": [requirement.id],
-                    "scenario_ids": [],
-                    "activity_ids": activity_ids,
-                    "covered_branches": branch_names,
-                })
-            validation = builder.add(EntityKind.VALIDATION_CASE, f"确认：{requirement.meta.name[:32]}", {
+                "pass_criteria": f"测试结果满足：{_requirement_text(requirement)}",
+                "evidence_ids": list(requirement.meta.evidence_ids),
+                "requirement_ids": [requirement.id],
+                "scenario_ids": [],
+                "activity_ids": activity_ids,
+                "covered_branches": branch_names,
+            }
+            verification = _related_context_entity(
+                request.context_bundle,
+                requirement.id,
+                RelationPredicate.VERIFIED_BY,
+                EntityKind.VERIFICATION_CASE,
+            )
+            if verification is None:
+                verification = builder.add(
+                    EntityKind.VERIFICATION_CASE,
+                    f"验证：{_requirement_text(requirement)[:32]}",
+                    verification_payload,
+                )
+            else:
+                builder.update(
+                    verification,
+                    name=f"验证：{_requirement_text(requirement)[:32]}",
+                    payload=verification_payload,
+                )
+            validation_payload = {
                 "method": "demonstration",
                 "precondition": "目标用户和典型场景可用",
-                "input": requirement.meta.name,
+                "input": _requirement_text(requirement),
                 "procedure": "在典型场景执行并收集用户反馈",
                 "expected_result": "用户场景目标达成",
-                    "pass_criteria": f"用户场景确认：{requirement.meta.name}",
-                    "evidence_ids": [],
-                    "requirement_ids": [requirement.id],
-                    "scenario_ids": [],
-                    "activity_ids": activity_ids,
-                    "covered_branches": branch_names,
-                })
-            hazard = builder.add(EntityKind.HAZARD, f"风险：{requirement.meta.name[:28]}", {
+                "pass_criteria": f"用户场景确认：{_requirement_text(requirement)}",
+                "evidence_ids": list(requirement.meta.evidence_ids),
+                "requirement_ids": [requirement.id],
+                "scenario_ids": [],
+                "activity_ids": activity_ids,
+                "covered_branches": branch_names,
+            }
+            validation = _related_context_entity(
+                request.context_bundle,
+                requirement.id,
+                RelationPredicate.VALIDATED_BY,
+                EntityKind.VALIDATION_CASE,
+            )
+            if validation is None:
+                validation = builder.add(
+                    EntityKind.VALIDATION_CASE,
+                    f"确认：{_requirement_text(requirement)[:32]}",
+                    validation_payload,
+                )
+            else:
+                builder.update(
+                    validation,
+                    name=f"确认：{_requirement_text(requirement)[:32]}",
+                    payload=validation_payload,
+                )
+            hazard_payload = {
                 "description": "异常分支、资源异常或人工接管不当导致任务目标未达成",
                 "requirement_ids": [requirement.id],
                 "activity_ids": activity_ids,
                 "branches": branch_names,
-            })
-            failure_mode = builder.add(EntityKind.FAILURE_MODE, f"失效模式：{requirement.meta.name[:28]}", {
+            }
+            hazard = _related_context_entity(
+                request.context_bundle,
+                requirement.id,
+                RelationPredicate.DERIVED_FROM,
+                EntityKind.HAZARD,
+                reverse=True,
+            )
+            if hazard is None:
+                hazard = builder.add(
+                    EntityKind.HAZARD,
+                    f"风险：{_requirement_text(requirement)[:28]}",
+                    hazard_payload,
+                )
+            else:
+                builder.update(
+                    hazard,
+                    name=f"风险：{_requirement_text(requirement)[:28]}",
+                    payload=hazard_payload,
+                )
+            failure_payload = {
                 "effect": "需求未满足或任务结果不可追踪",
                 "cause": "执行条件、资源或交互异常",
                 "requirement_ids": [requirement.id],
                 "activity_ids": activity_ids,
-            })
+            }
+            failure_mode = _related_context_entity(
+                request.context_bundle,
+                hazard.id,
+                RelationPredicate.CAUSES,
+                EntityKind.FAILURE_MODE,
+            )
+            if failure_mode is None:
+                failure_mode = builder.add(
+                    EntityKind.FAILURE_MODE,
+                    f"失效模式：{_requirement_text(requirement)[:28]}",
+                    failure_payload,
+                )
+            else:
+                builder.update(
+                    failure_mode,
+                    name=f"失效模式：{_requirement_text(requirement)[:28]}",
+                    payload=failure_payload,
+                )
             builder.relate(requirement, RelationPredicate.VERIFIED_BY, verification)
             builder.relate(requirement, RelationPredicate.VALIDATED_BY, validation)
             builder.relate(hazard, RelationPredicate.DERIVED_FROM, requirement)
@@ -844,6 +1025,38 @@ def _context_first(context, kind: EntityKind):
 
 def _context_entities(context, kind: EntityKind):
     return tuple(item for item in context.entities if item.kind is kind)
+
+
+def _related_context_entity(
+    context,
+    source_id: str,
+    predicate: RelationPredicate,
+    target_kind: EntityKind,
+    *,
+    reverse: bool = False,
+):
+    entities = {item.id: item for item in context.entities}
+    for relation in context.relations:
+        if relation.predicate is not predicate:
+            continue
+        if reverse:
+            if relation.target_id != source_id:
+                continue
+            candidate = entities.get(relation.source_id)
+        else:
+            if relation.source_id != source_id:
+                continue
+            candidate = entities.get(relation.target_id)
+        if candidate is not None and candidate.kind is target_kind:
+            return candidate
+    return None
+
+
+def _requirement_text(requirement) -> str:
+    text = " ".join(
+        str(requirement.payload.get("statement") or requirement.meta.name).split()
+    ).strip()
+    return text or requirement.meta.name
 
 
 def _controller_decision(context):

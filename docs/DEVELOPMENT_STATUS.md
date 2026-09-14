@@ -37,7 +37,7 @@
 | 追溯质量口径 | 分开报告 RFLP、Verification、Validation 和端到端闭环；Verification 或 Validation 单独存在均不算端到端完成 |
 | 内部推理记录 | 五阶段保留 23-task/架构分析映射，并以 bounded decision records 表达 clustering、constraint propagation、feasibility selection 等决策 |
 | Methodology Engine v1 | 对 ModelGraph 实现 Logical 分区质量、Physical 约束冲突/待测量、Verification/Validation 结构完整度和四跳变更影响分析，并接入生成、Review 与 Web 工作台 |
-| 定向重新分析 Controller | Review 请求支持影响路径和下一步 task 路由；执行入口按修改实体从受影响阶段向下重跑，并保留独立 Run、Patch、Revision 与 audit |
+| 定向重新分析 Controller | Review 请求支持影响路径和下一步 task 路由；执行入口按修改实体从受影响阶段向下重跑，复用并更新未受保护的派生对象、保持 canonical ID，并保留独立 Run、Patch、Revision 与 audit |
 | Systems Engineering Controller | 将 Methodology findings 路由为缺证据/补输入/重新分析/Trade Study 动作；支持用户选择物理或逻辑架构方案后按影响实体执行定向重分析，并在 Web/API 中显示决策状态 |
 | Controller 决策上下文 | Trade Study 选择进入定向重分析的 ContextBundle、上下文哈希和结构化 LLM 请求，后续阶段能够消费用户已确认的方案 |
 | 决策驱动架构迭代 | Logical Trade Study 可生成按功能隔离或共享协调器变体并安全弃用旧分区；Physical Trade Study 可生成保留约束/provenance 的替代候选；决策来源写回 ModelGraph，锁定实体不被覆盖，未知测量仍保持待验证 |

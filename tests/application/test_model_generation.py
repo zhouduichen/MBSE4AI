@@ -749,6 +749,80 @@ def test_reanalysis_runs_only_from_changed_entity_stage_downstream(tmp_path: Pat
     assert len(result["stage_results"]) == 4
 
 
+def test_requirement_reanalysis_updates_one_active_downstream_chain(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    services.generation("robot").generate(
+        "robot", requirement_text="系统应自主完成配送"
+    )
+    graph = services.model("robot").graph("robot")
+    requirement = next(
+        item for item in graph.entities if item.kind is EntityKind.REQUIREMENT
+    )
+    original_ids = {
+        kind: next(item.id for item in graph.entities if item.kind is kind)
+        for kind in (
+            EntityKind.FUNCTION,
+            EntityKind.LOGICAL_COMPONENT,
+            EntityKind.PHYSICAL_BLOCK,
+            EntityKind.VERIFICATION_CASE,
+            EntityKind.VALIDATION_CASE,
+        )
+    }
+    edited = services.review("robot").edit_entity(
+        "robot",
+        requirement.id,
+        statement="系统应支持人工接管",
+        expected_revision=graph.revision,
+    )
+
+    result = services.generation("robot").reanalyze(
+        "robot",
+        requirement.id,
+        expected_revision=edited.revision["sequence"],
+    )
+
+    current = services.model("robot").graph("robot")
+    active = tuple(
+        item for item in current.entities
+        if item.meta.status is not EntityStatus.DEPRECATED
+    )
+    active_functions = tuple(item for item in active if item.kind is EntityKind.FUNCTION)
+    active_logical = tuple(
+        item for item in active if item.kind is EntityKind.LOGICAL_COMPONENT
+    )
+    active_physical = tuple(
+        item for item in active if item.kind is EntityKind.PHYSICAL_BLOCK
+    )
+    active_verification = tuple(
+        item for item in active if item.kind is EntityKind.VERIFICATION_CASE
+    )
+    active_validation = tuple(
+        item for item in active if item.kind is EntityKind.VALIDATION_CASE
+    )
+
+    assert result["execution_status"] == "completed"
+    assert len(active_functions) == 1
+    assert active_functions[0].id == original_ids[EntityKind.FUNCTION]
+    assert "人工接管" in active_functions[0].payload["behavior"]
+    assert len(active_logical) == 1
+    assert active_logical[0].id == original_ids[EntityKind.LOGICAL_COMPONENT]
+    assert len(active_physical) == 1
+    assert active_physical[0].id == original_ids[EntityKind.PHYSICAL_BLOCK]
+    assert len(active_verification) == 1
+    assert active_verification[0].id == original_ids[EntityKind.VERIFICATION_CASE]
+    assert "人工接管" in active_verification[0].payload["input"]
+    assert len(active_validation) == 1
+    assert active_validation[0].id == original_ids[EntityKind.VALIDATION_CASE]
+    assert "人工接管" in active_validation[0].payload["input"]
+    assert any(
+        item.kind is EntityKind.FUNCTION
+        and item.meta.status is EntityStatus.DEPRECATED
+        for item in current.entities
+    ) is False
+    assert result["traceability"]["complete_count"] >= 1
+
+
 def test_continue_generation_runs_only_downstream_and_preserves_trigger(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("robot")

@@ -51,6 +51,22 @@ def test_stakeholder_requirement_prompt_keeps_traceability_out_of_payload():
     assert "canonical entity id" in prompt.text
 
 
+def test_vertical_prompts_define_reanalysis_reuse_and_protection():
+    registry = PromptRegistry()
+
+    for template_id in (
+        "vertical.functional",
+        "vertical.logical",
+        "vertical.physical",
+        "vertical.verification_validation",
+    ):
+        prompt = registry.resolve(template_id)
+        assert "updates" in prompt.text
+        assert "canonical id" in prompt.text
+        assert "锁定" in prompt.text
+        assert "人工修改" in prompt.text
+
+
 def test_registered_template_text_change_changes_prompt_hash():
     first = PromptRegistry({"custom": "first"}).resolve("custom")
     second = PromptRegistry({"custom": "second"}).resolve("custom")

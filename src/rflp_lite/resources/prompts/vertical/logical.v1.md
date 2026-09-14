@@ -4,4 +4,6 @@
 
 每个 logical_component 的 payload 至少包含 responsibility、partition_basis、dependencies、shared_state、timing_constraints、safety_isolation、cohesion、coupling 和 architecture_rationale。decision_records 至少记录 dependency_clustering 和 architecture_evaluation 两步，每条包含 step、decision 和 basis（canonical entity ids）。
 
+重分析时优先复用 Function→LogicalComponent 的 allocatedTo 对象：对未锁定且未被人工修改的组件使用 `updates` 保持 canonical id 并刷新职责、分区和评价；不要因责任文本变化重复创建同一组件。人工修改或锁定的组件只作为只读锚点参与分析。
+
 只返回 TaskProposal JSON。entities 只能使用 logical_component、interface、state；relations 只能使用 allocatedTo、exchangesWith、connectedTo、decomposes、derivedFrom。确保每个功能至少有一条到逻辑组件的分配关系，并为共享状态生成 state 实体。无法确定的内容写入 assumptions 或 open_questions，不要返回 operations、Patch、revision 或解释。
