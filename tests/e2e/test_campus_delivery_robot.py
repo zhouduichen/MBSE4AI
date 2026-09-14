@@ -54,6 +54,8 @@ def test_campus_fixture_runs_all_phases_and_closure(tmp_path: Path) -> None:
     assert all(row["status"] == "PASS" for row in vv_rows)
     assert all(row["test_condition"] for row in vv_rows)
     assert all(row["stimulus"] for row in vv_rows)
+    assert all(row["execution_status"] == "pending" for row in vv_rows)
+    assert all(row["execution_evidence_ids"] == [] for row in vv_rows)
 
 
 def test_failure_is_registered_and_repaired_with_local_patch(tmp_path: Path) -> None:

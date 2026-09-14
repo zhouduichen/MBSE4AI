@@ -45,7 +45,7 @@
 | 决策驱动架构迭代 | Logical Trade Study 可生成按功能隔离或共享协调器变体并安全弃用旧分区；Physical Trade Study 可生成保留约束/provenance 的替代候选；决策来源写回 ModelGraph，锁定实体不被覆盖，未知测量仍保持待验证 |
 | Controller 自动迭代闭环 | 可有界执行安全的局部重分析/证据检索，逐轮刷新 Traceability、Methodology 和 Controller；在 Trade Study、用户输入/证据、无进展或预算耗尽时暂停，并通过 API/Web 工作台暴露 |
 | Controller Tool Layer | 证据缺口先调用文档/历史/本地 FTS 检索工具；结果持久化为 Evidence 后再触发受影响阶段重分析，无结果才等待用户补充 |
-| MBSE 对象纵向覆盖 | 默认五阶段显式生成 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase；方法学报告分别检查风险覆盖、缓解关系、V&V 计划字段和执行证据 |
+| MBSE 对象纵向覆盖 | 默认五阶段显式生成 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase；VerificationCase/ValidationCase 统一包含 method、verification_objective、precondition、test_condition、input、stimulus、procedure、expected_result、pass_criteria，方法学报告分别检查风险覆盖、缓解关系、计划完整度和执行证据 |
 | 分层 ModelGraph 工作台 | MBSE 模型页按 System Definition、Functional、Logical、Physical、V&V 展示真实实体，并复用 Review/CAS API 支持编辑、接受、拒绝、锁定、解锁和重新分析 |
 | Review 后继续生成 | 用户确认实体后可从其下一层继续生成至 V&V；使用独立 continuation Run，锁定实体只读，V&V 返回无下游状态 |
 | 统一工程交付包 | 同一 ModelGraph revision 输出 model/evidence/SysML/RFLP JSON+SVG/Requirements/Traceability/V&V Plan/Architecture Report；`evidence.json` 固化项目级证据记录与 evidence hash，被模型补丁引用的证据会同步物化为 `Evidence` 节点，提供 JSON、固定成员 ZIP 和 SysML 回读证据 |
@@ -63,6 +63,7 @@
 | 追溯语义闭环 | 同一 canonical scope resolver 校验需求来源、功能、逻辑、物理及 V&V 载荷；技术需求支持来源链与直接物理候选，作用域失配会同时阻断 Assurance 完成检查并生成可回流的工程问题 |
 | 统一需求输入边界 | 五阶段生成与 23-task pipeline 共享 `RequirementInputService`；文本/文档可组合输入，重复 statement 复用节点并通过 CAS 合并全部 Source Region/evidence provenance，多条需求保持独立下游追溯 |
 | 统一追溯投影 | `resolve_requirement_trace` 成为 Generation Summary、Traceability/Coverage/RFLP、`/trace` 和 `traceability.json` 的共同逐需求语义来源；ready-only 目标、V&V scope、缺口、主路径和覆盖率在各入口保持一致，并保留 SysML/ModelGraph 编辑回读 |
+| 可执行 V&V 计划闭环 | V&V prompt、结构化 Schema、语义校核、离线/生命周期运行时、Methodology、Assurance 页面和 `vv-plan` 交付物共享九字段计划契约；来源 `evidence_ids` 与实际 `execution_evidence_ids` 分离，计划完整不宣称执行通过 |
 
 ## 历史 Harness 验收边界
 

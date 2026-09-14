@@ -161,6 +161,11 @@ def test_vv_analysis_requires_structured_verification_and_validation():
     assert report.metrics["structured_validation_coverage"] == 0.0
     assert any(item.code == "verification_case_incomplete" for item in report.findings)
     assert any(item.code == "validation_case_incomplete" for item in report.findings)
+    assert any(
+        "test_condition" in item.message and "stimulus" in item.message
+        for item in report.findings
+        if item.code in {"verification_case_incomplete", "validation_case_incomplete"}
+    )
 
 
 def test_vv_plan_and_execution_evidence_are_reported_separately():

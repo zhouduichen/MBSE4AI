@@ -4,7 +4,8 @@
 | --- | --- | --- | --- |
 | Projects / documents | Managed project directories, TXT/Markdown/DOCX/PDF ingestion, source regions | `ProjectService` + document parser port | Richer layout extraction |
 | Typed ModelGraph | Entity kinds, closed relations, status, provenance, evidence and stable IDs | `domain` is the only model truth | More domain-specific profiles |
-| Methodology | 23 TaskSpecs across four phases plus Closure | `WorkflowRunner`, Context, validators and gates | Additional task templates |
+| Methodology | 23 TaskSpecs across four phases plus Closure; V&V plans require method, objective, precondition, test condition, input, stimulus, procedure, expected result and acceptance criteria | `WorkflowRunner`, Context, validators and gates | Additional task templates |
+| Executable V&V plans | VerificationCase and ValidationCase expose the same nine-field executable plan; source evidence and execution evidence remain separate | Shared `VV_PLAN_FIELDS`, semantic completion findings and revision-bound deliverables | Method-specific procedures and approved external adapters |
 | Runtime | Offline deterministic RuleRuntime and optional OpenAI-compatible structured runtime | Responses become validated local Patches | Provider-specific optimizations |
 | Repository | SQLite transactions, CAS revisions, FTS, Run/Step/Patch/Issue ledger | `SQLiteModelRepository` v2 | Remote repository adapter |
 | Evidence / repair | Project-scoped retrieval, optional Web gap, Gate Issue and bounded repair | Evidence never silently blocks optional sources | Richer ranking and review |
