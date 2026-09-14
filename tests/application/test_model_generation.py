@@ -15,6 +15,7 @@ from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
 from rflp_lite.application.tool_layer import ToolResult
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionResponse
 from rflp_lite.methodology.controller import ControllerAction, ControllerPlan
+from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
 from rflp_lite.ports.generative_model import GenerationResponse
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
@@ -878,6 +879,178 @@ class TwoRequirementFeedbackModel(CompleteVerticalModel):
         relate(hazard_ref, RelationPredicate.MITIGATED_BY.value, "verification-feedback-1")
         relate(failure_ref, RelationPredicate.MITIGATED_BY.value, "verification-feedback-1")
         return proposal
+
+
+class ThreeRequirementStructuredModel(TwoRequirementFeedbackModel):
+    """Structured model double that covers every input requirement in one run."""
+
+    def __init__(self):
+        super().__init__()
+        self.requirement_worklists = []
+
+    def complete_json(self, request):
+        self.requirement_worklists.append(
+            request.user_payload.get("requirement_worklist", [])
+        )
+        recorded = ScriptedModel.complete_json(self, request)
+        if request.lens_id == "vertical.functional":
+            return replace(recorded, payload=self._multi_requirement_functional(request))
+        if request.lens_id == "vertical.verification_validation":
+            return replace(recorded, payload=self._assurance_proposal(request))
+        return replace(recorded, payload=CompleteVerticalModel._proposal(self, request))
+
+    @staticmethod
+    def _multi_requirement_functional(request):
+        requirements = [
+            item
+            for item in request.user_payload["context"]["entities"]
+            if item["kind"] == EntityKind.REQUIREMENT.value
+        ]
+        proposal = {
+            "entities": [],
+            "relations": [],
+            "updates": [],
+            "deprecations": [],
+            "reason": "逐条需求生成功能模型",
+            "assumptions": [],
+            "open_questions": [],
+            "decision_records": [{
+                "step": "functional_requirement",
+                "decision": "每条 Requirement 生成独立功能并保留 canonical 追溯",
+                "basis": [item["id"] for item in requirements],
+            }],
+        }
+        for index, requirement in enumerate(requirements, start=1):
+            function_ref = f"function-{index}"
+            flow_ref = f"flow-{index}"
+            scenario_ref = f"fscenario-{index}"
+            name = f"实现：{requirement['name']}"
+            proposal["entities"].extend((
+                {
+                    "local_ref": function_ref,
+                    "kind": EntityKind.FUNCTION.value,
+                    "name": name,
+                    "payload": {
+                        "behavior": f"实现{requirement['name']}",
+                        "inputs": ["需求输入"],
+                        "outputs": ["可追踪结果"],
+                        "decomposition": ["解析需求", "执行功能", "反馈结果"],
+                    },
+                    "confidence": 0.95,
+                    "source_ids": [],
+                    "evidence_ids": [],
+                    "lifecycle_ids": [],
+                },
+                {
+                    "local_ref": flow_ref,
+                    "kind": EntityKind.FUNCTIONAL_FLOW.value,
+                    "name": f"结果流：{requirement['name']}",
+                    "payload": {
+                        "source_function_ids": [function_ref],
+                        "target_function_ids": [function_ref],
+                        "content": "需求输入和执行结果",
+                    },
+                    "confidence": 0.95,
+                    "source_ids": [],
+                    "evidence_ids": [],
+                    "lifecycle_ids": [],
+                },
+                {
+                    "local_ref": scenario_ref,
+                    "kind": EntityKind.FUNCTIONAL_SCENARIO.value,
+                    "name": f"场景：{requirement['name']}",
+                    "payload": {
+                        "function_ids": [function_ref],
+                        "steps": ["接收需求", "执行功能", "返回结果"],
+                    },
+                    "confidence": 0.95,
+                    "source_ids": [],
+                    "evidence_ids": [],
+                    "lifecycle_ids": [],
+                },
+            ))
+            proposal["relations"].extend((
+                {
+                    "source_ref": requirement["id"],
+                    "predicate": RelationPredicate.SATISFIED_BY.value,
+                    "target_ref": function_ref,
+                    "evidence_ids": [],
+                },
+                {
+                    "source_ref": function_ref,
+                    "predicate": RelationPredicate.EXCHANGES_WITH.value,
+                    "target_ref": flow_ref,
+                    "evidence_ids": [],
+                },
+            ))
+            proposal["updates"].append({
+                "entity_id": requirement["id"],
+                "field_patch": {"payload": {
+                    "functional_behavior_ids": [function_ref],
+                    "functional_requirement_status": "allocated",
+                }},
+            })
+        return proposal
+
+
+def test_structured_runtime_generates_three_requirement_vertical_model(tmp_path: Path):
+    model = ThreeRequirementStructuredModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+    )
+    services.projects.create("robot")
+
+    result = services.generation("robot").generate(
+        "robot",
+        requirement_text="系统应自主配送；系统应支持人工接管；系统应在断网后安全运行",
+    )
+    graph = services.model("robot").graph("robot")
+
+    requirements = sorted(
+        (
+            item for item in graph.entities
+            if item.kind is EntityKind.REQUIREMENT
+        ),
+        key=lambda item: item.id,
+    )
+    assert result.status == "completed"
+    assert all(stage.status == "completed" for stage in result.stage_results)
+    assert all(stage.completion_issue_codes == () for stage in result.stage_results)
+    assert all(stage.attempts == 1 for stage in result.stage_results)
+    assert result.traceability.end_to_end_complete_count == 3
+    assert len(tuple(
+        item for item in graph.entities if item.kind is EntityKind.FUNCTION
+    )) == 3
+    assert all(resolve_requirement_trace(graph, item.id).complete for item in requirements)
+    assert all(
+        [item["requirement_id"] for item in worklist]
+        == [item.id for item in requirements]
+        for worklist in model.requirement_worklists
+    )
+
+    exported = graph_to_sysml(graph)
+    restored = sysml_to_graph(exported, "robot")
+    assert [item.as_dict() for item in restored.entities] == [
+        item.as_dict() for item in graph.entities
+    ]
+    assert restored.relations == graph.relations
+
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+    services.model("robot").apply_patch(
+        "robot",
+        Patch.create(
+            "robot",
+            "review.edit",
+            (UpdateEntity(function.id, {"payload": {"review_note": "可继续编辑"}}),),
+            "编辑多需求结构化模型",
+            graph.revision,
+        ),
+        graph.revision,
+    )
+    edited = services.model("robot").graph("robot")
+    assert edited.revision == graph.revision + 1
+    assert edited.entity_index[function.id].payload["review_note"] == "可继续编辑"
 
 
 def test_structured_runtime_generates_complete_editable_vertical_model(tmp_path: Path):

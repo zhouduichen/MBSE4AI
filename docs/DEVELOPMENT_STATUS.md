@@ -63,6 +63,7 @@
 | 方法论驱动生成上下文 | Methodology Engine 将当前阶段的 findings、指标、架构候选、影响实体和推荐任务以有界 `methodology_guidance` 注入五阶段及 23-task LLM 请求，确定性工程检查从事后验收前移为生成约束 |
 | 垂直阶段完成质量 | 五阶段结果逐项报告其内部 23-task 检查；关键关系、架构评价、约束传播、可行性权衡和 V&V 交叉分析缺失时标记 `needs_review`，并保留结构化候选供 Review/Controller 继续处理 |
 | 完整结构化五阶段验收 | 确定性结构化模型夹具已通过生产 Runtime→Compiler→Validator→CAS 路径一次性形成 R→F→L→P→V&V；覆盖 payload local_ref canonicalization、完整 V&V scope、SysML round-trip 和可继续编辑 revision |
+| 多需求结构化五阶段验收 | 三条独立自然语言 Requirement 已通过生产结构化 Runtime→Compiler→Validator→CAS 路径分别形成 Function，并沿共享或独立的 Logical/Physical 架构保持逐需求 V&V scope、三条完整端到端追溯、SysML round-trip 和继续编辑；该证据仍是离线结构化模型验收，不等同于真实 Provider 稳定性 |
 | 逐需求纵向覆盖反馈 | Functional、Logical、Physical、Verification/Validation 阶段逐条解析活动 Requirement 的覆盖链，输出精确缺失 ID；结构化反馈轮只修复当前阶段缺口，并在 Analysis 工作台显示逐条覆盖结论 |
 | Controller 物理冲突回流 | 在同一结构化 ModelGraph 上验证 physical constraint conflict→Trade Study 暂停→用户选择替代候选→仅 Physical/V&V 定向重分析；锁定和 user_modified 实体保持不变 |
 | 用户面工程工作台 | 分析、模型和验证与确认页面以需求→功能→逻辑→物理→V&V 的业务语言呈现阶段质量、追溯闭环和下一步动作；任务键、运行台账、模型标识和原始属性收进高级详情，保留既有编辑、权衡和执行入口 |

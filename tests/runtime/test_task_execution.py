@@ -8,6 +8,7 @@ from rflp_lite.methodology.contracts import ContextBundle, StepStatus, TaskExecu
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.registries import RetryPolicy
 from rflp_lite.methodology.tasks import task_catalog
+from rflp_lite.methodology.vertical_generation import stage_task
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 from rflp_lite.runtime.rule_based import RuleRuntime
 from rflp_lite.ports.generative_model import GenerationResponse
@@ -78,6 +79,78 @@ def test_runtime_adapts_task_context_to_generation_request():
     assert result.status is StepStatus.COMPLETED
     assert model.request.lens_id == task.id
     assert model.request.user_payload["context"]["revision"] == 3
+
+
+def test_vertical_runtime_exposes_canonical_requirement_worklist():
+    model = FakeModel()
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            statement,
+            {"statement": statement},
+        )
+        for statement in (
+            "系统应自主配送",
+            "系统应支持人工接管",
+            "系统应在断网后安全运行",
+        )
+    )
+    context = ContextBundle(
+        "p1",
+        "vertical.functional",
+        3,
+        requirements,
+        methodology_guidance={
+            "requirement_coverage": {
+                "gaps": [
+                    {
+                        "requirement_id": requirements[0].id,
+                        "missing": ["function"],
+                    },
+                    {
+                        "requirement_id": requirements[1].id,
+                        "missing": ["function"],
+                    },
+                ],
+            },
+        },
+    )
+    request = TaskExecutor(model).request(
+        stage_task("functional"),
+        context,
+        "v2.1",
+    )
+
+    StructuredModelRuntime(model).execute(request)
+
+    missing_requirement_ids = {requirements[0].id, requirements[1].id}
+    assert model.request.user_payload["requirement_worklist"] == [
+        {
+            "requirement_id": requirement.id,
+            "statement": requirement.payload["statement"],
+            "missing": ["function"]
+            if requirement.id in missing_requirement_ids
+            else [],
+        }
+        for requirement in sorted(requirements, key=lambda item: item.id)
+    ]
+
+
+def test_legacy_runtime_does_not_add_vertical_requirement_worklist():
+    model = FakeModel()
+    task = task_catalog()[1]
+    context = ContextBundle(
+        "p1",
+        task.id,
+        3,
+        (make_entity(EntityKind.REQUIREMENT, "系统需求"),),
+    )
+
+    StructuredModelRuntime(model).execute(
+        TaskExecutor(model).request(task, context, "v2.1")
+    )
+
+    assert "requirement_worklist" not in model.request.user_payload
 
 
 def test_runtime_turns_allowed_output_into_patch():

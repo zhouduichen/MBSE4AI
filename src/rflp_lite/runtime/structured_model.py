@@ -7,6 +7,7 @@ from dataclasses import replace
 from typing import Mapping
 
 from rflp_lite.domain.canonical import canonical_hash
+from rflp_lite.domain.entities import EntityKind, EntityStatus
 from rflp_lite.domain.errors import ContractViolation, ProposalCompileFailure
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
 from rflp_lite.methodology.proposal_compiler import compile_task_proposal, parse_task_proposal
@@ -47,6 +48,10 @@ class StructuredModelRuntime:
             ),
             "context_hash": canonical_hash(request.context_bundle),
         }
+        if request.task_id.startswith("vertical."):
+            payload["requirement_worklist"] = _requirement_worklist(
+                request.context_bundle
+            )
         contract = _output_schema(request.output_contract)
         response = self.model.complete_json(
             GenerationRequest(
@@ -60,6 +65,7 @@ class StructuredModelRuntime:
                     "relations 只能引用当前上下文中的 canonical entity id 或本 Proposal 内唯一的 local_ref；"
                     "读取 methodology_guidance 中的确定性检查结果，优先补齐其指出的当前阶段缺口；不要把 guidance 当作新的实体事实；"
                     "如果 stage_completion.requirement_coverage.passed 为 false，必须优先修复其中列出的 missing_requirement_ids 和 coverage gap；"
+                    "如果 requirement_worklist 非空，必须逐条覆盖其中每个 requirement_id；不得把多条 Requirement 合并成一个无法追溯的下游对象；"
                     "复用已有 Requirement、Function、LogicalComponent、PhysicalBlock 和 V&V Case 的 canonical id，只补缺失的 typed 实体或关系；"
                     "无法由当前上下文证明的缺口写入 open_questions，不得把不完整覆盖声称为完成；"
                     "不要返回 operations、Patch ID、revision、status、producer 或 kind/value/path 更新 DSL；不要解释。"
@@ -136,6 +142,46 @@ class StructuredModelRuntime:
             open_questions=proposal.open_questions,
             decision_records=proposal.decision_records,
         )
+
+
+def _requirement_worklist(context) -> list[Mapping[str, object]]:
+    """Expose a compact, canonical per-requirement worklist to vertical LLM calls."""
+
+    gaps_by_requirement: dict[str, Mapping[str, object]] = {}
+    guidance = context.methodology_guidance
+    coverage = guidance.get("requirement_coverage")
+    if isinstance(coverage, Mapping):
+        gaps = coverage.get("gaps", ())
+        if isinstance(gaps, (list, tuple)):
+            for gap in gaps:
+                if not isinstance(gap, Mapping):
+                    continue
+                requirement_id = str(gap.get("requirement_id", "")).strip()
+                if requirement_id:
+                    gaps_by_requirement[requirement_id] = gap
+
+    requirements = sorted(
+        (
+            entity
+            for entity in context.entities
+            if entity.kind is EntityKind.REQUIREMENT
+            and entity.meta.status
+            not in {EntityStatus.REJECTED, EntityStatus.DEPRECATED}
+        ),
+        key=lambda entity: entity.id,
+    )
+    worklist: list[Mapping[str, object]] = []
+    for requirement in requirements[:24]:
+        gap = gaps_by_requirement.get(requirement.id, {})
+        statement = requirement.payload.get("statement", requirement.meta.name)
+        worklist.append({
+            "requirement_id": requirement.id,
+            "statement": str(statement).strip() or requirement.meta.name,
+            "missing": list(gap.get("missing", ()))
+            if isinstance(gap.get("missing", ()), (list, tuple))
+            else [],
+        })
+    return worklist
 
 
 def _compiler_repair_prompt(prompt: str, error: ContractViolation) -> str:
