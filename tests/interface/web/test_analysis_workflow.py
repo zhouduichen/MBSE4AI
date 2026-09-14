@@ -101,7 +101,7 @@ def test_analysis_page_enables_generation_after_partial_sysml_import(tmp_path: P
     page = client.get("/ui/projects/p1/analysis")
 
     assert page.status_code == 200
-    assert 'data-mode="generate" disabled' not in page.text
+    assert 'data-mode="pipeline" disabled' not in page.text
     assert "导入模型也可以作为分析输入" in page.text
 
 
@@ -263,6 +263,24 @@ def test_analysis_api_supports_pipeline_and_force_run(tmp_path: Path) -> None:
     refreshed = client.get("/projects/p1/analysis").json()
     assert refreshed["latest_run"]["run_id"] == run["run_id"]
     assert refreshed["global_gate"]["gate_id"] == "Global-Gate"
+
+
+def test_analysis_api_defaults_to_complete_pipeline(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "workspaces")
+    app.state.container.v2.settings.profiles.config_dir = tmp_path / "config"
+    app.state.container.v2.settings.profiles.path = tmp_path / "config" / "llm-profiles.json"
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    assert client.post(
+        "/projects/p1/requirements", json={"text": "系统应支持人工接管"}
+    ).status_code == 200
+
+    response = client.post("/projects/p1/analysis", json={})
+
+    assert response.status_code == 200
+    run = response.json()["run"]
+    assert run["mode"] == "pipeline"
+    assert len(run["completed_tasks"]) == 23
 
 
 def test_pipeline_analysis_accepts_natural_language_input(tmp_path: Path) -> None:

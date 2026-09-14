@@ -9,7 +9,7 @@
 
 项目目标通过 `ProjectContextService` 进入同一条链：写入 System 的 mission/objectives，并以候选 Requirement 保留来源和后续 RFLP/V&V 追溯；自然语言、文档区域和已有输入由 `RequirementInputService` 统一去重与合并 provenance，避免五阶段生成和 23-task pipeline 产生不同的 Requirement 图；既有 SysML 直接导入 ModelGraph，其他 managed project 则只作为 Controller 的历史检索来源。
 
-这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `0.2.0`，方法论协议是 `v2.1`。每个项目使用独立工作区和数据库，正式模型和证据仍按项目隔离；Controller 可对其他 managed project 的 FTS 做只读历史检索，命中内容以 Evidence 回写当前项目。`WorkflowRunner` 同时支持完整 23-task 生命周期和单阶段调试；五阶段生成器仍是默认的快速产品入口。
+这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `0.2.0`，方法论协议是 `v2.1`。每个项目使用独立工作区和数据库，正式模型和证据仍按项目隔离；Controller 可对其他 managed project 的 FTS 做只读历史检索，命中内容以 Evidence 回写当前项目。`WorkflowRunner` 同时支持完整 23-task 生命周期和单阶段调试；五阶段生成器作为显式快速入口保留。
 
 P→V&V 使用同一条可复核的作用域：物理候选和可行性矩阵记录 Requirement→Function→LogicalComponent→PhysicalBlock 的 canonical IDs；出现实测约束冲突时，四类 Trade Study 选项携带冲突字段、受影响 ID 和回流任务/阶段，仍由用户决定是否重新分析。V&V Case 复用这组下游 IDs，并以统一的九字段可执行计划表达 `method`、`verification_objective`、`precondition`、`test_condition`、`input`、`stimulus`、`procedure`、`expected_result` 和 `pass_criteria`；`evidence_ids`/`execution_evidence_ids` 把输入资料、计划完整度和实际执行证据分开表示，计划完整不等于测试通过。
 
@@ -30,7 +30,7 @@ adapters → ports + domain
 - `repository/`：SQLite ModelRepository v2，保存 Graph、文档 Source Region 对应的 `document_region` Evidence、Run、Step、Patch、Revision、Issue、Closure 和 FTS，并提供 lease/heartbeat。
 - `runtime/`：RuntimeFactory、结构化模型端口、OpenAI-compatible 适配和离线 RuleRuntime；每次运行动态解析 active profile。远程 Profile 未提供预算时使用 8192 token 上下文窗口和 4096 token 结构化输出预算，显式配置优先。
 - `adapters/`：文档解析、OCR 和模型/文档技术实现；由 `bootstrap/container.py` 组装。
-- `interface/`：`ai4mbse` CLI、FastAPI Resource API 和五个资源页面；默认 Analysis 操作调用 `ModelGenerationService`，`mode=pipeline`/`analyze run` 调用真实 23-task 生命周期，`phase` 仍可显式单阶段调试。
+- `interface/`：`ai4mbse` CLI、FastAPI Resource API 和五个资源页面；Analysis 主入口默认调用完整 23-task 生命周期，`mode=generate` 保留五阶段快速生成兼容入口，`phase` 仍可显式单阶段调试。
 - Web 页面使用独立的展示适配层把 VerticalStage、Completion、Methodology 和 Controller 的机器字段转换为用户可读的工程阶段、质量结论和下一步动作；原始任务/实体标识、运行台账和 payload 只在高级详情或稳定 data 属性中保留，不改变 API、ModelGraph 或执行边界。
 - `tests/mbse_benchmark/tracks/`：Harness deterministic、显式 LLM/bare baseline、Agent robustness 三轨基准；各轨独立记录 runtime/profile/provider/model、方法论和哈希元数据。
 
@@ -61,7 +61,7 @@ Review 后的显式“继续生成下游”调用 `ModelGenerationService.contin
 | 资源 | 入口 |
 |---|---|
 | 项目 / 目标 / 文档 | `POST /projects`、`POST /projects/{id}/goal`、`GET /projects/{id}/context`、`POST /projects/{id}/documents` |
-| 分析运行 | `POST /projects/{id}/analysis`（默认五阶段生成；`mode=pipeline` 为完整 23-task；`mode=phase` 为单阶段调试；成功响应中的 `run.deliverable` 绑定本次 revision/snapshot 并提供交付包入口）、`GET /projects/{id}/controller`、`POST /projects/{id}/controller/execute`（Controller 动作/Trade Study）、`POST /projects/{id}/controller/iterate`（有界自动推进安全动作）、`POST /projects/{id}/entities/{entity_id}/reanalyze/execute`（定向重分析）、`POST /projects/{id}/entities/{entity_id}/continue`（Review 后从下一层继续生成）、`POST /projects/{id}/vv/{case_id}/execute`（记录真实 V&V 结果并触发失败反馈）、`GET /projects/{id}/tools`、`POST /projects/{id}/vv/{case_id}/tools/{tool_id}/execute`（运行登记工具并统一写入 V&V）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
+| 分析运行 | `POST /projects/{id}/analysis`（默认完整 23-task 生命周期；`mode=generate` 为五阶段快速生成兼容入口；`mode=phase` 为单阶段调试；成功响应中的 `run.deliverable` 绑定本次 revision/snapshot 并提供交付包入口）、`GET /projects/{id}/controller`、`POST /projects/{id}/controller/execute`（Controller 动作/Trade Study）、`POST /projects/{id}/controller/iterate`（有界自动推进安全动作）、`POST /projects/{id}/entities/{entity_id}/reanalyze/execute`（定向重分析）、`POST /projects/{id}/entities/{entity_id}/continue`（Review 后从下一层继续生成）、`POST /projects/{id}/vv/{case_id}/execute`（记录真实 V&V 结果并触发失败反馈）、`GET /projects/{id}/tools`、`POST /projects/{id}/vv/{case_id}/tools/{tool_id}/execute`（运行登记工具并统一写入 V&V）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
 | 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities`、`GET /projects/{id}/entities/{entity_id}/impact`（Typed Impact Plan） |
 | 人工编辑 | `PATCH /projects/{id}/entities/{entity_id}` |
 | 视图 / 导出 | `GET /projects/{id}/views/{view_id}`、`POST /projects/{id}/export`、`GET /projects/{id}/deliverables`、`GET /projects/{id}/deliverables/download`、`POST /projects/{id}/sysml/import`、`POST /projects/{id}/sysml/import/upload` |

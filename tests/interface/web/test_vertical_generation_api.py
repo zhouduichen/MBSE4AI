@@ -400,4 +400,4 @@ def test_analysis_page_exposes_default_generation_action(tmp_path: Path):
     assert "建议下一步" in page.text
     assert "自动推进可安全执行动作" in page.text
     assert "/controller/iterate" in page.text
-    assert 'runAnalysis("generate", null)' in page.text
+    assert 'runAnalysis("pipeline", null)' in page.text
