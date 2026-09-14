@@ -40,6 +40,29 @@ def test_generate_mode_returns_stage_and_traceability_payload(tmp_path: Path):
     assert run["controller"]["next_action"]["kind"] == "collect_evidence"
 
 
+def test_generate_response_binds_run_to_revision_bound_deliverable(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    response = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统应支持人工接管"},
+    )
+
+    assert response.status_code == 200
+    run = response.json()["run"]
+    deliverable = run["deliverable"]
+    package = client.get("/projects/p1/deliverables").json()["deliverable"]
+
+    assert deliverable["format"] == "ai4mbse.engineering-deliverable.v1"
+    assert deliverable["revision"] == run["revision"] == package["revision"]
+    assert deliverable["snapshot_hash"] == package["snapshot_hash"]
+    assert deliverable["json_url"] == "/projects/p1/deliverables"
+    assert deliverable["download_url"] == "/projects/p1/deliverables/download"
+    assert deliverable["manifest"] == package["manifest"]
+    assert "artifacts" not in deliverable
+
+
 def test_generate_constraints_returns_technical_requirement_in_traceability_api(tmp_path: Path):
     client = _client(tmp_path)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200

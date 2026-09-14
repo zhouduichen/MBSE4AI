@@ -110,6 +110,26 @@ def _attach_runtime_metadata(run: Mapping[str, object], analysis) -> Mapping[str
     return run
 
 
+def _attach_deliverable_metadata(
+    run: Mapping[str, object],
+    services,
+    project_id: str,
+) -> Mapping[str, object]:
+    """Bind an analysis response to the exact package produced from its graph."""
+
+    package = services.deliverables(project_id).build(project_id)
+    deliverable = {
+        "format": package["format"],
+        "project_id": package["project_id"],
+        "revision": package["revision"],
+        "snapshot_hash": package["snapshot_hash"],
+        "manifest": package["manifest"],
+        "json_url": f"/projects/{project_id}/deliverables",
+        "download_url": f"/projects/{project_id}/deliverables/download",
+    }
+    return {**run, "deliverable": deliverable}
+
+
 def _value(value: object, default: str = "") -> str:
     return str(getattr(value, "value", value or default))
 
@@ -592,6 +612,7 @@ async def run_analysis(request: Request, project_id: str):
             run["mode"] = "phase"
             run["force_run"] = force_run
             _attach_runtime_metadata(run, analysis)
+        run = _attach_deliverable_metadata(run, _services(request), project_id)
         remember_run(request, project_id, run)
         return {"status": "ok", "run": run}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
