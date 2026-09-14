@@ -11,7 +11,7 @@ from rflp_lite.application.projections.requirements import build_requirements_vi
 from rflp_lite.application.projections.rflp import build_rflp_view
 from rflp_lite.application.projections.traceability import build_traceability_view
 from rflp_lite.application.sysml_v2 import graph_to_sysml
-from rflp_lite.domain.canonical import canonical_json
+from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.model import ModelGraph
 
@@ -20,6 +20,7 @@ DELIVERABLE_FORMAT = "ai4mbse.engineering-deliverable.v1"
 REQUIRED_MEMBERS = (
     "manifest.json",
     "model.json",
+    "evidence.json",
     "model.sysml",
     "requirements.json",
     "rflp.json",
@@ -35,8 +36,9 @@ _ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 class EngineeringDeliverableService:
     """Compose user-facing engineering outputs without creating new model state."""
 
-    def __init__(self, model_service):
+    def __init__(self, model_service, evidence_repository=None):
         self.model_service = model_service
+        self.evidence_repository = evidence_repository
 
     def build(self, project_id: str) -> Mapping[str, object]:
         graph = self.model_service.graph(project_id)
@@ -49,9 +51,11 @@ class EngineeringDeliverableService:
         architecture_report = _architecture_report(
             graph, rflp, traceability, assurance, vv_plan
         )
-        model = _model_content(graph)
+        evidence = _evidence_content(graph, self.evidence_repository)
+        model = _model_content(graph, evidence=evidence["records"])
         artifacts = {
             "model": _artifact("model-json-v1", model, graph),
+            "evidence": _artifact("evidence-json-v1", evidence, graph),
             "sysml": _artifact("sysml-v2-subset", graph_to_sysml(graph), graph),
             "requirements": _artifact("requirements-view-v1", requirements, graph),
             "rflp": _artifact("rflp-view-v1", rflp, graph),
@@ -89,6 +93,7 @@ class EngineeringDeliverableService:
         contents: dict[str, bytes] = {
             "manifest.json": _json_bytes(package["manifest"]),
             "model.json": _json_bytes(artifacts["model"]["content"]),
+            "evidence.json": _json_bytes(artifacts["evidence"]["content"]),
             "model.sysml": str(artifacts["sysml"]["content"]).encode("utf-8"),
             "requirements.json": _json_bytes(artifacts["requirements"]["content"]),
             "rflp.json": _json_bytes(artifacts["rflp"]["content"]),
@@ -121,6 +126,7 @@ def _artifact(format_id: str, content: object, graph: ModelGraph) -> Mapping[str
 def _artifact_path(name: str) -> str:
     return {
         "model": "model.json",
+        "evidence": "evidence.json",
         "sysml": "model.sysml",
         "requirements": "requirements.json",
         "rflp": "rflp.json",
@@ -130,7 +136,11 @@ def _artifact_path(name: str) -> str:
     }[name]
 
 
-def _model_content(graph: ModelGraph) -> Mapping[str, object]:
+def _model_content(
+    graph: ModelGraph,
+    *,
+    evidence: tuple[Mapping[str, object], ...] = (),
+) -> Mapping[str, object]:
     return {
         "project_id": graph.project_id,
         "revision": graph.revision,
@@ -146,6 +156,31 @@ def _model_content(graph: ModelGraph) -> Mapping[str, object]:
             }
             for relation in graph.relations
         ],
+        "evidence": [dict(item) for item in evidence],
+    }
+
+
+def _evidence_content(
+    graph: ModelGraph,
+    repository,
+) -> Mapping[str, object]:
+    """Snapshot project evidence alongside the graph's stable evidence IDs."""
+
+    records = ()
+    list_evidence = getattr(repository, "list_evidence", None)
+    if callable(list_evidence):
+        records = tuple(
+            dict(item)
+            for item in list_evidence(graph.project_id)
+            if isinstance(item, Mapping) and str(item.get("id", "")).strip()
+        )
+    records = tuple(sorted(records, key=lambda item: str(item["id"])))
+    return {
+        "project_id": graph.project_id,
+        "revision": graph.revision,
+        "snapshot_hash": graph.snapshot_hash,
+        "evidence_hash": canonical_hash(records),
+        "records": [dict(item) for item in records],
     }
 
 

@@ -149,7 +149,10 @@ class V2Services:
         return RenderService(self.model(project_id))
 
     def deliverables(self, project_id: str) -> EngineeringDeliverableService:
-        return EngineeringDeliverableService(self.model(project_id))
+        return EngineeringDeliverableService(
+            self.model(project_id),
+            evidence_repository=self.repository(project_id),
+        )
 
     def review(self, project_id: str) -> ReviewService:
         return ReviewService(self.model(project_id))

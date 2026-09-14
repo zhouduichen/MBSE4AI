@@ -79,13 +79,51 @@ def test_build_contains_all_required_artifacts(tmp_path: Path):
 
     assert package["format"] == "ai4mbse.engineering-deliverable.v1"
     assert set(package["artifacts"]) == {
-        "model", "sysml", "requirements", "rflp", "traceability",
+        "model", "evidence", "sysml", "requirements", "rflp", "traceability",
         "vv_plan", "architecture_report",
     }
     assert package["revision"] == package["artifacts"]["traceability"]["content"]["revision"]
     assert package["snapshot_hash"] == package["artifacts"]["rflp"]["content"]["snapshot_hash"]
     assert package["artifacts"]["architecture_report"]["content"]["status"] == "BLOCKED"
     assert package["artifacts"]["vv_plan"]["content"]["metrics"]["requirement_count"] == 1
+    assert package["artifacts"]["evidence"]["content"]["records"] == []
+
+
+def test_deliverable_snapshots_evidence_without_changing_model_revision(tmp_path: Path):
+    services = _services_with_complete_graph(tmp_path)
+    repository = services.repository("p1")
+    repository.save_evidence(
+        "p1",
+        {
+            "id": "evidence-test",
+            "source_type": "test",
+            "source_id": "fixture",
+            "locator": "case-1",
+            "claim": "续航满足要求",
+            "excerpt": "实测续航 9 小时",
+            "relevance": 1.0,
+        },
+    )
+    revision = services.model("p1").graph("p1").revision
+
+    package = services.deliverables("p1").build("p1")
+
+    evidence = package["artifacts"]["evidence"]["content"]
+    assert evidence["revision"] == revision
+    assert evidence["records"] == [
+        {
+            "id": "evidence-test",
+            "source_type": "test",
+            "source_id": "fixture",
+            "locator": "case-1",
+            "claim": "续航满足要求",
+            "excerpt": "实测续航 9 小时",
+            "authority": None,
+            "relevance": 1.0,
+        }
+    ]
+    assert package["artifacts"]["model"]["content"]["evidence"] == evidence["records"]
+    assert services.model("p1").graph("p1").revision == revision
 
 
 def test_incomplete_graph_is_reported_as_gap(tmp_path: Path):
@@ -106,7 +144,7 @@ def test_zip_is_stable_and_sysml_round_trips(tmp_path: Path):
     assert first == second
     with zipfile.ZipFile(io.BytesIO(first)) as archive:
         assert set(archive.namelist()) == {
-            "manifest.json", "model.json", "model.sysml", "requirements.json",
+            "manifest.json", "model.json", "evidence.json", "model.sysml", "requirements.json",
             "rflp.json", "traceability.json", "vv-plan.json", "vv-plan.md",
             "architecture-report.json", "architecture-report.md",
         }

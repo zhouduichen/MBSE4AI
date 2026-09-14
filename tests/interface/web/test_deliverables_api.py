@@ -20,6 +20,7 @@ def test_deliverables_api_returns_single_revision_package(tmp_path):
     assert package["format"] == "ai4mbse.engineering-deliverable.v1"
     assert package["revision"] == package["artifacts"]["model"]["content"]["revision"]
     assert package["snapshot_hash"] == package["artifacts"]["traceability"]["content"]["snapshot_hash"]
+    assert package["artifacts"]["evidence"]["content"]["project_id"] == "p1"
 
 
 def test_deliverables_download_is_zip(tmp_path):
@@ -35,6 +36,7 @@ def test_deliverables_download_is_zip(tmp_path):
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
         assert "architecture-report.md" in archive.namelist()
         assert "vv-plan.md" in archive.namelist()
+        assert "evidence.json" in archive.namelist()
 
 
 def test_downloaded_sysml_can_be_imported_and_edited(tmp_path):
