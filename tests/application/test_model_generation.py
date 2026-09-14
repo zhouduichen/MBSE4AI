@@ -1,4 +1,5 @@
 from pathlib import Path
+from dataclasses import replace
 
 import pytest
 
@@ -9,6 +10,7 @@ from rflp_lite.domain.model import AddEntity, ModelGraph, Patch, Relation, Updat
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.application.model_generation import build_traceability_summary
 from rflp_lite.application.model_generation import ModelGenerationService
+from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
 from rflp_lite.application.tool_layer import ToolResult
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionResponse
 from rflp_lite.methodology.controller import ControllerAction, ControllerPlan
@@ -174,6 +176,598 @@ class FeedbackFunctionalModel(ScriptedModel):
                     },
                 }]
         return response
+
+
+class CompleteVerticalModel(ScriptedModel):
+    """Deterministic stand-in for one complete structured remote-model run."""
+
+    def complete_json(self, request):
+        recorded = super().complete_json(request)
+        return replace(recorded, payload=self._proposal(request))
+
+    def _proposal(self, request):
+        context = request.user_payload["context"]["entities"]
+        by_kind = {}
+        for item in context:
+            by_kind.setdefault(item["kind"], []).append(item)
+        payload = {
+            "entities": [],
+            "relations": [],
+            "updates": [],
+            "deprecations": [],
+            "reason": f"完成 {request.lens_id} 的结构化建模",
+            "assumptions": ["结构化夹具只表达可由当前 ModelGraph 证明的工程事实"],
+            "open_questions": [],
+            "decision_records": [{
+                "step": request.lens_id,
+                "decision": "沿当前上下文补齐本阶段的可追溯模型元素",
+                "basis": [item["id"] for item in context[:3]],
+            }],
+        }
+
+        def entity(local_ref, kind, name, data):
+            payload["entities"].append({
+                "local_ref": local_ref,
+                "kind": kind,
+                "name": name,
+                "payload": data,
+                "confidence": 0.95,
+                "source_ids": [],
+                "evidence_ids": [],
+                "lifecycle_ids": [],
+            })
+
+        def relation(source_ref, predicate, target_ref):
+            payload["relations"].append({
+                "source_ref": source_ref,
+                "predicate": predicate,
+                "target_ref": target_ref,
+                "evidence_ids": [],
+            })
+
+        def update(entity_id, data):
+            payload["updates"].append({
+                "entity_id": entity_id,
+                "field_patch": {"payload": data},
+            })
+
+        requirement = by_kind[EntityKind.REQUIREMENT.value][0]
+        requirement_id = requirement["id"]
+        if request.lens_id == "vertical.requirements":
+            entity(
+                "system-1", "system", "校园配送系统",
+                {
+                    "mission": "在校园内完成可追踪配送",
+                    "system_boundary": {
+                        "inside": ["配送服务能力"],
+                        "outside": ["校园道路环境"],
+                    },
+                    "objectives": ["按时完成配送", "异常时支持人工接管"],
+                    "environment_assumptions": ["校园网络和道路可用"],
+                    "exclusions": ["不预设具体硬件厂商"],
+                    "open_questions": [],
+                },
+            )
+            entity(
+                "stakeholder-1", "stakeholder", "配送运营人员",
+                {"role": "任务运营", "goal": "掌握任务状态并处理异常"},
+            )
+            entity(
+                "concern-1", "concern", "任务可靠性与运营可用性",
+                {
+                    "topic": "异常场景下任务仍可追踪",
+                    "description": "异常时运营人员可以识别状态并接管任务",
+                    "type": "operational_goal",
+                    "goal": "保持任务闭环",
+                    "rationale": "来自用户输入中的人工接管目标",
+                },
+            )
+            entity(
+                "lifecycle-1", "lifecycle_stage", "设计到运行生命周期",
+                {"stage": "operation", "sequence": ["设计", "部署", "运行", "维护"]},
+            )
+            entity(
+                "transition-1", "lifecycle_transition", "部署到运行",
+                {"from_stage": "部署", "to_stage": "运行", "trigger": "部署验收完成"},
+            )
+            entity(
+                "hypothesis-1", "scenario_hypothesis", "典型校园配送场景",
+                {"category": "normal", "trigger": "提交配送任务", "outcome": "任务完成"},
+            )
+            entity(
+                "use-case-1", "use_case", "执行一次校园配送任务",
+                {"primary_actor": "配送运营人员", "goal": "完成可追踪配送"},
+            )
+            entity(
+                "scenario-1", "operational_scenario", "典型配送操作场景",
+                {
+                    "actor_ids": ["stakeholder-1"],
+                    "steps": ["提交任务", "执行配送", "人工接管或完成"],
+                    "exchanges": ["任务请求", "状态反馈"],
+                    "internal_component_ids": [],
+                },
+            )
+            entity(
+                "activity-1", "activity", "受理并完成配送活动",
+                {
+                    "steps": ["受理任务", "执行配送", "反馈结果"],
+                    "branches": ["人工接管"],
+                    "goal": "完成配送并反馈任务状态",
+                },
+            )
+            update(requirement_id, {
+                "stakeholder_ids": ["stakeholder-1"],
+                "derived_by": "system_requirement_derivation",
+            })
+            relation("system-1", "decomposes", "stakeholder-1")
+            relation("stakeholder-1", "hasConcern", "concern-1")
+            relation("stakeholder-1", "participatesIn", "scenario-1")
+            relation("use-case-1", "derivedFrom", "hypothesis-1")
+            relation("scenario-1", "derivedFrom", "use-case-1")
+            relation("activity-1", "occursIn", "lifecycle-1")
+            relation("transition-1", "derivedFrom", "lifecycle-1")
+            relation(requirement_id, "derivedFrom", "concern-1")
+        elif request.lens_id == "vertical.functional":
+            entity(
+                "function-1", "function", "规划并执行配送",
+                {
+                    "behavior": "根据任务完成配送并反馈状态",
+                    "inputs": ["配送任务"],
+                    "outputs": ["配送结果", "任务状态"],
+                    "decomposition": "解析任务、规划路径、执行配送、反馈结果",
+                    "logical_partition": "配送控制",
+                },
+            )
+            entity(
+                "flow-1", "functional_flow", "任务与结果流",
+                {
+                    "source_function_ids": ["function-1"],
+                    "target_function_ids": ["function-1"],
+                    "content": "任务请求、路径信息和状态反馈",
+                },
+            )
+            entity(
+                "fscenario-1", "functional_scenario", "完成配送功能场景",
+                {
+                    "function_ids": ["function-1"],
+                    "steps": ["接收任务", "规划并执行", "反馈结果"],
+                },
+            )
+            update(requirement_id, {
+                "functional_behavior_ids": ["function-1"],
+                "functional_requirement_status": "allocated",
+            })
+            relation(requirement_id, "satisfiedBy", "function-1")
+            relation("function-1", "exchangesWith", "flow-1")
+        elif request.lens_id == "vertical.logical":
+            entity(
+                "logical-1", "logical_component", "配送控制组件",
+                {
+                    "responsibility": "协调配送功能、状态和人工接管",
+                    "partition_basis": "按配送控制职责形成逻辑分区",
+                    "functional_flow_ids": [
+                        item["id"] for item in by_kind.get(EntityKind.FUNCTIONAL_FLOW.value, [])
+                    ],
+                    "shared_state_ids": ["state-1"],
+                    "dependencies": [],
+                    "cohesion": "high",
+                    "coupling": "low",
+                    "architecture_rationale": "单一逻辑组件承载当前配送功能，保持职责闭合",
+                },
+            )
+            entity(
+                "interface-1", "interface", "配送任务交互接口",
+                {
+                    "protocol": "logical-message",
+                    "exchanges": ["task_request", "task_status", "handover"],
+                    "connected_component_ids": ["logical-1"],
+                },
+            )
+            entity(
+                "state-1", "state", "配送任务状态",
+                {
+                    "values": ["待受理", "执行中", "人工接管", "完成", "失败"],
+                    "transitions": ["待受理->执行中", "执行中->完成", "执行中->人工接管"],
+                    "owner_id": "logical-1",
+                },
+            )
+            function_ids = [item["id"] for item in by_kind.get(EntityKind.FUNCTION.value, [])]
+            for function_id in function_ids:
+                relation(function_id, "allocatedTo", "logical-1")
+                relation(function_id, "exchangesWith", "interface-1")
+            relation("logical-1", "connectedTo", "interface-1")
+            relation("logical-1", "decomposes", "state-1")
+        elif request.lens_id == "vertical.physical":
+            logical = by_kind[EntityKind.LOGICAL_COMPONENT.value][0]
+            functions = by_kind.get(EntityKind.FUNCTION.value, [])
+            function_ids = [item["id"] for item in functions]
+            decision = self._controller_decision(request)
+            selected_option = str(decision.get("option", "")).strip()
+            if selected_option == "更换物理候选或计算架构":
+                name = "配送执行单元替代方案"
+                candidate_id = make_entity(EntityKind.PHYSICAL_BLOCK, name).id
+                entity(
+                    "physical-alternative", "physical_block", name,
+                    self._physical_payload(
+                        logical["id"], function_ids, requirement_id, candidate_id,
+                        decision=decision,
+                        alternative=True,
+                    ),
+                )
+                relation(logical["id"], "allocatedTo", "physical-alternative")
+                relation(requirement_id, "satisfiedBy", "physical-alternative")
+            else:
+                entity(
+                    "physical-1", "physical_block", "配送执行单元",
+                    self._physical_payload(
+                        logical["id"], function_ids, requirement_id,
+                        make_entity(EntityKind.PHYSICAL_BLOCK, "配送执行单元").id,
+                    ),
+                )
+                relation(logical["id"], "allocatedTo", "physical-1")
+            if selected_option != "更换物理候选或计算架构":
+                update(requirement_id, {
+                    "feasibility_review": {
+                        "status": "reviewed",
+                        "measured_values": {"status": "not_executed"},
+                        "physical_candidate_ids": ["physical-1"],
+                    },
+                })
+        elif request.lens_id == "vertical.verification_validation":
+            requirements = by_kind.get(EntityKind.REQUIREMENT.value, [])
+            functions = by_kind.get(EntityKind.FUNCTION.value, [])
+            logicals = by_kind.get(EntityKind.LOGICAL_COMPONENT.value, [])
+            physicals = by_kind.get(EntityKind.PHYSICAL_BLOCK.value, [])
+            activities = by_kind.get(EntityKind.ACTIVITY.value, [])
+            scenarios = (
+                by_kind.get(EntityKind.OPERATIONAL_SCENARIO.value, [])
+                + by_kind.get(EntityKind.FUNCTIONAL_SCENARIO.value, [])
+            )
+            scope = {
+                "requirement_ids": [item["id"] for item in requirements],
+                "function_ids": [item["id"] for item in functions],
+                "logical_component_ids": [item["id"] for item in logicals],
+                "physical_ids": [item["id"] for item in physicals],
+            }
+            activity_ids = [item["id"] for item in activities]
+            scenario_ids = [item["id"] for item in scenarios]
+            branches = ["人工接管"] if activity_ids else []
+            existing_verifications = by_kind.get(EntityKind.VERIFICATION_CASE.value, [])
+            existing_validations = by_kind.get(EntityKind.VALIDATION_CASE.value, [])
+            if existing_verifications or existing_validations:
+                for item in existing_verifications:
+                    update(item["id"], {
+                        **scope,
+                        "cross_analysis_status": "checked",
+                        "traceability_checked": True,
+                    })
+                for item in existing_validations:
+                    update(item["id"], scope)
+            else:
+                entity(
+                    "verification-1", "verification_case", "验证配送需求",
+                    {
+                        **scope,
+                        "method": "test",
+                        "precondition": "系统处于可测试初始状态",
+                        "input": "配送任务和人工接管指令",
+                        "procedure": "执行正常、失败和人工接管分支并记录结果",
+                        "expected_result": "任务完成或人工接管后状态保持可追踪",
+                        "pass_criteria": "所有步骤满足需求并保留结果记录",
+                        "scenario_ids": scenario_ids,
+                        "activity_ids": activity_ids,
+                        "covered_branches": branches,
+                        "evidence_ids": [],
+                        "execution_evidence_ids": [],
+                        "verification_objective": "验证配送功能和人工接管要求",
+                        "constraint_fields": [],
+                        "evidence_required": False,
+                        "open_questions": ["尚未执行真实测试"],
+                        "cross_analysis_status": "checked",
+                        "traceability_checked": True,
+                    },
+                )
+                entity(
+                    "validation-1", "validation_case", "确认配送使用场景",
+                    {
+                        **scope,
+                        "method": "demonstration",
+                        "precondition": "目标用户和典型配送场景可用",
+                        "input": "真实配送任务和用户接管操作",
+                        "procedure": "邀请运营人员执行典型场景并确认任务体验",
+                        "expected_result": "运营人员确认任务状态清晰且可在异常时接管",
+                        "pass_criteria": "用户确认场景目标达成",
+                        "scenario_ids": scenario_ids,
+                        "activity_ids": activity_ids,
+                        "covered_branches": branches,
+                        "evidence_ids": [],
+                        "execution_evidence_ids": [],
+                        "verification_objective": "确认典型场景满足用户目标",
+                        "constraint_fields": [],
+                        "evidence_required": False,
+                        "open_questions": ["尚未执行真实用户确认"],
+                    },
+                )
+                entity(
+                    "hazard-1", "hazard", "风险：配送任务未完成",
+                    {
+                        "description": "执行条件异常或人工接管失败导致任务目标未达成",
+                        "requirement_ids": [requirement_id],
+                        "activity_ids": activity_ids,
+                        "branches": branches,
+                    },
+                )
+                entity(
+                    "failure-1", "failure_mode", "失效模式：任务状态丢失",
+                    {
+                        "effect": "运营人员无法确认任务状态",
+                        "cause": "异常分支未写入可追踪状态",
+                        "requirement_ids": [requirement_id],
+                        "activity_ids": activity_ids,
+                    },
+                )
+                relation(requirement_id, "verifiedBy", "verification-1")
+                relation(requirement_id, "validatedBy", "validation-1")
+                relation("hazard-1", "derivedFrom", requirement_id)
+                relation("hazard-1", "causes", "failure-1")
+                relation("hazard-1", "mitigatedBy", "verification-1")
+                relation("failure-1", "mitigatedBy", "verification-1")
+            if not existing_verifications:
+                update(requirement_id, {
+                    "feasibility_review": {
+                        "status": "reviewed",
+                        "physical_candidate_ids": [item["id"] for item in physicals],
+                    },
+                })
+        return payload
+
+    @staticmethod
+    def _controller_decision(request):
+        decisions = request.user_payload.get("controller_decisions", [])
+        return decisions[-1] if decisions and isinstance(decisions[-1], dict) else {}
+
+    @staticmethod
+    def _physical_payload(logical_id, function_ids, requirement_id, physical_id, *, decision=None, alternative=False):
+        impact_chain = {
+            "requirement_ids": [requirement_id],
+            "function_ids": list(function_ids),
+            "logical_ids": [logical_id],
+            "physical_ids": [physical_id],
+        }
+        payload = {
+            "candidate_type": "可部署配送执行单元",
+            "vendor": "工程候选",
+            "part_number": "候选方案-A" if not alternative else "候选方案-B",
+            "constraints": ["满足配送控制逻辑职责"],
+            "constraint_provenance": [],
+            "logical_id": logical_id,
+            "measurement_status": "design_estimate",
+            "technical_requirement_status": "no_explicit_constraints",
+            "trade_study": {
+                "alternatives": ["集中式执行单元", "分布式执行单元"],
+                "selection_rationale": "按当前逻辑职责选择可部署执行单元",
+                "decision_status": "selected" if alternative else "baseline",
+            },
+            "source_logical_ids": [logical_id],
+            "source_function_ids": list(function_ids),
+            "source_requirement_ids": [requirement_id],
+            "propagated_constraints": {},
+            "propagated_constraint_provenance": [],
+            "impact_chain": impact_chain,
+            "resolution_options": [],
+            "feasibility": {
+                "status": "feasible",
+                "checks": ["mass", "power", "compute", "memory", "latency"],
+            },
+            "alternatives": ["集中式执行单元", "分布式执行单元"],
+            "selection_rationale": "保持逻辑职责完整并满足当前任务目标",
+            "rationale": "承载配送控制逻辑",
+            "mass_kg": 12.0,
+            "power_w": 40.0,
+            "compute": 8.0,
+            "memory_mb": 2048.0,
+            "latency_ms": 50.0,
+            "bandwidth_mbps": 100.0,
+            "cost": 5000.0,
+            "thermal": "nominal",
+            "reliability": "0.99",
+            "availability": "0.98",
+            "endurance_h": 12.0,
+        }
+        if alternative:
+            payload.update({
+                "candidate_variant": "alternative",
+                "architecture_decision": dict(decision or {}),
+                "open_questions": ["替代方案仍需实际部署验证"],
+            })
+        return payload
+
+
+def test_structured_runtime_generates_complete_editable_vertical_model(tmp_path: Path):
+    model = CompleteVerticalModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+    )
+    services.projects.create("robot")
+
+    result = services.generation("robot").generate(
+        "robot",
+        requirement_text="系统应在校园内完成配送并支持人工接管",
+    )
+    graph = services.model("robot").graph("robot")
+
+    assert result.status == "completed"
+    assert all(stage.status == "completed" for stage in result.stage_results)
+    assert all(stage.completion_issue_codes == () for stage in result.stage_results)
+    assert all(stage.attempts == 1 for stage in result.stage_results)
+    assert result.traceability.end_to_end_complete_count == 1
+    assert model.calls == [
+        "vertical.requirements",
+        "vertical.functional",
+        "vertical.logical",
+        "vertical.physical",
+        "vertical.verification_validation",
+    ]
+    assert {
+        EntityKind.SYSTEM,
+        EntityKind.STAKEHOLDER,
+        EntityKind.CONCERN,
+        EntityKind.LIFECYCLE_STAGE,
+        EntityKind.LIFECYCLE_TRANSITION,
+        EntityKind.SCENARIO_HYPOTHESIS,
+        EntityKind.USE_CASE,
+        EntityKind.OPERATIONAL_SCENARIO,
+        EntityKind.ACTIVITY,
+        EntityKind.REQUIREMENT,
+        EntityKind.FUNCTION,
+        EntityKind.FUNCTIONAL_FLOW,
+        EntityKind.FUNCTIONAL_SCENARIO,
+        EntityKind.LOGICAL_COMPONENT,
+        EntityKind.INTERFACE,
+        EntityKind.STATE,
+        EntityKind.PHYSICAL_BLOCK,
+        EntityKind.VERIFICATION_CASE,
+        EntityKind.VALIDATION_CASE,
+        EntityKind.HAZARD,
+        EntityKind.FAILURE_MODE,
+    } <= {item.kind for item in graph.entities}
+
+    graph_ids = {item.id for item in graph.entities}
+    graph_reference_fields = {
+        "activity_ids", "actor_ids", "connected_component_ids", "dependencies",
+        "dependency_ids", "depends_on", "depends_on_ids", "functional_behavior_ids",
+        "functional_flow_ids", "function_ids", "impact_entity_ids",
+        "internal_component_ids", "logical_component_ids", "logical_id", "logical_ids",
+        "owner_id", "physical_candidate_ids", "physical_ids", "requirement_ids",
+        "scenario_ids", "shared_state_ids", "source_context_ids", "source_function_ids",
+        "source_logical_ids", "source_physical_ids", "source_requirement_ids",
+        "stakeholder_ids", "target_function_ids",
+    }
+
+    def assert_graph_references(value, field=""):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                assert_graph_references(item, str(key))
+        elif field in graph_reference_fields:
+            references = value if isinstance(value, list) else [value]
+            assert set(references) <= graph_ids
+        elif isinstance(value, list):
+            for item in value:
+                assert_graph_references(item, field)
+
+    for entity in graph.entities:
+        assert_graph_references(entity.payload)
+    activity = next(item for item in graph.entities if item.kind is EntityKind.ACTIVITY)
+    verification = next(
+        item for item in graph.entities if item.kind is EntityKind.VERIFICATION_CASE
+    )
+    assert verification.payload["activity_ids"] == [activity.id]
+    assert verification.payload["covered_branches"] == ["人工接管"]
+
+    exported = graph_to_sysml(graph)
+    restored = sysml_to_graph(exported, "robot")
+    assert [item.as_dict() for item in restored.entities] == [
+        item.as_dict() for item in graph.entities
+    ]
+    assert restored.relations == graph.relations
+
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+    services.model("robot").apply_patch(
+        "robot",
+        Patch.create(
+            "robot",
+            "review.edit",
+            (UpdateEntity(function.id, {"payload": {"review_note": "人工可继续编辑"}}),),
+            "继续编辑结构化模型",
+            graph.revision,
+        ),
+        graph.revision,
+    )
+    edited = services.model("robot").graph("robot")
+    assert edited.revision == graph.revision + 1
+    assert edited.entity_index[function.id].payload["review_note"] == "人工可继续编辑"
+
+
+def test_complete_structured_model_supports_controller_physical_trade_study(tmp_path: Path):
+    model = CompleteVerticalModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+    )
+    services.projects.create("robot")
+    generation = services.generation("robot")
+    generated = generation.generate(
+        "robot",
+        requirement_text="系统应在校园内完成配送并支持人工接管",
+    )
+    graph = services.model("robot").graph("robot")
+    requirement = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
+    physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
+    interface = next(item for item in graph.entities if item.kind is EntityKind.INTERFACE)
+
+    accepted = services.review("robot").accept_entity(
+        "robot", interface.id, expected_revision=graph.revision
+    )
+    services.review("robot").lock_entity(
+        "robot", interface.id, expected_revision=accepted.revision["sequence"]
+    )
+    graph = services.model("robot").graph("robot")
+    locked_snapshot = graph.entity_index[interface.id].as_dict()
+    edited_requirement = services.review("robot").edit_entity(
+        "robot",
+        requirement.id,
+        payload={**requirement.payload, "constraints": {"max_power_w": 50}},
+        expected_revision=graph.revision,
+    )
+    graph = services.model("robot").graph("robot")
+    services.review("robot").edit_entity(
+        "robot",
+        physical.id,
+        payload={**physical.payload, "power_w": 80},
+        expected_revision=edited_requirement.revision["sequence"],
+    )
+    before = services.model("robot").graph("robot")
+
+    plan = generation.controller_plan("robot")
+    action = plan["next_action"]
+    assert "physical_constraint_conflict" in plan["findings"]
+    assert action["kind"] == "trade_study"
+    option = next(
+        item for item in action["options"]
+        if item["task_id"] == "allocation_tradeoff"
+    )
+
+    waiting = generation.iterate_controller(
+        "robot", expected_revision=before.revision, max_iterations=3
+    )
+    assert waiting["execution_status"] == "awaiting_decision"
+    assert waiting["revision"] == before.revision
+    assert waiting["iterations"] == []
+
+    selected = generation.execute_controller_action(
+        "robot",
+        action_id=action["id"],
+        option_id=option["id"],
+        expected_revision=before.revision,
+    )
+    after = services.model("robot").graph("robot")
+
+    assert selected["execution_status"] == "completed"
+    assert selected["reanalysis"]["selected_stages"] == [
+        "physical", "verification_validation"
+    ]
+    assert selected["reanalysis"]["before_traceability"]
+    assert selected["reanalysis"]["after_traceability"]
+    alternative = next(
+        item for item in after.entities
+        if item.kind is EntityKind.PHYSICAL_BLOCK
+        and item.payload.get("candidate_variant") == "alternative"
+    )
+    assert alternative.payload["power_w"] == 40.0
+    assert alternative.payload["architecture_decision"]["option_id"] == option["id"]
+    assert after.entity_index[interface.id].as_dict() == locked_snapshot
+    assert after.entity_index[physical.id].payload["power_w"] == 80
 
 
 class IncompleteOperationalModel(ScriptedModel):

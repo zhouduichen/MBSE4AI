@@ -21,6 +21,8 @@ _ASSURANCE_TRACE_KINDS = frozenset({
     EntityKind.LOGICAL_COMPONENT,
     EntityKind.PHYSICAL_BLOCK,
     EntityKind.OPERATIONAL_SCENARIO,
+    EntityKind.FUNCTIONAL_SCENARIO,
+    EntityKind.ACTIVITY,
     EntityKind.VERIFICATION_CASE,
     EntityKind.VALIDATION_CASE,
     EntityKind.HAZARD,
