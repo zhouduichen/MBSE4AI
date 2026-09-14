@@ -110,9 +110,11 @@ def test_pipeline_preserves_requirement_scope_for_multi_requirement_input(tmp_pa
 
     summary = services.analysis("robot").run("robot", force_new=True)
     graph = services.model("robot").graph("robot")
+    report = services.analysis("robot").pipeline_report("robot")
 
     assert summary.status is RunStatus.COMPLETED
     assert len(summary.completed_tasks) == 23
+    traceability = report["traceability"]
     physicals = {
         item.payload["source_requirement_ids"][0]: item
         for item in graph.entities
@@ -137,6 +139,16 @@ def test_pipeline_preserves_requirement_scope_for_multi_requirement_input(tmp_pa
         if item.kind is EntityKind.REQUIREMENT
         and item.payload.get("level") == "technical"
     ]
+    input_requirement_ids = {
+        item.id for item in requirements.values()
+        if item.payload.get("source") == "user_input"
+    }
+    complete_paths = traceability["paths"]
+    assert len(input_requirement_ids) == 4
+    assert traceability["complete_count"] == len(complete_paths)
+    assert traceability["end_to_end_complete_count"] == len(complete_paths)
+    assert input_requirement_ids <= {path[0] for path in complete_paths}
+    assert all(len(path) == 6 for path in traceability["paths"])
     assert len(technical) == 2
     assert all(item.payload["source_physical_ids"] == [
         physicals[item.payload["source_requirement_ids"][0]].id
