@@ -66,6 +66,42 @@ def test_requirement_detail_can_edit_statement_through_review_ui_contract(tmp_pa
     assert "执行重新分析" in page.text
 
 
+def test_statement_edit_preserves_existing_requirement_payload(tmp_path):
+    client, requirement_id = _client_with_fixture(tmp_path)
+    model = client.get("/projects/p1/model").json()
+    requirement = next(item for item in model["entities"] if item["id"] == requirement_id)
+    seeded = client.patch(
+        f"/projects/p1/entities/{requirement_id}",
+        json={
+            "expected_revision": model["revision"],
+            "field_patch": {
+                "payload": {
+                    **requirement["payload"],
+                    "constraints": {"max_power_w": 50},
+                    "source_document": "requirements.txt",
+                },
+            },
+        },
+    )
+    assert seeded.status_code == 200
+
+    edited = client.post(
+        f"/projects/p1/entities/{requirement_id}/edit",
+        json={
+            "expected_revision": seeded.json()["revision"]["sequence"],
+            "statement": "Battery shall last 10 hours",
+        },
+    )
+
+    assert edited.status_code == 200
+    current = client.get("/projects/p1/model").json()
+    updated = next(item for item in current["entities"] if item["id"] == requirement_id)
+    assert updated["payload"]["statement"] == "Battery shall last 10 hours"
+    assert updated["payload"]["constraints"] == {"max_power_w": 50}
+    assert updated["payload"]["source_document"] == "requirements.txt"
+    assert updated["payload"]["user_modified"] is True
+
+
 def test_accepted_requirement_detail_exposes_reject_and_lock(tmp_path):
     client, requirement_id = _client_with_fixture(tmp_path)
     assert client.post(f"/projects/p1/entities/{requirement_id}/accept", json={"expected_revision": 1}).status_code == 200

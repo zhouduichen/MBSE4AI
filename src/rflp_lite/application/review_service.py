@@ -84,7 +84,7 @@ class ReviewService:
         entity = self._entity(project_id, entity_id)
         if entity.meta.status is EntityStatus.LOCKED:
             raise ConflictError(f"locked entity cannot be edited: {entity_id}")
-        next_payload = dict(payload or {})
+        next_payload = dict(entity.payload) if payload is None else dict(payload)
         if statement is not None:
             next_payload["statement"] = str(statement).strip()
         if not next_payload and name is None:

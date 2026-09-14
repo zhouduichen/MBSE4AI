@@ -860,10 +860,10 @@ async def _run_review_command(request: Request, project_id: str, entity_id: str,
     elif action == "unlock":
         result = service.unlock_entity(project_id, entity_id, expected_revision=expected)
     elif action == "edit":
-        raw_payload = payload.get("payload", {})
-        if not isinstance(raw_payload, Mapping):
+        raw_payload = payload.get("payload")
+        if raw_payload is not None and not isinstance(raw_payload, Mapping):
             raise ContractViolation("payload must be an object")
-        result = service.edit_entity(project_id, entity_id, statement=str(payload["statement"]) if payload.get("statement") is not None else None, name=str(payload["name"]) if payload.get("name") is not None else None, payload=dict(raw_payload), expected_revision=expected)
+        result = service.edit_entity(project_id, entity_id, statement=str(payload["statement"]) if payload.get("statement") is not None else None, name=str(payload["name"]) if payload.get("name") is not None else None, payload=dict(raw_payload) if isinstance(raw_payload, Mapping) else None, expected_revision=expected)
     elif action == "reanalyze":
         return {"status": "ok", "reanalysis": service.request_reanalysis(project_id, entity_id, expected_revision=expected)}
     else:
