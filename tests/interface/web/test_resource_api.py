@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from rflp_lite.application.sysml_v2 import graph_to_sysml
-from rflp_lite.domain.entities import EntityKind, make_entity
+from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.interface.web.app import create_app
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
@@ -105,7 +105,14 @@ def test_partial_sysml_model_can_start_analysis_without_requirement_text(tmp_pat
     source = graph_to_sysml(
         ModelGraph(
             "source",
-            (make_entity(EntityKind.FUNCTION, "已有配送功能"),),
+            (
+                make_entity(
+                    EntityKind.FUNCTION,
+                    "已有配送功能",
+                    status=EntityStatus.ACCEPTED,
+                    producer=Producer.IMPORT,
+                ),
+            ),
             (),
             0,
         )
@@ -120,3 +127,8 @@ def test_partial_sysml_model_can_start_analysis_without_requirement_text(tmp_pat
 
     assert response.status_code == 200
     assert response.json()["run"]["mode"] == "generate"
+    model = client.get("/projects/p1/model").json()
+    assert sum(item["kind"] == "requirement" for item in model["entities"]) == 1
+    assert sum(item["kind"] == "function" for item in model["entities"]) == 1
+    assert any(item["kind"] == "physical_block" for item in model["entities"])
+    assert response.json()["run"]["traceability"]["complete_count"] == 1

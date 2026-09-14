@@ -2,15 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the default vertical generator derive a reviewable Requirement from an existing partial ModelGraph when the input contains operational or system context but no requirement yet.
+**Goal:** Make the default vertical generator derive a reviewable Requirement from an existing partial ModelGraph and reuse any compatible Function/Logical/Physical chain while completing the missing product layers.
 
-**Architecture:** Keep ModelGraph as the source of truth and add the derived Requirement inside the existing `vertical.requirements` rule runtime. The derivation only uses typed fields already present in the graph, preserves idempotence, and then lets the existing Functional, Logical, Physical, and V&V stages consume the new requirement normally.
+**Architecture:** Keep ModelGraph as the source of truth and add the derived Requirement inside the existing `vertical.requirements` rule runtime. The derivation only uses typed fields already present in the graph, preserves idempotence, and carries source IDs through the existing Functional/Logical/Physical stages so compatible imported architecture is linked and reused instead of copied.
 
 **Tech Stack:** Python 3.12, immutable ModelGraph patches, pytest, existing `VerticalRuleRuntime` and `ModelGenerationService`.
 
 ## Global Constraints
 
 - Do not replace user-modified or locked entities.
+- Reuse existing Function, LogicalComponent, and PhysicalBlock entities when typed source or allocation links identify them.
 - Do not invent vendor, component, or measured physical values.
 - Preserve typed relations and the existing five-stage order.
 - Keep the derived Requirement reviewable and traceable to its source context.
@@ -22,14 +23,15 @@
 **Files:**
 - Modify: `tests/e2e/test_vertical_model_generation.py`
 - Modify: `tests/runtime/test_vertical_rule_runtime.py`
+- Modify: `tests/interface/web/test_resource_api.py`
 
 **Interfaces:**
 - Consumes: `build_v2_services`, `VerticalRuleRuntime`, `EntityKind`, `RelationPredicate`.
-- Produces: regression coverage proving a partial operational model can enter the existing five-stage product path and that the runtime emits a typed, source-linked Requirement.
+- Produces: regression coverage proving partial operational and architectural models can enter the existing five-stage product path, that the runtime emits a typed source-linked Requirement, and that accepted Function/Logical/Physical entities are reused.
 
 - [ ] **Step 1: Write the failing end-to-end test**
 
-Add a test that seeds a project with one existing `ACTIVITY` using the existing `Patch`/`AddEntity` API, runs `generate` without `requirement_text`, and asserts the generated Requirement, complete trace, and source relation:
+Add a test that seeds a project with one existing `ACTIVITY` using the existing `Patch`/`AddEntity` API, runs `generate` without `requirement_text`, and asserts the generated Requirement, complete trace, and source relation. Add a second test with accepted Function→LogicalComponent→PhysicalBlock entities and allocation links, and assert each architecture kind remains a single entity after generation.
 
 ```python
 def test_partial_operational_model_derives_requirement_and_completes_vertical_chain(tmp_path: Path):
@@ -70,7 +72,7 @@ Expected: FAIL because the current offline Requirements stage leaves a partial g
 
 - [ ] **Step 3: Add direct runtime coverage for source selection and idempotence**
 
-Add a test in `tests/runtime/test_vertical_rule_runtime.py` that builds a `ContextBundle` containing an `ACTIVITY` with `goal`, executes `vertical.requirements`, and asserts exactly one Requirement is in the patch with `derived_from_kind`, `source_context_ids`, `statement`, and a `derivedFrom` relation. Execute the same request against the patched graph and assert the second response has `patch is None`, proving no new Requirement is emitted.
+Add tests in `tests/runtime/test_vertical_rule_runtime.py` that build `ContextBundle` values containing Activity and Function context, execute `vertical.requirements`, and assert exactly one Requirement is in each patch with `derived_from_kind`, `source_context_ids`, `statement`, and a `derivedFrom` relation. Execute the Activity request again against the patched graph and assert the second response has `patch is None`, proving no new Requirement is emitted.
 
 - [ ] **Step 4: Run the runtime test and verify it fails**
 
@@ -84,12 +86,12 @@ Expected: the new source-link assertions fail because the runtime currently only
 - Modify: `src/rflp_lite/runtime/rule_based.py`
 
 **Interfaces:**
-- Consumes: `_VerticalPatchBuilder`, `EntityKind.ACTIVITY`, `EntityKind.OPERATIONAL_SCENARIO`, `EntityKind.SYSTEM`, and `make_entity` through the existing builder.
+- Consumes: `_VerticalPatchBuilder`, typed Activity/Scenario/System/Function/LogicalComponent/PhysicalBlock context, and existing `make_entity`/allocation links.
 - Produces: a validated derived Requirement in the `vertical.requirements` patch, linked with `RelationPredicate.DERIVED_FROM` to the selected context entity.
 
 - [ ] **Step 1: Add bounded context selection helpers**
 
-Implement helpers next to `_requirements` that select the first active Activity with a non-empty `goal`, `objective`, `purpose`, or `statement`; otherwise select an Operational Scenario with `goal`, `outcome`, or `name`; otherwise select a System with `mission`; and finally use the project id. Return both the short source text and source entity. Strip sentence punctuation, cap the text at 48 characters, and never use a placeholder such as `待确认`.
+Implement helpers next to `_requirements` that select the first active Activity with a non-empty `goal`, `objective`, `purpose`, or `statement`; otherwise select an Operational Scenario, Use Case, Scenario Hypothesis, System, Function, LogicalComponent, or PhysicalBlock using its typed purpose field and finally its name. Return both the short source text and source entity. Strip sentence punctuation, cap the text at 48 characters, and never use a placeholder such as `待确认`.
 
 - [ ] **Step 2: Create the Requirement only when the stage has none**
 
@@ -116,7 +118,11 @@ requirements = (derived,)
 
 Use the existing builder so status, producer, stable identity, revision, and idempotence follow the current patch contract. If no active context entity exists, use the project id as the subject and do not create a fabricated relation.
 
-- [ ] **Step 3: Run focused tests and verify they pass**
+- [ ] **Step 3: Reuse compatible downstream entities**
+
+Carry `source_context_ids` into newly generated Function and LogicalComponent payloads. When a derived Requirement points to an existing Function, add `satisfiedBy` to that Function instead of creating a duplicate; when a Function already has an `allocatedTo` LogicalComponent, reuse it; when a LogicalComponent already has an `allocatedTo` PhysicalBlock, reuse it. Do not update the payload of existing locked or user-modified entities.
+
+- [ ] **Step 4: Run focused tests and verify they pass**
 
 Run: `./.venv/bin/pytest tests/runtime/test_vertical_rule_runtime.py tests/e2e/test_vertical_model_generation.py::test_partial_operational_model_derives_requirement_and_completes_vertical_chain -q`
 
@@ -134,7 +140,7 @@ Expected: PASS.
 
 - [ ] **Step 1: Document the supported partial-model entry**
 
-Update the existing input sections to state that a non-empty imported or manually edited ModelGraph may omit Requirement; the Requirements stage derives one from typed Activity, Operational Scenario, or System context, marks it as a reviewable generated entity, and records `derivedFrom` traceability.
+Update the existing input sections to state that a non-empty imported or manually edited ModelGraph may omit Requirement; the Requirements stage derives one from typed operational or architecture context, marks it as a reviewable generated entity, and records `derivedFrom` traceability. Compatible existing Function/Logical/Physical entities are linked and reused.
 
 - [ ] **Step 2: Run the full quality gate**
 
@@ -149,7 +155,7 @@ Run: `git diff --check && git status --short && git diff --stat`
 Expected: only the planned runtime, tests, documentation, and plan files are changed. Commit with:
 
 ```bash
-git add src/rflp_lite/runtime/rule_based.py tests/e2e/test_vertical_model_generation.py tests/runtime/test_vertical_rule_runtime.py README.md docs/CURRENT_ARCHITECTURE.md docs/superpowers/plans/2026-09-14-partial-model-requirement-derivation.md
+git add src/rflp_lite/runtime/rule_based.py tests/e2e/test_vertical_model_generation.py tests/runtime/test_vertical_rule_runtime.py tests/interface/web/test_resource_api.py README.md docs/CURRENT_ARCHITECTURE.md docs/superpowers/plans/2026-09-14-partial-model-requirement-derivation.md
 git commit -m "feat: derive requirements from partial models"
 ```
 
@@ -163,4 +169,4 @@ Expected: the branch is up to date with origin and the commit hash is reported t
 
 - Spec coverage: this slice covers the stated existing-model input path, preserves ModelGraph as the semantic source, and reuses the full R→F→L→P→V&V pipeline; it does not expand the 23-task compatibility path.
 - Placeholder scan: no TODO/TBD steps are used; all implementation and verification commands are concrete.
-- Type consistency: tests use the existing `services.model(...).add_entity` API and the runtime uses existing `EntityKind`, `RelationPredicate`, and `_VerticalPatchBuilder` interfaces.
+- Type consistency: tests use the existing `ModelService.apply_patch` API and the runtime uses existing `EntityKind`, `RelationPredicate`, and `_VerticalPatchBuilder` interfaces.

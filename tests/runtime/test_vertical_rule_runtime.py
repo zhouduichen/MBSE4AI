@@ -52,6 +52,25 @@ def test_requirements_stage_derives_one_requirement_from_existing_activity_and_i
     assert repeat.patch is None
 
 
+def test_requirements_stage_derives_from_existing_function_context():
+    function = make_entity(
+        EntityKind.FUNCTION,
+        "已有温度告警功能",
+        {"behavior": "监测仓储温度并在超限时告警"},
+    )
+
+    response = VerticalRuleRuntime().execute(_requirements_request((function,)))
+    requirement = next(
+        operation.entity
+        for operation in response.patch.operations
+        if hasattr(operation, "entity") and operation.entity.kind is EntityKind.REQUIREMENT
+    )
+
+    assert requirement.payload["derived_from_kind"] == EntityKind.FUNCTION.value
+    assert requirement.payload["source_context_ids"] == [function.id]
+    assert requirement.payload["statement"] == "系统应监测仓储温度并在超限时告警"
+
+
 def _logical_request(entities, relations=(), decision=None):
     context = ContextBundle(
         "robot", "vertical.logical", 3, tuple(entities), tuple(relations),

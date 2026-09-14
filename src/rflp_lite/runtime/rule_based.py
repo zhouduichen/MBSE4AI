@@ -430,17 +430,29 @@ class VerticalRuleRuntime:
         requirements = _requirements(request)
         domain = _domain_label(requirements) or builder.context.project_id
         for requirement in requirements:
-            function = builder.add(EntityKind.FUNCTION, f"执行：{requirement.meta.name[:36]}", {
-                "behavior": f"实现{requirement.meta.name}",
-                "inputs": [],
-                "outputs": ["执行结果"],
-                "decomposition": [
-                    f"解析{requirement.meta.name}",
-                    f"执行{requirement.meta.name}",
-                    "产生并反馈结果",
-                ],
-                "source_requirement_id": requirement.id,
-            })
+            source_context_ids = _source_context_ids(requirement)
+            function = next(
+                (
+                    item for item in _context_entities(
+                        request.context_bundle, EntityKind.FUNCTION
+                    )
+                    if item.id in source_context_ids
+                ),
+                None,
+            )
+            if function is None:
+                function = builder.add(EntityKind.FUNCTION, f"执行：{requirement.meta.name[:36]}", {
+                    "behavior": f"实现{requirement.meta.name}",
+                    "inputs": [],
+                    "outputs": ["执行结果"],
+                    "decomposition": [
+                        f"解析{requirement.meta.name}",
+                        f"执行{requirement.meta.name}",
+                        "产生并反馈结果",
+                    ],
+                    "source_requirement_id": requirement.id,
+                    "source_context_ids": sorted(source_context_ids),
+                })
             builder.relate(requirement, RelationPredicate.SATISFIED_BY, function)
         functions = _builder_entities(builder, EntityKind.FUNCTION)
         flow = builder.add(EntityKind.FUNCTIONAL_FLOW, f"{domain}信息交互流", {
@@ -522,6 +534,11 @@ class VerticalRuleRuntime:
                 "shared_state": shared_state,
                 "timing_constraints": timing_constraints,
                 "safety_isolation": ["人工接管路径与自动执行路径隔离"],
+                "source_context_ids": sorted({
+                    source_id
+                    for function in group
+                    for source_id in _source_context_ids(function)
+                }),
                 "cohesion": "high",
                 "coupling": "controlled" if len(group) == 1 else "high",
                 "interfaces": [],
@@ -538,7 +555,14 @@ class VerticalRuleRuntime:
                 })
                 if blocked:
                     payload["blocked_by_locked_entity"] = True
-            logical_components.append(builder.add(EntityKind.LOGICAL_COMPONENT, name, payload))
+            existing = (
+                _existing_logical_for_group(builder.context, group)
+                if not variant
+                else None
+            )
+            logical_components.append(
+                existing or builder.add(EntityKind.LOGICAL_COMPONENT, name, payload)
+            )
         if not logical_components:
             return builder.response()
         suffix = f"（{variant}）" if variant else ""
@@ -594,7 +618,7 @@ class VerticalRuleRuntime:
                         and relation.predicate is RelationPredicate.ALLOCATED_TO
                         and relation.target_id == candidate.id
                         for relation in request.context_bundle.relations
-                    )
+                    ) or candidate.id in _source_context_ids(logical)
                 ),
                 None,
             )
@@ -861,12 +885,43 @@ def _requirements(request: TaskExecutionRequest):
     )
 
 
+def _source_context_ids(entity) -> set[str]:
+    raw = entity.payload.get("source_context_ids", ())
+    if not isinstance(raw, (list, tuple, set)):
+        return set()
+    return {str(item).strip() for item in raw if str(item).strip()}
+
+
+def _existing_logical_for_group(context, group):
+    source_ids = {
+        source_id
+        for function in group
+        for source_id in _source_context_ids(function)
+    }
+    logicals = _context_entities(context, EntityKind.LOGICAL_COMPONENT)
+    for logical in logicals:
+        if logical.id in source_ids:
+            return logical
+    for function in group:
+        for relation in context.relations:
+            if (
+                relation.source_id == function.id
+                and relation.predicate is RelationPredicate.ALLOCATED_TO
+                and any(logical.id == relation.target_id for logical in logicals)
+            ):
+                return next(logical for logical in logicals if logical.id == relation.target_id)
+    return None
+
+
 _DERIVATION_FIELDS: dict[EntityKind, tuple[str, ...]] = {
     EntityKind.ACTIVITY: ("goal", "objective", "purpose", "statement"),
     EntityKind.OPERATIONAL_SCENARIO: ("goal", "outcome", "objective", "statement"),
     EntityKind.USE_CASE: ("goal", "objective", "success", "statement"),
     EntityKind.SCENARIO_HYPOTHESIS: ("outcome", "goal", "objective", "statement"),
     EntityKind.SYSTEM: ("mission", "objective", "statement"),
+    EntityKind.FUNCTION: ("behavior", "objective", "purpose", "statement"),
+    EntityKind.LOGICAL_COMPONENT: ("responsibility", "objective", "purpose", "statement"),
+    EntityKind.PHYSICAL_BLOCK: ("solution_class", "candidate_type", "purpose", "statement"),
 }
 _DERIVATION_PLACEHOLDERS = frozenset({"", "待确认", "候选", "unknown", "tbd"})
 
@@ -878,8 +933,8 @@ def _derived_requirement_source(context):
         for entity in context.entities:
             if entity.kind is not kind or entity.meta.status is EntityStatus.DEPRECATED:
                 continue
-            for field in fields:
-                raw = entity.payload.get(field)
+            for field in (*fields, "__name__"):
+                raw = entity.meta.name if field == "__name__" else entity.payload.get(field)
                 values = raw if isinstance(raw, (list, tuple)) else (raw,)
                 for value in values:
                     text = " ".join(str(value or "").split()).strip(" ：:、—-\t\n")

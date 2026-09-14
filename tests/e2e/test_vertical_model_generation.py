@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from rflp_lite.bootstrap.v2 import build_v2_services
-from rflp_lite.domain.entities import EntityKind, make_entity
-from rflp_lite.domain.model import AddEntity, Patch, UpdateEntity
+from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
+from rflp_lite.domain.model import AddEntity, Patch, Relation, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
@@ -45,6 +45,65 @@ def test_partial_operational_model_derives_requirement_and_completes_vertical_ch
         for relation in graph.relations
     )
     assert result.traceability.complete_count == 1
+
+
+def test_partial_architecture_model_reuses_existing_function_logical_and_physical_chain(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("warehouse")
+    function = make_entity(
+        EntityKind.FUNCTION,
+        "已有温度告警功能",
+        {"behavior": "监测仓储温度并在超限时告警"},
+        status=EntityStatus.ACCEPTED,
+        producer=Producer.IMPORT,
+    )
+    logical = make_entity(
+        EntityKind.LOGICAL_COMPONENT,
+        "已有温度告警逻辑",
+        {"responsibility": "监测仓储温度并在超限时告警"},
+        status=EntityStatus.ACCEPTED,
+        producer=Producer.IMPORT,
+    )
+    physical = make_entity(
+        EntityKind.PHYSICAL_BLOCK,
+        "已有温度告警平台",
+        {"solution_class": "领域适配执行平台"},
+        status=EntityStatus.ACCEPTED,
+        producer=Producer.IMPORT,
+    )
+    graph = services.model("warehouse").graph("warehouse")
+    services.model("warehouse").apply_patch(
+        "warehouse",
+        Patch.create(
+            "warehouse",
+            "import.partial-architecture",
+            (
+                AddEntity(function),
+                AddEntity(logical),
+                AddEntity(physical),
+                Relation("function-logical", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+                Relation("logical-physical", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
+            ),
+            "导入部分架构模型",
+            graph.revision,
+        ),
+        graph.revision,
+    )
+
+    result = services.generation("warehouse").generate("warehouse")
+    graph = services.model("warehouse").graph("warehouse")
+
+    assert result.traceability.complete_count == 1
+    assert sum(item.kind is EntityKind.FUNCTION for item in graph.entities) == 1
+    assert sum(item.kind is EntityKind.LOGICAL_COMPONENT for item in graph.entities) == 1
+    assert sum(item.kind is EntityKind.PHYSICAL_BLOCK for item in graph.entities) == 1
+    requirement = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
+    assert any(
+        relation.source_id == requirement.id
+        and relation.predicate is RelationPredicate.SATISFIED_BY
+        and relation.target_id == function.id
+        for relation in graph.relations
+    )
 
 
 def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
