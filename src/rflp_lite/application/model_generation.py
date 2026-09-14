@@ -17,6 +17,7 @@ from rflp_lite.methodology.contracts import (
     RunStatus,
     StepStatus,
 )
+from rflp_lite.methodology.completion import evaluate_vertical_stage
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.engine import MethodologyEngine, MethodologyReport
@@ -60,6 +61,8 @@ class StageResult:
     open_questions: tuple[str, ...] = ()
     diagnostics: tuple[str, ...] = ()
     decision_records: tuple[Mapping[str, object], ...] = ()
+    completion_checks: tuple[Mapping[str, object], ...] = ()
+    completion_issue_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +136,8 @@ class GenerateModelResult:
                     "open_questions": list(item.open_questions),
                     "diagnostics": list(item.diagnostics),
                     "decision_records": [dict(record) for record in item.decision_records],
+                    "completion_checks": [dict(check) for check in item.completion_checks],
+                    "completion_issue_codes": list(item.completion_issue_codes),
                 }
                 for item in self.stage_results
             ],
@@ -874,14 +879,20 @@ class ModelGenerationService:
                     warnings.append(f"{stage.stage.value}: semantic_invalid: {semantic_invalid}")
             current = self.repository.load_graph(project_id)
             missing_kinds = self._missing_stage_kinds(current, stage.stage)
+            completion = evaluate_vertical_stage(stage.stage, current)
             if missing_kinds:
                 warnings.append(
                     f"{stage.stage.value}: missing required kinds: "
                     + ", ".join(kind.value for kind in missing_kinds)
                 )
+            completion_warning = _stage_completion_warning(stage.stage.value, completion.issue_codes)
+            if completion_warning:
+                warnings.append(completion_warning)
             stage_result = StageResult(
                 stage.stage.value,
-                "needs_review" if semantic_invalid or missing_kinds else "completed",
+                "needs_review"
+                if semantic_invalid or missing_kinds or completion.issue_codes
+                else "completed",
                 revision,
                 sum(
                     1
@@ -894,6 +905,8 @@ class ModelGenerationService:
                 tuple(response.open_questions),
                 tuple(response.diagnostics),
                 tuple(response.decision_records),
+                completion.checks,
+                completion.issue_codes,
             )
             warnings.extend(response.open_questions)
             self.repository.update_step(
@@ -930,6 +943,8 @@ class ModelGenerationService:
                 "open_questions": list(stage_result.open_questions),
                 "diagnostics": list(stage_result.diagnostics),
                 "decision_records": [dict(record) for record in stage_result.decision_records],
+                "completion_checks": [dict(check) for check in stage_result.completion_checks],
+                "completion_issue_codes": list(stage_result.completion_issue_codes),
             })
             return _StageExecution(stage_result, tuple(warnings))
         except Exception as exc:
@@ -1193,6 +1208,12 @@ class ModelGenerationService:
         recorder = getattr(self.repository, "record_audit", None)
         if recorder is not None:
             recorder(project_id, kind, payload)
+
+
+def _stage_completion_warning(stage: str, issue_codes: Sequence[str]) -> str:
+    if not issue_codes:
+        return ""
+    return f"{stage}: internal completion issues: " + ", ".join(issue_codes)
 
 
 def _controller_target(graph, entity_ids: tuple[str, ...], task_id: str) -> str | None:

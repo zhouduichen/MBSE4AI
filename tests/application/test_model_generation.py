@@ -230,6 +230,11 @@ def test_generation_creates_real_rflp_and_vv_objects_from_one_requirement(tmp_pa
         EntityKind.VALIDATION_CASE,
     } <= {item.kind for item in graph.entities}
     assert result.traceability.complete_count >= 1
+    assert all(
+        not stage.completion_issue_codes
+        and all(check["passed"] for check in stage.completion_checks)
+        for stage in result.stage_results
+    )
     assert result.methodology.metrics["logical_allocation_coverage"] == 1.0
     assert result.methodology.metrics["physical_feasibility"] == "needs_measurement"
     assert any(
@@ -309,7 +314,7 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
         "robot", requirement_text="系统应支持人工接管"
     )
 
-    assert result.status == "completed"
+    assert result.status == "completed_with_warnings"
     assert model.calls == [
         "vertical.requirements",
         "vertical.functional",
@@ -318,6 +323,13 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
         "vertical.verification_validation",
     ]
     assert result.traceability.complete_count == 1
+    functional_stage = result.stage_results[1]
+    assert functional_stage.status == "needs_review"
+    assert "completion_semantic:functional_requirement" in functional_stage.completion_issue_codes
+    assert any(
+        check["id"] == "functional_requirement" and not check["passed"]
+        for check in functional_stage.completion_checks
+    )
     assert result.stage_results[2].decision_records[0]["step"] == "vertical.logical"
     assert [item["task_id"] for item in model.methodology_guidances] == [
         "vertical.requirements",
@@ -460,7 +472,7 @@ def test_document_regions_are_available_as_structured_generation_evidence(tmp_pa
 
     result = services.generation("robot").generate("robot")
 
-    assert result.status == "completed"
+    assert result.status == "completed_with_warnings"
     assert any(
         evidence["source_type"] == "document_region"
         and evidence["excerpt"] == "系统应支持人工接管"

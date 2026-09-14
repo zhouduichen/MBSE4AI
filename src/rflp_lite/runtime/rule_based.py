@@ -360,6 +360,7 @@ class VerticalRuleRuntime:
                     "type": "functional",
                     "obligation": "系统应",
                     "verification_method": "test",
+                    "derived_by": "system_requirement_derivation",
                 },
             )
             if source is not None:
@@ -439,6 +440,13 @@ class VerticalRuleRuntime:
         for transition in transitions:
             builder.relate(transition, RelationPredicate.DERIVED_FROM, lifecycle)
         for requirement in requirements:
+            requirement_payload = dict(requirement.payload)
+            requirement_payload.setdefault(
+                "derived_by", "system_requirement_derivation"
+            )
+            if requirement.id in builder.index:
+                builder.update(requirement, payload=requirement_payload)
+            builder.relate(requirement, RelationPredicate.DERIVED_FROM, concern)
             builder.relate(requirement, RelationPredicate.DERIVED_FROM, activity)
         return builder.response()
 
@@ -483,6 +491,26 @@ class VerticalRuleRuntime:
                 builder.update(function, name=function_name, payload=function_payload)
             builder.relate(requirement, RelationPredicate.SATISFIED_BY, function)
         functions = _builder_entities(builder, EntityKind.FUNCTION)
+        for requirement in requirements:
+            function_ids = [
+                function.id
+                for function in functions
+                if function.payload.get("source_requirement_id") == requirement.id
+            ]
+            if not function_ids:
+                function_ids = [
+                    relation.target_id
+                    for relation in request.context_bundle.relations
+                    if relation.source_id == requirement.id
+                    and relation.predicate is RelationPredicate.SATISFIED_BY
+                    and relation.target_id in {function.id for function in functions}
+                ]
+            requirement_payload = dict(requirement.payload)
+            requirement_payload.update({
+                "functional_behavior_ids": sorted(set(function_ids)),
+                "functional_requirement_status": "allocated",
+            })
+            builder.update(requirement, payload=requirement_payload)
         flow_payload = {"direction": "双向", "content": f"{domain}任务与结果"}
         flow = next(
             (
@@ -721,6 +749,8 @@ class VerticalRuleRuntime:
                 else f"{logical.meta.name}执行平台"
             )
             payload = dict(_physical_payload(logical, requirements))
+            if not any(_explicit_constraint_map(item) for item in requirements):
+                payload["technical_requirement_status"] = "no_explicit_constraints"
             if physical_variant == "更换物理候选或计算架构":
                 name = f"{name}替代候选"
                 payload.update({
@@ -760,6 +790,14 @@ class VerticalRuleRuntime:
                             alternative_payload,
                         )
             builder.relate(logical, RelationPredicate.ALLOCATED_TO, physical)
+            for requirement in requirements:
+                requirement_payload = dict(requirement.payload)
+                requirement_payload["feasibility_review"] = {
+                    "status": "needs_measurement",
+                    "measured_values": None,
+                    "physical_candidate_ids": [physical.id],
+                }
+                builder.update(requirement, payload=requirement_payload)
             for requirement in requirements:
                 constraints = _explicit_constraint_map(requirement)
                 if not constraints:
@@ -813,6 +851,7 @@ class VerticalRuleRuntime:
                 "scenario_ids": [],
                 "activity_ids": activity_ids,
                 "covered_branches": branch_names,
+                "cross_analysis_status": "checked",
             }
             verification = _related_context_entity(
                 request.context_bundle,

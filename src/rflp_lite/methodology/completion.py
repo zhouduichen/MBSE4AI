@@ -10,6 +10,7 @@ from rflp_lite.domain.model import ModelGraph
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import TaskExecutionResponse, TaskSpec
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
+from rflp_lite.methodology.vertical_generation import VerticalStageSpec, stage_spec
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +18,23 @@ class CompletionResult:
     passed: bool
     checks: tuple[Mapping[str, object], ...] = ()
     issue_codes: tuple[str, ...] = ()
+
+
+def evaluate_vertical_stage(
+    stage: VerticalStageSpec | str,
+    graph: ModelGraph,
+) -> CompletionResult:
+    """Evaluate the fine-grained reasoning tasks behind one product stage."""
+
+    spec = stage_spec(stage)
+    checks: list[Mapping[str, object]] = []
+    issues: list[str] = []
+    for task_id in spec.reasoning_tasks:
+        passed = _lifecycle_semantics_passed(task_id, graph)
+        checks.append({"id": task_id, "passed": passed})
+        if not passed:
+            issues.append(f"completion_semantic:{task_id}")
+    return CompletionResult(not issues, tuple(checks), tuple(issues))
 
 
 def evaluate_completion(task: TaskSpec, graph: ModelGraph, response: TaskExecutionResponse | None = None) -> CompletionResult:

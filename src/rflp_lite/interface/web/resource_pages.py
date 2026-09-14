@@ -532,6 +532,7 @@ def _decorate_generation_run(services, project_id: str, graph: ModelGraph, run):
             for key in (
                 "stage", "status", "revision", "entity_count", "relation_count",
                 "assumptions", "open_questions", "diagnostics", "decision_records",
+                "completion_checks", "completion_issue_codes",
             )
         })
     if stage_results:

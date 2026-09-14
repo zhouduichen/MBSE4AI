@@ -95,6 +95,7 @@ _STAGES: tuple[VerticalStageSpec, ...] = (
             EntityKind.FUNCTION,
             EntityKind.FUNCTIONAL_FLOW,
             EntityKind.FUNCTIONAL_SCENARIO,
+            EntityKind.REQUIREMENT,
         }),
         frozenset({
             RelationPredicate.SATISFIED_BY,
@@ -166,6 +167,7 @@ _STAGES: tuple[VerticalStageSpec, ...] = (
             EntityKind.VALIDATION_CASE,
             EntityKind.HAZARD,
             EntityKind.FAILURE_MODE,
+            EntityKind.REQUIREMENT,
         }),
         frozenset({
             RelationPredicate.VERIFIED_BY,

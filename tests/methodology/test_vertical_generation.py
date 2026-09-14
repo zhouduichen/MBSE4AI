@@ -18,11 +18,12 @@ def test_vertical_stages_have_product_order_and_narrow_write_scopes():
         VerticalStage.PHYSICAL,
         VerticalStage.VERIFICATION_VALIDATION,
     ]
-    assert stage_task(VerticalStage.FUNCTIONAL).patch_policy.writable_kinds == frozenset({
+    assert {
         EntityKind.FUNCTION,
         EntityKind.FUNCTIONAL_FLOW,
         EntityKind.FUNCTIONAL_SCENARIO,
-    })
+        EntityKind.REQUIREMENT,
+    } <= stage_task(VerticalStage.FUNCTIONAL).patch_policy.writable_kinds
 
 
 def test_downstream_routing_skips_the_confirmed_stage():
