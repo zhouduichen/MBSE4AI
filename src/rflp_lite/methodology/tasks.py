@@ -402,6 +402,7 @@ def _physical_payload_schema():
             "rationale": {"type": "string"},
             "architecture_decision": {"type": "object"},
             "feasibility_reasoning": {"type": "object"},
+            "system_budgets": {"type": "array"},
             "open_questions": {"type": "array", "items": {"type": "string"}},
             "mass_kg": {"type": ["number", "string", "null"]},
             "power_w": {"type": ["number", "string", "null"]},

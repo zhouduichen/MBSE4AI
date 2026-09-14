@@ -87,6 +87,7 @@ def physical_reasoning_payload(row: PhysicalFeasibilityRow) -> Mapping[str, obje
         "status": row.status,
         "score": float(row.score),
         "resolution_options": _copy(value["resolution_options"]),
+        "system_budgets": _copy(value["system_budgets"]),
     }
 
 

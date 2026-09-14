@@ -277,6 +277,8 @@ def _architecture_report(
         "logical_safety_review_required",
         "physical_feasibility",
         "physical_conflict_count",
+        "physical_candidate_conflict_count",
+        "physical_budget_conflict_count",
         "physical_unknown_field_count",
     )
     return {
@@ -400,6 +402,26 @@ def _architecture_markdown(report: Mapping[str, object]) -> str:
             )
     else:
         lines.append("| No physical feasibility rows | — | — | — |")
+    budgets = physical.get("budget_analyses", ()) if isinstance(physical, Mapping) else ()
+    if budgets:
+        lines.extend([
+            "",
+            "### System resource budgets",
+            "",
+            "| Requirement | Status | Physical candidates | Aggregated fields | Conflicts |",
+            "| --- | --- | --- | --- | ---: |",
+        ])
+        for budget in budgets:
+            fields = _budget_fields(budget.get("fields", {}))
+            lines.append(
+                "| {requirement} | {status} | {physical} | {fields} | {conflicts} |".format(
+                    requirement=_cell(budget.get("requirement_id", "")),
+                    status=_cell(budget.get("status", "")),
+                    physical=_cell(", ".join(str(item) for item in budget.get("physical_ids", ()))),
+                    fields=_cell(fields or "—"),
+                    conflicts=_cell(len(budget.get("conflicts", ()))),
+                )
+            )
     lines.extend([
         "",
         "## Gaps",
@@ -428,6 +450,16 @@ def _architecture_markdown(report: Mapping[str, object]) -> str:
 
 def _cell(value: object) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ").strip()
+
+
+def _budget_fields(value: object) -> str:
+    if not isinstance(value, Mapping):
+        return ""
+    return "; ".join(
+        f"{field}={details.get('total')} ({details.get('value_count', 0)} known)"
+        for field, details in sorted(value.items())
+        if isinstance(details, Mapping)
+    )
 
 
 __all__ = ["DELIVERABLE_FORMAT", "EngineeringDeliverableService", "REQUIRED_MEMBERS"]

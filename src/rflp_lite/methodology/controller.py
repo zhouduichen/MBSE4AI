@@ -160,7 +160,11 @@ class SystemsEngineeringController:
             return None
         action_kind = "reanalyze" if finding.entity_ids else "collect_input"
         options: tuple[Mapping[str, object], ...] = ()
-        if finding.code in {"physical_constraint_conflict", "logical_partition_needs_review"}:
+        if finding.code in {
+            "physical_constraint_conflict",
+            "physical_budget_conflict",
+            "logical_partition_needs_review",
+        }:
             action_kind = "trade_study"
             options = self._trade_options(finding, report)
         elif finding.code in {"verification_execution_failed", "validation_execution_failed"}:
@@ -200,7 +204,7 @@ class SystemsEngineeringController:
     ) -> tuple[Mapping[str, object], ...]:
         metric_name = (
             "physical_resolution_options"
-            if finding.code == "physical_constraint_conflict"
+            if finding.code in {"physical_constraint_conflict", "physical_budget_conflict"}
             else "vv_execution_resolution_options"
             if finding.code in {"verification_execution_failed", "validation_execution_failed"}
             else "logical_trade_study"
@@ -215,6 +219,13 @@ class SystemsEngineeringController:
             physical_id = str(raw.get("physical_id", "")).strip()
             if physical_id and physical_id not in finding.entity_ids:
                 continue
+            physical_ids = tuple(
+                str(item).strip()
+                for item in raw.get("physical_ids", ())
+                if str(item).strip()
+            )
+            if physical_ids and not set(physical_ids) <= set(finding.entity_ids):
+                continue
             option = str(raw.get("option", raw.get("alternative", ""))).strip()
             task = str(raw.get("task", "architecture_evaluation")).strip()
             if not option or not task:
@@ -226,6 +237,7 @@ class SystemsEngineeringController:
                 "stage": _TASK_TO_STAGE.get(task, finding.stage),
                 "impact": str(raw.get("impact", raw.get("rationale", ""))),
                 "physical_id": physical_id,
+                "physical_ids": list(physical_ids),
                 "impact_entity_ids": list(raw.get("impact_entity_ids", ())),
                 "reentry_stage": str(raw.get("reentry_stage", _TASK_TO_STAGE.get(task, finding.stage))),
                 "conflict_fields": list(raw.get("conflict_fields", ())),

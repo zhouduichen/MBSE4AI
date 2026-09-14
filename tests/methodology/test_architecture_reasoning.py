@@ -75,6 +75,8 @@ def test_physical_reasoning_payload_preserves_conflict_resolution_metadata():
         "physical", "requirements",
     }
     assert all(item["requires_user_decision"] for item in payload["resolution_options"])
+    assert len(payload["system_budgets"]) == 1
+    assert payload["system_budgets"][0]["physical_ids"] == [row.physical_id]
 
 
 def test_reasoning_contract_rejects_unknown_selection_and_cross_scope_dependency():
@@ -111,6 +113,7 @@ def test_structured_logical_and_physical_contracts_accept_reasoning_objects():
     assert logical_payload["additionalProperties"] is False
     assert logical_payload["properties"]["architecture_reasoning"] == {"type": "object"}
     assert physical_payload["properties"]["feasibility_reasoning"] == {"type": "object"}
+    assert physical_payload["properties"]["system_budgets"] == {"type": "array"}
     assert "oneOf" in logical_payload["properties"]["timing_constraints"]["items"]
     assert "oneOf" in logical_payload["properties"]["safety_isolation"]["items"]
 

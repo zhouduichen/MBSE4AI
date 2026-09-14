@@ -8,6 +8,8 @@
 
 同时在每个 physical_block.payload.feasibility_reasoning 中保留 requirement_ids、logical_ids、function_ids、propagated_constraints、missing_fields、conflicts、status、score 和 resolution_options；status 只能使用 feasible、infeasible 或 needs_measurement，并且必须区分测量缺口与已证实冲突。
 
+系统级 Requirement 的 mass_kg、power_w、memory_mb、bandwidth_mbps、cost 和 endurance_h 预算由 ModelGraph 的确定性架构分析按完整 R→F→L→P 作用域汇总；不要在 LLM 输出中臆造合计值。技术需求默认只检查单个 PhysicalBlock，只有显式 constraint_scope=system 时才参与系统预算分析；未知值保持 needs_measurement。
+
 重分析时优先沿 LogicalComponent→PhysicalBlock 的 allocatedTo 复用已有候选：对未锁定且未被人工修改的候选使用 `updates` 刷新传播约束、可行性和选择依据，保持 canonical id；不要为同一分配无条件追加重复候选。人工修改或锁定的候选不得覆盖，必要时提出新的待评审 alternative。
 
 只返回 TaskProposal JSON。entities 只能使用 physical_block、requirement；relations 只能使用 allocatedTo、satisfiedBy、derivedFrom。不得使用“候选”“待确认”作为唯一实体名称，不要返回 operations、Patch、revision 或解释。无法确定的内容写入 assumptions 或 open_questions。

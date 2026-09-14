@@ -53,6 +53,39 @@ def _seed_case(services, *, physical_payload=None):
     return verification
 
 
+def _seed_budget_case(services, *, powers=(80, 30)):
+    project_id = "robot"
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统功耗预算",
+        {"level": "system", "constraints": {"max_power_w": 100}},
+    )
+    physicals = tuple(
+        make_entity(
+            EntityKind.PHYSICAL_BLOCK,
+            name,
+            {**_COMPLETE_PHYSICAL, "power_w": power},
+        )
+        for name, power in (("采集平台", powers[0]), ("执行平台", powers[1]))
+    )
+    verification = make_entity(
+        EntityKind.VERIFICATION_CASE,
+        "验证系统功耗预算",
+        {"requirement_ids": [requirement.id], "method": "analysis", "pass_criteria": "满足系统功耗预算"},
+    )
+    graph = services.model(project_id).graph(project_id)
+    operations = (
+        AddEntity(requirement),
+        *(AddEntity(physical) for physical in physicals),
+        AddEntity(verification),
+        *(Relate(requirement.id, RelationPredicate.SATISFIED_BY, physical.id) for physical in physicals),
+        Relate(requirement.id, RelationPredicate.VERIFIED_BY, verification.id),
+    )
+    patch = Patch.create(project_id, "test.seed_budget_tool_case", operations, "建立系统预算工具测试模型", graph.revision)
+    services.model(project_id).apply_patch(project_id, patch, graph.revision)
+    return verification
+
+
 def test_model_constraint_tool_passes_only_when_complete_candidate_is_feasible(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("robot")
@@ -89,6 +122,20 @@ def test_model_constraint_tool_is_inconclusive_when_measurement_is_missing(tmp_p
     assert result.outcome == "inconclusive"
     assert "needs_measurement" in result.excerpt
     assert result.metadata["measurement"] is False
+
+
+def test_model_constraint_tool_uses_system_budget_analysis(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    verification = _seed_budget_case(services)
+
+    result = services.tools("robot").execute("robot", verification.id, "model.constraint_check")
+
+    assert result.outcome == "failed"
+    budget = result.metadata["budget_analyses"][0]
+    assert budget["fields"]["power_w"]["total"] == 110.0
+    assert len(budget["physical_ids"]) == 2
+    assert '"budget_analyses"' in result.excerpt
 
 
 class _ExternalSimulationTool:

@@ -50,6 +50,70 @@ def _architecture_graph() -> ModelGraph:
     )
 
 
+def _system_budget_graph(
+    *,
+    powers=(80, 30),
+    requirement_payload=None,
+) -> ModelGraph:
+    payload = requirement_payload or {
+        "level": "system",
+        "constraints": {"max_power_w": 100},
+    }
+    requirement = make_entity(EntityKind.REQUIREMENT, "系统功耗预算", payload)
+    functions = tuple(
+        make_entity(EntityKind.FUNCTION, name, status=EntityStatus.VALIDATED)
+        for name in ("采集", "执行")
+    )
+    logicals = tuple(
+        make_entity(EntityKind.LOGICAL_COMPONENT, name, status=EntityStatus.VALIDATED)
+        for name in ("采集控制器", "执行控制器")
+    )
+    physicals = tuple(
+        make_entity(
+            EntityKind.PHYSICAL_BLOCK,
+            name,
+            {
+                "power_w": power,
+                "mass_kg": 1,
+                "memory_mb": 100,
+                "bandwidth_mbps": 10,
+                "cost": 100,
+                "endurance_h": 10,
+            },
+            status=EntityStatus.VALIDATED,
+        )
+        for name, power in zip(("采集平台", "执行平台"), powers)
+    )
+    relations = []
+    for function, logical, physical in zip(functions, logicals, physicals):
+        relations.extend((
+            Relation(
+                f"{function.id}-requirement",
+                requirement.id,
+                RelationPredicate.SATISFIED_BY,
+                function.id,
+            ),
+            Relation(
+                f"{function.id}-logical",
+                function.id,
+                RelationPredicate.ALLOCATED_TO,
+                logical.id,
+            ),
+            Relation(
+                f"{logical.id}-physical",
+                logical.id,
+                RelationPredicate.ALLOCATED_TO,
+                physical.id,
+            ),
+        ))
+    return ModelGraph(
+        "robot",
+        (requirement, *functions, *logicals, *physicals),
+        tuple(relations),
+        revision=3,
+    )
+
+
 def test_logical_synthesis_uses_shared_state_and_flow_to_cluster_functions():
     graph = _architecture_graph()
 
@@ -206,3 +270,83 @@ def test_methodology_report_exposes_synthesis_and_decision_evidence():
     assert synthesis["physical"]["rows"][0]["status"] == "infeasible"
     assert any(item["step"] == "logical_architecture_trade_study" for item in report.decisions)
     assert any(item["step"] == "physical_feasibility_trade_study" for item in report.decisions)
+
+
+def test_system_budget_sums_all_physical_blocks_in_requirement_scope():
+    graph = _system_budget_graph()
+
+    result = synthesize_architecture(graph)
+
+    assert len(result.system_budgets) == 1
+    budget = result.system_budgets[0]
+    assert budget.status == "infeasible"
+    assert budget.physical_ids == tuple(sorted(
+        item.id for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK
+    ))
+    assert budget.fields["power_w"]["total"] == 110.0
+    assert budget.fields["power_w"]["value_count"] == 2
+    assert budget.conflicts[0] == {
+        "requirement_id": budget.requirement_id,
+        "physical_ids": list(budget.physical_ids),
+        "field": "power_w",
+        "operator": "max",
+        "limit": 100.0,
+        "value": 110.0,
+        "scope": "system",
+    }
+    assert all(
+        budget.as_dict() in row.as_dict()["system_budgets"]
+        for row in result.physical_rows
+    )
+    assert all(
+        set(budget.physical_ids) <= set(option["impact_entity_ids"])
+        and budget.requirement_id in option["impact_entity_ids"]
+        for option in budget.resolution_options
+    )
+
+
+def test_system_budget_distinguishes_unknown_measurement_from_conflict():
+    graph = _system_budget_graph(powers=(80, "待测量"))
+
+    budget = synthesize_architecture(graph).system_budgets[0]
+
+    assert budget.status == "needs_measurement"
+    assert budget.conflicts == ()
+    assert budget.missing_fields == ("power_w",)
+
+
+def test_technical_requirement_stays_per_candidate_unless_scope_is_explicitly_system():
+    technical = _system_budget_graph(
+        powers=(80, 30),
+        requirement_payload={
+            "level": "technical",
+            "constraints": {"max_power_w": 50},
+        },
+    )
+    forced_system = _system_budget_graph(
+        powers=(80, 30),
+        requirement_payload={
+            "level": "technical",
+            "constraint_scope": "system",
+            "constraints": {"max_power_w": 100},
+        },
+    )
+    component_override = _system_budget_graph(
+        powers=(80, 30),
+        requirement_payload={
+            "level": "system",
+            "constraint_scope": "component",
+            "constraints": {"max_power_w": 50},
+        },
+    )
+
+    technical_result = synthesize_architecture(technical)
+    forced_result = synthesize_architecture(forced_system)
+    component_result = synthesize_architecture(component_override)
+
+    assert technical_result.system_budgets == ()
+    assert sum(bool(row.conflicts) for row in technical_result.physical_rows) == 1
+    assert len(forced_result.system_budgets) == 1
+    assert forced_result.system_budgets[0].status == "infeasible"
+    assert component_result.system_budgets == ()
+    assert sum(bool(row.conflicts) for row in component_result.physical_rows) == 1

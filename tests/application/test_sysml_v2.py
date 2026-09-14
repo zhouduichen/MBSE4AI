@@ -6,6 +6,8 @@ from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.domain.model import ModelGraph, Relation
 from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.methodology.architecture_reasoning import physical_reasoning_payload
+from rflp_lite.methodology.architecture_synthesis import synthesize_architecture
 
 
 def _complete_graph(project_id: str) -> ModelGraph:
@@ -142,6 +144,33 @@ def test_sysml_round_trip_preserves_technical_requirement_trace_metadata():
         and relation.target_id == physical.id
         for relation in restored.relations
     )
+
+
+def test_sysml_round_trip_preserves_system_budget_reasoning():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统功耗预算",
+        {"level": "system", "constraints": {"max_power_w": 100}},
+    )
+    first = make_entity(EntityKind.PHYSICAL_BLOCK, "采集平台", {"power_w": 80})
+    second = make_entity(EntityKind.PHYSICAL_BLOCK, "执行平台", {"power_w": 30})
+    relations = (
+        Relation("requirement-first", requirement.id, RelationPredicate.SATISFIED_BY, first.id),
+        Relation("requirement-second", requirement.id, RelationPredicate.SATISFIED_BY, second.id),
+    )
+    graph = ModelGraph("p1", (requirement, first, second), relations)
+    synthesis = synthesize_architecture(graph)
+    reasoning = physical_reasoning_payload(
+        next(row for row in synthesis.physical_rows if row.physical_id == first.id)
+    )
+    first = first.__class__(first.meta, {**first.payload, "feasibility_reasoning": reasoning})
+    graph = ModelGraph("p1", (requirement, first, second), relations)
+
+    restored = sysml_to_graph(graph_to_sysml(graph), "p1")
+
+    persisted = restored.entity_index[first.id].payload["feasibility_reasoning"]
+    assert persisted["system_budgets"][0]["physical_ids"] == sorted((first.id, second.id))
+    assert persisted["system_budgets"][0]["status"] == "infeasible"
 
 
 def test_pipeline_sysml_round_trip_review_edit_and_deliverables(tmp_path: Path):

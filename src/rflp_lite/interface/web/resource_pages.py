@@ -157,6 +157,7 @@ _CONTROLLER_STATUS_LABELS = {
 _FINDING_LABELS = {
     "physical_measurement_required": "物理参数待测量",
     "physical_constraint_conflict": "物理约束存在冲突",
+    "physical_budget_conflict": "系统资源预算存在冲突",
     "logical_partition_needs_review": "逻辑分区需要复核",
     "verification_evidence_missing": "验证执行证据缺失",
     "validation_evidence_missing": "确认执行证据缺失",

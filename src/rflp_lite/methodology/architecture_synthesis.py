@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import combinations
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus
@@ -22,6 +22,9 @@ _PHYSICAL_FIELDS = (
     "mass_kg", "power_w", "compute", "memory_mb", "latency_ms",
     "bandwidth_mbps", "cost", "thermal", "reliability", "availability",
     "endurance_h",
+)
+_BUDGET_FIELDS = (
+    "mass_kg", "power_w", "memory_mb", "bandwidth_mbps", "cost", "endurance_h",
 )
 _LINK_PAYLOAD_KEYS = (
     "source_function_ids", "target_function_ids", "producer_ids",
@@ -85,6 +88,42 @@ class LogicalArchitectureCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class PhysicalBudgetAnalysis:
+    """System-level resource budget evidence for one requirement."""
+
+    requirement_id: str
+    physical_ids: tuple[str, ...]
+    fields: Mapping[str, Mapping[str, object]]
+    propagated_constraints: Mapping[str, object]
+    missing_fields: tuple[str, ...]
+    conflicts: tuple[Mapping[str, object], ...]
+    status: str
+    score: float
+    resolution_options: tuple[Mapping[str, object], ...] = ()
+
+    def as_dict(self) -> Mapping[str, object]:
+        return {
+            "requirement_id": self.requirement_id,
+            "physical_ids": list(self.physical_ids),
+            "fields": {
+                field: {
+                    key: [dict(item) for item in value]
+                    if key == "constraints" and isinstance(value, (list, tuple))
+                    else value
+                    for key, value in details.items()
+                }
+                for field, details in self.fields.items()
+            },
+            "propagated_constraints": dict(self.propagated_constraints),
+            "missing_fields": list(self.missing_fields),
+            "conflicts": [dict(item) for item in self.conflicts],
+            "status": self.status,
+            "score": self.score,
+            "resolution_options": [dict(item) for item in self.resolution_options],
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class PhysicalFeasibilityRow:
     """Traceable constraint and evidence summary for one physical block."""
 
@@ -98,6 +137,7 @@ class PhysicalFeasibilityRow:
     logical_ids: tuple[str, ...] = ()
     function_ids: tuple[str, ...] = ()
     resolution_options: tuple[Mapping[str, object], ...] = ()
+    system_budgets: tuple[Mapping[str, object], ...] = ()
 
     def as_dict(self) -> Mapping[str, object]:
         return {
@@ -111,6 +151,7 @@ class PhysicalFeasibilityRow:
             "logical_ids": list(self.logical_ids),
             "function_ids": list(self.function_ids),
             "resolution_options": [dict(item) for item in self.resolution_options],
+            "system_budgets": [dict(item) for item in self.system_budgets],
         }
 
 
@@ -120,6 +161,7 @@ class ArchitectureSynthesis:
 
     logical_candidates: tuple[LogicalArchitectureCandidate, ...] = ()
     physical_rows: tuple[PhysicalFeasibilityRow, ...] = ()
+    system_budgets: tuple[PhysicalBudgetAnalysis, ...] = ()
 
     def as_dict(
         self,
@@ -139,6 +181,7 @@ class ArchitectureSynthesis:
             "physical": {
                 "candidate_count": len(self.physical_rows),
                 "rows": [item.as_dict() for item in self.physical_rows],
+                "budget_analyses": [item.as_dict() for item in self.system_budgets],
             },
         }
 
@@ -164,7 +207,22 @@ def synthesize_architecture(
     allocations = _relation_targets(graph, entities, RelationPredicate.ALLOCATED_TO)
     logical_candidates = _logical_candidates(graph, functions, components, allocations)
     physical_rows = _physical_rows(graph, entities, physicals, allocations)
-    return ArchitectureSynthesis(logical_candidates, physical_rows)
+    system_budgets = _system_budget_analyses(graph, entities, allocations)
+    budgets_by_physical = defaultdict(list)
+    for budget in system_budgets:
+        budget_dict = budget.as_dict()
+        for physical_id in budget.physical_ids:
+            budgets_by_physical[physical_id].append(budget_dict)
+    physical_rows = tuple(
+        replace(
+            row,
+            system_budgets=tuple(
+                budgets_by_physical.get(row.physical_id, ())
+            ),
+        )
+        for row in physical_rows
+    )
+    return ArchitectureSynthesis(logical_candidates, physical_rows, system_budgets)
 
 
 def _logical_candidates(graph, functions, components, allocations):
@@ -562,6 +620,158 @@ def _physical_row(physical, requirements, logical_ids=(), function_ids=()):
             conflicts,
         ),
     )
+
+
+def _system_budget_analyses(graph, entities, allocations):
+    index = {item.id: item for item in entities}
+    requirements_by_physical = _requirements_by_physical(graph, index, allocations)
+    physical_by_requirement = defaultdict(set)
+    for physical_id, requirements in requirements_by_physical.items():
+        for requirement in requirements:
+            physical_by_requirement[requirement.id].add(physical_id)
+    requirements = {
+        requirement.id: requirement
+        for requirements in requirements_by_physical.values()
+        for requirement in requirements
+        if _constraint_scope(requirement) == "system"
+        and any(field in _BUDGET_FIELDS for field, _, _ in _constraints(requirement))
+    }
+    return tuple(
+        _system_budget_analysis(
+            requirement,
+            tuple(sorted(physical_by_requirement.get(requirement.id, ()))),
+            index,
+        )
+        for requirement in sorted(requirements.values(), key=lambda item: item.id)
+        if physical_by_requirement.get(requirement.id)
+    )
+
+
+def _system_budget_analysis(requirement, physical_ids, index):
+    fields = {}
+    propagated = {}
+    missing_fields = set()
+    conflicts = []
+    for field, operator, limit in _constraints(requirement):
+        if field not in _BUDGET_FIELDS:
+            continue
+        values = [
+            _number(index[physical_id].payload.get(field))
+            for physical_id in physical_ids
+        ]
+        known_values = [value for value in values if value is not None]
+        if len(known_values) != len(values):
+            missing_fields.add(field)
+        total = round(sum(known_values), 10) if known_values else None
+        details = fields.setdefault(field, {
+            "total": total,
+            "value_count": len(known_values),
+            "constraints": [],
+        })
+        details["total"] = total
+        details["value_count"] = len(known_values)
+        details["constraints"].append({
+            "operator": operator,
+            "limit": limit,
+        })
+        if field not in propagated:
+            propagated[field] = limit
+        if total is None:
+            continue
+        proven_conflict = _budget_constraint_violated(
+            total, operator, limit, field in missing_fields,
+        )
+        if proven_conflict:
+            conflicts.append({
+                "requirement_id": requirement.id,
+                "physical_ids": list(physical_ids),
+                "field": field,
+                "operator": operator,
+                "limit": limit,
+                "value": total,
+                "scope": "system",
+            })
+    missing = tuple(sorted(missing_fields))
+    status = (
+        "infeasible" if conflicts
+        else "needs_measurement" if missing
+        else "feasible"
+    )
+    score = round(max(0.0, 100.0 - 35 * len(conflicts) - 5 * len(missing)), 2)
+    return PhysicalBudgetAnalysis(
+        requirement.id,
+        tuple(physical_ids),
+        {
+            field: {
+                "total": details["total"],
+                "value_count": details["value_count"],
+                "constraints": tuple(details["constraints"]),
+            }
+            for field, details in sorted(fields.items())
+        },
+        dict(sorted(propagated.items())),
+        missing,
+        tuple(conflicts),
+        status,
+        score,
+        _budget_resolution_options(requirement.id, physical_ids, conflicts),
+    )
+
+
+def _constraint_scope(requirement):
+    scope = str(requirement.payload.get("constraint_scope", "")).strip().lower()
+    if scope in {"component", "physical", "candidate"}:
+        return "component"
+    if scope in {"system", "aggregate", "budget"}:
+        return "system"
+    return "component" if str(requirement.payload.get("level", "")).strip().lower() == "technical" else "system"
+
+
+def _budget_constraint_violated(total, operator, limit, missing):
+    if operator == "max":
+        return total > limit
+    return operator == "min" and not missing and total < limit
+
+
+def _budget_resolution_options(requirement_id, physical_ids, conflicts):
+    if not conflicts:
+        return ()
+    impact_entity_ids = list(dict.fromkeys((requirement_id, *physical_ids)))
+    fields = sorted({
+        str(item.get("field", ""))
+        for item in conflicts
+        if item.get("field")
+    })
+    return tuple({
+        "id": f"system-budget-resolution-{index}",
+        "option": option,
+        "task": task,
+        "reentry_stage": stage,
+        "impact_entity_ids": impact_entity_ids,
+        "physical_ids": list(physical_ids),
+        "conflict_fields": fields,
+        "impact": impact,
+        "requires_user_decision": True,
+    } for index, (option, task, stage, impact) in enumerate((
+        (
+            "降低系统资源需求或重新分配资源预算",
+            "constraint_propagation",
+            "physical",
+            "可能改变功能性能、物理候选或系统边界约束",
+        ),
+        (
+            "更换或重新分配物理候选",
+            "allocation_tradeoff",
+            "physical",
+            "保持系统需求，重新组合物理实现",
+        ),
+        (
+            "调整系统资源预算并重新确认需求",
+            "system_requirement_derivation",
+            "requirements",
+            "需要利益相关方确认后重新生成下游链路",
+        ),
+    ), start=1))
 
 
 def _scope_by_physical(index, allocations):

@@ -17,6 +17,7 @@ from rflp_lite.methodology.architecture_synthesis import (
 from rflp_lite.methodology.impact import TASK_ORDER, TypedImpactPlanner
 from rflp_lite.methodology.trace_rules import (
     is_technical_requirement,
+    rflp_paths,
     requirement_trace_scope,
     vv_scope_matches,
 )
@@ -153,7 +154,8 @@ _GUIDANCE_METRICS = {
     ),
     "physical": (
         "physical_allocation_coverage", "physical_feasibility",
-        "physical_conflict_count", "physical_unknown_field_count",
+        "physical_conflict_count", "physical_candidate_conflict_count",
+        "physical_budget_conflict_count", "physical_unknown_field_count",
     ),
     "assurance": (
         "hazard_requirement_coverage", "failure_mode_requirement_coverage",
@@ -227,6 +229,11 @@ def _bounded_architecture_guidance(
     if isinstance(items, (list, tuple)):
         bounded[item_key] = list(items[:8])
         bounded[f"{item_key}_truncated"] = len(items) > 8
+    if stage == "physical":
+        budgets = section.get("budget_analyses")
+        if isinstance(budgets, (list, tuple)):
+            bounded["budget_analyses"] = list(budgets[:8])
+            bounded["budget_analyses_truncated"] = len(budgets) > 8
     return bounded
 
 
@@ -575,67 +582,17 @@ class MethodologyEngine:
         metrics,
         architecture: ArchitectureSynthesis,
     ) -> None:
-        # Candidate architecture elements remain available for feasibility
-        # analysis, but only ready elements can satisfy completion coverage.
-        logicals = _active(index, EntityKind.LOGICAL_COMPONENT)
-        physicals = _active(index, EntityKind.PHYSICAL_BLOCK)
-        ready_logical_ids = {
-            item.id for item in _ready(index, EntityKind.LOGICAL_COMPONENT)
-        }
-        ready_physical_ids = {
-            item.id for item in _ready(index, EntityKind.PHYSICAL_BLOCK)
-        }
-        allocations = _relation_targets(graph, index, RelationPredicate.ALLOCATED_TO)
-        logical_to_physical = {
-            logical.id: tuple(
-                target for target in allocations.get(logical.id, ())
-                if index[target].kind is EntityKind.PHYSICAL_BLOCK
-            )
-            for logical in logicals
-        }
-        assigned = {
-            item.id for item in logicals
-            if item.id in ready_logical_ids
-            and any(target in ready_physical_ids
-                   for target in logical_to_physical[item.id])
-        }
-        metrics["physical_logical_count"] = len(logicals)
-        metrics["physical_block_count"] = len(physicals)
-        metrics["physical_allocation_coverage"] = _ratio(len(assigned), len(logicals))
-        for logical in logicals:
-            if not logical_to_physical[logical.id]:
-                findings.append(MethodologyFinding(
-                    "physical_logical_unallocated", "warning", "physical", (logical.id,),
-                    f"逻辑组件“{logical.meta.name}”没有物理实现候选。",
-                    ("physical_candidates", "allocation_tradeoff"),
-                ))
+        physicals, allocations = _physical_scope(
+            graph, index, findings, metrics,
+        )
         requirements_by_physical = _requirements_by_physical(graph, index, allocations)
-        unknown_fields = 0
-        conflicts = []
-        for physical in physicals:
-            missing = tuple(
-                field for field in _PHYSICAL_FIELDS
-                if is_unknown_measurement(physical.payload.get(field))
-            )
-            unknown_fields += len(missing)
-            constraints = tuple(
-                (requirement, field_name, operator, limit)
-                for requirement in requirements_by_physical.get(physical.id, ())
-                for field_name, operator, limit in _constraints(requirement)
-            )
-            for requirement, field_name, operator, limit in constraints:
-                value = _number(physical.payload.get(field_name))
-                if value is None:
-                    continue
-                if operator == "max" and value > limit or operator == "min" and value < limit:
-                    conflicts.append((requirement, physical, field_name, operator, limit, value))
-        for requirement, physical, field_name, operator, limit, value in conflicts:
-            findings.append(MethodologyFinding(
-                "physical_constraint_conflict", "error", "physical",
-                (requirement.id, physical.id),
-                f"物理候选“{physical.meta.name}”的 {field_name}={value} 不满足 {operator}={limit} 约束。",
-                ("constraint_propagation", "feasibility_selection", "allocation_tradeoff"),
-            ))
+        unknown_fields, candidate_conflicts = _physical_candidate_evidence(
+            physicals, requirements_by_physical,
+        )
+        _append_candidate_conflict_findings(findings, candidate_conflicts)
+        budget_conflicts = _append_budget_conflict_findings(
+            graph, findings, architecture.system_budgets,
+        )
         if unknown_fields:
             findings.append(MethodologyFinding(
                 "physical_measurement_required", "warning", "physical",
@@ -643,12 +600,9 @@ class MethodologyEngine:
                 f"物理候选仍有 {unknown_fields} 个 SWaP-C/工程字段需要测量或证据。",
                 ("physical_candidates", "feasibility_selection"),
             ))
-        metrics["physical_unknown_field_count"] = unknown_fields
-        metrics["physical_conflict_count"] = len(conflicts)
-        metrics["physical_feasibility"] = (
-            "infeasible" if conflicts else
-            "needs_measurement" if unknown_fields else
-            "feasible" if physicals else "missing"
+        _record_physical_feasibility_metrics(
+            metrics, physicals, unknown_fields, candidate_conflicts,
+            budget_conflicts, architecture.system_budgets,
         )
         feasibility_rows = {
             row.physical_id: row.as_dict()
@@ -659,45 +613,10 @@ class MethodologyEngine:
             for item in physicals
             if item.id in feasibility_rows
         ]
-        metrics["physical_trade_study"] = [
-            {
-                "physical_id": item.id,
-                "alternatives": list(item.payload.get("alternatives", ())),
-                "selection_rationale": str(item.payload.get("selection_rationale", "")),
-                "feasibility": item.payload.get("feasibility", {}),
-                "constraint_evidence": feasibility_rows.get(item.id, {}),
-                "impact_chain": {
-                    "requirement_ids": feasibility_rows.get(item.id, {}).get("requirement_ids", []),
-                    "function_ids": feasibility_rows.get(item.id, {}).get("function_ids", []),
-                    "logical_ids": feasibility_rows.get(item.id, {}).get("logical_ids", []),
-                    "physical_ids": [item.id],
-                },
-                "resolution_options": feasibility_rows.get(item.id, {}).get("resolution_options", []),
-            }
-            for item in physicals
-        ]
-        if feasibility_rows:
-            best = max(
-                feasibility_rows.values(),
-                key=lambda item: (float(item["score"]), item["physical_id"]),
-            )
-            decisions.append({
-                "step": "physical_feasibility_trade_study",
-                "decision": (
-                    f"当前物理候选按约束证据评分最高为 {best['physical_id']} "
-                    f"({best['status']}, {best['score']} / 100)"
-                ),
-                "basis": [item["physical_id"] for item in feasibility_rows.values()],
-                "alternatives": list(feasibility_rows.values()),
-            })
-        metrics["physical_resolution_options"] = [
-            {
-                **dict(option),
-                "physical_id": row["physical_id"],
-            }
-            for row in feasibility_rows.values()
-            for option in row.get("resolution_options", [])
-        ] if conflicts else []
+        _record_physical_trade_study(
+            metrics, decisions, physicals, feasibility_rows,
+            architecture.system_budgets,
+        )
 
     def _analyze_vv(self, graph, index, findings, decisions, metrics) -> None:
         requirements = _active(index, EntityKind.REQUIREMENT)
@@ -1030,6 +949,170 @@ def _vv_execution_summary(index):
             "vv_execution_failure_count": len(failed),
         },
     )
+
+
+def _physical_scope(graph, index, findings, metrics):
+    """Resolve active physical architecture and its completion coverage."""
+
+    logicals = _active(index, EntityKind.LOGICAL_COMPONENT)
+    physicals = _active(index, EntityKind.PHYSICAL_BLOCK)
+    ready_logical_ids = {item.id for item in _ready(index, EntityKind.LOGICAL_COMPONENT)}
+    ready_physical_ids = {item.id for item in _ready(index, EntityKind.PHYSICAL_BLOCK)}
+    allocations = _relation_targets(graph, index, RelationPredicate.ALLOCATED_TO)
+    logical_to_physical = {
+        logical.id: tuple(
+            target for target in allocations.get(logical.id, ())
+            if index[target].kind is EntityKind.PHYSICAL_BLOCK
+        )
+        for logical in logicals
+    }
+    assigned = {
+        logical.id for logical in logicals
+        if logical.id in ready_logical_ids
+        and any(target in ready_physical_ids for target in logical_to_physical[logical.id])
+    }
+    metrics.update({
+        "physical_logical_count": len(logicals),
+        "physical_block_count": len(physicals),
+        "physical_allocation_coverage": _ratio(len(assigned), len(logicals)),
+    })
+    for logical in logicals:
+        if logical_to_physical[logical.id]:
+            continue
+        findings.append(MethodologyFinding(
+            "physical_logical_unallocated", "warning", "physical", (logical.id,),
+            f"逻辑组件“{logical.meta.name}”没有物理实现候选。",
+            ("physical_candidates", "allocation_tradeoff"),
+        ))
+    return physicals, allocations
+
+
+def _physical_candidate_evidence(physicals, requirements_by_physical):
+    unknown_fields = 0
+    conflicts = []
+    for physical in physicals:
+        unknown_fields += sum(
+            is_unknown_measurement(physical.payload.get(field))
+            for field in _PHYSICAL_FIELDS
+        )
+        for requirement in requirements_by_physical.get(physical.id, ()):
+            for field_name, operator, limit in _constraints(requirement):
+                value = _number(physical.payload.get(field_name))
+                if value is not None and _violates(value, operator, limit):
+                    conflicts.append((requirement, physical, field_name, operator, limit, value))
+    return unknown_fields, conflicts
+
+
+def _append_candidate_conflict_findings(findings, conflicts):
+    for requirement, physical, field_name, operator, limit, value in conflicts:
+        findings.append(MethodologyFinding(
+            "physical_constraint_conflict", "error", "physical",
+            (requirement.id, physical.id),
+            f"物理候选“{physical.meta.name}”的 {field_name}={value} 不满足 {operator}={limit} 约束。",
+            ("constraint_propagation", "feasibility_selection", "allocation_tradeoff"),
+        ))
+
+
+def _append_budget_conflict_findings(graph, findings, budgets):
+    conflicts = tuple(
+        conflict
+        for budget in budgets
+        if len(budget.physical_ids) > 1
+        for conflict in budget.conflicts
+    )
+    for budget in budgets:
+        if not budget.conflicts or len(budget.physical_ids) <= 1:
+            continue
+        paths = rflp_paths(graph, budget.requirement_id) or tuple(
+            (budget.requirement_id, physical_id)
+            for physical_id in budget.physical_ids
+        )
+        fields = ", ".join(sorted({str(item.get("field", "")) for item in budget.conflicts}))
+        findings.append(MethodologyFinding(
+            "physical_budget_conflict", "error", "physical",
+            (budget.requirement_id, *budget.physical_ids),
+            f"系统资源预算需求“{budget.requirement_id}”在 {fields} 上超限，合计值违反约束。",
+            ("constraint_propagation", "feasibility_selection", "allocation_tradeoff"),
+            tuple(paths),
+        ))
+    return conflicts
+
+
+def _record_physical_feasibility_metrics(
+    metrics,
+    physicals,
+    unknown_fields,
+    candidate_conflicts,
+    budget_conflicts,
+    budgets,
+):
+    metrics["physical_unknown_field_count"] = unknown_fields
+    metrics["physical_candidate_conflict_count"] = len(candidate_conflicts)
+    metrics["physical_budget_conflict_count"] = len(budget_conflicts)
+    metrics["physical_conflict_count"] = len(candidate_conflicts) + len(budget_conflicts)
+    metrics["physical_budget_analysis"] = [budget.as_dict() for budget in budgets]
+    metrics["physical_budget_matrix"] = list(metrics["physical_budget_analysis"])
+    metrics["physical_feasibility"] = (
+        "infeasible" if candidate_conflicts or budget_conflicts
+        else "needs_measurement" if unknown_fields or any(
+            budget.status == "needs_measurement" for budget in budgets
+        )
+        else "feasible" if physicals else "missing"
+    )
+
+
+def _record_physical_trade_study(metrics, decisions, physicals, rows, budgets):
+    metrics["physical_feasibility_matrix"] = [
+        rows[item.id] for item in physicals if item.id in rows
+    ]
+    metrics["physical_trade_study"] = [
+        {
+            "physical_id": item.id,
+            "alternatives": list(item.payload.get("alternatives", ())),
+            "selection_rationale": str(item.payload.get("selection_rationale", "")),
+            "feasibility": item.payload.get("feasibility", {}),
+            "constraint_evidence": rows.get(item.id, {}),
+            "impact_chain": {
+                "requirement_ids": rows.get(item.id, {}).get("requirement_ids", []),
+                "function_ids": rows.get(item.id, {}).get("function_ids", []),
+                "logical_ids": rows.get(item.id, {}).get("logical_ids", []),
+                "physical_ids": [item.id],
+            },
+            "resolution_options": rows.get(item.id, {}).get("resolution_options", []),
+        }
+        for item in physicals
+    ]
+    if rows:
+        best = max(rows.values(), key=lambda item: (float(item["score"]), item["physical_id"]))
+        decisions.append({
+            "step": "physical_feasibility_trade_study",
+            "decision": (
+                f"当前物理候选按约束证据评分最高为 {best['physical_id']} "
+                f"({best['status']}, {best['score']} / 100)"
+            ),
+            "basis": [item["physical_id"] for item in rows.values()],
+            "alternatives": list(rows.values()),
+        })
+    options = [
+        {**dict(option), "physical_id": row["physical_id"]}
+        for row in rows.values()
+        for option in row.get("resolution_options", [])
+    ]
+    options.extend(
+        {
+            **dict(option),
+            "physical_ids": list(option.get("physical_ids", budget.physical_ids)),
+            "requirement_id": budget.requirement_id,
+        }
+        for budget in budgets
+        if budget.conflicts and len(budget.physical_ids) > 1
+        for option in budget.resolution_options
+    )
+    metrics["physical_resolution_options"] = options
+
+
+def _violates(value, operator, limit):
+    return operator == "max" and value > limit or operator == "min" and value < limit
 
 
 def _active(index: Mapping[str, Entity], kind: EntityKind | None = None) -> tuple[Entity, ...]:

@@ -109,6 +109,71 @@ def _graph(
     return ModelGraph("p1", entities, relations, revision=1)
 
 
+def _system_budget_graph() -> ModelGraph:
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统功耗预算",
+        {"level": "system", "constraints": {"max_power_w": 100}},
+    )
+    functions = tuple(
+        make_entity(EntityKind.FUNCTION, name, status=EntityStatus.VALIDATED)
+        for name in ("采集", "执行")
+    )
+    logicals = tuple(
+        make_entity(EntityKind.LOGICAL_COMPONENT, name, status=EntityStatus.VALIDATED)
+        for name in ("采集控制器", "执行控制器")
+    )
+    physicals = tuple(
+        make_entity(
+            EntityKind.PHYSICAL_BLOCK,
+            name,
+            {
+                "mass_kg": 1,
+                "power_w": power,
+                "compute": 100,
+                "memory_mb": 100,
+                "latency_ms": 10,
+                "bandwidth_mbps": 10,
+                "cost": 100,
+                "thermal": "可控",
+                "reliability": "已知",
+                "availability": "已知",
+                "endurance_h": 10,
+            },
+            status=EntityStatus.VALIDATED,
+        )
+        for name, power in (("采集平台", 80), ("执行平台", 30))
+    )
+    relations = []
+    for function, logical, physical in zip(functions, logicals, physicals):
+        relations.extend((
+            Relation(
+                f"{function.id}-requirement",
+                requirement.id,
+                RelationPredicate.SATISFIED_BY,
+                function.id,
+            ),
+            Relation(
+                f"{function.id}-logical",
+                function.id,
+                RelationPredicate.ALLOCATED_TO,
+                logical.id,
+            ),
+            Relation(
+                f"{logical.id}-physical",
+                logical.id,
+                RelationPredicate.ALLOCATED_TO,
+                physical.id,
+            ),
+        ))
+    return ModelGraph(
+        "p1",
+        (requirement, *functions, *logicals, *physicals),
+        tuple(relations),
+        revision=2,
+    )
+
+
 def test_logical_analysis_reports_partition_quality_and_allocation():
     report = MethodologyEngine().analyze(_graph())
 
@@ -257,6 +322,39 @@ def test_physical_analysis_checks_endurance_constraint():
         for item in report.findings
     )
     assert report.metrics["physical_feasibility"] == "infeasible"
+
+
+def test_physical_analysis_reports_system_budget_conflict_and_full_impact():
+    graph = _system_budget_graph()
+    requirement = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
+    physical_ids = tuple(
+        item.id for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK
+    )
+
+    report = MethodologyEngine().analyze(graph)
+
+    finding = next(item for item in report.findings if item.code == "physical_budget_conflict")
+    assert finding.severity == "error"
+    assert finding.entity_ids == (requirement.id, *sorted(physical_ids))
+    assert finding.impact_paths
+    assert all(path[0] == requirement.id and path[-1] in physical_ids for path in finding.impact_paths)
+    assert report.metrics["physical_budget_conflict_count"] == 1
+    assert report.metrics["physical_candidate_conflict_count"] == 0
+    assert report.metrics["physical_conflict_count"] == 1
+    assert report.metrics["physical_budget_analysis"][0]["fields"]["power_w"]["total"] == 110.0
+    assert report.metrics["physical_feasibility"] == "infeasible"
+    guidance = build_methodology_guidance(report, "physical_candidates")
+    assert guidance["architecture_synthesis"]["physical"]["budget_analyses"]
+    action = next(
+        item for item in SystemsEngineeringController().plan(graph, report).actions
+        if item.kind == "trade_study"
+        and set(item.entity_ids) == {requirement.id, *physical_ids}
+    )
+    assert len(action.options) == 3
+    assert all(
+        set(option["physical_ids"]) == set(physical_ids)
+        for option in action.options
+    )
 
 
 def test_vv_analysis_requires_structured_verification_and_validation():

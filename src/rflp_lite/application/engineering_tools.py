@@ -60,13 +60,19 @@ class ModelConstraintCheckTool:
             row for row in synthesis.physical_rows
             if set(row.requirement_ids) & set(requirement_ids)
         )
-        outcome = _constraint_outcome(requirement_ids, rows)
+        budgets = tuple(
+            budget for budget in synthesis.system_budgets
+            if budget.requirement_id in requirement_ids
+        )
+        outcome = _constraint_outcome(requirement_ids, rows, budgets)
         summaries = tuple(_row_summary(row) for row in rows)
+        budget_summaries = tuple(budget.as_dict() for budget in budgets)
         excerpt = canonical_json({
             "tool_id": self.tool_id,
             "graph_revision": request.graph.revision,
             "requirement_ids": list(requirement_ids),
             "rows": list(summaries),
+            "budget_analyses": list(budget_summaries),
             "measurement": False,
         })
         return ToolExecutionResult(
@@ -83,6 +89,7 @@ class ModelConstraintCheckTool:
                 "requirement_ids": list(requirement_ids),
                 "physical_ids": [row.physical_id for row in rows],
                 "rows": list(summaries),
+                "budget_analyses": list(budget_summaries),
             },
         )
 
@@ -263,12 +270,14 @@ def _case_requirement_ids(graph, case: Entity) -> tuple[str, ...]:
     return tuple(sorted(ids))
 
 
-def _constraint_outcome(requirement_ids, rows) -> str:
-    if not requirement_ids or not rows:
+def _constraint_outcome(requirement_ids, rows, budgets=()) -> str:
+    if not requirement_ids or not rows and not budgets:
         return "inconclusive"
-    if any(row.conflicts for row in rows):
+    if any(row.conflicts for row in rows) or any(budget.conflicts for budget in budgets):
         return "failed"
-    if any(row.missing_fields for row in rows):
+    if any(row.missing_fields for row in rows) or any(
+        budget.missing_fields for budget in budgets
+    ):
         return "inconclusive"
     return "passed"
 
@@ -292,4 +301,5 @@ def _row_summary(row) -> Mapping[str, object]:
         "logical_ids": list(row.logical_ids),
         "function_ids": list(row.function_ids),
         "resolution_options": [dict(item) for item in row.resolution_options],
+        "system_budgets": [dict(item) for item in row.system_budgets],
     }
