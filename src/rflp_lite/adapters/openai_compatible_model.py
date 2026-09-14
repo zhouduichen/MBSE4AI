@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from rflp_lite.adapters.llm_client import (
     _bounded_max_tokens,
+    _fit_context_window,
     _is_native_ollama,
     chat_completion,
 )
@@ -189,6 +190,7 @@ class OpenAICompatibleModel:
                 "content": json.dumps(prompt_payload, ensure_ascii=False, sort_keys=True),
             },
         ]
+        max_tokens = _fit_context_window(self._config, messages, max_tokens)
         call_config = dict(self._config)
         structured_output_mode = str(
             call_config.get("structured_output_mode", "json_schema")
@@ -233,8 +235,14 @@ class OpenAICompatibleModel:
             try:
                 repaired_raw = self._complete(
                     call_config,
-                    self._repair_messages(request, raw, include_schema=not native_ollama),
-                    max_tokens=self._repair_budget(max_tokens, raw),
+                    repair_messages := self._repair_messages(
+                        request, raw, include_schema=not native_ollama
+                    ),
+                    max_tokens=_fit_context_window(
+                        self._config,
+                        repair_messages,
+                        self._repair_budget(max_tokens, raw),
+                    ),
                 )
                 self._ensure_complete(repaired_raw)
                 payload = self._parse_and_validate(

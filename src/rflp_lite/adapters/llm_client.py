@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from typing import Mapping
 
 from rflp_lite.domain.errors import AdapterFailure, TransportFailure
+from rflp_lite.ports.token_budget import estimate_messages
 
 
 class _CompletionText(str):
@@ -144,6 +145,35 @@ def _bounded_max_tokens(
     if max_tokens is None:
         return cap
     return min(max_tokens, cap)
+
+
+def _fit_context_window(
+    config: Mapping[str, object],
+    messages: list[dict[str, str]],
+    max_tokens: int | None,
+) -> int | None:
+    """Keep provider input plus output inside the configured context window."""
+
+    if max_tokens is None:
+        return None
+    try:
+        context_window = int(
+            config.get("context_window", config.get("local_context_tokens", 0))
+            or 0
+        )
+    except (TypeError, ValueError):
+        context_window = 0
+    if context_window <= 0:
+        return max_tokens
+    available = context_window - estimate_messages(messages) - 64
+    if available < 256:
+        raise TransportFailure(
+            "LLM prompt exceeds the configured context window",
+            code="context_window_exceeded",
+            provider_id=str(config.get("provider", config.get("id", ""))),
+            model_id=str(config.get("model", "")),
+        )
+    return min(max_tokens, available)
 
 
 def _sampling_value(config: dict[str, object], name: str, default: float) -> float:

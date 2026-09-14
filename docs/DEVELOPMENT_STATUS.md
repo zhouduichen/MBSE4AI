@@ -61,6 +61,7 @@
 | V&V 执行反馈闭环 | `vv record`、Web `/projects/{id}/vv/{case_id}/execute` 和 Assurance 页面接受外部测试/演示的明确结果与证据摘录；输入资料与实际执行结果分别写入 `evidence_ids`/`execution_evidence_ids`，结果回写 V&V Case，并在同一 Revision 物化 `Evidence` 节点及 `describedBy` 关系；失败生成包含 R→F→L→P 影响实体的 Issue，并在 Assurance 页面给出需人工选择的 Trade Study 迭代入口，重复执行保留历史 |
 | 工程工具结果闭环 | `vv tool`、`/projects/{id}/tools` 和 `/projects/{id}/vv/{case_id}/tools/{tool_id}/execute` 提供显式注册的工具适配器；内置模型约束检查器把物理可行性分析结果写入 V&V Evidence，缺少测量字段保持 `inconclusive`，失败沿 Controller 进入迭代 |
 | 方法论驱动生成上下文 | Methodology Engine 将当前阶段的 findings、指标、架构候选、影响实体和推荐任务以有界 `methodology_guidance` 注入五阶段及 23-task LLM 请求，确定性工程检查从事后验收前移为生成约束 |
+| Provider 请求上下文预算 | ContextPlanner 与 Provider 共享模型无关的 token 估算；结构化请求发送前保证 prompt 与 output 不超过 profile 的 context window，结构化 repair 复用同一预算，无法容纳时明确返回 `context_window_exceeded` 而不发送隐式超窗请求 |
 | 垂直阶段完成质量 | 五阶段结果逐项报告其内部 23-task 检查；关键关系、架构评价、约束传播、可行性权衡和 V&V 交叉分析缺失时标记 `needs_review`，并保留结构化候选供 Review/Controller 继续处理 |
 | 完整结构化五阶段验收 | 确定性结构化模型夹具已通过生产 Runtime→Compiler→Validator→CAS 路径一次性形成 R→F→L→P→V&V；覆盖 payload local_ref canonicalization、完整 V&V scope、SysML round-trip 和可继续编辑 revision |
 | 多需求结构化五阶段验收 | 三条独立自然语言 Requirement 已通过生产结构化 Runtime→Compiler→Validator→CAS 路径分别形成 Function，并沿共享或独立的 Logical/Physical 架构保持逐需求 V&V scope、三条完整端到端追溯、SysML round-trip 和继续编辑；该证据仍是离线结构化模型验收，不等同于真实 Provider 稳定性 |

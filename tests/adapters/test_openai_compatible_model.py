@@ -1,7 +1,7 @@
 import pytest
 
 from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
-from rflp_lite.domain.errors import AdapterFailure, StructuredOutputFailure
+from rflp_lite.domain.errors import AdapterFailure, StructuredOutputFailure, TransportFailure
 from rflp_lite.ports.generative_model import (
     GenerationRequest,
     SIMPLIFIED_CHINESE_OUTPUT_INSTRUCTION,
@@ -58,6 +58,60 @@ def test_adapter_parses_json_and_records_hashes():
     assert result.status == "completed"
     assert result.repaired is False
     assert calls[0][2] == 1200
+
+
+def test_adapter_fits_output_to_configured_context_window():
+    calls = []
+
+    def complete(_config, _messages, *, max_tokens=None):
+        calls.append(max_tokens)
+        return '{"items": []}'
+
+    model = OpenAICompatibleModel(
+        {
+            "provider": "ollama",
+            "kind": "local",
+            "context_window": 2048,
+            "model": "qwen",
+        },
+        complete=complete,
+    )
+    model.complete_json(
+        GenerationRequest(
+            lens_id="stakeholders",
+            system_prompt="只返回 JSON",
+                user_payload={"mission": "城市医疗运输" * 140},
+            response_schema=request().response_schema,
+            max_tokens=1200,
+        )
+    )
+
+    assert 0 < calls[0] < 1200
+
+
+def test_adapter_rejects_prompt_when_context_window_cannot_fit_output():
+    model = OpenAICompatibleModel(
+        {
+            "provider": "ollama",
+            "kind": "local",
+            "context_window": 512,
+            "model": "qwen",
+        },
+        complete=lambda *_args, **_kwargs: '{"items": []}',
+    )
+
+    with pytest.raises(TransportFailure, match="context window") as error:
+        model.complete_json(
+            GenerationRequest(
+                lens_id="stakeholders",
+                system_prompt="只返回 JSON",
+                user_payload={"mission": "城市医疗运输" * 300},
+                response_schema=request().response_schema,
+                max_tokens=1200,
+            )
+        )
+
+    assert error.value.code == "context_window_exceeded"
 
 
 def test_adapter_preserves_finish_reason_and_usage():

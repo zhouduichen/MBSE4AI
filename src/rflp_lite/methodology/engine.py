@@ -188,9 +188,9 @@ def build_methodology_guidance(
             finding.as_dict()
             for finding in report.findings
             if not stage or finding.stage == stage
-        ][:12],
+        ][:6],
         "recommended_tasks": list(report.recommended_tasks[:8]),
-        "decisions": [dict(item) for item in report.decisions[-8:]],
+        "decisions": [dict(item) for item in report.decisions[-4:]],
         "impacted_entity_ids": list(report.impacted_entity_ids[:24]),
     }
     synthesis = report.metrics.get("architecture_synthesis")
