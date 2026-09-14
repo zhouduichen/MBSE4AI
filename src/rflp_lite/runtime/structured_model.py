@@ -25,6 +25,7 @@ class StructuredModelRuntime:
             "context": {
                 "project_id": request.context_bundle.project_id,
                 "revision": request.context_bundle.revision,
+                "token_estimate": request.context_bundle.token_estimate,
                 "entities": [item.as_dict() for item in request.context_bundle.entities],
                 "relations": [
                     {

@@ -17,6 +17,7 @@ from rflp_lite.methodology.contracts import (
     RunStatus,
     StepStatus,
 )
+from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.engine import MethodologyEngine, MethodologyReport
 from rflp_lite.methodology.controller import ControllerPlan, SystemsEngineeringController
@@ -161,6 +162,7 @@ class ModelGenerationService:
         methodology_engine: MethodologyEngine | None = None,
         controller: SystemsEngineeringController | None = None,
         tool_layer: EngineeringToolLayer | None = None,
+        context_builder: ContextBuilder | None = None,
         methodology_version: str = "v2.1",
         output_budget: int | None = None,
     ) -> None:
@@ -170,6 +172,7 @@ class ModelGenerationService:
         self.methodology_engine = methodology_engine or MethodologyEngine()
         self.controller = controller or SystemsEngineeringController(self.methodology_engine)
         self.tool_layer = tool_layer or EngineeringToolLayer(repository)
+        self.context_builder = context_builder or ContextBuilder()
         self.methodology_version = methodology_version
         self.output_budget = max(
             256,
@@ -991,28 +994,39 @@ class ModelGenerationService:
         *,
         controller_decision: Mapping[str, object] | None = None,
     ) -> ContextBundle:
-        evidence = tuple(self.repository.list_evidence(graph.project_id))
+        task = stage_task(task_id.removeprefix("vertical."))
+        context_budget = self._context_budget()
+        output_reserve = min(self.output_budget, max(512, context_budget // 2))
+        evidence_bundle = tuple(self.repository.list_evidence(graph.project_id))
         if document_ids:
             selected = set(document_ids)
-            evidence = tuple(
-                item for item in evidence
-                if not selected or str(item.get("source_id", item.get("document_id", ""))) in selected
+            evidence_bundle = tuple(
+                item
+                for item in evidence_bundle
+                if str(item.get("source_id", item.get("document_id", ""))) in selected
             )
-        return ContextBundle(
-            graph.project_id,
-            task_id,
-            graph.revision,
-            tuple(
-                entity for entity in graph.entities
-                if entity.meta.status is not EntityStatus.DEPRECATED
-            ),
-            graph.relations,
-            evidence,
-            0,
-            (dict(controller_decision),) if controller_decision else (),
-            self.methodology_engine.context_guidance(graph, task_id),
+        context = self.context_builder.build(
+            graph,
+            task,
+            token_budget=context_budget,
+            output_reserve=output_reserve,
+            prompt_reserve=256,
+            evidence_bundle=evidence_bundle,
+        )
+        evidence = context.evidence
+        return replace(
+            context,
+            task_id=task_id,
+            controller_decisions=(dict(controller_decision),) if controller_decision else (),
+            evidence=evidence,
         )
 
+    def _context_budget(self) -> int:
+        value = getattr(self.runtime_selection, "context_window", None)
+        try:
+            return max(2048, int(value)) if value is not None else 12000
+        except (TypeError, ValueError):
+            return 12000
     def _ensure_run(
         self,
         run_id: str,

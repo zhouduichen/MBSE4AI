@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from rflp_lite.domain.model import ModelGraph
@@ -27,6 +28,7 @@ class ContextBuilder:
         token_budget: int = 2000,
         output_reserve: int | None = None,
         prompt_reserve: int = 0,
+        evidence_bundle: Sequence[Mapping[str, object]] = (),
     ) -> ContextBundle:
         total_budget = max(0, int(token_budget))
         if output_reserve is None:
@@ -53,8 +55,11 @@ class ContextBuilder:
             planned.token_estimate,
             methodology_guidance=self.methodology_engine.context_guidance(graph, task.id),
         )
+        baseline_evidence = _unique_evidence(evidence_bundle)
         if self.retrieval_engine is None or not task.context_query.include_evidence:
-            return context
+            return _with_bounded_evidence(
+                context, baseline_evidence, available_context, self.planner
+            )
         gap = knowledge_gap or KnowledgeGap(
             code=f"task.{task.id}",
             query=build_gap_query(task, planned.entities, None, context),
@@ -73,21 +78,64 @@ class ContextBuilder:
             }
             for candidate in result.candidates
         )
-        remaining = max(0, available_context - planned.token_estimate)
-        bounded_evidence: list[dict[str, object]] = []
-        for item in evidence:
-            estimate = self.planner.estimator.estimate(item)
-            if estimate > remaining:
-                continue
-            bounded_evidence.append(item)
-            remaining -= estimate
-        return ContextBundle(
-            context.project_id, context.task_id, context.revision, context.entities,
-            context.relations, tuple(bounded_evidence),
-            context.token_estimate + sum(self.planner.estimator.estimate(item) for item in bounded_evidence),
-            context.controller_decisions,
-            context.methodology_guidance,
+        return _with_bounded_evidence(
+            context,
+            _unique_evidence((*baseline_evidence, *evidence)),
+            available_context,
+            self.planner,
         )
+
+
+def _unique_evidence(
+    values: Sequence[Mapping[str, object]],
+) -> tuple[Mapping[str, object], ...]:
+    unique: list[Mapping[str, object]] = []
+    seen: set[tuple[str, ...]] = set()
+    for value in values:
+        if not isinstance(value, Mapping):
+            continue
+        item = dict(value)
+        key = (
+            str(item.get("id", "")),
+            str(item.get("source_id", "")),
+            str(item.get("locator", "")),
+            str(item.get("excerpt", item.get("text", ""))),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+    return tuple(unique)
+
+
+def _with_bounded_evidence(
+    context: ContextBundle,
+    evidence: Sequence[Mapping[str, object]],
+    available_context: int,
+    planner: ContextPlanner,
+) -> ContextBundle:
+    remaining = max(0, available_context - context.token_estimate)
+    bounded: list[Mapping[str, object]] = []
+    for value in evidence:
+        item = dict(value)
+        estimate = planner.estimator.estimate(item)
+        if estimate > remaining:
+            continue
+        bounded.append(item)
+        remaining -= estimate
+    return ContextBundle(
+        context.project_id,
+        context.task_id,
+        context.revision,
+        context.entities,
+        context.relations,
+        tuple(bounded),
+        context.token_estimate + sum(
+            planner.estimator.estimate(item) for item in bounded
+        ),
+        context.controller_decisions,
+        context.methodology_guidance,
+    )
 
 
 def _global_analysis_context(graph: ModelGraph, task: TaskSpec, planner: ContextPlanner):

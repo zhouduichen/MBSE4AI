@@ -50,3 +50,27 @@ def test_context_builder_keeps_graph_and_evidence_inside_shared_budget():
 
     assert context.token_estimate <= 40
     assert len(context.evidence) <= 1
+
+
+def test_context_builder_preserves_bound_evidence_before_retrieval_results():
+    task = tasks_for_phase(Phase.OPERATIONAL)[0]
+    graph = ModelGraph("p1", (make_entity(EntityKind.SYSTEM, "系统"),))
+    baseline = {
+        "id": "document-region-1",
+        "source_type": "document_region",
+        "source_id": "document-1",
+        "locator": "page 1",
+        "excerpt": "系统应支持人工接管",
+    }
+
+    context = ContextBuilder(_EvidenceRetriever()).build(
+        graph,
+        task,
+        token_budget=200,
+        output_reserve=40,
+        prompt_reserve=20,
+        evidence_bundle=(baseline,),
+    )
+
+    assert context.evidence
+    assert context.evidence[0]["id"] == "document-region-1"

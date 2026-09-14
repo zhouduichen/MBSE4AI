@@ -96,14 +96,13 @@ class V2Services:
             self.settings.active_config() or self._runtime_config,
             runtime_override=self._runtime_override,
         )
+        retrieval_engine = self._retrieval_engine(project_id, repository)
         return ModelGenerationService(
             repository,
             selection.runtime,
             runtime_selection=selection,
-            tool_layer=EngineeringToolLayer(
-                repository,
-                retrieval_engine=self._retrieval_engine(project_id, repository),
-            ),
+            context_builder=ContextBuilder(retrieval_engine),
+            tool_layer=EngineeringToolLayer(repository, retrieval_engine=retrieval_engine),
         )
 
     def requirements_input(self, project_id: str) -> RequirementInputService:

@@ -24,6 +24,7 @@ class ScriptedModel:
         self.controller_decisions = []
         self.evidence_contexts = []
         self.methodology_guidances = []
+        self.context_token_estimates = []
 
     def complete_json(self, request):
         self.calls.append(request.lens_id)
@@ -31,6 +32,9 @@ class ScriptedModel:
         self.controller_decisions.append(request.user_payload["controller_decisions"])
         self.evidence_contexts.append(request.user_payload["evidence"])
         self.methodology_guidances.append(request.user_payload["methodology_guidance"])
+        self.context_token_estimates.append(
+            request.user_payload["context"]["token_estimate"]
+        )
         entities = request.user_payload["context"]["entities"]
         by_kind = {}
         for item in entities:
@@ -462,6 +466,40 @@ def test_document_regions_are_available_as_structured_generation_evidence(tmp_pa
         and evidence["excerpt"] == "系统应支持人工接管"
         for context in model.evidence_contexts
         for evidence in context
+    )
+
+
+def test_vertical_generation_bounds_stage_context_to_configured_window(tmp_path: Path):
+    model = ScriptedModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+        runtime_config={
+            "id": "remote-test",
+            "provider": "openai-compatible",
+            "kind": "remote",
+            "base_url": "https://example.invalid/v1",
+            "model": "engineering-model",
+            "context_window": 2048,
+            "max_output_tokens": 1024,
+        },
+    )
+    services.projects.create("robot")
+
+    services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+
+    assert model.calls == [
+        "vertical.requirements",
+        "vertical.functional",
+        "vertical.logical",
+        "vertical.physical",
+        "vertical.verification_validation",
+    ]
+    assert all(
+        estimate <= 2048
+        for estimate in model.context_token_estimates
     )
 
 

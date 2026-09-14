@@ -9,11 +9,15 @@ to the run ledger.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from collections.abc import Mapping, MutableMapping
 
 from rflp_lite.methodology.contracts import TaskRuntime
 from rflp_lite.runtime.openai_compatible import openai_compatible_runtime
 from rflp_lite.runtime.rule_based import RuleRuntime
+
+
+DEFAULT_CONTEXT_WINDOW = 8192
+DEFAULT_MAX_OUTPUT_TOKENS = 4096
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,14 +68,25 @@ class RuntimeFactory:
                 raise ValueError("active LLM profile must contain id and model")
             if not bool(config.get("enabled", True)):
                 raise ValueError("active LLM profile is disabled")
+            context_window = _int_value(config, "context_window")
+            max_output_tokens = _int_value(config, "max_output_tokens")
+            if context_window is None:
+                context_window = DEFAULT_CONTEXT_WINDOW
+            if max_output_tokens is None:
+                max_output_tokens = DEFAULT_MAX_OUTPUT_TOKENS
+            runtime_config = dict(config)
+            _set_if_missing(runtime_config, "context_window", context_window)
+            _set_if_missing(runtime_config, "local_context_tokens", context_window)
+            _set_if_missing(runtime_config, "max_output_tokens", max_output_tokens)
+            _set_if_missing(runtime_config, "local_max_tokens", max_output_tokens)
             return RuntimeSelection(
-                openai_compatible_runtime(dict(config)),
+                openai_compatible_runtime(runtime_config),
                 profile_id,
                 provider_id or "openai-compatible",
                 model_id,
                 "configured",
-                _int_value(config, "context_window"),
-                _int_value(config, "max_output_tokens"),
+                context_window,
+                max_output_tokens,
                 _float_value(config, "temperature", 0.0),
                 _int_value(config, "seed"),
                 str(config.get("structured_output_mode", "json_schema")),
@@ -86,6 +101,11 @@ def _int_value(config: Mapping[str, object] | None, name: str) -> int | None:
         return int(config[name])
     except (TypeError, ValueError):
         return None
+
+
+def _set_if_missing(config: MutableMapping[str, object], name: str, value: int) -> None:
+    if config.get(name) is None or config.get(name) == "":
+        config[name] = value
 
 
 def _float_value(config: Mapping[str, object] | None, name: str, default: float) -> float:
