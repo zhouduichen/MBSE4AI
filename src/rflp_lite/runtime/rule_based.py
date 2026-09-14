@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.model import AddEntity, Deprecate, Patch, Relate, UpdateEntity
@@ -329,23 +330,23 @@ class VerticalRuleRuntime:
     def _requirements(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         builder = _VerticalPatchBuilder(request)
         requirements = _requirements(request)
-        seed = requirements[0].meta.name if requirements else builder.context.project_id
+        domain = _domain_label(requirements) or builder.context.project_id
         system = _context_first(builder.context, EntityKind.SYSTEM) or builder.add(
-            EntityKind.SYSTEM, f"{seed} 系统", _system_payload(seed)
+            EntityKind.SYSTEM, f"{domain}系统", _system_payload(domain)
         )
         stakeholder = _context_first(builder.context, EntityKind.STAKEHOLDER) or builder.add(
             EntityKind.STAKEHOLDER, "系统使用者", {"role": "使用与验收"}
         )
         concern = _context_first(builder.context, EntityKind.CONCERN) or builder.add(
-            EntityKind.CONCERN, "任务可靠性与运营可用性", {
-                "topic": "在正常、异常和人工接管场景下完成可追踪任务",
+            EntityKind.CONCERN, f"{domain}可靠性与运营可用性", {
+                "topic": f"在正常、异常和人工接管场景下完成可追踪{domain}任务",
                 "stakeholder_ids": [stakeholder.id],
             }
         )
         scenario = _context_first(builder.context, EntityKind.OPERATIONAL_SCENARIO) or builder.add(
-            EntityKind.OPERATIONAL_SCENARIO, "典型运行场景", {
+            EntityKind.OPERATIONAL_SCENARIO, f"典型{domain}运行场景", {
                 "actor_ids": [stakeholder.id],
-                "steps": ["提出任务", "系统执行任务", "反馈结果"],
+                "steps": [f"提出{domain}任务", f"系统执行{domain}任务", "反馈结果"],
                 "exchanges": [],
                 "internal_component_ids": [],
             }
@@ -371,23 +372,23 @@ class VerticalRuleRuntime:
             )
             transitions.append(transition)
         hypothesis = _context_first(builder.context, EntityKind.SCENARIO_HYPOTHESIS) or builder.add(
-            EntityKind.SCENARIO_HYPOTHESIS, "典型配送场景假设", {
+            EntityKind.SCENARIO_HYPOTHESIS, f"典型{domain}场景假设", {
                 "category": "normal",
                 "actors": [stakeholder.meta.name],
-                "trigger": "运营人员提交配送任务",
-                "outcome": "任务完成并反馈结果",
+                "trigger": f"运营人员提交{domain}任务",
+                "outcome": f"{domain}任务完成并反馈结果",
             }
         )
         use_case = _context_first(builder.context, EntityKind.USE_CASE) or builder.add(
-            EntityKind.USE_CASE, "执行一次配送任务", {
+            EntityKind.USE_CASE, f"执行一次{domain}任务", {
                 "primary_actor": stakeholder.meta.name,
-                "goal": "完成可追踪配送",
+                "goal": f"完成可追踪{domain}",
                 "success": "接收结果并可人工接管",
             }
         )
         activity = _context_first(builder.context, EntityKind.ACTIVITY) or builder.add(
-            EntityKind.ACTIVITY, "受理并完成配送活动", {
-                "steps": ["受理任务", "规划路径", "执行配送", "反馈结果"],
+            EntityKind.ACTIVITY, f"受理并完成{domain}活动", {
+                "steps": [f"受理{domain}任务", "规划执行", f"完成{domain}", "反馈结果"],
                 "branches": ["人工接管", "任务失败后重试"],
             }
         )
@@ -407,6 +408,7 @@ class VerticalRuleRuntime:
     def _functional(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         builder = _VerticalPatchBuilder(request)
         requirements = _requirements(request)
+        domain = _domain_label(requirements) or builder.context.project_id
         for requirement in requirements:
             function = builder.add(EntityKind.FUNCTION, f"执行：{requirement.meta.name[:36]}", {
                 "behavior": f"实现{requirement.meta.name}",
@@ -415,10 +417,10 @@ class VerticalRuleRuntime:
             })
             builder.relate(requirement, RelationPredicate.SATISFIED_BY, function)
         functions = _builder_entities(builder, EntityKind.FUNCTION)
-        flow = builder.add(EntityKind.FUNCTIONAL_FLOW, "任务信息交互流", {
-            "direction": "双向", "content": "任务与结果"
+        flow = builder.add(EntityKind.FUNCTIONAL_FLOW, f"{domain}信息交互流", {
+            "direction": "双向", "content": f"{domain}任务与结果"
         })
-        scenario = builder.add(EntityKind.FUNCTIONAL_SCENARIO, "完成核心功能场景", {
+        scenario = builder.add(EntityKind.FUNCTIONAL_SCENARIO, f"完成{domain}核心功能场景", {
             "function_ids": [item.id for item in functions],
             "steps": ["输入", "处理", "输出"],
         })
@@ -432,6 +434,7 @@ class VerticalRuleRuntime:
         decision = _controller_decision(request.context_bundle)
         option = str(decision.get("option", "")).strip()
         variant = option if option in _LOGICAL_VARIANTS else ""
+        domain = _domain_label(_requirements(request)) or "配送"
         functions = _context_entities(request.context_bundle, EntityKind.FUNCTION)
         groups = _partition_functions(functions)
         if variant:
@@ -470,15 +473,15 @@ class VerticalRuleRuntime:
         for group in groups:
             label = _partition_label(group)
             base_name = (
-                "配送协同逻辑架构"
+                f"{domain}协同逻辑架构"
                 if len(groups) == 1 and len(group) == 1
                 else f"{group[0].meta.name}逻辑组件"
                 if variant == "one_component_per_function" and len(group) == 1
                 else f"{label}逻辑组件"
             )
             name = f"{base_name}（{variant}）" if variant else base_name
-            shared_state = _union_payload_values(group, "shared_state") or ["配送任务状态"]
-            timing_constraints = _union_payload_values(group, "timing_constraints") or ["任务状态更新必须可排序"]
+            shared_state = _union_payload_values(group, "shared_state") or [f"{domain}任务状态"]
+            timing_constraints = _union_payload_values(group, "timing_constraints") or [f"{domain}任务状态更新必须可排序"]
             payload = {
                 "responsibility": "；".join(
                     str(item.payload.get("behavior") or item.meta.name)
@@ -513,7 +516,7 @@ class VerticalRuleRuntime:
         if not logical_components:
             return builder.response()
         suffix = f"（{variant}）" if variant else ""
-        state = builder.add(EntityKind.STATE, f"配送任务状态{suffix}", {
+        state = builder.add(EntityKind.STATE, f"{domain}任务状态{suffix}", {
             "values": ["待受理", "执行中", "人工接管", "完成", "失败"],
             "transitions": [
                 "待受理->执行中", "执行中->人工接管", "执行中->完成",
@@ -522,7 +525,7 @@ class VerticalRuleRuntime:
             "owner_id": logical_components[0].id,
             "owner_ids": [item.id for item in logical_components],
         })
-        interface = builder.add(EntityKind.INTERFACE, f"配送任务交互接口{suffix}", {
+        interface = builder.add(EntityKind.INTERFACE, f"{domain}任务交互接口{suffix}", {
             "protocol": "logical-message",
             "exchanges": ["task_request", "task_status", "handover"],
             "connected_component_ids": [item.id for item in logical_components],
@@ -542,6 +545,7 @@ class VerticalRuleRuntime:
         decision = _controller_decision(request.context_bundle)
         option = str(decision.get("option", "")).strip()
         physical_variant = option if option in _PHYSICAL_VARIANTS else ""
+        domain = _domain_label(_requirements(request)) or "配送"
         logical_components = _context_entities(request.context_bundle, EntityKind.LOGICAL_COMPONENT)
         for logical in logical_components:
             functions = tuple(
@@ -554,8 +558,24 @@ class VerticalRuleRuntime:
                 )
             )
             requirements = _requirements_for_functions(request.context_bundle, functions)
+            linked_physical = next(
+                (
+                    candidate for candidate in _context_entities(
+                        request.context_bundle, EntityKind.PHYSICAL_BLOCK
+                    )
+                    if any(
+                        relation.source_id == logical.id
+                        and relation.predicate is RelationPredicate.ALLOCATED_TO
+                        and relation.target_id == candidate.id
+                        for relation in request.context_bundle.relations
+                    )
+                ),
+                None,
+            )
             name = (
-                "配送协同执行平台"
+                linked_physical.meta.name
+                if linked_physical is not None and not physical_variant
+                else f"{domain}协同执行平台"
                 if len(logical_components) == 1
                 else f"{logical.meta.name}执行平台"
             )
@@ -813,6 +833,20 @@ def _requirements(request: TaskExecutionRequest):
         if item.kind is EntityKind.REQUIREMENT
         and item.meta.status is not EntityStatus.DEPRECATED
     )
+
+
+def _domain_label(requirements) -> str:
+    """Extract a short input-derived subject for the offline model fallback."""
+
+    if not requirements:
+        return ""
+    first = requirements[0]
+    raw = str(first.payload.get("statement") or first.meta.name).strip()
+    raw = re.sub(r"^(?:系统)?\s*(?:应|需|需要|必须)\s*", "", raw)
+    raw = re.sub(r"^(?:支持|实现|能够|可以)\s*[:：]?\s*", "", raw)
+    raw = re.split(r"(?:并且|并|且|以及|；|;|。|，|,)", raw, maxsplit=1)[0]
+    label = raw.strip(" ：:、—-\t\n")
+    return label[:24]
 
 
 def _system_payload(seed: str) -> Mapping[str, object]:

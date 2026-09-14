@@ -83,6 +83,25 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
     assert "人工可继续编辑" in graph_to_sysml(edited)
 
 
+def test_offline_generation_keeps_the_model_subject_from_input(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("warehouse")
+
+    result = services.generation("warehouse").generate(
+        "warehouse", requirement_text="系统应监测仓储温度并在超限时告警"
+    )
+    graph = services.model("warehouse").graph("warehouse")
+
+    assert result.traceability.complete_count == 1
+    system = next(item for item in graph.entities if item.kind is EntityKind.SYSTEM)
+    logical = next(item for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT)
+    physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
+    assert system.payload["mission"] == "完成监测仓储温度"
+    assert "监测仓储温度" in logical.meta.name
+    assert "监测仓储温度" in physical.meta.name
+    assert all("配送" not in item.meta.name for item in graph.entities)
+
+
 def test_multiple_natural_language_requirements_get_separate_function_paths(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("robot")
