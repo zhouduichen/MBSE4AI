@@ -331,6 +331,11 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
         for check in functional_stage.completion_checks
     )
     assert result.stage_results[2].decision_records[0]["step"] == "vertical.logical"
+    assert model.methodology_guidances[1]["stage_completion"]["issue_codes"]
+    assert any(
+        check["id"] == "functional_requirement" and not check["passed"]
+        for check in model.methodology_guidances[1]["stage_completion"]["checks"]
+    )
     assert [item["task_id"] for item in model.methodology_guidances] == [
         "vertical.requirements",
         "vertical.functional",

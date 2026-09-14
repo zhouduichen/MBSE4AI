@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.methodology.completion import CompletionResult, evaluate_vertical_stage
 from rflp_lite.methodology.architecture_synthesis import (
     ArchitectureSynthesis,
     synthesize_architecture,
@@ -32,6 +33,13 @@ _VV_PLAN_FIELDS = (
     "pass_criteria",
 )
 _TASK_ORDER = TASK_ORDER
+_VERTICAL_COMPLETION_STAGE_BY_TASK = {
+    "vertical.requirements": "requirements",
+    "vertical.functional": "functional",
+    "vertical.logical": "logical",
+    "vertical.physical": "physical",
+    "vertical.verification_validation": "verification_validation",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +147,8 @@ _GUIDANCE_METRICS = {
 def build_methodology_guidance(
     report: MethodologyReport,
     task_id: str,
+    *,
+    stage_completion: CompletionResult | None = None,
 ) -> Mapping[str, object]:
     """Expose bounded deterministic guidance to the next generation task."""
 
@@ -169,6 +179,11 @@ def build_methodology_guidance(
             guidance["architecture_synthesis"] = {
                 stage: _bounded_architecture_guidance(section, stage),
             }
+    if stage_completion is not None:
+        guidance["stage_completion"] = {
+            "checks": [dict(check) for check in stage_completion.checks],
+            "issue_codes": list(stage_completion.issue_codes),
+        }
     return guidance
 
 
@@ -230,7 +245,13 @@ class MethodologyEngine:
     def context_guidance(self, graph: ModelGraph, task_id: str) -> Mapping[str, object]:
         """Return the current report in a bounded form suitable for an LLM."""
 
-        return build_methodology_guidance(self.analyze(graph), task_id)
+        stage = _VERTICAL_COMPLETION_STAGE_BY_TASK.get(task_id)
+        completion = evaluate_vertical_stage(stage, graph) if stage else None
+        return build_methodology_guidance(
+            self.analyze(graph),
+            task_id,
+            stage_completion=completion,
+        )
 
     def _analyze_operational(self, graph, index, findings, decisions, metrics) -> None:
         present = {
