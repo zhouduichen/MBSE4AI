@@ -120,6 +120,55 @@ def test_logical_analysis_reports_partition_quality_and_allocation():
     assert not any(item.code == "logical_function_unallocated" for item in report.findings)
 
 
+def test_candidate_function_does_not_count_as_completed_architecture_coverage():
+    graph = _graph()
+    entities = tuple(
+        make_entity(
+            item.kind,
+            item.meta.name,
+            item.payload,
+            status=EntityStatus.CANDIDATE,
+        )
+        if item.kind is EntityKind.FUNCTION
+        else item
+        for item in graph.entities
+    )
+    candidate_graph = ModelGraph(
+        graph.project_id, entities, graph.relations, graph.revision
+    )
+
+    report = MethodologyEngine().analyze(candidate_graph)
+
+    assert report.metrics["functional_requirement_coverage"] == 0.0
+    assert report.metrics["logical_function_count"] == 0
+    assert any(item.code == "functional_requirement_uncovered" for item in report.findings)
+
+
+def test_candidate_vv_cases_do_not_count_as_completed_assurance_coverage():
+    graph = _graph(complete_vv=True)
+    entities = tuple(
+        make_entity(
+            item.kind,
+            item.meta.name,
+            item.payload,
+            status=EntityStatus.CANDIDATE,
+        )
+        if item.kind in {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}
+        else item
+        for item in graph.entities
+    )
+    candidate_graph = ModelGraph(
+        graph.project_id, entities, graph.relations, graph.revision
+    )
+
+    report = MethodologyEngine().analyze(candidate_graph)
+
+    assert report.metrics["verification_coverage"] == 0.0
+    assert report.metrics["validation_coverage"] == 0.0
+    assert any(item.code == "verification_missing" for item in report.findings)
+    assert any(item.code == "validation_missing" for item in report.findings)
+
+
 def test_operational_and_functional_analysis_reports_missing_context():
     report = MethodologyEngine().analyze(_graph())
 

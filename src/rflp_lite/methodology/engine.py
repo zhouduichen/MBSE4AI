@@ -24,6 +24,7 @@ from rflp_lite.methodology.vv_contract import VV_PLAN_FIELDS, missing_vv_plan_fi
 
 
 _INACTIVE = frozenset({EntityStatus.REJECTED, EntityStatus.DEPRECATED})
+_READY = frozenset({EntityStatus.VALIDATED, EntityStatus.ACCEPTED, EntityStatus.LOCKED})
 _PHYSICAL_FIELDS = (
     "mass_kg", "power_w", "compute", "memory_mb", "latency_ms",
     "bandwidth_mbps", "cost", "thermal", "reliability", "availability", "endurance_h",
@@ -351,10 +352,12 @@ class MethodologyEngine:
             item for item in _active(index, EntityKind.REQUIREMENT)
             if not is_technical_requirement(item)
         )
-        functions = _active(index, EntityKind.FUNCTION)
-        flows = _active(index, EntityKind.FUNCTIONAL_FLOW)
-        scenarios = _active(index, EntityKind.FUNCTIONAL_SCENARIO)
-        satisfied = _relation_targets(graph, index, RelationPredicate.SATISFIED_BY)
+        functions = _ready(index, EntityKind.FUNCTION)
+        flows = _ready(index, EntityKind.FUNCTIONAL_FLOW)
+        scenarios = _ready(index, EntityKind.FUNCTIONAL_SCENARIO)
+        satisfied = _relation_targets(
+            graph, index, RelationPredicate.SATISFIED_BY, target_ready_only=True
+        )
         requirement_functions = {
             requirement.id: tuple(
                 target for target in satisfied.get(requirement.id, ())
@@ -362,8 +365,12 @@ class MethodologyEngine:
             )
             for requirement in requirements
         }
-        function_flows = _relation_targets(graph, index, RelationPredicate.EXCHANGES_WITH)
-        function_scenarios = _relation_targets(graph, index, RelationPredicate.DERIVED_FROM)
+        function_flows = _relation_targets(
+            graph, index, RelationPredicate.EXCHANGES_WITH, target_ready_only=True
+        )
+        function_scenarios = _relation_targets(
+            graph, index, RelationPredicate.DERIVED_FROM, target_ready_only=True
+        )
         covered_requirements = sum(bool(targets) for targets in requirement_functions.values())
         covered_functions = sum(bool(
             [target for target in function_flows.get(function.id, ()) if index[target].kind is EntityKind.FUNCTIONAL_FLOW]
@@ -426,9 +433,11 @@ class MethodologyEngine:
         metrics,
         architecture: ArchitectureSynthesis,
     ) -> None:
-        functions = _active(index, EntityKind.FUNCTION)
-        components = _active(index, EntityKind.LOGICAL_COMPONENT)
-        allocations = _relation_targets(graph, index, RelationPredicate.ALLOCATED_TO)
+        functions = _ready(index, EntityKind.FUNCTION)
+        components = _ready(index, EntityKind.LOGICAL_COMPONENT)
+        allocations = _relation_targets(
+            graph, index, RelationPredicate.ALLOCATED_TO, target_ready_only=True
+        )
         function_to_components = {
             entity.id: tuple(
                 target for target in allocations.get(entity.id, ())
@@ -439,7 +448,7 @@ class MethodologyEngine:
         assigned = {item.id for item in functions if function_to_components[item.id]}
         metrics["logical_function_count"] = len(functions)
         metrics["logical_component_count"] = len(components)
-        states = _active(index, EntityKind.STATE)
+        states = _ready(index, EntityKind.STATE)
         metrics["logical_state_count"] = len(states)
         metrics["logical_state_model_coverage"] = 1.0 if states else 0.0
         metrics["logical_allocation_coverage"] = _ratio(len(assigned), len(functions))
@@ -537,8 +546,16 @@ class MethodologyEngine:
         metrics,
         architecture: ArchitectureSynthesis,
     ) -> None:
+        # Candidate architecture elements remain available for feasibility
+        # analysis, but only ready elements can satisfy completion coverage.
         logicals = _active(index, EntityKind.LOGICAL_COMPONENT)
         physicals = _active(index, EntityKind.PHYSICAL_BLOCK)
+        ready_logical_ids = {
+            item.id for item in _ready(index, EntityKind.LOGICAL_COMPONENT)
+        }
+        ready_physical_ids = {
+            item.id for item in _ready(index, EntityKind.PHYSICAL_BLOCK)
+        }
         allocations = _relation_targets(graph, index, RelationPredicate.ALLOCATED_TO)
         logical_to_physical = {
             logical.id: tuple(
@@ -547,7 +564,12 @@ class MethodologyEngine:
             )
             for logical in logicals
         }
-        assigned = {item.id for item in logicals if logical_to_physical[item.id]}
+        assigned = {
+            item.id for item in logicals
+            if item.id in ready_logical_ids
+            and any(target in ready_physical_ids
+                   for target in logical_to_physical[item.id])
+        }
         metrics["physical_logical_count"] = len(logicals)
         metrics["physical_block_count"] = len(physicals)
         metrics["physical_allocation_coverage"] = _ratio(len(assigned), len(logicals))
@@ -650,13 +672,19 @@ class MethodologyEngine:
 
     def _analyze_vv(self, graph, index, findings, decisions, metrics) -> None:
         requirements = _active(index, EntityKind.REQUIREMENT)
-        hazards = _active(index, EntityKind.HAZARD)
-        failure_modes = _active(index, EntityKind.FAILURE_MODE)
-        verifications = _relation_targets(graph, index, RelationPredicate.VERIFIED_BY)
-        validations = _relation_targets(graph, index, RelationPredicate.VALIDATED_BY)
+        hazards = _ready(index, EntityKind.HAZARD)
+        failure_modes = _ready(index, EntityKind.FAILURE_MODE)
+        verifications = _relation_targets(
+            graph, index, RelationPredicate.VERIFIED_BY, target_ready_only=True
+        )
+        validations = _relation_targets(
+            graph, index, RelationPredicate.VALIDATED_BY, target_ready_only=True
+        )
         derived_from = _relation_targets(graph, index, RelationPredicate.DERIVED_FROM)
-        mitigations = _relation_targets(graph, index, RelationPredicate.MITIGATED_BY)
-        activities = _active(index, EntityKind.ACTIVITY)
+        mitigations = _relation_targets(
+            graph, index, RelationPredicate.MITIGATED_BY, target_ready_only=True
+        )
+        activities = _ready(index, EntityKind.ACTIVITY)
         branch_names = tuple(
             branch
             for activity in activities
@@ -883,7 +911,7 @@ def _typed_vv_cases(index, case_ids, kind: EntityKind) -> tuple[Entity, ...]:
     return tuple(
         index[item]
         for item in case_ids
-        if item in index and index[item].kind is kind
+        if item in index and index[item].kind is kind and index[item].meta.status in _READY
     )
 
 
@@ -948,8 +976,8 @@ def _record_vv_decisions(
 
 def _vv_execution_summary(index):
     cases = (
-        *_active(index, EntityKind.VERIFICATION_CASE),
-        *_active(index, EntityKind.VALIDATION_CASE),
+        *_ready(index, EntityKind.VERIFICATION_CASE),
+        *_ready(index, EntityKind.VALIDATION_CASE),
     )
     executed = tuple(
         item for item in cases
@@ -985,11 +1013,29 @@ def _active(index: Mapping[str, Entity], kind: EntityKind | None = None) -> tupl
     ))
 
 
-def _relation_targets(graph, index, predicate: RelationPredicate):
+def _ready(index: Mapping[str, Entity], kind: EntityKind | None = None) -> tuple[Entity, ...]:
+    return tuple(sorted(
+        (
+            item for item in index.values()
+            if item.meta.status in _READY and (kind is None or item.kind is kind)
+        ),
+        key=lambda item: item.id,
+    ))
+
+
+def _relation_targets(
+    graph,
+    index,
+    predicate: RelationPredicate,
+    *,
+    target_ready_only: bool = False,
+):
     result = {}
     for relation in graph.relations:
         if relation.predicate is predicate and relation.source_id in index and relation.target_id in index:
             if index[relation.source_id].meta.status in _INACTIVE or index[relation.target_id].meta.status in _INACTIVE:
+                continue
+            if target_ready_only and index[relation.target_id].meta.status not in _READY:
                 continue
             result.setdefault(relation.source_id, set()).add(relation.target_id)
     return {source: tuple(sorted(targets)) for source, targets in result.items()}

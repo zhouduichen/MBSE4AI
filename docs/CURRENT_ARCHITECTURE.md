@@ -90,3 +90,9 @@ Requirement→Function→Logical→Physical→Verification/Validation 结果：�
 Traceability Matrix、Coverage Matrix、RFLP 视图、`/trace` API 和
 `traceability.json` 都消费这一解析结果，因此覆盖率、缺口、主路径和端到端完成数
 不会因投影入口不同而分叉；该解析器是纯 ModelGraph 读操作，不触发本地或远程模型。
+
+Methodology Engine 对候选状态也遵循同一完成度边界：候选 Function、Logical、
+Physical 和 V&V Case 仍会留在工作台、架构候选和约束可行性分析中，但不会进入已完成的
+功能覆盖、分配覆盖或 Verification/Validation 覆盖；候选 Physical 仍可用于发现功耗、
+续航等冲突和形成 Trade Study。这样语义失败输出既不会丢失 Review 上下文，也不会被
+统计为已经确认的工程事实。
