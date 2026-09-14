@@ -13,6 +13,20 @@ from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
 from rflp_lite.methodology.gates import gate_for_phase
 
 
+_GATE_LABELS = {
+    "O-Gate": "运行场景质量门禁",
+    "F-Gate": "功能质量门禁",
+    "P-Gate": "逻辑与物理质量门禁",
+    "Global-Gate": "全局质量门禁",
+}
+_PHASE_LABELS = {
+    Phase.OPERATIONAL.value: "运行场景",
+    Phase.FUNCTIONAL.value: "功能分析",
+    Phase.LOGICAL_PHYSICAL.value: "逻辑与物理架构",
+    Phase.ASSURANCE.value: "验证与确认",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class GateSummaryView:
     gate_id: str
@@ -22,6 +36,9 @@ class GateSummaryView:
     blocking_issues: tuple[Mapping[str, object], ...]
     coverage_summary: Mapping[str, object]
     rollback_phase: str | None
+    gate_label: str = ""
+    phase_label: str = ""
+    status_label: str = ""
 
     def as_dict(self) -> Mapping[str, object]:
         return asdict(self)
@@ -38,7 +55,18 @@ def _gate(graph: ModelGraph, phase: Phase, issues: tuple[Mapping[str, object], .
             blocking.extend(issue_index.get(entity_id, ()) or ({"id": f"gate-{result.gate_id}-{entity_id}", "code": issue.code, "severity": "error", "entity_ids": list(entity_ids), "suggested_rollback": result.rollback_phase.value if result.rollback_phase else None, "status": "open"},))
     flattened = blocking
     coverage = build_requirement_coverage(graph).metrics
-    return GateSummaryView(result.gate_id, phase.value, result.passed, tuple(result.checks), tuple(flattened), dict(coverage), result.rollback_phase.value if result.rollback_phase else None)
+    return GateSummaryView(
+        result.gate_id,
+        phase.value,
+        result.passed,
+        tuple(result.checks),
+        tuple(flattened),
+        dict(coverage),
+        result.rollback_phase.value if result.rollback_phase else None,
+        _GATE_LABELS.get(result.gate_id, result.gate_id),
+        _PHASE_LABELS.get(phase.value, phase.value),
+        "已通过" if result.passed else "需要处理",
+    )
 
 
 def build_assurance_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> Mapping[str, object]:

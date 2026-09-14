@@ -2,7 +2,7 @@
 {% block title %}MBSE 模型 · {{ project.id }}{% endblock %}
 {% block content %}
 <div class="page-heading">
-  <div><p class="eyebrow">关系追踪</p><h1>MBSE 模型</h1><p>项目 <strong>{{ project.id }}</strong> · 当前修订 {{ trace.revision }}</p></div>
+  <div><p class="eyebrow">关系追踪</p><h1>MBSE 模型</h1><p>项目 <strong>{{ project.id }}</strong> · 当前模型版本 {{ trace.revision }}</p></div>
   <span class="status-badge info">模型图</span>
 </div>
 
@@ -42,8 +42,9 @@
     <div class="module-grid">
       {% for item in group.entities %}
       <article class="card model-entity-card" data-entity-id="{{ item.id }}">
-        <div class="panel-head"><div><span class="status-badge info">{{ item.kind }}</span><h3>{{ item.name }}</h3><code>{{ item.id }}</code></div><span class="status-badge {{ item.status }}">{{ item.status }}</span></div>
+        <div class="panel-head"><div><span class="status-badge info">{{ item.kind_label }}</span><h3>{{ item.name }}</h3></div><span class="status-badge {{ item.status }}">{{ item.status_label }}</span></div>
         <div class="entity-meta"><span>来源 {{ item.source_count }}</span><span>证据 {{ item.evidence_count }}</span><span>关系 {{ item.relation_count }}</span>{% if item.issue_count %}<span class="status-badge failed">问题 {{ item.issue_count }}</span>{% endif %}</div>
+        <details class="advanced-details entity-identifier"><summary>查看工程标识（高级）</summary><code>{{ item.id }}</code></details>
         <details class="entity-payload"><summary>查看模型属性</summary><pre>{{ item.payload|tojson(indent=2) }}</pre></details>
         <div class="workbench-actions">
           {% if item.status in ['candidate', 'validated'] %}<button class="button compact workbench-command" type="button" data-review-action="accept" data-entity-id="{{ item.id }}">接受</button><button class="button compact danger workbench-command" type="button" data-review-action="reject" data-entity-id="{{ item.id }}">拒绝</button>{% elif item.status == 'accepted' %}<button class="button compact workbench-command" type="button" data-review-action="lock" data-entity-id="{{ item.id }}">锁定</button>{% elif item.status == 'locked' %}<button class="button compact workbench-command" type="button" data-review-action="unlock" data-entity-id="{{ item.id }}">解锁</button>{% endif %}
@@ -77,7 +78,7 @@
 </section>
 
 <section class="panel export-panel">
-  <div class="panel-head"><div><h2>导出模型</h2><p>下载当前项目的 JSON、Graphviz DOT、SVG 或 SysML 文本。</p></div><span class="status-badge info">当前修订 {{ trace.revision }}</span></div>
+  <div class="panel-head"><div><h2>导出模型</h2><p>下载当前项目的 JSON、Graphviz DOT、SVG 或 SysML 文本。</p></div><span class="status-badge info">当前模型版本 {{ trace.revision }}</span></div>
   <div class="workbench-actions export-actions">
     <button class="button" type="button" data-export-format="json">下载 JSON</button>
     <button class="button" type="button" data-export-format="dot">下载 DOT</button>
@@ -88,7 +89,7 @@
 </section>
 
 <section class="panel delivery-panel">
-  <div class="panel-head"><div><h2>完整工程交付物</h2><p>从同一份 ModelGraph 快照生成 SysML、需求、RFLP、追溯矩阵、V&amp;V Plan 和 Architecture Report。</p></div><span class="status-badge info">修订 {{ trace.revision }}</span></div>
+  <div class="panel-head"><div><h2>完整工程交付物</h2><p>从同一份模型快照生成 SysML、需求、RFLP、追溯矩阵、验证与确认计划和架构报告。</p></div><span class="status-badge info">模型版本 {{ trace.revision }}</span></div>
   <p class="table-secondary">Snapshot hash：<code>{{ snapshot_hash }}</code></p>
   <div class="workbench-actions export-actions">
     <a class="button primary" href="/projects/{{ project_id }}/deliverables/download">导出完整交付包</a>

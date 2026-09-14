@@ -31,6 +31,7 @@ adapters → ports + domain
 - `runtime/`：RuntimeFactory、结构化模型端口、OpenAI-compatible 适配和离线 RuleRuntime；每次运行动态解析 active profile。远程 Profile 未提供预算时使用 8192 token 上下文窗口和 4096 token 结构化输出预算，显式配置优先。
 - `adapters/`：文档解析、OCR 和模型/文档技术实现；由 `bootstrap/container.py` 组装。
 - `interface/`：`ai4mbse` CLI、FastAPI Resource API 和五个资源页面；默认 Analysis 操作调用 `ModelGenerationService`，`mode=pipeline`/`analyze run` 调用真实 23-task 生命周期，`phase` 仍可显式单阶段调试。
+- Web 页面使用独立的展示适配层把 VerticalStage、Completion、Methodology 和 Controller 的机器字段转换为用户可读的工程阶段、质量结论和下一步动作；原始任务/实体标识、运行台账和 payload 只在高级详情或稳定 data 属性中保留，不改变 API、ModelGraph 或执行边界。
 - `tests/mbse_benchmark/tracks/`：Harness deterministic、显式 LLM/bare baseline、Agent robustness 三轨基准；各轨独立记录 runtime/profile/provider/model、方法论和哈希元数据。
 
 ## 写入与恢复规则

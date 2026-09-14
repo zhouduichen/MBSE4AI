@@ -12,7 +12,7 @@ from rflp_lite.domain.model import ModelGraph
 _GROUPS: tuple[tuple[str, str, str, tuple[EntityKind, ...]], ...] = (
     (
         "system",
-        "System Definition",
+        "系统定义",
         "系统定义、利益相关方、生命周期与运行场景",
         (
             EntityKind.SYSTEM,
@@ -28,20 +28,20 @@ _GROUPS: tuple[tuple[str, str, str, tuple[EntityKind, ...]], ...] = (
     ),
     (
         "functional",
-        "Functional",
+        "功能",
         "系统行为、功能流与功能场景",
         (EntityKind.FUNCTION, EntityKind.FUNCTIONAL_FLOW, EntityKind.FUNCTIONAL_SCENARIO),
     ),
     (
         "logical",
-        "Logical",
+        "逻辑",
         "逻辑组件、接口与状态",
         (EntityKind.LOGICAL_COMPONENT, EntityKind.INTERFACE, EntityKind.STATE),
     ),
-    ("physical", "Physical", "物理候选与资源承载", (EntityKind.PHYSICAL_BLOCK,)),
+    ("physical", "物理", "物理候选与资源承载", (EntityKind.PHYSICAL_BLOCK,)),
     (
         "assurance",
-        "V&V",
+        "验证与确认",
         "验证、确认、危险源与失效模式",
         (
             EntityKind.VERIFICATION_CASE,
@@ -52,6 +52,39 @@ _GROUPS: tuple[tuple[str, str, str, tuple[EntityKind, ...]], ...] = (
         ),
     ),
 )
+
+_KIND_LABELS = {
+    EntityKind.SYSTEM: "系统",
+    EntityKind.STAKEHOLDER: "利益相关方",
+    EntityKind.CONCERN: "关注点",
+    EntityKind.LIFECYCLE_STAGE: "生命周期阶段",
+    EntityKind.LIFECYCLE_TRANSITION: "生命周期转移",
+    EntityKind.SCENARIO_HYPOTHESIS: "场景假设",
+    EntityKind.USE_CASE: "用例",
+    EntityKind.OPERATIONAL_SCENARIO: "运行场景",
+    EntityKind.ACTIVITY: "活动",
+    EntityKind.REQUIREMENT: "需求",
+    EntityKind.FUNCTION: "功能",
+    EntityKind.FUNCTIONAL_FLOW: "功能流",
+    EntityKind.FUNCTIONAL_SCENARIO: "功能场景",
+    EntityKind.LOGICAL_COMPONENT: "逻辑组件",
+    EntityKind.INTERFACE: "接口",
+    EntityKind.STATE: "状态",
+    EntityKind.PHYSICAL_BLOCK: "物理块",
+    EntityKind.VERIFICATION_CASE: "验证用例",
+    EntityKind.VALIDATION_CASE: "确认用例",
+    EntityKind.HAZARD: "危险源",
+    EntityKind.FAILURE_MODE: "失效模式",
+    EntityKind.EVIDENCE: "证据",
+}
+_STATUS_LABELS = {
+    EntityStatus.CANDIDATE: "候选",
+    EntityStatus.VALIDATED: "已验证",
+    EntityStatus.ACCEPTED: "已接受",
+    EntityStatus.LOCKED: "已锁定",
+    EntityStatus.REJECTED: "已拒绝",
+    EntityStatus.DEPRECATED: "已弃用",
+}
 
 _CONTINUABLE_KINDS = frozenset(
     kind
@@ -85,6 +118,8 @@ def build_model_workbench_view(
             grouped_ids.add(entity.id)
             card = dict(entity_card(entity, issue_count=len(issue_index.get(entity.id, ()))))
             card.update({
+                "kind_label": _KIND_LABELS.get(entity.kind, "模型元素"),
+                "status_label": _STATUS_LABELS.get(entity.meta.status, entity.meta.status.value),
                 "source_count": len(entity.meta.source_ids),
                 "evidence_count": len(set(entity.meta.evidence_ids) | relation_evidence.get(entity.id, set())),
                 "relation_count": relation_counts.get(entity.id, 0),

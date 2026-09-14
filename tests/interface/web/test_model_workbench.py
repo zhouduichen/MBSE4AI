@@ -8,10 +8,10 @@ def test_model_page_exposes_layered_entities_and_review_controls(tmp_path):
     page = client.get("/ui/projects/p1/model")
 
     assert page.status_code == 200
-    assert "Functional" in page.text
-    assert "Logical" in page.text
-    assert "Physical" in page.text
-    assert "V&amp;V" in page.text
+    assert "功能" in page.text
+    assert "逻辑" in page.text
+    assert "物理" in page.text
+    assert "验证与确认" in page.text
     assert 'data-action="edit"' in page.text
     assert "Manage energy" in page.text
     assert "Battery pack" in page.text

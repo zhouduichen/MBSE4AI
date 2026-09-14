@@ -55,6 +55,7 @@
 | 工程工具结果闭环 | `vv tool`、`/projects/{id}/tools` 和 `/projects/{id}/vv/{case_id}/tools/{tool_id}/execute` 提供显式注册的工具适配器；内置模型约束检查器把物理可行性分析结果写入 V&V Evidence，缺少测量字段保持 `inconclusive`，失败沿 Controller 进入迭代 |
 | 方法论驱动生成上下文 | Methodology Engine 将当前阶段的 findings、指标、架构候选、影响实体和推荐任务以有界 `methodology_guidance` 注入五阶段及 23-task LLM 请求，确定性工程检查从事后验收前移为生成约束 |
 | 垂直阶段完成质量 | 五阶段结果逐项报告其内部 23-task 检查；关键关系、架构评价、约束传播、可行性权衡和 V&V 交叉分析缺失时标记 `needs_review`，并保留结构化候选供 Review/Controller 继续处理 |
+| 用户面工程工作台 | 分析、模型和验证与确认页面以需求→功能→逻辑→物理→V&V 的业务语言呈现阶段质量、追溯闭环和下一步动作；任务键、运行台账、模型标识和原始属性收进高级详情，保留既有编辑、权衡和执行入口 |
 
 ## 历史 Harness 验收边界
 

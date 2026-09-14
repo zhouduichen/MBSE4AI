@@ -1,38 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Assurance Workbench · {{ project_id }}{% endblock %}
+{% block title %}验证与确认 · {{ project_id }}{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">Assurance</p><h1>行为保证与质量门禁</h1><p>V&V、Hazard、FMEA/STPA 与 Gate · 只展示已有事实 · 修订 {{ revision }}</p></div><span class="status-badge info">{{ gates|length }} gates</span></div>
+<div class="page-heading"><div><p class="eyebrow">验证与确认</p><h1>验证与确认工作台</h1><p>查看已有验证、确认、安全分析和质量检查事实 · 当前模型版本 {{ revision }}</p></div><span class="status-badge info">{{ gates|length }} 项检查</span></div>
 <section class="panel controller-panel">
-  <div class="panel-head"><div><h2>系统工程下一步</h2><p>根据当前 ModelGraph、V&amp;V 结果和方法论分析，选择下一步动作；Trade Study 需要人工决策。</p></div><span class="status-badge {% if controller.status == 'complete' %}accepted{% else %}candidate{% endif %}">{{ controller.status }}</span></div>
+  <div class="panel-head"><div><h2>系统工程下一步</h2><p>根据当前模型、验证结果和工程检查，选择下一步动作；方案权衡需要人工决策。</p></div><span class="status-badge {% if controller.status == 'complete' %}accepted{% else %}candidate{% endif %}">{{ controller.status_label }}</span></div>
   {% if controller.next_action %}
   {% set action = controller.next_action %}
   <article class="controller-action">
-    <span><span class="status-badge {% if action.priority == 'P0' %}failed{% else %}candidate{% endif %}">{{ action.kind }}</span><strong>{{ action.task_id }}</strong><small>{{ action.reason }}</small>{% if action.entity_ids %}<small class="table-secondary">影响实体：{{ action.entity_ids|join('、') }}</small>{% endif %}</span>
-    {% if action.kind == 'trade_study' %}<span class="controller-options">{% for option in action.options %}<button class="button compact controller-execute" type="button" data-controller-action-id="{{ action.id }}" data-controller-option-id="{{ option.id }}">{{ option.option }}<small>{{ option.task_id }}</small></button>{% endfor %}</span>{% else %}<button class="button compact primary controller-execute" type="button" data-controller-action-id="{{ action.id }}">执行</button>{% endif %}
+    <span><span class="status-badge {% if action.priority == 'P0' %}failed{% else %}candidate{% endif %}">{{ action.priority_label }}</span><strong>{{ action.kind_label }}</strong><small>{{ action.stage_label }} · {{ action.reason_label }}</small></span>
+    {% if action.kind == 'trade_study' %}<span class="controller-options">{% for option in action.options %}<button class="button compact controller-execute" type="button" data-controller-action-id="{{ action.id }}" data-controller-option-id="{{ option.id }}">{{ option.option_label }}<small>将回到：{{ option.reentry_stage_label }}</small></button>{% endfor %}</span>{% else %}<button class="button compact primary controller-execute" type="button" data-controller-action-id="{{ action.id }}">执行</button>{% endif %}
   </article>
   {% else %}<div class="mini-empty">当前没有待处理系统工程动作</div>{% endif %}
   <pre id="assurance-controller-result" class="analysis-result" hidden></pre>
 </section>
-<section class="panel"><div class="panel-head"><h2>Gate Dashboard</h2><a class="button compact" href="/ui/projects/{{ project_id }}/history">历史与审计</a></div><div class="module-grid">{% for gate in gates %}<article class="card gate-card"><div class="panel-head"><h3>{{ gate.gate_id }}</h3><span class="status-badge {% if gate.passed %}passed{% else %}failed{% endif %}">{% if gate.passed %}✓ PASS{% else %}✗ BLOCKED{% endif %}</span></div><p>Phase: {{ gate.phase }}{% if gate.rollback_phase %} · Rollback: {{ gate.rollback_phase }}{% endif %}</p><div class="compact-list">{% for check in gate.checks[:8] %}<article><span><strong>{{ check.id }}</strong><small class="table-secondary">{{ check.path|join(' → ') if check.path else '' }}</small></span><span class="status-badge {% if check.passed %}passed{% else %}failed{% endif %}">{{ 'PASS' if check.passed else 'FAIL' }}</span></article>{% else %}<div class="mini-empty">暂无细分检查</div>{% endfor %}</div>{% if gate.blocking_issues %}<div class="callout warning">Blocking: {% for issue in gate.blocking_issues %}{{ issue.code }} · {{ issue.entity_ids|join(', ') }}{% if not loop.last %}；{% endif %}{% endfor %}</div>{% endif %}</article>{% endfor %}</div></section>
+<section class="panel"><div class="panel-head"><h2>工程检查门禁</h2><a class="button compact" href="/ui/projects/{{ project_id }}/history">历史与审计</a></div><div class="module-grid">{% for gate in gates %}<article class="card gate-card"><div class="panel-head"><h3>{{ gate.gate_label }}</h3><span class="status-badge {% if gate.passed %}passed{% else %}failed{% endif %}">{% if gate.passed %}已通过{% else %}需要处理{% endif %}</span></div><p>{{ gate.phase_label }}{% if gate.rollback_phase %} · 建议回看：{{ gate.rollback_phase }}{% endif %}</p><details class="advanced-details"><summary>查看检查明细（高级）</summary><div class="compact-list">{% for check in gate.checks[:8] %}<article><span><strong>{{ check.id }}</strong><small class="table-secondary">{{ check.path|join(' → ') if check.path else '' }}</small></span><span class="status-badge {% if check.passed %}passed{% else %}failed{% endif %}">{{ '已通过' if check.passed else '未通过' }}</span></article>{% else %}<div class="mini-empty">暂无细分检查</div>{% endfor %}</div>{% if gate.blocking_issues %}<div class="callout warning">需要处理：{% for issue in gate.blocking_issues %}{{ issue.code }}{% if not loop.last %}；{% endif %}{% endfor %}</div>{% endif %}</details></article>{% endfor %}</div></section>
 <section class="panel">
-  <div class="panel-head"><h2>Verification & Validation Matrix</h2><span class="count-badge">{{ verification_validation|length }}</span></div>
+  <div class="panel-head"><h2>验证与确认矩阵</h2><span class="count-badge">{{ verification_validation|length }}</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Type</th><th>Requirement</th><th>Method</th><th>Case</th><th>Pass Criteria</th><th>计划状态</th><th>执行结果</th><th>记录</th></tr></thead>
+    <thead><tr><th>类型</th><th>需求</th><th>方法</th><th>用例</th><th>通过准则</th><th>计划状态</th><th>执行结果</th><th>记录</th></tr></thead>
     <tbody>
       {% for row in verification_validation %}
       <tr>
         <td><span class="status-badge info">{{ row.case_type_label }}</span></td>
-        <td><code>{{ row.requirement_id }}</code><span class="table-secondary">{{ row.requirement }}</span></td>
+        <td>{{ row.requirement }}</td>
         <td>{{ row.method or '—' }}</td>
-        <td><code>{{ row.case_id or '—' }}</code><span class="table-secondary">{% if row.case_type == 'verification' %}{{ row.verification_case }}{% else %}{{ row.validation_case }}{% endif %}</span></td>
+        <td>{% if row.case_type == 'verification' %}{{ row.verification_case or '—' }}{% else %}{{ row.validation_case or '—' }}{% endif %}</td>
         <td>{{ row.pass_criteria or '—' }}</td>
-        <td><span class="status-badge {% if row.plan_status == 'PASS' %}passed{% else %}failed{% endif %}">{{ row.plan_status }}</span></td>
-        <td><span class="status-badge {% if row.execution_status == 'passed' %}passed{% elif row.execution_status in ['failed', 'blocked', 'inconclusive'] %}failed{% else %}candidate{% endif %}">{{ row.execution_status }}</span>{% if row.last_execution %}<small class="table-secondary">{{ row.last_execution.evidence_id }}</small>{% endif %}</td>
+        <td><span class="status-badge {% if row.plan_status == 'PASS' %}passed{% else %}failed{% endif %}">{{ '已准备' if row.plan_status == 'PASS' else '待补全' }}</span></td>
+        <td><span class="status-badge {% if row.execution_status == 'passed' %}passed{% elif row.execution_status in ['failed', 'blocked', 'inconclusive'] %}failed{% else %}candidate{% endif %}">{{ {'passed': '已通过', 'failed': '未通过', 'blocked': '受阻', 'inconclusive': '暂无结论', 'pending': '待执行', 'missing': '缺少用例'}.get(row.execution_status, row.execution_status) }}</span>{% if row.last_execution %}<small class="table-secondary">已有执行记录</small>{% endif %}</td>
         <td>
           {% if row.case_id %}
           <details><summary class="button compact">记录结果</summary>
             <form class="vv-execution-form compact-form" data-case-id="{{ row.case_id }}">
-              <label class="field">结果<select name="outcome"><option value="passed">passed</option><option value="failed">failed</option><option value="blocked">blocked</option><option value="inconclusive">inconclusive</option></select></label>
+              <label class="field">结果<select name="outcome"><option value="passed">通过</option><option value="failed">未通过</option><option value="blocked">受阻</option><option value="inconclusive">暂无结论</option></select></label>
               <label class="field">声明<input name="claim" required placeholder="例如：测试通过"></label>
               <label class="field">结果摘录<textarea name="excerpt" rows="2" required placeholder="粘贴测试/演示结果"></textarea></label>
               <label class="field">定位<input name="locator" placeholder="报告、日志或文件路径"></label>
@@ -47,7 +47,7 @@
     </tbody>
   </table></div>
 </section>
-<div class="two-column workflow-columns"><section class="panel"><div class="panel-head"><h2>Hazard / Safety</h2><span class="count-badge">{{ hazards|length }}</span></div>{% for item in hazards %}<article class="card"><strong>{{ item.name }}</strong><code>{{ item.id }}</code><p>Causes: {{ item.causes|join(', ') or '—' }}</p><p>Mitigations: {{ item.mitigations|join(', ') or '—' }}</p><p>Verification: {{ item.verification|join(', ') or '—' }}</p></article>{% else %}<div class="mini-empty">暂无危险源记录</div>{% endfor %}</section><section class="panel"><div class="panel-head"><h2>FMEA / STPA</h2><span class="count-badge">{{ failure_modes|length }}</span></div>{% for item in failure_modes %}<article class="card"><strong>{{ item.name }}</strong><code>{{ item.id }}</code><span class="status-badge {{ item.status }}">{{ item.status }}</span></article>{% else %}<div class="mini-empty">暂无失效模式记录</div>{% endfor %}</section></div>
+<div class="two-column workflow-columns"><section class="panel"><div class="panel-head"><h2>危险源与安全分析</h2><span class="count-badge">{{ hazards|length }}</span></div>{% for item in hazards %}<article class="card"><strong>{{ item.name }}</strong><details class="advanced-details"><summary>查看关联（高级）</summary><code>{{ item.id }}</code><p>原因：{{ item.causes|join(', ') or '—' }}</p><p>缓解措施：{{ item.mitigations|join(', ') or '—' }}</p><p>验证：{{ item.verification|join(', ') or '—' }}</p></details></article>{% else %}<div class="mini-empty">暂无危险源记录</div>{% endfor %}</section><section class="panel"><div class="panel-head"><h2>失效模式分析</h2><span class="count-badge">{{ failure_modes|length }}</span></div>{% for item in failure_modes %}<article class="card"><strong>{{ item.name }}</strong><details class="advanced-details"><summary>查看详情（高级）</summary><code>{{ item.id }}</code><span class="status-badge {{ item.status }}">{{ item.status }}</span></details></article>{% else %}<div class="mini-empty">暂无失效模式记录</div>{% endfor %}</section></div>
 <script>
 document.querySelectorAll('.vv-execution-form').forEach((form) => form.addEventListener('submit', async (event) => {
   event.preventDefault();

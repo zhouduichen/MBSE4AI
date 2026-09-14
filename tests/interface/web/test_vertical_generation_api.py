@@ -390,14 +390,14 @@ def test_analysis_page_exposes_default_generation_action(tmp_path: Path):
     assert page.status_code == 200
     assert "生成完整 MBSE 模型" in page.text
     assert "端到端闭环" in page.text
-    assert "Verification" in page.text
-    assert "Validation" in page.text
-    assert "Methodology Findings" in page.text
-    assert "Physical feasibility" in page.text
-    assert "V&amp;V Coverage" in page.text
+    assert "验证计划完整" in page.text
+    assert "确认计划完整" in page.text
+    assert "工程检查" in page.text
+    assert "物理方案状态" in page.text
+    assert "验证与确认闭环" in page.text
     assert "逻辑架构候选" in page.text
     assert "物理可行性矩阵" in page.text
-    assert "Next Tasks" in page.text
-    assert "自动推进安全动作" in page.text
+    assert "建议下一步" in page.text
+    assert "自动推进可安全执行动作" in page.text
     assert "/controller/iterate" in page.text
     assert 'runAnalysis("generate", null)' in page.text

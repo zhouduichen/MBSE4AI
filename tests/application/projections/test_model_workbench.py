@@ -17,6 +17,9 @@ def test_model_workbench_groups_real_entities_by_engineering_layer():
     ]
     assert view["metrics"]["entity_count"] == 5
     assert {item["id"] for item in view["groups"][1]["entities"]} == {function.id}
+    function_card = view["groups"][1]["entities"][0]
+    assert function_card["kind_label"] == "功能"
+    assert function_card["status_label"] == "候选"
     assert {
         item["kind"] for item in view["groups"][4]["entities"]
     } == {"verification_case", "validation_case"}

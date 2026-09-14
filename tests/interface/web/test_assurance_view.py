@@ -34,5 +34,6 @@ def test_assurance_page_exposes_controller_next_action_after_vv_failure(tmp_path
 
     assert page.status_code == 200
     assert "系统工程下一步" in page.text
-    assert "trade_study" in page.text
+    assert "方案权衡" in page.text
+    assert "task_id" not in page.text
     assert "重构受影响功能" in page.text

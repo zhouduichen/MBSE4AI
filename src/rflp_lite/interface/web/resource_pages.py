@@ -32,6 +32,7 @@ from rflp_lite.diagrams.engineering.rflp import render_rflp_svg
 
 resource_pages = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
+View = dict[str, object]
 
 
 _PHASES: tuple[tuple[Phase, str], ...] = (
@@ -125,6 +126,56 @@ _TASK_LABELS = {
     "verification_validation": "验证与确认",
     "reverse_feasibility": "反向可行性分析",
     "global_cross_analysis": "全局交叉分析",
+}
+_ENGINEERING_STAGE_LABELS = {
+    "requirements": "需求分析",
+    "functional": "功能分析",
+    "logical": "逻辑架构",
+    "physical": "物理架构",
+    "verification_validation": "验证与确认",
+    "operational": "运行场景",
+    "assurance": "验证与确认",
+    "logical_physical": "逻辑/物理架构",
+    "closure": "封版归档",
+}
+_VERTICAL_STAGE_LABELS = {
+    "requirements": "需求分析",
+    "functional": "功能分析",
+    "logical": "逻辑架构",
+    "physical": "物理架构",
+    "verification_validation": "验证与确认",
+}
+_CONTROLLER_KIND_LABELS = {
+    "collect_evidence": "补充执行证据",
+    "collect_input": "补充工程输入",
+    "reanalyze": "重新分析",
+    "trade_study": "方案权衡",
+}
+_CONTROLLER_STATUS_LABELS = {
+    "complete": "已完成",
+    "needs_action": "需要下一步",
+}
+_FINDING_LABELS = {
+    "physical_measurement_required": "物理参数待测量",
+    "physical_constraint_conflict": "物理约束存在冲突",
+    "logical_partition_needs_review": "逻辑分区需要复核",
+    "verification_evidence_missing": "验证执行证据缺失",
+    "validation_evidence_missing": "确认执行证据缺失",
+    "verification_execution_failed": "验证执行未通过",
+    "validation_execution_failed": "确认执行未通过",
+}
+_PHYSICAL_FIELD_LABELS = {
+    "mass_kg": "质量",
+    "power_w": "功耗",
+    "compute": "算力",
+    "memory_mb": "内存",
+    "latency_ms": "时延",
+    "bandwidth_mbps": "带宽",
+    "cost": "成本",
+    "thermal": "热约束",
+    "reliability": "可靠性",
+    "availability": "可用性",
+    "endurance_h": "续航",
 }
 _ISSUE_LABELS = {
     "missing_stakeholder": "缺少利益相关方",
@@ -276,7 +327,216 @@ def _phase_label(value: object) -> str:
 
 
 def _task_label(value: object) -> str:
-    return _label(_TASK_LABELS, value, "分析任务")
+    key = str(getattr(value, "value", value or ""))
+    if key.startswith("vertical."):
+        return _VERTICAL_STAGE_LABELS.get(key.removeprefix("vertical."), "分析阶段")
+    return _TASK_LABELS.get(key, "分析任务")
+
+
+def _engineering_stage_label(value: object) -> str:
+    key = str(getattr(value, "value", value or ""))
+    return _ENGINEERING_STAGE_LABELS.get(key, _phase_label(value))
+
+
+def _human_metric(value: object) -> str:
+    labels = {
+        "feasible": "可行",
+        "infeasible": "不可行",
+        "needs_measurement": "待测量",
+        "needs_review": "需复核",
+        "unknown": "未知",
+    }
+    if isinstance(value, float) and 0 <= value <= 1:
+        return f"{value:.0%}"
+    return labels.get(str(value), str(value) if value not in (None, "") else "—")
+
+
+def _completion_view(stage: Mapping[str, object]) -> View:
+    checks = stage.get("completion_checks", ())
+    values = checks if isinstance(checks, (tuple, list)) else ()
+    passed = sum(1 for item in values if _mapping(item).get("passed") is True)
+    total = len(values)
+    issues = stage.get("completion_issue_codes", ())
+    issue_count = len(issues) if isinstance(issues, (tuple, list)) else 0
+    if total and passed == total and not issue_count:
+        quality_status = "passed"
+        quality_summary = f"{total} 项检查全部通过"
+    elif total:
+        quality_status = "needs_review"
+        quality_summary = f"{passed}/{total} 项检查通过，需复核"
+    elif issue_count:
+        quality_status = "needs_review"
+        quality_summary = "需要复核当前阶段"
+    else:
+        quality_status = "pending"
+        quality_summary = "尚未形成质量结论"
+    return {
+        "quality_status": quality_status,
+        "quality_status_label": _status_label(quality_status),
+        "quality_summary": quality_summary,
+        "quality_check_count": total,
+        "quality_passed_count": passed,
+        "quality_issue_count": issue_count,
+    }
+
+
+def _decorate_stage_result(raw: object) -> View:
+    stage = _mapping(raw)
+    value = dict(stage)
+    stage_id = str(stage.get("stage") or "")
+    status = _status_value(stage.get("status"), "pending")
+    value.update(_completion_view(stage))
+    value.update({
+        "stage_label": _VERTICAL_STAGE_LABELS.get(stage_id, _engineering_stage_label(stage_id)),
+        "status": status,
+        "status_label": _status_label(status),
+        "next_step_label": (
+            "进入下一阶段"
+            if status == "completed" and not value["quality_issue_count"]
+            else "检查并修复当前阶段后继续"
+        ),
+    })
+    return value
+
+
+def _decorate_finding(raw: object) -> View:
+    finding = _mapping(raw)
+    value = dict(finding)
+    code = str(finding.get("code") or "")
+    recommended = finding.get("recommended_actions", ())
+    first_action = next(iter(recommended), "") if isinstance(recommended, (tuple, list)) else ""
+    value.update({
+        "code_label": _FINDING_LABELS.get(code, "工程检查"),
+        "stage_label": _engineering_stage_label(finding.get("stage")),
+        "severity_label": {"error": "需要处理", "warning": "建议复核", "info": "提示"}.get(
+            str(finding.get("severity") or "info"), "提示"
+        ),
+        "recommended_action_label": _task_label(first_action) if first_action else "查看影响并决定下一步",
+    })
+    return value
+
+
+def _friendly_reason(value: object) -> str:
+    text = str(value or "")
+    replacements = {
+        "VerificationCase": "验证用例",
+        "ValidationCase": "确认用例",
+        "physical candidate": "物理候选",
+        "logical component": "逻辑组件",
+        "evidence": "执行证据",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    return text
+
+
+def _decorate_controller_action(raw: object) -> View:
+    action = _mapping(raw)
+    value = dict(action)
+    kind = str(action.get("kind") or "")
+    options = action.get("options", ())
+    decorated_options = []
+    for raw_option in options if isinstance(options, (tuple, list)) else ():
+        option = dict(_mapping(raw_option))
+        task_id = option.get("task_id")
+        conflict_fields = option.get("conflict_fields", ())
+        option.update({
+            "option_label": str(option.get("option") or "方案"),
+            "reentry_stage_label": _engineering_stage_label(
+                option.get("reentry_stage") or option.get("stage")
+            ),
+            "impact_label": str(option.get("impact") or "影响相关模型链路"),
+            "conflict_fields_label": "、".join(
+                _PHYSICAL_FIELD_LABELS.get(str(item), str(item))
+                for item in conflict_fields
+            ) if isinstance(conflict_fields, (tuple, list)) else "",
+            "next_step_label": _task_label(task_id) if task_id else "重新分析受影响链路",
+        })
+        decorated_options.append(option)
+    value.update({
+        "kind_label": _CONTROLLER_KIND_LABELS.get(kind, "工程动作"),
+        "stage_label": _engineering_stage_label(action.get("stage")),
+        "priority_label": "优先处理" if action.get("priority") == "P0" else "建议处理",
+        "reason_label": _friendly_reason(action.get("reason")),
+        "options": decorated_options,
+    })
+    return value
+
+
+def _decorate_controller(raw: object) -> View:
+    controller = _mapping(raw)
+    if not controller:
+        return {}
+    value = dict(controller)
+    actions = controller.get("actions", ())
+    decorated_actions = [
+        _decorate_controller_action(item)
+        for item in actions
+        if isinstance(item, Mapping) or is_dataclass(item)
+    ]
+    next_action = controller.get("next_action")
+    next_action_id = _mapping(next_action).get("id") if next_action else None
+    value.update({
+        "status_label": _CONTROLLER_STATUS_LABELS.get(
+            str(controller.get("status") or ""), _status_label(controller.get("status"))
+        ),
+        "actions": decorated_actions,
+        "next_action": next(
+            (item for item in decorated_actions if item.get("id") == next_action_id),
+            _decorate_controller_action(next_action) if next_action else None,
+        ),
+    })
+    return value
+
+
+def _decorate_methodology(raw: object) -> View:
+    methodology = _mapping(raw)
+    if not methodology:
+        return {}
+    value = dict(methodology)
+    metrics = _mapping(methodology.get("metrics"))
+    findings = [
+        _decorate_finding(item)
+        for item in methodology.get("findings", ())
+        if isinstance(item, Mapping) or is_dataclass(item)
+    ]
+    recommended_tasks = methodology.get("recommended_tasks", ())
+    value.update({
+        "findings": findings,
+        "recommended_task_labels": [
+            _task_label(item) for item in recommended_tasks
+        ] if isinstance(recommended_tasks, (tuple, list)) else [],
+        "summary": (
+            f"发现 {len(findings)} 项需要处理或复核的工程结论"
+            if findings else "当前模型未发现需要额外处理的工程结论"
+        ),
+        "metric_cards": [
+            {
+                "label": "逻辑分配覆盖",
+                "value": _human_metric(metrics.get("logical_allocation_coverage")),
+            },
+            {
+                "label": "物理方案状态",
+                "value": _human_metric(metrics.get("physical_feasibility")),
+            },
+            {
+                "label": "验证与确认闭环",
+                "value": _human_metric(metrics.get("end_to_end_vv_coverage")),
+            },
+        ],
+    })
+    return value
+
+
+def _warning_label(value: object) -> str:
+    text = str(value or "")
+    if "internal completion issues" in text:
+        return "阶段质量检查需要复核"
+    if "semantic_invalid" in text:
+        return "模型语义需要人工复核"
+    if "missing required kinds" in text:
+        return "当前阶段仍缺少必要模型元素"
+    return text
 
 
 def _diagnostic_details(values: object) -> list[dict[str, object]]:
@@ -404,7 +664,10 @@ def _normalize_run(raw: object) -> dict[str, object] | None:
         return None
     normalized = dict(value)
     normalized["run_id"] = run_id
-    normalized["phase"] = _status_value(value.get("phase"), "operational")
+    normalized["phase"] = _status_value(
+        value.get("phase"),
+        "vertical_generation" if value.get("mode") == "generate" else "operational",
+    )
     normalized["status"] = _status_value(value.get("status"), "queued")
     normalized["phase_label"] = _phase_label(normalized["phase"])
     normalized["status_label"] = _status_label(normalized["status"])
@@ -477,66 +740,73 @@ def _latest_run(request: Request, services, project_id: str) -> dict[str, object
 
 
 def _decorate_generation_run(services, project_id: str, graph: ModelGraph, run):
-    if not run or run.get("phase") != "vertical_generation":
+    if not run or not (
+        run.get("phase") == "vertical_generation"
+        or run.get("mode") == "generate"
+        or run.get("stage_results")
+    ):
         return run
     decorated = dict(run)
     decorated["mode"] = "generate"
     decorated["traceability"] = build_traceability_summary(graph).as_dict()
-    if decorated.get("stage_results"):
-        return decorated
     list_audit_events = getattr(services.repository(project_id), "list_audit_events", None)
-    if not callable(list_audit_events):
-        return decorated
-    events = list(list_audit_events(project_id))
-    if not decorated.get("methodology"):
+    if callable(list_audit_events) and not decorated.get("stage_results"):
+        events = list(list_audit_events(project_id))
+        if not decorated.get("methodology"):
+            for event in events:
+                if event.get("kind") != "model_generation.methodology_analyzed":
+                    continue
+                payload = _mapping(event.get("payload"))
+                if payload.get("run_id") != decorated.get("run_id"):
+                    continue
+                decorated["methodology"] = {
+                    key: payload.get(key)
+                    for key in (
+                        "findings", "metrics", "decisions", "impacted_entity_ids",
+                        "impacted_stages", "recommended_tasks", "impact_paths",
+                    )
+                }
+                break
+        if not decorated.get("controller"):
+            for event in events:
+                if event.get("kind") != "model_generation.controller_planned":
+                    continue
+                payload = _mapping(event.get("payload"))
+                if payload.get("run_id") != decorated.get("run_id"):
+                    continue
+                decorated["controller"] = {
+                    key: payload.get(key)
+                    for key in (
+                        "status", "objective", "findings", "actions", "next_action",
+                        "impacted_entity_ids", "impacted_stages",
+                    )
+                }
+                break
+        stage_results = []
         for event in events:
-            if event.get("kind") != "model_generation.methodology_analyzed":
+            if event.get("kind") != "model_generation.stage_completed":
                 continue
             payload = _mapping(event.get("payload"))
             if payload.get("run_id") != decorated.get("run_id"):
                 continue
-            decorated["methodology"] = {
+            stage_results.append({
                 key: payload.get(key)
                 for key in (
-                    "findings", "metrics", "decisions", "impacted_entity_ids",
-                    "impacted_stages", "recommended_tasks", "impact_paths",
+                    "stage", "status", "revision", "entity_count", "relation_count",
+                    "assumptions", "open_questions", "diagnostics", "decision_records",
+                    "completion_checks", "completion_issue_codes",
                 )
-            }
-            break
-    if not decorated.get("controller"):
-        for event in events:
-            if event.get("kind") != "model_generation.controller_planned":
-                continue
-            payload = _mapping(event.get("payload"))
-            if payload.get("run_id") != decorated.get("run_id"):
-                continue
-            decorated["controller"] = {
-                key: payload.get(key)
-                for key in (
-                    "status", "objective", "findings", "actions", "next_action",
-                    "impacted_entity_ids", "impacted_stages",
-                )
-            }
-            break
-    if decorated.get("stage_results"):
-        return decorated
-    stage_results = []
-    for event in events:
-        if event.get("kind") != "model_generation.stage_completed":
-            continue
-        payload = _mapping(event.get("payload"))
-        if payload.get("run_id") != decorated.get("run_id"):
-            continue
-        stage_results.append({
-            key: payload.get(key)
-            for key in (
-                "stage", "status", "revision", "entity_count", "relation_count",
-                "assumptions", "open_questions", "diagnostics", "decision_records",
-                "completion_checks", "completion_issue_codes",
-            )
-        })
-    if stage_results:
-        decorated["stage_results"] = stage_results
+            })
+        if stage_results:
+            decorated["stage_results"] = stage_results
+    decorated["stage_results"] = [
+        _decorate_stage_result(item) for item in decorated.get("stage_results", ())
+    ]
+    decorated["warnings_label"] = [
+        _warning_label(item) for item in decorated.get("warnings", ())
+    ]
+    decorated["methodology"] = _decorate_methodology(decorated.get("methodology"))
+    decorated["controller"] = _decorate_controller(decorated.get("controller"))
     return decorated
 
 
@@ -773,7 +1043,7 @@ def _analysis_module_views(services, project_id: str, graph: ModelGraph, issues:
                 records.append(
                     {
                         "label": "最近一次运行",
-                        "name": str(run.get("run_id") or "未命名运行"),
+                        "name": "完整模型生成",
                         "detail": f"{run.get('phase_label', '生命周期')} · {run.get('status_label', '待处理')}",
                         "status_label": str(run.get("status_label") or "待处理"),
                     }
@@ -781,8 +1051,8 @@ def _analysis_module_views(services, project_id: str, graph: ModelGraph, issues:
                 records.extend(
                     {
                         "label": str(step.get("task_label") or "分析任务"),
-                        "name": "已执行",
-                        "detail": f"尝试第 {step.get('attempt', 0)} 次 · {step.get('input_hash') or '无输入哈希'}",
+                        "name": "阶段已执行",
+                        "detail": f"第 {step.get('attempt', 0)} 次尝试",
                         "status_label": str(step.get("status_label") or "待处理"),
                     }
                     for step in run.get("steps", ())
@@ -1165,7 +1435,7 @@ def behavior_page(request: Request, project_id: str):
 def assurance_page(request: Request, project_id: str):
     context = _review_context(request, project_id)
     view = build_assurance_view(context["graph"], context["issues"])
-    controller = _v2(request).generation(project_id).controller_plan(project_id)
+    controller = _decorate_controller(_v2(request).generation(project_id).controller_plan(project_id))
     return templates.TemplateResponse(request=request, name="assurance.html", context={**view, "controller": controller, "project_id": project_id, "active": "assurance"})
 
 

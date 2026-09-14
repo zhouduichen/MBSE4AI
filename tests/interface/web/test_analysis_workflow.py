@@ -6,6 +6,7 @@ from rflp_lite.application.sysml_v2 import graph_to_sysml
 from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.interface.web.app import create_app
+from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 
 def test_analysis_page_shows_full_harness_workflow(tmp_path: Path) -> None:
@@ -23,7 +24,7 @@ def test_analysis_page_shows_full_harness_workflow(tmp_path: Path) -> None:
         "逻辑/物理架构",
         "验证与确认",
         "封版归档",
-        "当前修订",
+        "当前模型版本",
         "活动模型",
         "运行状态",
         "全局质量门禁",
@@ -121,7 +122,7 @@ def test_analysis_page_uses_chinese_labels_for_runtime_and_gate(tmp_path: Path) 
 
     page = client.get("/ui/projects/p1/analysis")
 
-    assert "当前修订" in page.text
+    assert "当前模型版本" in page.text
     assert "活动模型" in page.text
     assert "全局质量门禁" in page.text
     assert "Run full pipeline" not in page.text
@@ -137,6 +138,45 @@ def test_analysis_page_hides_harness_ledger_behind_advanced_diagnostics(tmp_path
     assert "生成进度" in page.text
     assert "展开运行诊断（高级）" in page.text
     assert '<details class="advanced-details">' in page.text
+
+
+def test_generated_analysis_page_uses_engineering_language_for_primary_summary(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "workspaces")
+    app.state.container.v2._runtime_override = VerticalRuleRuntime()
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    generated = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "generate", "requirement_text": "系统应支持人工接管"},
+    )
+    assert generated.status_code == 200
+
+    page = client.get("/ui/projects/p1/analysis")
+
+    assert page.status_code == 200
+    for label in (
+        "需求分析",
+        "功能分析",
+        "逻辑架构",
+        "物理架构",
+        "验证与确认",
+        "工程检查",
+        "逻辑分配覆盖",
+        "物理方案状态",
+        "验证与确认闭环",
+        "补充执行证据",
+    ):
+        assert label in page.text
+    for internal_term in (
+        "task_id",
+        "vertical.physical",
+        "collect_evidence",
+        "trade_study",
+        "physical_measurement_required",
+        "Methodology Findings",
+    ):
+        assert internal_term not in page.text
+    assert 'data-action-id="' in page.text
 
 
 def test_analysis_api_supports_pipeline_and_force_run(tmp_path: Path) -> None:
