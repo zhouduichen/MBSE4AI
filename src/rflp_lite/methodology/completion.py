@@ -86,6 +86,7 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
         if entity.meta.status is not EntityStatus.DEPRECATED
     )
     kinds = {entity.kind for entity in active}
+    index = graph.entity_index
     relation_keys = {
         (item.source_id, item.predicate, item.target_id)
         for item in graph.relations
@@ -95,7 +96,6 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
         return kind in kinds
 
     def linked(source_kind: EntityKind, predicate, target_kind: EntityKind) -> bool:
-        index = graph.entity_index
         return any(
             index.get(item.source_id) is not None
             and index[item.source_id].kind is source_kind
@@ -143,6 +143,26 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
         and all(bool(item.payload.get("functional_behavior_ids")) for item in requirements),
         "logical_analysis": has(EntityKind.LOGICAL_COMPONENT)
         and linked(EntityKind.FUNCTION, RelationPredicate.ALLOCATED_TO, EntityKind.LOGICAL_COMPONENT),
+        "dependency_clustering": bool(functions)
+        and has(EntityKind.LOGICAL_COMPONENT)
+        and all(
+            any(
+                source_id == function.id
+                and predicate is RelationPredicate.ALLOCATED_TO
+                and index.get(target_id) is not None
+                and index[target_id].kind is EntityKind.LOGICAL_COMPONENT
+                for source_id, predicate, target_id in relation_keys
+            )
+            for function in functions
+        ),
+        "architecture_evaluation": has(EntityKind.LOGICAL_COMPONENT)
+        and all(
+            str(item.payload.get("cohesion", "")).strip()
+            and str(item.payload.get("coupling", "")).strip()
+            and str(item.payload.get("architecture_rationale", "")).strip()
+            for item in active
+            if item.kind is EntityKind.LOGICAL_COMPONENT
+        ),
         "physical_candidates": has(EntityKind.PHYSICAL_BLOCK)
         and linked(EntityKind.LOGICAL_COMPONENT, RelationPredicate.ALLOCATED_TO, EntityKind.PHYSICAL_BLOCK),
         "allocation_tradeoff": bool(physicals)
@@ -151,6 +171,18 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
             linked(EntityKind.REQUIREMENT, RelationPredicate.SATISFIED_BY, EntityKind.PHYSICAL_BLOCK)
             if explicit_constraints
             else any(item.payload.get("technical_requirement_status") == "no_explicit_constraints" for item in physicals)
+        ),
+        "constraint_propagation": bool(physicals)
+        and all(
+            "propagated_constraints" in item.payload
+            and "source_requirement_ids" in item.payload
+            for item in physicals
+        ),
+        "feasibility_selection": bool(physicals)
+        and all(
+            isinstance(item.payload.get("feasibility"), Mapping)
+            and isinstance(item.payload.get("trade_study"), Mapping)
+            for item in physicals
         ),
         "interface_sequence_state": has(EntityKind.INTERFACE)
         and has(EntityKind.STATE)

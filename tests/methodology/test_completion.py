@@ -40,3 +40,24 @@ def test_vertical_stage_reports_each_internal_task_and_failed_checks():
         "functional_requirement",
     }
     assert "completion_semantic:functional_interaction" in result.issue_codes
+
+
+def test_vertical_stage_checks_logical_and_physical_evidence_fields():
+    function = make_entity(EntityKind.FUNCTION, "配送", {"decomposition": ["执行"]})
+    logical = make_entity(
+        EntityKind.LOGICAL_COMPONENT,
+        "配送逻辑",
+        {"cohesion": "high", "coupling": "controlled"},
+    )
+    physical = make_entity(
+        EntityKind.PHYSICAL_BLOCK,
+        "配送平台",
+        {"propagated_constraints": {}, "source_requirement_ids": []},
+    )
+    graph = ModelGraph("p1", (function, logical, physical))
+
+    logical_result = evaluate_vertical_stage(VerticalStage.LOGICAL, graph)
+    physical_result = evaluate_vertical_stage(VerticalStage.PHYSICAL, graph)
+
+    assert "completion_semantic:architecture_evaluation" in logical_result.issue_codes
+    assert "completion_semantic:feasibility_selection" in physical_result.issue_codes
