@@ -11,6 +11,7 @@ from rflp_lite.methodology.vertical_coverage import (
     resolve_requirement_trace,
     resolve_rflp_paths,
 )
+from rflp_lite.methodology.vv_contract import missing_vv_plan_fields
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,4 +121,4 @@ def _verification_pass_criteria_coverage(graph: ModelGraph) -> float:
     cases = [entity for entity in graph.entities if entity.kind is EntityKind.VERIFICATION_CASE]
     if not cases:
         return 1.0
-    return sum(1 for entity in cases if str(entity.payload.get("method", "")).strip() and str(entity.payload.get("pass_criteria", "")).strip()) / len(cases)
+    return sum(1 for entity in cases if not missing_vv_plan_fields(entity.payload)) / len(cases)

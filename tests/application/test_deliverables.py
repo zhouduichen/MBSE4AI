@@ -52,13 +52,35 @@ def _services_with_complete_graph(tmp_path: Path):
     verification = make_entity(
         EntityKind.VERIFICATION_CASE,
         "Endurance test",
-        {"method": "test", "pass_criteria": ">=8h", **scope},
+        {
+            "method": "test",
+            "verification_objective": "证明续航需求满足",
+            "precondition": "设备完成部署并充满电",
+            "test_condition": "额定负载、标准环境和 8 小时边界条件",
+            "input": "连续运行任务",
+            "stimulus": "启动设备并持续施加运行负载",
+            "procedure": "执行连续运行测试并记录剩余电量",
+            "expected_result": "设备连续运行达到目标时长",
+            "pass_criteria": ">=8h",
+            **scope,
+        },
         status=EntityStatus.VALIDATED,
     )
     validation = make_entity(
         EntityKind.VALIDATION_CASE,
         "Operational confirmation",
-        {"method": "demonstration", "pass_criteria": "operator confirms", **scope},
+        {
+            "method": "demonstration",
+            "verification_objective": "确认运营场景目标达成",
+            "precondition": "运营人员和典型配送场景可用",
+            "test_condition": "真实用户、典型任务和代表性环境",
+            "input": "配送任务",
+            "stimulus": "运营人员发起并观察一次配送任务",
+            "procedure": "在典型场景执行演示并收集确认结果",
+            "expected_result": "运营人员确认任务体验满足目标",
+            "pass_criteria": "operator confirms",
+            **scope,
+        },
         status=EntityStatus.VALIDATED,
     )
     relations = (
@@ -97,6 +119,8 @@ def test_build_contains_all_required_artifacts(tmp_path: Path):
     assert package["snapshot_hash"] == package["artifacts"]["rflp"]["content"]["snapshot_hash"]
     assert package["artifacts"]["architecture_report"]["content"]["status"] == "BLOCKED"
     assert package["artifacts"]["vv_plan"]["content"]["metrics"]["requirement_count"] == 1
+    assert package["artifacts"]["vv_plan"]["content"]["rows"][0]["test_condition"]
+    assert package["artifacts"]["vv_plan"]["content"]["rows"][0]["stimulus"]
     assert package["artifacts"]["evidence"]["content"]["records"] == []
     assert package["artifacts"]["rflp_svg"]["content"].startswith("<svg")
 

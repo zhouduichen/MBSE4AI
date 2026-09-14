@@ -17,7 +17,7 @@
 <section class="panel">
   <div class="panel-head"><h2>验证与确认矩阵</h2><span class="count-badge">{{ verification_validation|length }}</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>类型</th><th>需求</th><th>方法</th><th>用例</th><th>通过准则</th><th>计划状态</th><th>执行结果</th><th>记录</th></tr></thead>
+    <thead><tr><th>类型</th><th>需求</th><th>方法</th><th>用例</th><th>测试条件</th><th>刺激</th><th>通过准则</th><th>计划状态</th><th>执行结果</th><th>记录</th></tr></thead>
     <tbody>
       {% for row in verification_validation %}
       <tr>
@@ -25,6 +25,8 @@
         <td>{{ row.requirement }}</td>
         <td>{{ row.method or '—' }}</td>
         <td>{% if row.case_type == 'verification' %}{{ row.verification_case or '—' }}{% else %}{{ row.validation_case or '—' }}{% endif %}</td>
+        <td>{{ row.test_condition or '—' }}</td>
+        <td>{{ row.stimulus or '—' }}</td>
         <td>{{ row.pass_criteria or '—' }}</td>
         <td><span class="status-badge {% if row.plan_status == 'PASS' %}passed{% else %}failed{% endif %}">{{ '已准备' if row.plan_status == 'PASS' else '待补全' }}</span></td>
         <td><span class="status-badge {% if row.execution_status == 'passed' %}passed{% elif row.execution_status in ['failed', 'blocked', 'inconclusive'] %}failed{% else %}candidate{% endif %}">{{ {'passed': '已通过', 'failed': '未通过', 'blocked': '受阻', 'inconclusive': '暂无结论', 'pending': '待执行', 'missing': '缺少用例'}.get(row.execution_status, row.execution_status) }}</span>{% if row.last_execution %}<small class="table-secondary">已有执行记录</small>{% endif %}</td>
@@ -43,7 +45,7 @@
           {% else %}—{% endif %}
         </td>
       </tr>
-      {% else %}<tr><td colspan="8" class="table-empty">暂无验证或确认事实</td></tr>{% endfor %}
+      {% else %}<tr><td colspan="10" class="table-empty">暂无验证或确认事实</td></tr>{% endfor %}
     </tbody>
   </table></div>
 </section>

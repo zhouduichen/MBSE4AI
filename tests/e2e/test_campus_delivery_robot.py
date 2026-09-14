@@ -50,10 +50,10 @@ def test_campus_fixture_runs_all_phases_and_closure(tmp_path: Path) -> None:
     assert trace_metrics["requirement_count"] == 7
     assert trace_metrics["complete_count"] == 7
     assert package["artifacts"]["architecture_report"]["content"]["status"] == "PASS"
-    assert all(
-        row["status"] == "PASS"
-        for row in package["artifacts"]["vv_plan"]["content"]["rows"]
-    )
+    vv_rows = package["artifacts"]["vv_plan"]["content"]["rows"]
+    assert all(row["status"] == "PASS" for row in vv_rows)
+    assert all(row["test_condition"] for row in vv_rows)
+    assert all(row["stimulus"] for row in vv_rows)
 
 
 def test_failure_is_registered_and_repaired_with_local_patch(tmp_path: Path) -> None:

@@ -15,6 +15,7 @@ from rflp_lite.diagrams.engineering.rflp import render_rflp_svg
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.model import ModelGraph
+from rflp_lite.methodology.vv_contract import missing_vv_plan_fields
 
 
 DELIVERABLE_FORMAT = "ai4mbse.engineering-deliverable.v1"
@@ -199,10 +200,7 @@ def _vv_plan(assurance: Mapping[str, object]) -> Mapping[str, object]:
         if not case_id:
             missing.append(case_type)
         else:
-            if not str(row.get("method", "")).strip():
-                missing.append("method")
-            if not str(row.get("pass_criteria", "")).strip():
-                missing.append("pass_criteria")
+            missing.extend(missing_vv_plan_fields(row))
         if row.get("status") != "PASS" and case_id:
             row["status"] = "INCOMPLETE"
         row["missing"] = missing
@@ -287,17 +285,19 @@ def _vv_markdown(vv_plan: Mapping[str, object]) -> str:
     lines = [
         "# V&V Plan",
         "",
-        "| Requirement | Type | Case | Method | Acceptance criteria | Status | Missing |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| Requirement | Type | Case | Method | Condition | Stimulus | Acceptance criteria | Status | Missing |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in vv_plan.get("rows", ()):
         missing = ", ".join(str(item) for item in row.get("missing", ())) or "—"
         lines.append(
-            "| {requirement} | {case_type} | {case} | {method} | {criteria} | {status} | {missing} |".format(
+            "| {requirement} | {case_type} | {case} | {method} | {condition} | {stimulus} | {criteria} | {status} | {missing} |".format(
                 requirement=_cell(row.get("requirement_id")),
                 case_type=_cell(row.get("case_type_label") or row.get("case_type")),
                 case=_cell(row.get("case_id") or "—"),
                 method=_cell(row.get("method") or "—"),
+                condition=_cell(row.get("test_condition") or "—"),
+                stimulus=_cell(row.get("stimulus") or "—"),
                 criteria=_cell(row.get("pass_criteria") or "—"),
                 status=_cell(row.get("status") or "UNKNOWN"),
                 missing=_cell(missing),

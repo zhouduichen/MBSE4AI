@@ -37,3 +37,13 @@ def test_assurance_page_exposes_controller_next_action_after_vv_failure(tmp_path
     assert "方案权衡" in page.text
     assert "task_id" not in page.text
     assert "重构受影响功能" in page.text
+
+
+def test_assurance_page_renders_executable_vv_plan_fields(tmp_path):
+    client, _ = _client_with_fixture(tmp_path)
+
+    page = client.get("/ui/projects/p1/assurance")
+
+    assert page.status_code == 200
+    assert "测试条件" in page.text
+    assert "刺激" in page.text

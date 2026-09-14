@@ -11,6 +11,7 @@ from rflp_lite.domain.model import ModelGraph
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
 from rflp_lite.methodology.gates import gate_for_phase
+from rflp_lite.methodology.vv_contract import VV_PLAN_FIELDS, missing_vv_plan_fields
 
 
 _GATE_LABELS = {
@@ -82,6 +83,12 @@ def build_assurance_view(graph: ModelGraph, issues: tuple[Mapping[str, object], 
             cases = [relation.target_id for relation in graph.relations if relation.source_id == requirement.id and relation.target_id in cases_by_id and relation.predicate.value == predicate]
             for case_id in sorted(cases) or [None]:
                 case = cases_by_id.get(case_id) if case_id else None
+                plan_fields = {
+                    field: case.payload.get(field, "") if case else ""
+                    for field in VV_PLAN_FIELDS
+                }
+                plan_missing = list(missing_vv_plan_fields(case.payload)) if case else [kind]
+                plan_complete = bool(case and not plan_missing)
                 vv_rows.append({
                     "requirement_id": requirement.id,
                     "requirement": requirement.meta.name,
@@ -89,15 +96,17 @@ def build_assurance_view(graph: ModelGraph, issues: tuple[Mapping[str, object], 
                     "case_type_label": label,
                     "case_id": case_id,
                     "method": case.payload.get("method", "") if case else "",
+                    **plan_fields,
+                    "missing_plan_fields": plan_missing,
                     "verification_case_id": case_id if kind == "verification" else None,
                     "validation_case_id": case_id if kind == "validation" else None,
                     "verification_case": case.meta.name if kind == "verification" and case else "",
                     "validation_case": case.meta.name if kind == "validation" and case else "",
                     "pass_criteria": case.payload.get("pass_criteria", "") if case else "",
-                    "status": "PASS" if case and case.payload.get("method") and case.payload.get("pass_criteria") else code,
-                    "plan_status": "PASS" if case and case.payload.get("method") and case.payload.get("pass_criteria") else code,
+                    "status": "PASS" if plan_complete else code,
+                    "plan_status": "PASS" if plan_complete else code,
                     "execution_status": case.payload.get("execution_status", "pending") if case else "missing",
-                    "execution_evidence_ids": list(case.payload.get("evidence_ids", ())) if case and isinstance(case.payload.get("evidence_ids", ()), (list, tuple)) else [],
+                    "execution_evidence_ids": list(case.payload.get("execution_evidence_ids", ())) if case and isinstance(case.payload.get("execution_evidence_ids", ()), (list, tuple)) else [],
                     "last_execution": case.payload.get("last_execution", {}) if case else {},
                     "issues": list(issue_index.get(requirement.id, ())),
                 })
