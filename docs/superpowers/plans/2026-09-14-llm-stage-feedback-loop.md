@@ -69,7 +69,7 @@ Add a deterministic FeedbackFunctionalModel. Its first vertical.functional respo
 
 - [x] Step 2: Run the test
 
-Run: ./.venv/bin/python -m pytest -q tests/application/test_model_generation.py::test_structured_stage_feedback_closes_functional_completion_gap
+Run: ./.venv/bin/python -m pytest -q tests/application/test_model_generation.py::test_structured_runtime_retries_one_stage_with_latest_graph_and_guidance
 
 Expected: FAIL because the current coordinator invokes vertical.functional only once.
 
@@ -123,7 +123,7 @@ Extend the feedback test to load the generation Run and assert the Functional St
 
 - [x] Step 2: Run the test
 
-Run: ./.venv/bin/python -m pytest -q tests/application/test_model_generation.py::test_structured_stage_feedback_closes_functional_completion_gap
+Run: ./.venv/bin/python -m pytest -q tests/application/test_model_generation.py::test_structured_runtime_retries_one_stage_with_latest_graph_and_guidance
 
 Expected: FAIL because current Step and audit data are hard-coded to attempt 1 and omit the field.
 
@@ -184,7 +184,7 @@ Interfaces:
 - Consumes: Tasks 1–4.
 - Produces: verified clean worktree and pushed branch.
 
-- [ ] Step 1: Run full gates
+- [x] Step 1: Run full gates
 
     ./.venv/bin/python -m pytest -q
     ./.venv/bin/python -m compileall -q src tests scripts
@@ -195,14 +195,14 @@ Interfaces:
 
 Expected: all tests pass; architecture metrics remain within architecture_budget.json; import contracts remain 5 kept, 0 broken; diff check is clean.
 
-- [ ] Step 2: Inspect state
+- [x] Step 2: Inspect state
 
     git status --short
     git log --oneline -8
 
 Expected: only intended commits are present and no generated artifacts are untracked.
 
-- [ ] Step 3: Push
+- [x] Step 3: Push
 
     git push origin HEAD
 
