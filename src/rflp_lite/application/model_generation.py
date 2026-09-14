@@ -35,10 +35,7 @@ from rflp_lite.methodology.vertical_generation import (
     vertical_stage_specs,
 )
 from rflp_lite.application.tool_layer import EngineeringToolLayer
-from rflp_lite.application.requirement_intake import (
-    extract_requirement_constraints,
-    split_requirement_statements,
-)
+from rflp_lite.application.requirement_input import RequirementInputService
 from rflp_lite.repository.port import ModelRepository, Run, Step
 
 
@@ -1048,85 +1045,15 @@ class ModelGenerationService:
 
     def _ensure_input(self, request: GenerateModelRequest) -> None:
         graph = self.repository.load_graph(request.project_id)
-        candidates: list[tuple[str, tuple[str, ...]]] = []
         explicit_text = str(request.requirement_text or "").strip()
-        if explicit_text:
-            candidates.extend(
-                (statement, ())
-                for statement in split_requirement_statements(explicit_text)
+        if explicit_text or request.document_ids or self.repository.has_documents(request.project_id):
+            RequirementInputService(self.repository, request.project_id).ensure(
+                text=explicit_text or None,
+                document_ids=request.document_ids,
             )
-        else:
-            list_regions = getattr(self.repository, "list_source_regions", None)
-            if callable(list_regions):
-                regions = tuple(list_regions(request.project_id, request.document_ids))
-                for region in regions:
-                    source_id = str(region.get("id", "")).strip()
-                    candidates.extend(
-                        (statement, (source_id,) if source_id else ())
-                        for statement in split_requirement_statements(
-                            str(region.get("text", ""))
-                        )
-                    )
-        merged: dict[str, list[str]] = {}
-        for statement, source_ids in candidates:
-            merged.setdefault(statement, []).extend(source_ids)
-        candidates = [
-            (statement, tuple(dict.fromkeys(source_ids)))
-            for statement, source_ids in merged.items()
-        ]
-        if candidates:
-            operations: list[AddEntity] = []
-            for statement, source_ids in candidates:
-                existing = next(
-                    (
-                        entity
-                        for entity in graph.entities
-                        if entity.kind is EntityKind.REQUIREMENT
-                        and entity.meta.status is not EntityStatus.DEPRECATED
-                        and str(entity.payload.get("statement", entity.meta.name)).strip()
-                        == statement
-                    ),
-                    None,
-                )
-                if existing is None:
-                    payload = {
-                        "statement": statement,
-                        "source": "user_input",
-                        "level": "system",
-                        "type": "functional",
-                        "obligation": "系统应",
-                        "verification_method": "test",
-                    }
-                    payload.update(extract_requirement_constraints(statement))
-                    operations.append(
-                        AddEntity(
-                            make_entity(
-                                EntityKind.REQUIREMENT,
-                                statement,
-                                payload,
-                                status=EntityStatus.CANDIDATE,
-                                producer=Producer.USER,
-                                confidence=1.0,
-                                source_ids=source_ids,
-                                evidence_ids=source_ids,
-                                revision=graph.revision,
-                            )
-                        )
-                    )
-            if operations:
-                patch = Patch.create(
-                    request.project_id,
-                    "user.requirement_input",
-                    tuple(operations),
-                    "用户输入自然语言需求",
-                    graph.revision,
-                )
-                self.repository.append_patch(request.project_id, patch, graph.revision)
             return
         if graph.has_active_entities:
             return
-        if request.document_ids or self.repository.has_documents(request.project_id):
-            raise InputRequired("document input contains no readable requirement text")
         raise InputRequired("requirement_text or an existing requirement is required")
 
     def _context(

@@ -60,6 +60,7 @@
 | Controller 物理冲突回流 | 在同一结构化 ModelGraph 上验证 physical constraint conflict→Trade Study 暂停→用户选择替代候选→仅 Physical/V&V 定向重分析；锁定和 user_modified 实体保持不变 |
 | 用户面工程工作台 | 分析、模型和验证与确认页面以需求→功能→逻辑→物理→V&V 的业务语言呈现阶段质量、追溯闭环和下一步动作；任务键、运行台账、模型标识和原始属性收进高级详情，保留既有编辑、权衡和执行入口 |
 | 追溯语义闭环 | 同一 canonical scope resolver 校验需求来源、功能、逻辑、物理及 V&V 载荷；技术需求支持来源链与直接物理候选，作用域失配会同时阻断 Assurance 完成检查并生成可回流的工程问题 |
+| 统一需求输入边界 | 五阶段生成与 23-task pipeline 共享 `RequirementInputService`；文本/文档可组合输入，重复 statement 复用节点并通过 CAS 合并全部 Source Region/evidence provenance，多条需求保持独立下游追溯 |
 
 ## 历史 Harness 验收边界
 

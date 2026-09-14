@@ -161,7 +161,7 @@ def apply_patch(graph: ModelGraph, patch: Patch) -> ModelGraph:
                 raise ConflictError(f"entity is locked: {operation.entity_id}")
             if bool(entity.payload.get("user_modified")) and not (explicit_unlock or explicit_review):
                 raise ContractViolation(f"entity is locked: {operation.entity_id}")
-            allowed = {"name", "status", "confidence", "payload", "lifecycle_ids", "evidence_ids", "producer"}
+            allowed = {"name", "status", "confidence", "payload", "source_ids", "lifecycle_ids", "evidence_ids", "producer"}
             unknown = set(operation.field_patch) - allowed
             if unknown:
                 raise ContractViolation(f"unsupported entity patch fields: {sorted(unknown)}")
@@ -186,6 +186,11 @@ def apply_patch(graph: ModelGraph, patch: Patch) -> ModelGraph:
                 if not isinstance(value, (list, tuple)):
                     raise ContractViolation("lifecycle_ids patch must be an array")
                 meta = replace(meta, lifecycle_ids=tuple(str(item) for item in value))
+            if "source_ids" in operation.field_patch:
+                value = operation.field_patch["source_ids"]
+                if not isinstance(value, (list, tuple)):
+                    raise ContractViolation("source_ids patch must be an array")
+                meta = replace(meta, source_ids=tuple(str(item) for item in value))
             if "evidence_ids" in operation.field_patch:
                 value = operation.field_patch["evidence_ids"]
                 if not isinstance(value, (list, tuple)):

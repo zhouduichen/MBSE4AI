@@ -48,3 +48,29 @@ def test_document_sentences_create_independent_requirements(tmp_path: Path):
 
     assert {item.meta.name for item in requirements} == {"系统应自主配送", "系统应支持人工接管"}
     assert all(item.meta.source_ids for item in requirements)
+
+
+def test_generate_combines_explicit_text_with_document_regions(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    document = services.projects.ingest_uploaded(
+        "robot", "requirements.txt", "系统应支持人工接管".encode("utf-8")
+    )
+
+    result = services.generation("robot").generate(
+        "robot",
+        requirement_text="系统应自主配送",
+        document_ids=(document["document_id"],),
+    )
+    graph = services.model("robot").graph("robot")
+    requirements = [item for item in graph.entities if item.kind is EntityKind.REQUIREMENT]
+
+    assert result.traceability.end_to_end_complete_count == 2
+    assert {item.meta.name for item in requirements} == {
+        "系统应自主配送", "系统应支持人工接管"
+    }
+    document_requirement = next(
+        item for item in requirements if item.meta.name == "系统应支持人工接管"
+    )
+    assert document_requirement.meta.source_ids
+    assert document_requirement.meta.evidence_ids == document_requirement.meta.source_ids
