@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Mapping
 
+from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.entities import Entity, EntityKind, EntityMeta, EntityStatus, Producer
 from rflp_lite.domain.errors import ContractViolation
 from rflp_lite.domain.model import ModelGraph, Relation
@@ -25,16 +26,44 @@ _DECLARATION_KIND: dict[EntityKind, str] = {
     EntityKind.VALIDATION_CASE: "validation",
 }
 _SAFE_SYMBOL = re.compile(r"[^A-Za-z0-9_]")
+_DECLARATION = re.compile(
+    r"^(?P<keyword>part|requirement|action|interface|state|verification|validation)"
+    r"\s+(?:def\s+)?(?P<symbol>[A-Za-z_][A-Za-z0-9_]*)\s*"
+    r"(?P<body>\{)?\s*;?$"
+)
+_ATTRIBUTE = re.compile(
+    r"^attribute\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.+?)\s*;$"
+)
+_RELATION = re.compile(
+    r"^(?P<keyword>satisfy|allocate|verify|validate)\s+"
+    r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\s+(?:by|to)\s+"
+    r"(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*;$"
+)
 _RELATION_STATEMENT = {
     RelationPredicate.SATISFIED_BY: "satisfy {source} by {target};",
     RelationPredicate.ALLOCATED_TO: "allocate {source} to {target};",
     RelationPredicate.VERIFIED_BY: "verify {source} by {target};",
     RelationPredicate.VALIDATED_BY: "validate {source} by {target};",
 }
+_PREDICATE_BY_KEYWORD = {
+    "satisfy": RelationPredicate.SATISFIED_BY,
+    "allocate": RelationPredicate.ALLOCATED_TO,
+    "verify": RelationPredicate.VERIFIED_BY,
+    "validate": RelationPredicate.VALIDATED_BY,
+}
+_KIND_BY_KEYWORD = {
+    "requirement": EntityKind.REQUIREMENT,
+    "action": EntityKind.FUNCTION,
+    "interface": EntityKind.INTERFACE,
+    "state": EntityKind.STATE,
+    "verification": EntityKind.VERIFICATION_CASE,
+    "validation": EntityKind.VALIDATION_CASE,
+    "part": EntityKind.SYSTEM,
+}
 
 
 def graph_to_sysml(graph: ModelGraph) -> str:
-    """Render the graph as readable subset declarations with round-trip data."""
+    """Render the graph as readable declarations with round-trip metadata."""
 
     lines = ["package AI4MBSE_Model {", f"  // @revision: {graph.revision}"]
     for entity in graph.entities:
@@ -44,7 +73,10 @@ def graph_to_sysml(graph: ModelGraph) -> str:
             + json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         )
         keyword = _DECLARATION_KIND.get(entity.kind, "part")
-        lines.append(f"  {keyword} def {_symbol(entity.id)};")
+        lines.append(f"  {keyword} def {_symbol(entity.id)} {{")
+        for name, value in _entity_attributes(entity):
+            lines.append(f"    attribute {name} = {_literal(value)};")
+        lines.append("  }")
     for relation in graph.relations:
         data = {
             "id": relation.id,
@@ -65,7 +97,7 @@ def graph_to_sysml(graph: ModelGraph) -> str:
 
 
 def sysml_to_graph(text: str, project_id: str) -> ModelGraph:
-    """Read the deterministic subset emitted by graph_to_sysml."""
+    """Read the declared subset and its optional canonical metadata comments."""
 
     lines = [line.strip() for line in str(text).splitlines() if line.strip()]
     if len(lines) < 2 or lines[0] != "package AI4MBSE_Model {" or lines[-1] != "}":
@@ -83,11 +115,108 @@ def sysml_to_graph(text: str, project_id: str) -> ModelGraph:
             raw_entities.append(_json_record(line, "entity"))
         elif line.startswith("// @relation:"):
             raw_relations.append(_json_record(line, "relation"))
+    declarations, relation_statements = _parse_declarations(lines[1:-1])
+    entities, symbols, max_entity_revision = _read_entities(
+        raw_entities, declarations, revision
+    )
+    relations = _read_relations(
+        raw_relations, relation_statements, symbols
+    )
+    graph = ModelGraph(project_id, tuple(sorted(entities, key=lambda item: item.id)), tuple(sorted(relations, key=lambda item: item.id)), max(revision, max_entity_revision))
+    for relation in graph.relations:
+        graph.validate_relation(relation)
+    return graph
 
-    entities: list[Entity] = []
-    entity_ids: set[str] = set()
-    max_entity_revision = 0
+
+def _entity_attributes(entity: Entity):
+    meta = entity.meta
+    return (
+        ("id", meta.id),
+        ("kind", meta.kind.value),
+        ("name", meta.name),
+        ("status", meta.status.value),
+        ("producer", meta.producer.value),
+        ("confidence", meta.confidence),
+        ("source_ids", list(meta.source_ids)),
+        ("evidence_ids", list(meta.evidence_ids)),
+        ("lifecycle_ids", list(meta.lifecycle_ids)),
+        ("created_revision", meta.created_revision),
+        ("updated_revision", meta.updated_revision),
+        ("payload_json", canonical_json(entity.payload)),
+    )
+
+
+def _literal(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _parse_declarations(lines):
+    declarations = []
+    relation_statements = []
+    current = None
+    for line in lines:
+        if current is not None:
+            if line == "}":
+                declarations.append(current)
+                current = None
+                continue
+            attribute = _ATTRIBUTE.match(line)
+            if attribute:
+                current["attributes"][attribute.group("name")] = attribute.group("value")
+            continue
+        declaration = _DECLARATION.match(line)
+        if declaration:
+            current = {
+                "keyword": declaration.group("keyword"),
+                "symbol": declaration.group("symbol"),
+                "attributes": {},
+            }
+            if not declaration.group("body"):
+                declarations.append(current)
+                current = None
+            continue
+        relation = _RELATION.match(line)
+        if relation:
+            relation_statements.append((
+                relation.group("keyword"),
+                relation.group("source"),
+                relation.group("target"),
+            ))
+    if current is not None:
+        raise ContractViolation("SysML declaration is missing closing brace")
+    return declarations, relation_statements
+
+
+def _read_entities(raw_entities, declarations, revision):
+    raw_by_id = {}
     for raw in raw_entities:
+        entity_id = _required_string(raw, "id")
+        if entity_id in raw_by_id:
+            raise ContractViolation(f"duplicate SysML entity id: {entity_id}")
+        raw_by_id[entity_id] = dict(raw)
+    records = []
+    symbols = {}
+    used_ids = set()
+    declarations_by_symbol = {item["symbol"]: item for item in declarations}
+    for entity_id, raw in raw_by_id.items():
+        declaration = declarations_by_symbol.get(_symbol(entity_id))
+        record = _merge_declaration(raw, declaration)
+        records.append(record)
+        symbols[_symbol(entity_id)] = _required_string(record, "id")
+    for declaration in declarations:
+        if declaration["symbol"] in symbols:
+            continue
+        record = _merge_declaration({}, declaration)
+        entity_id = _required_string(record, "id")
+        if entity_id in used_ids or entity_id in raw_by_id:
+            raise ContractViolation(f"duplicate SysML entity id: {entity_id}")
+        records.append(record)
+        symbols[declaration["symbol"]] = entity_id
+        used_ids.add(entity_id)
+    entities = []
+    entity_ids = set()
+    max_entity_revision = 0
+    for raw in records:
         entity_id = _required_string(raw, "id")
         if entity_id in entity_ids:
             raise ContractViolation(f"duplicate SysML entity id: {entity_id}")
@@ -125,9 +254,42 @@ def sysml_to_graph(text: str, project_id: str) -> ModelGraph:
             updated_revision,
         )
         entities.append(Entity(meta, dict(payload)))
+    return entities, symbols, max_entity_revision
 
-    relations: list[Relation] = []
-    relation_ids: set[str] = set()
+
+def _merge_declaration(raw, declaration):
+    record = dict(raw)
+    if declaration is None:
+        return record
+    attributes = declaration["attributes"]
+    for name, literal in attributes.items():
+        value = _attribute_value(name, literal)
+        field = "payload" if name == "payload_json" else name
+        record[field] = value
+    if not record.get("id"):
+        record["id"] = declaration["symbol"]
+    if not record.get("kind"):
+        record["kind"] = _KIND_BY_KEYWORD[declaration["keyword"]].value
+    if not record.get("name"):
+        record["name"] = declaration["symbol"]
+    return record
+
+
+def _attribute_value(name: str, literal: str):
+    try:
+        value = json.loads(literal)
+        if name == "payload_json" and isinstance(value, str):
+            return json.loads(value)
+        return value
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ContractViolation(f"SysML attribute is not valid JSON: {name}") from exc
+
+
+def _read_relations(raw_relations, statements, symbols):
+    relations = []
+    relation_ids = set()
+    statement_index = 0
+    core_keywords = set(_PREDICATE_BY_KEYWORD)
     for raw in raw_relations:
         relation_id = _required_string(raw, "id")
         if relation_id in relation_ids:
@@ -137,18 +299,39 @@ def sysml_to_graph(text: str, project_id: str) -> ModelGraph:
             predicate = RelationPredicate(_required_string(raw, "predicate"))
         except ValueError as exc:
             raise ContractViolation(f"invalid SysML relation predicate: {relation_id}") from exc
-        relation = Relation(
-            relation_id,
-            _required_string(raw, "source_id"),
-            predicate,
-            _required_string(raw, "target_id"),
-            _strings(raw.get("evidence_ids")),
-        )
-        relations.append(relation)
-    graph = ModelGraph(project_id, tuple(sorted(entities, key=lambda item: item.id)), tuple(sorted(relations, key=lambda item: item.id)), max(revision, max_entity_revision))
-    for relation in graph.relations:
-        graph.validate_relation(relation)
-    return graph
+        record = dict(raw)
+        if predicate in _PREDICATE_BY_KEYWORD.values() and statement_index < len(statements):
+            keyword, source, target = statements[statement_index]
+            if keyword in core_keywords:
+                record["source_id"] = _resolve_symbol(source, symbols)
+                record["target_id"] = _resolve_symbol(target, symbols)
+                record["predicate"] = _PREDICATE_BY_KEYWORD[keyword].value
+                statement_index += 1
+        relations.append(_relation(record, relation_id))
+    while statement_index < len(statements):
+        keyword, source, target = statements[statement_index]
+        predicate = _PREDICATE_BY_KEYWORD[keyword]
+        source_id = _resolve_symbol(source, symbols)
+        target_id = _resolve_symbol(target, symbols)
+        identity = (source_id, predicate.value, target_id)
+        relation_id = f"rel-{canonical_hash(identity)[:16]}"
+        relations.append(Relation(relation_id, source_id, predicate, target_id))
+        statement_index += 1
+    return relations
+
+
+def _relation(raw, relation_id):
+    return Relation(
+        relation_id,
+        _required_string(raw, "source_id"),
+        RelationPredicate(_required_string(raw, "predicate")),
+        _required_string(raw, "target_id"),
+        _strings(raw.get("evidence_ids")),
+    )
+
+
+def _resolve_symbol(value: str, symbols):
+    return symbols.get(value, value)
 
 
 def graph_sysml(graph: ModelGraph) -> str:

@@ -36,6 +36,8 @@ def test_sysml_subset_round_trips_entities_relations_and_payload():
     assert "part def" in text
     assert "requirement def" in text
     assert "action def" in text
+    assert "attribute kind" in text
+    assert "attribute payload_json" in text
     assert "satisfy" in text
     assert {item.id for item in restored.entities} == {item.id for item in graph.entities}
     assert {item.kind for item in restored.entities} == {item.kind for item in graph.entities}
@@ -43,6 +45,46 @@ def test_sysml_subset_round_trips_entities_relations_and_payload():
     assert {(item.source_id, item.predicate, item.target_id) for item in restored.relations} == {
         (item.source_id, item.predicate, item.target_id) for item in graph.relations
     }
+
+
+def test_sysml_declaration_edit_is_read_back_into_modelgraph():
+    graph = _complete_graph("p1")
+    exported = graph_to_sysml(graph)
+    edited = exported.replace(
+        'attribute name = "规划配送任务";',
+        'attribute name = "任务规划组件（人工编辑）";',
+        1,
+    )
+
+    restored = sysml_to_graph(edited, "p1")
+
+    function = next(item for item in restored.entities if item.kind is EntityKind.FUNCTION)
+    assert function.meta.name == "任务规划组件（人工编辑）"
+
+
+def test_sysml_reader_accepts_semantic_declarations_without_metadata_comments():
+    text = r'''package AI4MBSE_Model {
+  requirement def req_a {
+    attribute id = "requirement-1";
+    attribute name = "系统应完成任务";
+    attribute payload_json = "{\"statement\":\"系统应完成任务\"}";
+  }
+  action def function_a {
+    attribute id = "function-1";
+    attribute name = "执行任务";
+    attribute payload_json = "{\"behavior\":\"执行\"}";
+  }
+  satisfy req_a by function_a;
+}
+'''
+
+    restored = sysml_to_graph(text, "p1")
+
+    assert {item.id for item in restored.entities} == {"requirement-1", "function-1"}
+    assert restored.entity_index["requirement-1"].payload == {"statement": "系统应完成任务"}
+    assert restored.entity_index["function-1"].kind is EntityKind.FUNCTION
+    assert len(restored.relations) == 1
+    assert restored.relations[0].predicate is RelationPredicate.SATISFIED_BY
 
 
 def test_sysml_reader_rejects_missing_relation_endpoint():
