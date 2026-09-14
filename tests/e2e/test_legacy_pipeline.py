@@ -426,3 +426,18 @@ def test_structured_llm_executes_all_23_tasks_and_writes_the_graph(tmp_path: Pat
         item.kind is EntityKind.VALIDATION_CASE
         for item in graph.entities
     )
+    package = services.deliverables("robot").build("robot")
+    trace_metrics = package["artifacts"]["traceability"]["content"]["metrics"]
+    assert trace_metrics["requirement_count"] == 1
+    assert trace_metrics["complete_count"] == 1
+    assert package["artifacts"]["rflp"]["content"]["edges"]
+    assert package["artifacts"]["vv_plan"]["content"]["rows"]
+    restored = sysml_to_graph(package["artifacts"]["sysml"]["content"], "robot")
+    assert {item.id for item in restored.entities} == {item.id for item in graph.entities}
+    assert {
+        (item.source_id, item.predicate, item.target_id)
+        for item in restored.relations
+    } == {
+        (item.source_id, item.predicate, item.target_id)
+        for item in graph.relations
+    }
