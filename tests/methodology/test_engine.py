@@ -118,7 +118,9 @@ def test_operational_and_functional_analysis_reports_missing_context():
     assert any(item.code == "operational_activity_missing" for item in report.findings)
     assert report.metrics["functional_requirement_coverage"] == 1.0
     assert report.metrics["functional_flow_coverage"] == 0.0
+    assert report.metrics["functional_decomposition_coverage"] == 0.0
     assert any(item.code == "functional_flow_missing" for item in report.findings)
+    assert any(item.code == "functional_decomposition_missing" for item in report.findings)
 
 
 def test_physical_analysis_distinguishes_conflict_from_unknown_measurement():

@@ -414,6 +414,12 @@ class VerticalRuleRuntime:
                 "behavior": f"实现{requirement.meta.name}",
                 "inputs": [],
                 "outputs": ["执行结果"],
+                "decomposition": [
+                    f"解析{requirement.meta.name}",
+                    f"执行{requirement.meta.name}",
+                    "产生并反馈结果",
+                ],
+                "source_requirement_id": requirement.id,
             })
             builder.relate(requirement, RelationPredicate.SATISFIED_BY, function)
         functions = _builder_entities(builder, EntityKind.FUNCTION)
@@ -905,6 +911,11 @@ def _physical_payload(logical, requirements=()) -> Mapping[str, object]:
             "checks": ["mass", "power", "compute", "memory", "latency", "thermal"],
         },
         "alternatives": ["集中式执行单元", "分布式执行单元"],
+        "trade_study": {
+            "alternatives": ["集中式执行单元", "分布式执行单元"],
+            "selection_rationale": f"优先承载{logical.meta.name}，在测量约束后进行候选选择",
+            "decision_status": "requires_review",
+        },
         "selection_rationale": f"优先承载{logical.meta.name}，在测量约束后进行候选选择",
         "rationale": f"承载{logical.meta.name}",
     }

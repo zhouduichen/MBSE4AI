@@ -184,7 +184,7 @@ _GUIDANCE_METRICS = {
     ),
     "functional": (
         "functional_requirement_coverage", "functional_flow_coverage",
-        "functional_scenario_coverage",
+        "functional_scenario_coverage", "functional_decomposition_coverage",
     ),
     "logical": (
         "logical_allocation_coverage", "logical_state_model_coverage",
@@ -392,9 +392,16 @@ class MethodologyEngine:
         scenario_functions = sum(bool(
             [target for target in function_scenarios.get(function.id, ()) if index[target].kind is EntityKind.FUNCTIONAL_SCENARIO]
         ) for function in functions)
+        decomposed_functions = sum(
+            bool(function.payload.get("decomposition"))
+            for function in functions
+        )
         metrics["functional_requirement_coverage"] = _ratio(covered_requirements, len(requirements))
         metrics["functional_flow_coverage"] = _ratio(covered_functions, len(functions))
         metrics["functional_scenario_coverage"] = _ratio(scenario_functions, len(functions))
+        metrics["functional_decomposition_coverage"] = _ratio(
+            decomposed_functions, len(functions)
+        )
         metrics["functional_function_count"] = len(functions)
         metrics["functional_flow_count"] = len(flows)
         metrics["functional_scenario_count"] = len(scenarios)
@@ -406,6 +413,12 @@ class MethodologyEngine:
                     ("function_identification", "functional_decomposition"),
                 ))
         for function in functions:
+            if not function.payload.get("decomposition"):
+                findings.append(MethodologyFinding(
+                    "functional_decomposition_missing", "warning", "functional", (function.id,),
+                    f"功能“{function.meta.name}”没有显式功能分解步骤。",
+                    ("functional_decomposition",),
+                ))
             if not any(index[target].kind is EntityKind.FUNCTIONAL_FLOW for target in function_flows.get(function.id, ())):
                 findings.append(MethodologyFinding(
                     "functional_flow_missing", "warning", "functional", (function.id,),

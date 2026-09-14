@@ -23,6 +23,7 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
     assert result.methodology.metrics["functional_requirement_coverage"] == 1.0
     assert result.methodology.metrics["functional_flow_coverage"] == 1.0
     assert result.methodology.metrics["functional_scenario_coverage"] == 1.0
+    assert result.methodology.metrics["functional_decomposition_coverage"] == 1.0
     assert result.methodology.metrics["logical_allocation_coverage"] == 1.0
     assert result.methodology.metrics["verification_coverage"] == 1.0
     assert result.methodology.metrics["validation_coverage"] == 1.0
@@ -177,6 +178,7 @@ def test_physical_architecture_propagates_structured_requirement_constraints(tmp
 
     assert physical.payload["source_requirement_ids"] == [requirement_id]
     assert physical.payload["propagated_constraints"] == {"max_power_w": 50}
+    assert physical.payload["trade_study"]["decision_status"] == "requires_review"
 
 
 def test_natural_language_constraints_reach_physical_candidate(tmp_path: Path):
