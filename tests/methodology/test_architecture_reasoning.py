@@ -111,3 +111,19 @@ def test_structured_logical_and_physical_contracts_accept_reasoning_objects():
     assert logical_payload["additionalProperties"] is False
     assert logical_payload["properties"]["architecture_reasoning"] == {"type": "object"}
     assert physical_payload["properties"]["feasibility_reasoning"] == {"type": "object"}
+    assert "oneOf" in logical_payload["properties"]["timing_constraints"]["items"]
+    assert "oneOf" in logical_payload["properties"]["safety_isolation"]["items"]
+
+    from jsonschema import validate
+
+    validate({
+        "timing_constraints": [{
+            "id": "mission-cycle",
+            "function_ids": ["function-a", "function-b"],
+            "deadline_ms": 100,
+        }],
+        "safety_isolation": [{
+            "function_ids": ["function-a", "function-b"],
+            "must_separate": True,
+        }],
+    }, logical_payload)

@@ -1124,7 +1124,11 @@ def _logical_component_payload(
         group_ids, flow_evidence, function_component_index
     )
     shared_state = _union_payload_values(group, "shared_state") or [f"{domain}任务状态"]
-    timing_constraints = _union_payload_values(group, "timing_constraints") or [f"{domain}任务状态更新必须可排序"]
+    timing_constraints = _union_payload_items(group, "timing_constraints") or [f"{domain}任务状态更新必须可排序"]
+    safety_evidence = _dedupe_payload_items(
+        _union_payload_items(group, "safety_isolation")
+        + _union_payload_items(group, "safety_constraints")
+    )
     partition_basis = _partition_basis(group, dependency_evidence)
     payload = {
         "responsibility": "；".join(
@@ -1138,7 +1142,7 @@ def _logical_component_payload(
         "cross_component_flow_ids": cross_component_flow_ids,
         "shared_state": shared_state,
         "timing_constraints": timing_constraints,
-        "safety_isolation": ["人工接管路径与自动执行路径隔离"],
+        "safety_isolation": safety_evidence or ["人工接管路径与自动执行路径隔离"],
         "source_context_ids": sorted({
             source_id
             for function in group
@@ -1166,6 +1170,7 @@ def _logical_component_payload(
             dependency_pairs=_dependency_pairs(group, functions),
             shared_state=shared_state,
             timing_constraints=timing_constraints,
+            safety_isolation=safety_evidence,
             selected_alternative=variant,
             selection_status="selected" if variant else "needs_review",
             names={item.id: item.meta.name for item in functions},
@@ -1362,6 +1367,29 @@ def _union_payload_values(entities, key):
         if isinstance(raw, (list, tuple)):
             values.extend(str(item).strip() for item in raw if str(item).strip())
     return list(dict.fromkeys(values))
+
+
+def _union_payload_items(entities, key):
+    values = []
+    for entity in entities:
+        raw = entity.payload.get(key)
+        if isinstance(raw, Mapping):
+            raw = (raw,)
+        if isinstance(raw, (list, tuple)):
+            values.extend(raw)
+    return _dedupe_payload_items(values)
+
+
+def _dedupe_payload_items(values):
+    result = []
+    seen = set()
+    for value in values:
+        marker = repr(value)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        result.append(value)
+    return result
 
 
 def _requirements_for_functions(context, functions):

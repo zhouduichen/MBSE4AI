@@ -105,6 +105,50 @@ def _services_with_complete_graph(tmp_path: Path):
     return services
 
 
+def _services_with_safety_pair(tmp_path: Path):
+    services = _services(tmp_path)
+    first = make_entity(
+        EntityKind.FUNCTION,
+        "采集任务",
+        {"timing_constraints": ["mission-cycle"]},
+        status=EntityStatus.VALIDATED,
+    )
+    second = make_entity(
+        EntityKind.FUNCTION,
+        "执行任务",
+        {"timing_constraints": ["mission-cycle"]},
+        status=EntityStatus.VALIDATED,
+    )
+    safety = {
+        "function_ids": [first.id, second.id],
+        "must_separate": True,
+        "reason": "采集与执行必须隔离",
+    }
+    first = first.__class__(
+        first.meta,
+        {**first.payload, "safety_isolation": [safety]},
+    )
+    logical = make_entity(
+        EntityKind.LOGICAL_COMPONENT,
+        "任务协调器",
+        {"cohesion": "high", "coupling": "controlled"},
+        status=EntityStatus.VALIDATED,
+    )
+    patch = Patch.create(
+        "p1",
+        "fixture.safety",
+        (
+            AddEntity(first), AddEntity(second), AddEntity(logical),
+            Relate(first.id, RelationPredicate.ALLOCATED_TO, logical.id),
+            Relate(second.id, RelationPredicate.ALLOCATED_TO, logical.id),
+        ),
+        "fixture",
+        0,
+    )
+    services.repository("p1").append_patch("p1", patch, 0)
+    return services
+
+
 def test_build_contains_all_required_artifacts(tmp_path: Path):
     services = _services_with_complete_graph(tmp_path)
 
@@ -123,6 +167,27 @@ def test_build_contains_all_required_artifacts(tmp_path: Path):
     assert package["artifacts"]["vv_plan"]["content"]["rows"][0]["stimulus"]
     assert package["artifacts"]["evidence"]["content"]["records"] == []
     assert package["artifacts"]["rflp_svg"]["content"].startswith("<svg")
+
+
+def test_architecture_report_reuses_logical_decision_evidence(tmp_path: Path):
+    services = _services_with_safety_pair(tmp_path)
+
+    package = services.deliverables("p1").build("p1")
+    report = package["artifacts"]["architecture_report"]["content"]
+    logical = report["architecture_synthesis"]["logical"]
+    shared = next(
+        item for item in logical["candidates"]
+        if item["alternative"] == "shared_coordinator"
+    )
+
+    assert report["methodology_metrics"]["logical_safety_violation_count"] == 1
+    assert report["methodology_metrics"]["logical_safety_review_required"] is True
+    assert shared["safety_isolation_count"] == 1
+    assert shared["safety_violation_count"] == 1
+    archive_bytes, _ = services.deliverables("p1").export_zip("p1")
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+        markdown = archive.read("architecture-report.md").decode("utf-8")
+    assert "Safety isolation review required" in markdown
 
 
 def test_traceability_deliverable_matches_canonical_summary_and_projection(tmp_path: Path):

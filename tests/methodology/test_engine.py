@@ -1,7 +1,8 @@
 from rflp_lite.domain.entities import EntityKind, EntityStatus, make_entity
 from rflp_lite.domain.model import ModelGraph, Relation
 from rflp_lite.domain.relations import RelationPredicate
-from rflp_lite.methodology.engine import MethodologyEngine
+from rflp_lite.methodology.controller import SystemsEngineeringController
+from rflp_lite.methodology.engine import MethodologyEngine, build_methodology_guidance
 from rflp_lite.methodology.trace_rules import requirement_trace_scope
 
 
@@ -118,6 +119,63 @@ def test_logical_analysis_reports_partition_quality_and_allocation():
         "dependency_clustering", "architecture_evaluation"
     }
     assert not any(item.code == "logical_function_unallocated" for item in report.findings)
+
+
+def test_logical_analysis_exposes_timing_and_safety_review_evidence():
+    graph = _graph()
+    first = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+    logical = next(item for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT)
+    second = make_entity(
+        EntityKind.FUNCTION,
+        "监控任务",
+        {
+            "timing_constraints": ["task-cycle"],
+        },
+        status=EntityStatus.VALIDATED,
+    )
+    safety = {
+        "function_ids": [first.id, second.id],
+        "must_separate": True,
+        "reason": "采集与执行隔离",
+    }
+    second = second.__class__(
+        second.meta,
+        {**second.payload, "safety_isolation": [safety]},
+    )
+    first = first.__class__(
+        first.meta,
+        {
+            **first.payload,
+            "timing_constraints": ["task-cycle"],
+            "safety_isolation": [safety],
+        },
+    )
+    graph = ModelGraph(
+        graph.project_id,
+        tuple(first if item.id == first.id else item for item in graph.entities) + (second,),
+        (*graph.relations, Relation("second-logical", second.id, RelationPredicate.ALLOCATED_TO, logical.id)),
+        graph.revision,
+    )
+
+    report = MethodologyEngine().analyze(graph)
+
+    assert report.metrics["logical_timing_constraint_count"] == 1
+    assert report.metrics["logical_timing_cut_count"] == 0
+    assert report.metrics["logical_safety_isolation_count"] == 1
+    assert report.metrics["logical_safety_violation_count"] == 1
+    assert report.metrics["logical_safety_review_required"] is True
+    assert report.metrics["logical_partition_quality"] == "needs_review"
+    finding = next(item for item in report.findings if item.code == "logical_partition_needs_review")
+    assert "安全隔离" in finding.message
+    guidance = build_methodology_guidance(report, "logical_analysis")
+    assert guidance["metrics"]["logical_safety_violation_count"] == 1
+    assert guidance["metrics"]["logical_safety_review_required"] is True
+    action = next(
+        item for item in SystemsEngineeringController().plan(graph, report).actions
+        if item.kind == "trade_study"
+        and item.task_id in {"dependency_clustering", "architecture_evaluation"}
+    )
+    assert action.kind == "trade_study"
 
 
 def test_candidate_function_does_not_count_as_completed_architecture_coverage():

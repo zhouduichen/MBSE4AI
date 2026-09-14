@@ -164,7 +164,14 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
     logical_reasoning = logical.payload["architecture_reasoning"]
     physical_reasoning = physical.payload["feasibility_reasoning"]
     assert logical_reasoning["basis"]["function_ids"]
+    assert "timing_constraints" in logical_reasoning["basis"]
+    assert "safety_isolation" in logical_reasoning["basis"]
     assert logical_reasoning["alternatives"]
+    assert all(
+        "timing_cut_count" in alternative
+        and "safety_violation_count" in alternative
+        for alternative in logical_reasoning["alternatives"]
+    )
     assert logical_reasoning["recommended_alternative"]
     assert physical_reasoning["logical_ids"] == [logical.id]
     assert physical_reasoning["status"] == "needs_measurement"
@@ -174,6 +181,13 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
         for entity in group["entities"]
         if entity["id"] == physical.id
     )
+    logical_card = next(
+        entity
+        for group in build_model_workbench_view(graph)["groups"]
+        for entity in group["entities"]
+        if entity["id"] == logical.id
+    )
+    assert logical_card["payload"]["architecture_reasoning"] == logical_reasoning
     assert physical_card["payload"]["feasibility_reasoning"] == physical_reasoning
 
     exported = graph_to_sysml(graph)

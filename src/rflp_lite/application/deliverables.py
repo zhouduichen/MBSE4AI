@@ -15,6 +15,7 @@ from rflp_lite.diagrams.engineering.rflp import render_rflp_svg
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.model import ModelGraph
+from rflp_lite.methodology.engine import MethodologyEngine
 from rflp_lite.methodology.vv_contract import missing_vv_plan_fields
 
 
@@ -51,8 +52,9 @@ class EngineeringDeliverableService:
         traceability = dict(build_traceability_view(graph, issues))
         assurance = dict(build_assurance_view(graph, issues))
         vv_plan = _vv_plan(assurance)
+        methodology = MethodologyEngine().analyze(graph)
         architecture_report = _architecture_report(
-            graph, rflp, traceability, assurance, vv_plan
+            graph, rflp, traceability, assurance, vv_plan, methodology
         )
         evidence = _evidence_content(graph, self.evidence_repository)
         model = _model_content(graph, evidence=evidence["records"])
@@ -245,6 +247,7 @@ def _architecture_report(
     traceability: Mapping[str, object],
     assurance: Mapping[str, object],
     vv_plan: Mapping[str, object],
+    methodology,
 ) -> Mapping[str, object]:
     counts = {
         kind.value: sum(entity.kind is kind for entity in graph.entities)
@@ -262,6 +265,20 @@ def _architecture_report(
     ]
     complete = gate_passed and not trace_gaps and not vv_gaps
     status = "PASS" if complete else "BLOCKED" if has_blocking_issue or trace_gaps or vv_gaps else "DEGRADED"
+    methodology_metrics = dict(methodology.metrics)
+    architecture = methodology_metrics.get("architecture_synthesis", {})
+    architecture = dict(architecture) if isinstance(architecture, Mapping) else {}
+    decision_metric_names = (
+        "logical_partition_quality",
+        "logical_timing_constraint_count",
+        "logical_timing_cut_count",
+        "logical_safety_isolation_count",
+        "logical_safety_violation_count",
+        "logical_safety_review_required",
+        "physical_feasibility",
+        "physical_conflict_count",
+        "physical_unknown_field_count",
+    )
     return {
         "status": status,
         "entity_counts": counts,
@@ -274,6 +291,12 @@ def _architecture_report(
         "gates": gates,
         "gaps": trace_gaps,
         "vv_gaps": vv_gaps,
+        "methodology_metrics": {
+            key: methodology_metrics[key]
+            for key in decision_metric_names
+            if key in methodology_metrics
+        },
+        "architecture_synthesis": architecture,
     }
 
 
@@ -326,6 +349,58 @@ def _architecture_markdown(report: Mapping[str, object]) -> str:
         f"- Valid trace edges: {int(report.get('valid_trace_edge_count', 0))}",
         f"- Invalid trace edges: {int(report.get('invalid_trace_edge_count', 0))}",
         f"- Allocations: {int(report.get('allocation_count', 0))}",
+        "",
+        "## Architecture decision evidence",
+        "",
+        "### Logical alternatives",
+        "",
+        "| Alternative | Score | Timing cuts | Safety pairs | Safety violations |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ])
+    synthesis = report.get("architecture_synthesis", {})
+    logical = synthesis.get("logical", {}) if isinstance(synthesis, Mapping) else {}
+    candidates = logical.get("candidates", ()) if isinstance(logical, Mapping) else ()
+    if candidates:
+        for candidate in candidates:
+            lines.append(
+                "| {alternative} | {score} | {timing} | {safety} | {violations} |".format(
+                    alternative=_cell(candidate.get("alternative", "")),
+                    score=_cell(candidate.get("score", "")),
+                    timing=_cell(candidate.get("timing_cut_count", 0)),
+                    safety=_cell(candidate.get("safety_isolation_count", 0)),
+                    violations=_cell(candidate.get("safety_violation_count", 0)),
+                )
+            )
+    else:
+        lines.append("| No logical alternatives | — | — | — | — |")
+    decision_metrics = report.get("methodology_metrics", {})
+    if isinstance(decision_metrics, Mapping) and decision_metrics.get("logical_safety_review_required"):
+        lines.extend([
+            "",
+            "Safety isolation review required: the current logical partition violates an explicit safety separation constraint.",
+        ])
+    physical = synthesis.get("physical", {}) if isinstance(synthesis, Mapping) else {}
+    rows = physical.get("rows", ()) if isinstance(physical, Mapping) else ()
+    lines.extend([
+        "",
+        "### Physical feasibility",
+        "",
+        "| Physical | Status | Missing measurements | Conflicts |",
+        "| --- | --- | --- | ---: |",
+    ])
+    if rows:
+        for row in rows:
+            lines.append(
+                "| {physical} | {status} | {missing} | {conflicts} |".format(
+                    physical=_cell(row.get("physical_id", "")),
+                    status=_cell(row.get("status", "")),
+                    missing=_cell(", ".join(str(item) for item in row.get("missing_fields", ())) or "—"),
+                    conflicts=_cell(len(row.get("conflicts", ()))),
+                )
+            )
+    else:
+        lines.append("| No physical feasibility rows | — | — | — |")
+    lines.extend([
         "",
         "## Gaps",
         "",

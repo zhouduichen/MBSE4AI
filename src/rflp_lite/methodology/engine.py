@@ -147,6 +147,9 @@ _GUIDANCE_METRICS = {
     "logical": (
         "logical_allocation_coverage", "logical_state_model_coverage",
         "logical_partition_quality", "logical_cross_component_exchange_count",
+        "logical_timing_constraint_count", "logical_timing_cut_count",
+        "logical_safety_isolation_count", "logical_safety_violation_count",
+        "logical_safety_review_required",
     ),
     "physical": (
         "physical_allocation_coverage", "physical_feasibility",
@@ -492,20 +495,31 @@ class MethodologyEngine:
             decisions.extend(_logical_decisions(component, function_ids))
         crossings = _count_interface_crossings(graph, index, function_to_components)
         metrics["logical_cross_component_exchange_count"] = crossings
+        current_candidate = next(
+            (
+                item for item in architecture.logical_candidates
+                if item.alternative == "current_dependency_partition"
+            ),
+            None,
+        )
+        representative = current_candidate or (
+            architecture.logical_candidates[0]
+            if architecture.logical_candidates else None
+        )
+        safety_review = bool(
+            representative and representative.safety_violation_count
+        )
         partition_quality = _partition_quality(components)
         if crossings and len(components) > 1 and partition_quality == "reviewed":
+            partition_quality = "needs_review"
+        if safety_review:
             partition_quality = "needs_review"
         metrics["logical_partition_quality"] = partition_quality
         if components and metrics["logical_partition_quality"] == "needs_review":
             findings.append(MethodologyFinding(
                 "logical_partition_needs_review", "warning", "logical",
                 tuple(item.id for item in components),
-                (
-                    "逻辑架构存在跨组件交互，且内聚/耦合或分区依据仍需评审，"
-                    "不能直接视为已完成架构权衡。"
-                    if crossings
-                    else "逻辑架构的内聚/耦合或分区依据仍需评审，不能直接视为已完成架构权衡。"
-                ),
+                _logical_partition_review_message(crossings, safety_review),
                 ("dependency_clustering", "architecture_evaluation"),
             ))
         metrics["logical_partition_candidates"] = [
@@ -525,6 +539,21 @@ class MethodologyEngine:
         metrics["logical_trade_study"] = candidates
         metrics["logical_architecture_recommended"] = (
             candidates[0]["alternative"] if candidates else ""
+        )
+        metrics["logical_timing_constraint_count"] = (
+            representative.timing_constraint_count if representative else 0
+        )
+        metrics["logical_timing_cut_count"] = (
+            representative.timing_cut_count if representative else 0
+        )
+        metrics["logical_safety_isolation_count"] = (
+            representative.safety_isolation_count if representative else 0
+        )
+        metrics["logical_safety_violation_count"] = (
+            representative.safety_violation_count if representative else 0
+        )
+        metrics["logical_safety_review_required"] = bool(
+            safety_review
         )
         if candidates:
             decisions.append({
@@ -1113,6 +1142,16 @@ def _partition_quality(components: Sequence[Entity]) -> str:
     ):
         return "reviewed"
     return "needs_review"
+
+
+def _logical_partition_review_message(crossings: int, safety_review: bool) -> str:
+    reasons = []
+    if crossings:
+        reasons.append("逻辑架构存在跨组件交互")
+    if safety_review:
+        reasons.append("当前逻辑分区违反显式安全隔离约束")
+    detail = "，且".join(reasons) if reasons else "逻辑架构的内聚/耦合或分区依据"
+    return f"{detail}，仍需评审，不能直接视为已完成架构权衡。"
 
 
 def _requirements_by_physical(graph, index, allocations):

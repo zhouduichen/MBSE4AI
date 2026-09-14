@@ -25,7 +25,8 @@ def logical_reasoning_payload(
     functional_flow_ids: Sequence[str],
     dependency_pairs: Sequence[Sequence[str]],
     shared_state: Sequence[str],
-    timing_constraints: Sequence[str],
+    timing_constraints: Sequence[object],
+    safety_isolation: Sequence[object] = (),
     selected_alternative: str = "",
     selection_status: str = "needs_review",
     names: Mapping[str, str] | None = None,
@@ -36,7 +37,8 @@ def logical_reasoning_payload(
     flows = _ids(functional_flow_ids, "functional_flow_ids")
     pairs = _pairs(dependency_pairs, selected)
     shared = _strings(shared_state, "shared_state")
-    timing = _strings(timing_constraints, "timing_constraints")
+    timing = _sequence_copy(timing_constraints, "timing_constraints")
+    safety = _sequence_copy(safety_isolation, "safety_isolation")
     status = str(selection_status).strip()
     if status not in _LOGICAL_SELECTION_STATUSES:
         raise ContractViolation(f"unsupported logical selection status: {status}")
@@ -52,6 +54,7 @@ def logical_reasoning_payload(
             "dependency_pairs": pairs,
             "shared_state": shared,
             "timing_constraints": timing,
+            "safety_isolation": safety,
         },
         "alternatives": [
             _copy(item.as_dict(names)) for item in alternatives
@@ -101,6 +104,15 @@ def _ids(values: Sequence[object], field: str) -> list[str]:
 
 def _strings(values: Sequence[object], field: str) -> list[str]:
     return _ids(values, field)
+
+
+def _sequence_copy(values: Sequence[object], field: str) -> list[object]:
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
+        raise ContractViolation(f"{field} must be an array")
+    try:
+        return [_copy(value) for value in values]
+    except TypeError as exc:
+        raise ContractViolation(f"{field} must be JSON-compatible") from exc
 
 
 def _pairs(values: Sequence[Sequence[str]], function_ids: Sequence[str]) -> list[list[str]]:

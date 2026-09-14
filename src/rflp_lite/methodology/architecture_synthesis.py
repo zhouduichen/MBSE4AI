@@ -48,6 +48,11 @@ class LogicalArchitectureCandidate:
     shared_state_cut_count: int
     dependency_cut_count: int
     rationale: str
+    timing_constraint_count: int = 0
+    timing_cut_count: int = 0
+    safety_isolation_count: int = 0
+    safety_violation_count: int = 0
+    constraint_violations: tuple[Mapping[str, object], ...] = ()
 
     def as_dict(self, names: Mapping[str, str] | None = None) -> Mapping[str, object]:
         labels = names or {}
@@ -70,6 +75,11 @@ class LogicalArchitectureCandidate:
             "cross_component_exchange_count": self.cross_component_exchange_count,
             "shared_state_cut_count": self.shared_state_cut_count,
             "dependency_cut_count": self.dependency_cut_count,
+            "timing_constraint_count": self.timing_constraint_count,
+            "timing_cut_count": self.timing_cut_count,
+            "safety_isolation_count": self.safety_isolation_count,
+            "safety_violation_count": self.safety_violation_count,
+            "constraint_violations": [dict(item) for item in self.constraint_violations],
             "rationale": self.rationale,
         }
 
@@ -225,6 +235,23 @@ def _score_logical(alternative, partitions, component_ids, links, rationale):
         placement.get(first) != placement.get(second)
         for first, second in links["dependency"]
     )
+    timing_cuts = sum(
+        placement.get(first) != placement.get(second)
+        for first, second in links["timing"]
+    )
+    safety_violations = sum(
+        placement.get(first) == placement.get(second)
+        for first, second in links["safety_isolation"]
+    )
+    constraint_violations = tuple(
+        {
+            "kind": "safety_isolation",
+            "function_ids": [first, second],
+            "message": "显式安全隔离约束要求两个功能不在同一逻辑分区",
+        }
+        for first, second in links["safety_isolation"]
+        if placement.get(first) == placement.get(second)
+    )
     exchange_crossings = sum(
         len({placement.get(function_id) for function_id in function_ids}) > 1
         for function_ids in links["flows"].values()
@@ -237,7 +264,18 @@ def _score_logical(alternative, partitions, component_ids, links, rationale):
     smallest = min(sizes, default=0)
     balance = 1.0 if not sizes else round(1 - (largest - smallest) / max(largest, 1), 3)
     score = round(
-        max(0.0, min(100.0, 55 * cohesion + 25 * balance + 20 - 3 * max(largest - 1, 0))),
+        max(
+            0.0,
+            min(
+                100.0,
+                55 * cohesion
+                + 25 * balance
+                + 20
+                - 3 * max(largest - 1, 0)
+                - 6 * timing_cuts
+                - 25 * safety_violations,
+            ),
+        ),
         2,
     )
     return LogicalArchitectureCandidate(
@@ -251,6 +289,11 @@ def _score_logical(alternative, partitions, component_ids, links, rationale):
         shared_cuts,
         dependency_cuts,
         rationale,
+        links["timing_constraint_count"],
+        timing_cuts,
+        links["safety_isolation_count"],
+        safety_violations,
+        constraint_violations,
     )
 
 
@@ -314,6 +357,8 @@ def _function_links(graph, functions):
     function_ids = {item.id for item in functions}
     shared_state = set()
     dependency = set()
+    timing, timing_constraint_count = _timing_pairs(functions)
+    safety_isolation, safety_isolation_count = _safety_pairs(functions)
     shared_members = defaultdict(list)
     partition_members = defaultdict(list)
     flow_members = defaultdict(set)
@@ -372,6 +417,10 @@ def _function_links(graph, functions):
     return {
         "shared_state": shared_state,
         "dependency": dependency,
+        "timing": timing,
+        "timing_constraint_count": timing_constraint_count,
+        "safety_isolation": safety_isolation,
+        "safety_isolation_count": safety_isolation_count,
         "flows": flow_links,
         # A functional flow expresses an exchange boundary, not proof that
         # the participating functions belong in one logical component.
@@ -380,6 +429,76 @@ def _function_links(graph, functions):
         "all": shared_state | dependency,
         "flow_pairs": flow_pairs,
     }
+
+
+def _timing_pairs(functions):
+    """Resolve only explicit timing groups into Function pairs."""
+
+    function_ids = {item.id for item in functions}
+    labels: dict[str, set[str]] = defaultdict(set)
+    explicit_groups: set[tuple[str, tuple[str, ...]]] = set()
+    by_id = {item.id: item.id for item in functions}
+    for function in functions:
+        for value in _payload_items(function.payload.get("timing_constraints")):
+            if isinstance(value, str):
+                label = value.strip()
+                if label:
+                    labels[label].add(function.id)
+                continue
+            if not isinstance(value, Mapping):
+                continue
+            members = _explicit_function_members(value, by_id, function_ids)
+            if len(members) >= 2:
+                explicit_groups.add((
+                    str(value.get("id") or value.get("name") or "timing"),
+                    members,
+                ))
+    pairs = set().union(*(_pairs(members) for members in labels.values() if len(members) >= 2)) if labels else set()
+    for _, members in explicit_groups:
+        pairs.update(_pairs(members))
+    group_count = len(labels) + len(explicit_groups)
+    return tuple(sorted(pairs)), group_count
+
+
+def _safety_pairs(functions):
+    """Resolve explicit must-separate safety constraints only."""
+
+    function_ids = {item.id for item in functions}
+    by_id = {item.id: item.id for item in functions}
+    pairs = set()
+    for function in functions:
+        for key in ("safety_isolation", "safety_constraints"):
+            for value in _payload_items(function.payload.get(key)):
+                if not isinstance(value, Mapping) or value.get("must_separate") is not True:
+                    continue
+                members = _explicit_function_members(value, by_id, function_ids)
+                if len(members) < 2:
+                    continue
+                pairs.update(_pairs(members))
+    return tuple(sorted(pairs)), len(pairs)
+
+
+def _payload_items(value):
+    if isinstance(value, Mapping) or isinstance(value, str):
+        return (value,)
+    if isinstance(value, (list, tuple, set)):
+        return tuple(value)
+    return ()
+
+
+def _explicit_function_members(value, by_id, function_ids):
+    raw = value.get("function_ids")
+    if raw is None:
+        raw = value.get("members")
+    if isinstance(raw, str) or not isinstance(raw, (list, tuple, set)):
+        return ()
+    raw_ids = tuple(dict.fromkeys(str(item).strip() for item in raw))
+    if len(raw_ids) < 2 or any(item not in function_ids for item in raw_ids):
+        return ()
+    members = tuple(dict.fromkeys(by_id[item] for item in raw_ids))
+    if len(members) < 2:
+        return ()
+    return tuple(sorted(members))
 
 
 def _physical_rows(graph, entities, physicals, allocations):

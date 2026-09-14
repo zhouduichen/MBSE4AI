@@ -287,6 +287,7 @@ def _payload_schemas() -> dict[str, dict[str, object]]:
 
 
 def _logical_payload_schema():
+    evidence_item = _architecture_evidence_item_schema()
     return {
         "type": "object", "additionalProperties": False,
         "properties": {
@@ -300,8 +301,9 @@ def _logical_payload_schema():
             "cross_component_flow_ids": {"type": "array", "items": {"type": "string"}},
             "shared_state": {"type": "array", "items": {"type": "string"}},
             "shared_state_ids": {"type": "array", "items": {"type": "string"}},
-            "timing_constraints": {"type": "array", "items": {"type": "string"}},
-            "safety_isolation": {"type": "array", "items": {"type": "string"}},
+            "timing_constraints": {"type": "array", "items": evidence_item},
+            "safety_isolation": {"type": "array", "items": evidence_item},
+            "safety_constraints": {"type": "array", "items": evidence_item},
             "source_context_ids": {"type": "array", "items": {"type": "string"}},
             "cohesion": {"type": ["string", "number"]},
             "coupling": {"type": ["string", "number"]},
@@ -316,6 +318,26 @@ def _logical_payload_schema():
             "open_questions": {"type": "array", "items": {"type": "string"}},
             "blocked_by_locked_entity": {"type": "boolean"},
         },
+    }
+
+
+def _architecture_evidence_item_schema():
+    return {
+        "oneOf": [
+            {"type": "string"},
+            {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "function_ids": {"type": "array", "items": {"type": "string"}},
+                    "members": {"type": "array", "items": {"type": "string"}},
+                    "must_separate": {"type": "boolean"},
+                    "reason": {"type": "string"},
+                    "boundary": {"type": "string"},
+                },
+            },
+        ],
     }
 
 

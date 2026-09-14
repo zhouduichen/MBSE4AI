@@ -103,3 +103,13 @@ PhysicalBlock.payload.feasibility_reasoning 是上述分析的持久化事实载
 →Logical→Physical 作用域、传播约束、测量缺口、明确冲突、可行性状态和回流选项。生成时
 由同一个 ModelGraph 预览计算并通过 Patch/CAS 写入；Workbench 直接展示 payload，SysML
 子集导入导出保留这些字段，避免把推理退化为只存在于审计日志中的结论。
+
+Methodology Engine v2 进一步把 Logical 的时序与安全边界变成可比较证据：多个 Function
+共享同一显式 `timing_constraints` 会形成时序协调 pair，结构化对象中的
+`function_ids`/`members` 只在端点全部解析为当前 canonical Function ID 时参与评分；显式
+`must_separate=true` 的 `safety_isolation`/`safety_constraints` 会形成隔离 pair。候选分别
+记录 `timing_cut_count`、`safety_violation_count` 和结构化违反摘要，并由当前分区的安全
+违反把 `logical_partition_needs_review` 路由到既有 Trade Study；纯自然语言安全字符串不
+会被猜测成硬约束。上述候选和指标从同一 `architecture_synthesis` 序列化结果进入
+Methodology guidance、Architecture Report、Workbench 和 SysML 往返，Physical 的
+`feasible`/`infeasible`/`needs_measurement` 契约保持不变。
