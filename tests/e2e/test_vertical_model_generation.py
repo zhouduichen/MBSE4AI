@@ -355,6 +355,8 @@ def test_natural_language_constraints_reach_physical_candidate(tmp_path: Path):
         and technical_requirement.id in item.payload["requirement_ids"]
     )
     for case in (verification, validation):
+        assert case.payload["function_ids"] == impact_chain["function_ids"]
+        assert case.payload["logical_component_ids"] == impact_chain["logical_ids"]
         assert case.payload["physical_ids"] == [physical.id]
         assert case.payload["constraint_fields"] == ["max_power_w", "min_endurance_h"]
         assert case.payload["verification_objective"]

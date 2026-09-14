@@ -11,9 +11,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus, Producer, make_entity
-from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
+from rflp_lite.domain.model import AddEntity, ModelGraph, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import ContextBundle, StepStatus, TaskExecutionRequest, TaskExecutionResponse
+from rflp_lite.methodology.trace_rules import requirement_trace_scope
 
 
 OPERATIONAL_FUNCTIONAL_TASKS = frozenset({
@@ -619,19 +620,12 @@ class LifecycleTaskRuleRuntime:
     def _verification_validation(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
         scenario = builder.first(EntityKind.OPERATIONAL_SCENARIO)
         for requirement in builder.active(EntityKind.REQUIREMENT):
-            verification = builder.find_payload(
-                EntityKind.VERIFICATION_CASE, "requirement_id", requirement.id
-            ) or builder.add(
-                EntityKind.VERIFICATION_CASE,
-                f"验证：{requirement.meta.name}",
-                _case_payload(requirement, scenario, "test"),
+            scope = _context_requirement_scope(builder.context, requirement)
+            verification = _ensure_vv_case(
+                builder, requirement, scenario, "test", scope
             )
-            validation = builder.find_payload(
-                EntityKind.VALIDATION_CASE, "requirement_id", requirement.id
-            ) or builder.add(
-                EntityKind.VALIDATION_CASE,
-                f"确认：{requirement.meta.name}",
-                _case_payload(requirement, scenario, "demonstration"),
+            validation = _ensure_vv_case(
+                builder, requirement, scenario, "demonstration", scope
             )
             builder.relate(requirement, RelationPredicate.VERIFIED_BY, verification)
             builder.relate(requirement, RelationPredicate.VALIDATED_BY, validation)
@@ -807,13 +801,34 @@ def _technical_payload(
     }
 
 
+def _context_requirement_scope(context: ContextBundle, requirement: Entity):
+    graph = ModelGraph(
+        context.project_id,
+        context.entities,
+        tuple(context.relations),
+        context.revision,
+    )
+    return requirement_trace_scope(graph, requirement.id)
+
+
+def _ensure_vv_case(builder: TaskGraphBuilder, requirement: Entity, scenario: Entity | None, method: str, scope):
+    case_kind = EntityKind.VERIFICATION_CASE if method == "test" else EntityKind.VALIDATION_CASE
+    prefix = "验证" if method == "test" else "确认"
+    case = builder.find_payload(case_kind, "requirement_id", requirement.id)
+    payload = _case_payload(requirement, scenario, method, scope)
+    if case is None:
+        return builder.add(case_kind, f"{prefix}：{requirement.meta.name}", payload)
+    builder.update_payload(case, payload)
+    return case
+
+
 def _case_payload(
-    requirement: Entity, scenario: Entity | None, method: str
+    requirement: Entity, scenario: Entity | None, method: str, scope
 ) -> Mapping[str, object]:
     statement = str(requirement.payload.get("statement", requirement.meta.name))
     return {
+        **scope.as_dict(),
         "requirement_id": requirement.id,
-        "requirement_ids": [requirement.id],
         "scenario_ids": [scenario.id] if scenario else [],
         "method": method,
         "precondition": "系统已部署并处于可执行状态",

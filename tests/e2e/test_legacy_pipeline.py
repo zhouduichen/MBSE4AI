@@ -355,8 +355,14 @@ class LifecycleModel:
                 relate("hazard", "mitigatedBy", requirement["id"])
                 relate("failure", "mitigatedBy", requirement["id"])
         elif request.lens_id == "verification_validation":
-            add("verification", "verification_case", "验证输入需求", {
+            scope = {
                 "requirement_ids": [requirement["id"]] if requirement else [],
+                "function_ids": [function["id"]] if function else [],
+                "logical_component_ids": [logical["id"]] if logical else [],
+                "physical_ids": [physical["id"]] if physical else [],
+            }
+            add("verification", "verification_case", "验证输入需求", {
+                **scope,
                 "method": "test",
                 "precondition": "系统处于可测试状态",
                 "input": "输入需求场景",
@@ -365,7 +371,7 @@ class LifecycleModel:
                 "pass_criteria": "需求约束满足",
             })
             add("validation", "validation_case", "确认用户场景", {
-                "requirement_ids": [requirement["id"]] if requirement else [],
+                **scope,
                 "method": "demonstration",
                 "precondition": "典型用户场景可用",
                 "input": "用户任务",

@@ -2,6 +2,7 @@ from rflp_lite.domain.entities import EntityKind, EntityStatus, make_entity
 from rflp_lite.domain.model import ModelGraph, Relation
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.engine import MethodologyEngine
+from rflp_lite.methodology.trace_rules import requirement_trace_scope
 
 
 def _graph(
@@ -183,6 +184,38 @@ def test_source_evidence_does_not_count_as_vv_execution_evidence():
     assert report.metrics["validation_evidence_coverage"] == 0.0
     assert any(item.code == "verification_evidence_missing" for item in report.findings)
     assert any(item.code == "validation_evidence_missing" for item in report.findings)
+
+
+def test_vv_scope_consistency_detects_stale_case_payload():
+    graph = _graph(complete_vv=True)
+    requirement = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
+    scope = requirement_trace_scope(graph, requirement.id).as_dict()
+    entities = tuple(
+        item.__class__(item.meta, {**item.payload, **scope, "cross_analysis_status": "checked"})
+        if item.kind is EntityKind.VERIFICATION_CASE
+        else item.__class__(item.meta, {**item.payload, **scope})
+        if item.kind is EntityKind.VALIDATION_CASE
+        else item
+        for item in graph.entities
+    )
+    scoped = ModelGraph(graph.project_id, entities, graph.relations, graph.revision)
+    verification = next(item for item in entities if item.kind is EntityKind.VERIFICATION_CASE)
+    stale_entities = tuple(
+        item.__class__(item.meta, {**item.payload, "physical_ids": []})
+        if item.id == verification.id else item
+        for item in entities
+    )
+    stale = ModelGraph(graph.project_id, stale_entities, graph.relations, graph.revision)
+
+    report = MethodologyEngine().analyze(stale)
+
+    assert MethodologyEngine().analyze(scoped).metrics["vv_scope_consistency"] == 1.0
+    assert report.metrics["vv_scope_consistency"] == 0.5
+    assert report.metrics["vv_scope_mismatch_count"] == 1
+    assert any(
+        item.code == "vv_scope_mismatch" and verification.id in item.entity_ids
+        for item in report.findings
+    )
 
 
 def test_impact_analysis_walks_graph_and_routes_concrete_tasks():

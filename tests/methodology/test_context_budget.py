@@ -1,5 +1,6 @@
 from rflp_lite.domain.entities import EntityKind, make_entity
-from rflp_lite.domain.model import ModelGraph
+from rflp_lite.domain.model import ModelGraph, Relation
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.context_planner import HeuristicTokenEstimator
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.contracts import Phase
@@ -24,6 +25,33 @@ def test_context_builder_uses_planned_relation_subset():
 
     assert all(entity.kind is not EntityKind.PHYSICAL_BLOCK for entity in context.entities)
     assert all(relation.source_id in {entity.id for entity in context.entities} and relation.target_id in {entity.id for entity in context.entities} for relation in context.relations)
+
+
+def test_assurance_context_preserves_complete_rflp_scope_for_vv_tasks():
+    requirement = make_entity(EntityKind.REQUIREMENT, "需求")
+    function = make_entity(EntityKind.FUNCTION, "功能")
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "逻辑")
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "物理")
+    graph = ModelGraph(
+        "p1",
+        (requirement, function, logical, physical),
+        (
+            Relation("r-f", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+            Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+            Relation("l-p", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
+        ),
+    )
+    task = next(item for item in tasks_for_phase(Phase.ASSURANCE) if item.id == "verification_validation")
+
+    context = ContextBuilder().build(graph, task, token_budget=1)
+
+    assert {item.kind for item in context.entities} == {
+        EntityKind.REQUIREMENT,
+        EntityKind.FUNCTION,
+        EntityKind.LOGICAL_COMPONENT,
+        EntityKind.PHYSICAL_BLOCK,
+    }
+    assert len(context.relations) == 3
 
 
 class _EvidenceRetriever:

@@ -6,9 +6,10 @@ from collections.abc import Mapping
 import re
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
-from rflp_lite.domain.model import AddEntity, Deprecate, Patch, Relate, UpdateEntity
+from rflp_lite.domain.model import AddEntity, Deprecate, ModelGraph, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
+from rflp_lite.methodology.trace_rules import requirement_trace_scope
 from rflp_lite.runtime.lifecycle_rule import (
     LIFECYCLE_TASKS,
     LifecycleTaskRuleRuntime,
@@ -1715,49 +1716,17 @@ def _runtime_number(value):
 def _requirement_trace_scope(context, requirement):
     """Resolve one requirement's downstream RFLP scope for V&V planning."""
 
-    index = {item.id: item for item in context.entities}
-    functions = {
-        relation.target_id
-        for relation in context.relations
-        if relation.source_id == requirement.id
-        and relation.predicate is RelationPredicate.SATISFIED_BY
-        and index.get(relation.target_id) is not None
-        and index[relation.target_id].kind is EntityKind.FUNCTION
-    }
-    logicals = {
-        relation.target_id
-        for relation in context.relations
-        if relation.source_id in functions
-        and relation.predicate is RelationPredicate.ALLOCATED_TO
-        and index.get(relation.target_id) is not None
-        and index[relation.target_id].kind is EntityKind.LOGICAL_COMPONENT
-    }
-    physicals = {
-        relation.target_id
-        for relation in context.relations
-        if relation.predicate is RelationPredicate.SATISFIED_BY
-        and relation.source_id == requirement.id
-        and index.get(relation.target_id) is not None
-        and index[relation.target_id].kind is EntityKind.PHYSICAL_BLOCK
-    }
-    physicals.update(
-        relation.target_id
-        for relation in context.relations
-        if relation.source_id in logicals
-        and relation.predicate is RelationPredicate.ALLOCATED_TO
-        and index.get(relation.target_id) is not None
-        and index[relation.target_id].kind is EntityKind.PHYSICAL_BLOCK
+    graph = ModelGraph(
+        context.project_id,
+        context.entities,
+        tuple(context.relations),
+        context.revision,
     )
-    payload_physical_ids = requirement.payload.get("source_physical_ids", ())
-    if isinstance(payload_physical_ids, (list, tuple, set)):
-        physicals.update(
-            str(item) for item in payload_physical_ids
-            if str(item) in index and index[str(item)].kind is EntityKind.PHYSICAL_BLOCK
-        )
+    scope = requirement_trace_scope(graph, requirement.id)
     return {
-        "function_ids": sorted(functions),
-        "logical_component_ids": sorted(logicals),
-        "physical_ids": sorted(physicals),
+        "function_ids": list(scope.function_ids),
+        "logical_component_ids": list(scope.logical_component_ids),
+        "physical_ids": list(scope.physical_ids),
     }
 
 

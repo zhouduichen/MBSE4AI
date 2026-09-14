@@ -51,8 +51,9 @@ _TASK_PRIORITY = {
     "constraint_propagation": 8,
     "feasibility_selection": 9,
     "fmea_stpa_hazard": 10,
-    "verification_validation": 11,
-    "global_cross_analysis": 12,
+    "reverse_feasibility": 11,
+    "verification_validation": 12,
+    "global_cross_analysis": 13,
 }
 
 

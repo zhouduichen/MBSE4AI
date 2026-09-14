@@ -184,7 +184,7 @@ _STAGES: tuple[VerticalStageSpec, ...] = (
             EntityKind.FAILURE_MODE,
         }),
         (
-            "fmea_stpa_hazard", "verification_validation", "reverse_feasibility",
+            "fmea_stpa_hazard", "reverse_feasibility", "verification_validation",
             "global_cross_analysis",
         ),
     ),

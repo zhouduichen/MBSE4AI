@@ -73,3 +73,10 @@ Review 后的显式“继续生成下游”调用 `ModelGenerationService.contin
 ## 当前纵向推理增强
 
 五阶段生成现在逐项计算其内部 23-task 完成检查，并把结果同时返回给工作台、写入阶段审计摘要、反馈到下一次 `methodology_guidance`。Logical 阶段读取功能依赖和功能流端点，支持有证据的传递聚类；没有明确边界证据的独立需求仍保持独立组件，同时在组件载荷中记录 flow、cross-component、内聚/耦合和备选分区证据。Physical 和 V&V 阶段对约束传播、可行性权衡和交叉分析字段执行同一套确定性完成检查；缺口会进入 `needs_review`，而不是伪报完整。
+
+追溯闭环另有共享的 `requirement_trace_scope` 规则：它沿需求派生链解析
+Function→LogicalComponent→PhysicalBlock，并合并技术需求的直接物理分配；
+`vv_scope_matches` 将 Verification/Validation payload 中的作用域与图关系逐项
+比较。作用域不一致时，`global_cross_analysis` 不通过，Methodology Engine 记录
+`vv_scope_mismatch` 及其受影响的 RFLP/V&V 实体，Controller 复用既有验证与确认
+重分析入口。这个检查不改变用户输入或执行证据，只避免陈旧计划被统计为闭环。

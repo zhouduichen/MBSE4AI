@@ -5,11 +5,27 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.methodology.context_planner import ContextPlanner, PlannedContext
 from rflp_lite.methodology.contracts import ContextBundle, TaskSpec
 from rflp_lite.methodology.engine import MethodologyEngine
 from rflp_lite.retrieval.planner import KnowledgeGap, build_gap_query
+
+
+_ASSURANCE_TRACE_KINDS = frozenset({
+    # V&V payloads must be grounded in the same downstream scope that the
+    # completion and methodology engines derive from the graph.
+    EntityKind.REQUIREMENT,
+    EntityKind.FUNCTION,
+    EntityKind.LOGICAL_COMPONENT,
+    EntityKind.PHYSICAL_BLOCK,
+    EntityKind.OPERATIONAL_SCENARIO,
+    EntityKind.VERIFICATION_CASE,
+    EntityKind.VALIDATION_CASE,
+    EntityKind.HAZARD,
+    EntityKind.FAILURE_MODE,
+})
 
 
 class ContextBuilder:
@@ -43,8 +59,8 @@ class ContextBuilder:
             root_entity_ids=root_entity_ids,
             token_budget=available_context,
         )
-        if task.id == "global_cross_analysis":
-            planned = _global_analysis_context(graph, task, self.planner)
+        if task.id in {"verification_validation", "global_cross_analysis"}:
+            planned = _assurance_trace_context(graph, self.planner)
         context = ContextBundle(
             graph.project_id,
             task.id,
@@ -138,13 +154,12 @@ def _with_bounded_evidence(
     )
 
 
-def _global_analysis_context(graph: ModelGraph, task: TaskSpec, planner: ContextPlanner):
-    """Keep the final cross-analysis task complete over all coverage-critical nodes."""
+def _assurance_trace_context(graph: ModelGraph, planner: ContextPlanner) -> PlannedContext:
+    """Give assurance tasks the full graph slice needed to ground V&V scope."""
 
-    allowed = task.context_query.entity_kinds
     entities = tuple(
         sorted(
-            (item for item in graph.entities if item.kind in allowed),
+            (item for item in graph.entities if item.kind in _ASSURANCE_TRACE_KINDS),
             key=lambda item: item.id,
         )
     )
@@ -159,5 +174,5 @@ def _global_analysis_context(graph: ModelGraph, task: TaskSpec, planner: Context
         entities,
         relations,
         planner._estimate(graph, ids, relations),
-        (("GLOBAL_COVERAGE", tuple(item.id for item in entities)),),
+        (("ASSURANCE_TRACE", tuple(item.id for item in entities)),),
     )

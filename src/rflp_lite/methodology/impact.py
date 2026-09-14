@@ -32,8 +32,8 @@ TASK_ORDER = (
     "allocation_tradeoff",
     "constraint_propagation",
     "feasibility_selection",
-    "verification_validation",
     "reverse_feasibility",
+    "verification_validation",
     "global_cross_analysis",
 )
 _TASKS_BY_KIND = {

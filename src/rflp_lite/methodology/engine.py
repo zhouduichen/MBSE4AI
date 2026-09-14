@@ -14,7 +14,11 @@ from rflp_lite.methodology.architecture_synthesis import (
     synthesize_architecture,
 )
 from rflp_lite.methodology.impact import TASK_ORDER, TypedImpactPlanner
-from rflp_lite.methodology.trace_rules import is_technical_requirement
+from rflp_lite.methodology.trace_rules import (
+    is_technical_requirement,
+    requirement_trace_scope,
+    vv_scope_matches,
+)
 
 
 _INACTIVE = frozenset({EntityStatus.REJECTED, EntityStatus.DEPRECATED})
@@ -84,6 +88,19 @@ class MethodologyReport:
             "recommended_tasks": list(self.recommended_tasks),
             "impact_paths": [list(path) for path in self.impact_paths],
         }
+
+
+@dataclass(frozen=True, slots=True)
+class _VvAnalysisStats:
+    verification_count: int
+    validation_count: int
+    structured_verification: int
+    structured_validation: int
+    verification_evidence: int
+    validation_evidence: int
+    vv_scope_cases: int
+    vv_scope_matches: int
+    covered_branches: frozenset[str]
 
 
 _GUIDANCE_STAGE_BY_TASK = {
@@ -629,111 +646,24 @@ class MethodologyEngine:
         validations = _relation_targets(graph, index, RelationPredicate.VALIDATED_BY)
         derived_from = _relation_targets(graph, index, RelationPredicate.DERIVED_FROM)
         mitigations = _relation_targets(graph, index, RelationPredicate.MITIGATED_BY)
-        verification_count = 0
-        validation_count = 0
-        structured_verification = 0
-        structured_validation = 0
-        verification_evidence = 0
-        validation_evidence = 0
         activities = _active(index, EntityKind.ACTIVITY)
         branch_names = tuple(
             branch
             for activity in activities
             for branch in _branches(activity)
         )
-        covered_branches = set()
-        hazard_requirement_ids = _requirement_ids_for_risks(
-            hazards, requirements, index, derived_from
-        )
-        failure_requirement_ids = _requirement_ids_for_risks(
-            failure_modes, requirements, index, derived_from
-        )
-        risk_requirement_ids = {
-            requirement_id for requirement_id in hazard_requirement_ids | failure_requirement_ids
-        }
-        metrics["hazard_count"] = len(hazards)
-        metrics["failure_mode_count"] = len(failure_modes)
-        metrics["hazard_requirement_coverage"] = _ratio(
-            len(hazard_requirement_ids), len(requirements)
-        )
-        metrics["failure_mode_requirement_coverage"] = _ratio(
-            len(failure_requirement_ids), len(requirements)
-        )
-        metrics["hazard_failure_mode_coverage"] = _ratio(
-            len(risk_requirement_ids), len(requirements)
+        self._record_vv_risk_coverage(
+            requirements, hazards, failure_modes, index, derived_from, mitigations,
+            findings, metrics,
         )
         vv_cases, executed_cases, failed_cases, execution_metrics = _vv_execution_summary(index)
         metrics.update(execution_metrics)
         metrics["vv_execution_resolution_options"] = self._vv_resolution_options(failed_cases)
-        for requirement in requirements:
-            if requirement.id not in hazard_requirement_ids:
-                findings.append(MethodologyFinding(
-                    "hazard_analysis_missing", "warning", "assurance", (requirement.id,),
-                    f"需求“{requirement.meta.name}”没有关联 Hazard 分析。",
-                    ("fmea_stpa_hazard",),
-                ))
-            if requirement.id not in failure_requirement_ids:
-                findings.append(MethodologyFinding(
-                    "failure_mode_missing", "warning", "assurance", (requirement.id,),
-                    f"需求“{requirement.meta.name}”没有关联 FailureMode 分析。",
-                    ("fmea_stpa_hazard", "reverse_feasibility"),
-                ))
-        self._vv_risk_findings(hazards, failure_modes, index, mitigations, findings)
-        for requirement in requirements:
-            verification_cases = tuple(
-                index[item] for item in verifications.get(requirement.id, ())
-                if index[item].kind is EntityKind.VERIFICATION_CASE
-            )
-            validation_cases = tuple(
-                index[item] for item in validations.get(requirement.id, ())
-                if index[item].kind is EntityKind.VALIDATION_CASE
-            )
-            verification_count += bool(verification_cases)
-            validation_count += bool(validation_cases)
-            if verification_cases:
-                structured_verification += any(_complete_vv_case(item) for item in verification_cases)
-                verification_evidence += any(_has_evidence(item) for item in verification_cases)
-                covered_branches.update(_case_branches(verification_cases))
-                self._vv_findings("verification", verification_cases, findings)
-            else:
-                findings.append(MethodologyFinding(
-                    "verification_missing", "warning", "assurance", (requirement.id,),
-                    f"需求“{requirement.meta.name}”没有 VerificationCase。",
-                    ("verification_validation",),
-                ))
-            if validation_cases:
-                structured_validation += any(_complete_vv_case(item) for item in validation_cases)
-                validation_evidence += any(_has_evidence(item) for item in validation_cases)
-                covered_branches.update(_case_branches(validation_cases))
-                self._vv_findings("validation", validation_cases, findings)
-            else:
-                findings.append(MethodologyFinding(
-                    "validation_missing", "warning", "assurance", (requirement.id,),
-                    f"需求“{requirement.meta.name}”没有 ValidationCase。",
-                    ("verification_validation",),
-                ))
-            for case in (*verification_cases, *validation_cases):
-                self._vv_execution_findings(
-                    case,
-                    requirements,
-                    verifications,
-                    validations,
-                    graph,
-                    findings,
-                )
-        verification_coverage = _ratio(verification_count, len(requirements))
-        validation_coverage = _ratio(validation_count, len(requirements))
-        metrics["verification_coverage"] = verification_coverage
-        metrics["validation_coverage"] = validation_coverage
-        metrics["structured_verification_coverage"] = _ratio(structured_verification, len(requirements))
-        metrics["structured_validation_coverage"] = _ratio(structured_validation, len(requirements))
-        metrics["verification_evidence_coverage"] = _ratio(verification_evidence, len(requirements))
-        metrics["validation_evidence_coverage"] = _ratio(validation_evidence, len(requirements))
-        metrics["activity_branch_coverage"] = (
-            _ratio(len(set(branch_names) & covered_branches), len(set(branch_names)))
-            if branch_names else 1.0
+        stats = self._analyze_vv_cases(
+            graph, index, requirements, verifications, validations, findings,
         )
-        if branch_names and set(branch_names) - covered_branches:
+        _record_vv_case_metrics(metrics, stats, requirements, branch_names)
+        if branch_names and set(branch_names) - stats.covered_branches:
             findings.append(MethodologyFinding(
                 "activity_branch_uncovered", "warning", "assurance",
                 tuple(item.id for item in activities),
@@ -744,29 +674,80 @@ class MethodologyEngine:
             sum(bool(verifications.get(item.id)) and bool(validations.get(item.id)) for item in requirements),
             len(requirements),
         )
-        decisions.extend((
-            {
-                "step": "verification_validation",
-                "decision": "分别检查工程验证和用户场景确认的覆盖与结构化准则",
-                "basis": [item.id for item in requirements],
-            },
-            {
-                "step": "global_cross_analysis",
-                "decision": "检查每条需求是否同时具备 Verification 与 Validation",
-                "basis": [
-                    item.id for item in requirements
-                    if verifications.get(item.id) and validations.get(item.id)
-                ],
-            },
-            {
-                "step": "verification_execution_feedback",
-                "decision": (
-                    f"已执行 {len(executed_cases)}/{len(vv_cases)} 个 V&V Case，"
-                    f"其中 {len(failed_cases)} 个需要沿影响链迭代"
-                ),
-                "basis": [item.id for item in executed_cases],
-            },
-        ))
+        _record_vv_decisions(
+            decisions, requirements, verifications, validations,
+            vv_cases, executed_cases, failed_cases,
+        )
+
+    def _record_vv_risk_coverage(
+        self, requirements, hazards, failure_modes, index, derived_from,
+        mitigations, findings, metrics,
+    ) -> None:
+        hazard_ids = _requirement_ids_for_risks(hazards, requirements, index, derived_from)
+        failure_ids = _requirement_ids_for_risks(failure_modes, requirements, index, derived_from)
+        risk_ids = hazard_ids | failure_ids
+        metrics.update({
+            "hazard_count": len(hazards),
+            "failure_mode_count": len(failure_modes),
+            "hazard_requirement_coverage": _ratio(len(hazard_ids), len(requirements)),
+            "failure_mode_requirement_coverage": _ratio(len(failure_ids), len(requirements)),
+            "hazard_failure_mode_coverage": _ratio(len(risk_ids), len(requirements)),
+        })
+        for requirement in requirements:
+            if requirement.id not in hazard_ids:
+                findings.append(MethodologyFinding(
+                    "hazard_analysis_missing", "warning", "assurance", (requirement.id,),
+                    f"需求“{requirement.meta.name}”没有关联 Hazard 分析。", ("fmea_stpa_hazard",),
+                ))
+            if requirement.id not in failure_ids:
+                findings.append(MethodologyFinding(
+                    "failure_mode_missing", "warning", "assurance", (requirement.id,),
+                    f"需求“{requirement.meta.name}”没有关联 FailureMode 分析。",
+                    ("fmea_stpa_hazard", "reverse_feasibility"),
+                ))
+        self._vv_risk_findings(hazards, failure_modes, index, mitigations, findings)
+
+    def _analyze_vv_cases(
+        self, graph, index, requirements, verifications, validations, findings,
+    ) -> _VvAnalysisStats:
+        values = [0, 0, 0, 0, 0, 0, 0, 0]
+        covered_branches: set[str] = set()
+        for requirement in requirements:
+            verification_cases = _typed_vv_cases(index, verifications.get(requirement.id, ()), EntityKind.VERIFICATION_CASE)
+            validation_cases = _typed_vv_cases(index, validations.get(requirement.id, ()), EntityKind.VALIDATION_CASE)
+            verification_stats = self._vv_case_group(requirement, verification_cases, "verification", findings)
+            validation_stats = self._vv_case_group(requirement, validation_cases, "validation", findings)
+            values[0] += bool(verification_cases)
+            values[1] += bool(validation_cases)
+            values[2] += verification_stats[0]
+            values[3] += validation_stats[0]
+            values[4] += verification_stats[1]
+            values[5] += validation_stats[1]
+            covered_branches.update(verification_stats[2] | validation_stats[2])
+            for case in (*verification_cases, *validation_cases):
+                values[6] += 1
+                scope_matches = vv_scope_matches(graph, requirement.id, case)
+                values[7] += scope_matches
+                if not scope_matches:
+                    _append_vv_scope_finding(graph, requirement, case, findings)
+                self._vv_execution_findings(case, requirements, verifications, validations, graph, findings)
+        return _VvAnalysisStats(*values, frozenset(covered_branches))
+
+    def _vv_case_group(self, requirement, cases, case_type, findings):
+        if not cases:
+            code = f"{case_type}_missing"
+            label = "VerificationCase" if case_type == "verification" else "ValidationCase"
+            findings.append(MethodologyFinding(
+                code, "warning", "assurance", (requirement.id,),
+                f"需求“{requirement.meta.name}”没有 {label}。", ("verification_validation",),
+            ))
+            return 0, 0, frozenset()
+        self._vv_findings(case_type, cases, findings)
+        return (
+            any(_complete_vv_case(item) for item in cases),
+            any(_has_evidence(item) for item in cases),
+            frozenset(_case_branches(cases)),
+        )
 
     @staticmethod
     def _vv_resolution_options(failed_cases):
@@ -886,6 +867,73 @@ class MethodologyEngine:
             plan.recommended_tasks,
             tuple(path.entity_ids for path in plan.impact_paths),
         )
+
+
+def _typed_vv_cases(index, case_ids, kind: EntityKind) -> tuple[Entity, ...]:
+    return tuple(
+        index[item]
+        for item in case_ids
+        if item in index and index[item].kind is kind
+    )
+
+
+def _append_vv_scope_finding(graph, requirement, case, findings) -> None:
+    scope = requirement_trace_scope(graph, requirement.id)
+    impacted_ids = tuple(dict.fromkeys(
+        (case.id, requirement.id, *scope.function_ids,
+         *scope.logical_component_ids, *scope.physical_ids)
+    ))
+    findings.append(MethodologyFinding(
+        "vv_scope_mismatch", "error", "assurance", impacted_ids[:24],
+        f"{case.meta.name} 的 V&V 作用域与当前需求到物理实现链不一致。",
+        ("verification_validation", "global_cross_analysis"),
+    ))
+
+
+def _record_vv_case_metrics(metrics, stats: _VvAnalysisStats, requirements, branch_names) -> None:
+    metrics.update({
+        "verification_coverage": _ratio(stats.verification_count, len(requirements)),
+        "validation_coverage": _ratio(stats.validation_count, len(requirements)),
+        "structured_verification_coverage": _ratio(stats.structured_verification, len(requirements)),
+        "structured_validation_coverage": _ratio(stats.structured_validation, len(requirements)),
+        "verification_evidence_coverage": _ratio(stats.verification_evidence, len(requirements)),
+        "validation_evidence_coverage": _ratio(stats.validation_evidence, len(requirements)),
+        "vv_scope_consistency": _ratio(stats.vv_scope_matches, stats.vv_scope_cases),
+        "vv_scope_mismatch_count": stats.vv_scope_cases - stats.vv_scope_matches,
+        "activity_branch_coverage": (
+            _ratio(len(set(branch_names) & stats.covered_branches), len(set(branch_names)))
+            if branch_names else 1.0
+        ),
+    })
+
+
+def _record_vv_decisions(
+    decisions, requirements, verifications, validations,
+    vv_cases, executed_cases, failed_cases,
+) -> None:
+    decisions.extend((
+        {
+            "step": "verification_validation",
+            "decision": "分别检查工程验证和用户场景确认的覆盖与结构化准则",
+            "basis": [item.id for item in requirements],
+        },
+        {
+            "step": "global_cross_analysis",
+            "decision": "检查每条需求是否同时具备 Verification 与 Validation",
+            "basis": [
+                item.id for item in requirements
+                if verifications.get(item.id) and validations.get(item.id)
+            ],
+        },
+        {
+            "step": "verification_execution_feedback",
+            "decision": (
+                f"已执行 {len(executed_cases)}/{len(vv_cases)} 个 V&V Case，"
+                f"其中 {len(failed_cases)} 个需要沿影响链迭代"
+            ),
+            "basis": [item.id for item in executed_cases],
+        },
+    ))
 
 
 def _vv_execution_summary(index):

@@ -10,6 +10,7 @@ from rflp_lite.domain.model import ModelGraph
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import TaskExecutionResponse, TaskSpec
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
+from rflp_lite.methodology.trace_rules import vv_scope_matches
 from rflp_lite.methodology.vertical_generation import VerticalStageSpec, stage_spec
 
 
@@ -105,6 +106,16 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
             for item in graph.relations
         )
 
+    def linked_vv(requirement, predicate, target_kind: EntityKind) -> bool:
+        return any(
+            relation.source_id == requirement.id
+            and relation.predicate is predicate
+            and index.get(relation.target_id) is not None
+            and index[relation.target_id].kind is target_kind
+            and vv_scope_matches(graph, requirement.id, index[relation.target_id])
+            for relation in graph.relations
+        )
+
     requirements = tuple(item for item in active if item.kind is EntityKind.REQUIREMENT)
     functions = tuple(item for item in active if item.kind is EntityKind.FUNCTION)
     physicals = tuple(item for item in active if item.kind is EntityKind.PHYSICAL_BLOCK)
@@ -193,25 +204,25 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
         and linked(EntityKind.HAZARD, RelationPredicate.CAUSES, EntityKind.FAILURE_MODE),
         "verification_validation": bool(requirements)
         and all(
-            any(
-                source_id == requirement.id
-                and predicate is RelationPredicate.VERIFIED_BY
-                for source_id, predicate, _target_id in relation_keys
-            )
-            and any(
-                source_id == requirement.id
-                and predicate is RelationPredicate.VALIDATED_BY
-                for source_id, predicate, _target_id in relation_keys
-            )
+            linked_vv(requirement, RelationPredicate.VERIFIED_BY, EntityKind.VERIFICATION_CASE)
+            and linked_vv(requirement, RelationPredicate.VALIDATED_BY, EntityKind.VALIDATION_CASE)
             for requirement in requirements
         ),
         "reverse_feasibility": bool(requirements)
         and any(bool(item.payload.get("feasibility_review")) for item in requirements),
-        "global_cross_analysis": has(EntityKind.VERIFICATION_CASE)
+        "global_cross_analysis": bool(requirements)
         and all(
-            item.payload.get("cross_analysis_status") == "checked"
-            for item in active
-            if item.kind is EntityKind.VERIFICATION_CASE
+            linked_vv(requirement, RelationPredicate.VERIFIED_BY, EntityKind.VERIFICATION_CASE)
+            and linked_vv(requirement, RelationPredicate.VALIDATED_BY, EntityKind.VALIDATION_CASE)
+            and any(
+                relation.source_id == requirement.id
+                and relation.predicate is RelationPredicate.VERIFIED_BY
+                and index.get(relation.target_id) is not None
+                and index[relation.target_id].kind is EntityKind.VERIFICATION_CASE
+                and index[relation.target_id].payload.get("cross_analysis_status") == "checked"
+                for relation in graph.relations
+            )
+            for requirement in requirements
         ),
     }
     return bool(rules.get(task_id, True))
