@@ -74,9 +74,9 @@ class V2Services:
     def model(self, project_id: str) -> ModelService:
         return ModelService(self.repository(project_id))
 
-    def analysis(self, project_id: str) -> AnalysisService:
+    def analysis(self, project_id: str, *, profile_id: str | None = None) -> AnalysisService:
         repository = self.repository(project_id)
-        config = self._runtime_config if self._runtime_config is not None else self.settings.active_config()
+        config = self._selection_config(profile_id)
         selection = self.runtime_factory.select(
             config,
             runtime_override=self._runtime_override,
@@ -91,9 +91,9 @@ class V2Services:
             )
         )
 
-    def generation(self, project_id: str) -> ModelGenerationService:
+    def generation(self, project_id: str, *, profile_id: str | None = None) -> ModelGenerationService:
         repository = self.repository(project_id)
-        config = self._runtime_config if self._runtime_config is not None else self.settings.active_config()
+        config = self._selection_config(profile_id)
         selection = self.runtime_factory.select(
             config,
             runtime_override=self._runtime_override,
@@ -106,6 +106,13 @@ class V2Services:
             context_builder=ContextBuilder(retrieval_engine),
             tool_layer=EngineeringToolLayer(repository, retrieval_engine=retrieval_engine),
         )
+
+    def _selection_config(self, profile_id: str | None) -> Mapping[str, object] | None:
+        if profile_id:
+            return self.settings.profile_config(profile_id)
+        if self._runtime_config is not None:
+            return self._runtime_config
+        return self.settings.active_config()
 
     def requirements_input(self, project_id: str) -> RequirementInputService:
         return RequirementInputService(self.repository(project_id), project_id)

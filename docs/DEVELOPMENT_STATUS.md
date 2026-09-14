@@ -20,6 +20,7 @@
 | 资源服务 | Project、Analysis、Model、Evidence、Render、Settings 服务及统一依赖组装 |
 | CLI / Web | `ai4mbse` 命令、完整 Analysis 工作流页、Trace 页、连接测试和 JSON/SVG/DOT/SysML-lite 导出 |
 | CLI 单次模型选择 | `analyze generate --profile <id>` 可为本次五阶段生成选择已保存 Profile，不修改 active profile；适用于远程 SSH/Tailscale 模型验收 |
+| Web 单次模型选择 | Analysis 页面和 `/analysis` API 支持请求级 Profile 选择，显示无密钥摘要并保留 active profile 不变 |
 | Web 主流程入口 | `/` 重定向到项目列表；分析页支持需求文本和文档上传；无输入项目禁止运行分析并在页面禁用运行按钮 |
 | Web 运行配置 | 设置页支持保存模型配置、激活已有配置和连接测试；API Key 不进入页面或公开响应 |
 | 文档接入 | TXT、Markdown、DOCX、PDF 解析；扫描 PDF 使用可选 OCR 适配器 |

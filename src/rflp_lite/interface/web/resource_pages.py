@@ -1153,6 +1153,20 @@ def build_analysis_view(request: Request, project_id: str) -> dict[str, object]:
     run = _decorate_generation_run(services, project_id, graph, run)
     run = _decorate_pipeline_run(services, project_id, run)
     runtime = _runtime_metadata(services, run)
+    try:
+        profile_snapshot = _mapping(services.settings.list_profiles())
+    except Exception:
+        profile_snapshot = {"active_id": None, "profiles": ()}
+    active_profile_id = str(profile_snapshot.get("active_id") or "")
+    model_profiles = [
+        {
+            key: profile.get(key)
+            for key in ("id", "label", "kind", "provider", "model", "enabled")
+        }
+        for item in profile_snapshot.get("profiles", ())
+        if isinstance(item, Mapping)
+        for profile in (_mapping(item),)
+    ]
     record_gates = _record_gate_results(run)
     gate_results: list[dict[str, object]] = []
     for phase, _label in _PHASES:
@@ -1237,6 +1251,9 @@ def build_analysis_view(request: Request, project_id: str) -> dict[str, object]:
         "runtime": runtime,
         "active_runtime": runtime,
         "active_model": runtime,
+        "model_profiles": model_profiles,
+        "active_profile_id": active_profile_id,
+        "selected_profile_id": active_profile_id,
         "run_status": latest_run.get("status", "ready") if latest_run else "ready",
         "latest_run": latest_run,
         "current_run": latest_run,

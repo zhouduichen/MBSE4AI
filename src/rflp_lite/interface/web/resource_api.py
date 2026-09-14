@@ -134,12 +134,12 @@ def _value(value: object, default: str = "") -> str:
     return str(getattr(value, "value", value or default))
 
 
-def _analysis_service(request: Request, project_id: str):
+def _analysis_service(request: Request, project_id: str, *, profile_id: str | None = None):
     """Load the application service, with a narrow bridge for an older runner."""
 
     services = _services(request)
     try:
-        return services.analysis(project_id)
+        return services.analysis(project_id, profile_id=profile_id)
     except TypeError as exc:
         # A partially upgraded local checkout can have the runtime factory
         # wired before WorkflowRunner accepts its metadata. Keep Web usable
@@ -154,7 +154,12 @@ def _analysis_service(request: Request, project_id: str):
         factory = getattr(services, "runtime_factory", None)
         if factory is not None:
             try:
-                selection = factory.select(services.settings.active_config(), runtime_override=getattr(services, "_runtime_override", None))
+                config = (
+                    services.settings.profile_config(profile_id)
+                    if profile_id
+                    else services.settings.active_config()
+                )
+                selection = factory.select(config, runtime_override=getattr(services, "_runtime_override", None))
             except TypeError:
                 selection = factory.select(services.settings.active_config())
             runtime = getattr(selection, "runtime", runtime)
@@ -577,6 +582,7 @@ async def run_analysis(request: Request, project_id: str):
         mode = str(payload.get("mode", "generate" if "phase" not in payload else "phase")).casefold()
         force_run = bool(payload.get("force_run", False))
         requested_run_id = str(payload.get("run_id", "")).strip() or None
+        profile_id = str(payload.get("profile_id", "")).strip() or None
         requirement_text = str(payload.get("requirement_text", "")).strip() or None
         goal = str(payload.get("goal", "")).strip() or None
         document_ids = tuple(
@@ -591,7 +597,7 @@ async def run_analysis(request: Request, project_id: str):
         if force_run and requested_run_id is None:
             requested_run_id = f"web-run-{uuid4().hex[:16]}"
         if mode in {"generate", "vertical"}:
-            generation = _services(request).generation(project_id)
+            generation = _services(request).generation(project_id, profile_id=profile_id)
             result = generation.generate(
                 project_id,
                 requirement_text=requirement_text,
@@ -604,7 +610,7 @@ async def run_analysis(request: Request, project_id: str):
             run["force_run"] = force_run
             _attach_runtime_metadata(run, generation)
         else:
-            analysis = _analysis_service(request, project_id)
+            analysis = _analysis_service(request, project_id, profile_id=profile_id)
         if mode == "pipeline":
             input_service = _services(request).requirements_input(project_id)
             if requirement_text:

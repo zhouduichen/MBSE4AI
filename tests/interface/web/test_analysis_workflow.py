@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from rflp_lite.application.llm_profiles import LLMProfileService
 from rflp_lite.application.sysml_v2 import graph_to_sysml
 from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.model import ModelGraph
@@ -67,6 +68,33 @@ def test_analysis_view_contains_chinese_module_cards(tmp_path: Path) -> None:
     assert 'id="requirement-input-form"' in page.text
     assert 'id="document-upload-form"' in page.text
     assert 'title="请先提交需求、上传文档或导入已有模型"' in page.text
+
+
+def test_analysis_page_exposes_secret_free_per_run_profile_selector(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "workspaces")
+    config_dir = tmp_path / "config"
+    app.state.container.v2.settings.profiles.config_dir = config_dir
+    app.state.container.v2.settings.profiles.path = config_dir / "llm-profiles.json"
+    profiles = LLMProfileService(config_dir)
+    profiles.save({
+        "id": "remote-profile",
+        "label": "远程配置",
+        "kind": "remote",
+        "provider": "ollama",
+        "base_url": "http://remote.example.invalid:11434/v1",
+        "model": "qwen3.5:9b-q8_0",
+        "api_key": "must-not-render",
+    })
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    page = client.get("/ui/projects/p1/analysis")
+
+    assert page.status_code == 200
+    assert 'id="analysis-profile"' in page.text
+    assert "远程配置" in page.text
+    assert 'profile_id' in page.text
+    assert "must-not-render" not in page.text
 
 
 def test_analysis_page_exposes_existing_sysml_upload(tmp_path: Path) -> None:

@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from rflp_lite.application.llm_profiles import LLMProfileService
 from rflp_lite.interface.web.app import create_app
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
@@ -38,6 +39,47 @@ def test_generate_mode_returns_stage_and_traceability_payload(tmp_path: Path):
     }
     assert run["controller"]["status"] == "needs_action"
     assert run["controller"]["next_action"]["kind"] == "collect_evidence"
+
+
+def test_generate_request_profile_overrides_active_profile_without_activation(tmp_path: Path):
+    app = create_app(tmp_path / "workspaces")
+    app.state.container.v2._runtime_override = VerticalRuleRuntime()
+    config_dir = tmp_path / "config"
+    app.state.container.v2.settings.profiles.config_dir = config_dir
+    app.state.container.v2.settings.profiles.path = config_dir / "llm-profiles.json"
+    profiles = LLMProfileService(config_dir)
+    profiles.save({
+        "id": "active-profile",
+        "label": "活动配置",
+        "kind": "local",
+        "base_url": "http://127.0.0.1:11434/v1",
+        "model": "test-local-model",
+    })
+    profiles.save({
+        "id": "remote-profile",
+        "label": "远程配置",
+        "kind": "remote",
+        "provider": "ollama",
+        "base_url": "http://remote.example.invalid:11434/v1",
+        "model": "qwen3.5:9b-q8_0",
+    })
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    response = client.post(
+        "/projects/p1/analysis",
+        json={
+            "mode": "generate",
+            "profile_id": "remote-profile",
+            "requirement_text": "系统应支持人工接管",
+        },
+    )
+
+    assert response.status_code == 200
+    run = response.json()["run"]
+    assert run["model_profile"] == "remote-profile"
+    assert run["provider_id"] == "ollama"
+    assert profiles.snapshot()["active_id"] == "active-profile"
 
 
 def test_generate_response_binds_run_to_revision_bound_deliverable(tmp_path: Path):

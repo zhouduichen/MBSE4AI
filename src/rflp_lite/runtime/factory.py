@@ -51,7 +51,7 @@ class RuntimeFactory:
             return RuntimeSelection(
                 runtime_override,
                 str(config.get("id", "injected")) if config else "injected",
-                str(config.get("provider_id", "injected")) if config else "injected",
+                str(config.get("provider_id", config.get("provider", "injected"))) if config else "injected",
                 str(config.get("model", "injected")) if config else "injected",
                 "configured" if config else "injected",
                 _int_value(config, "context_window") if config else None,
