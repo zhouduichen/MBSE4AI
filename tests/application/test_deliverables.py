@@ -4,9 +4,11 @@ import io
 import zipfile
 from pathlib import Path
 
+from rflp_lite.application.model_generation import build_traceability_summary
+from rflp_lite.application.projections.traceability import build_traceability_view
 from rflp_lite.application.sysml_v2 import sysml_to_graph
 from rflp_lite.bootstrap.v2 import build_v2_services
-from rflp_lite.domain.entities import EntityKind, make_entity
+from rflp_lite.domain.entities import EntityKind, EntityStatus, make_entity
 from rflp_lite.domain.model import AddEntity, Patch, Relate
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
@@ -36,19 +38,28 @@ def _services_with_complete_graph(tmp_path: Path):
         EntityKind.REQUIREMENT,
         "Battery shall last 8 hours",
         {"statement": "Battery shall last 8 hours"},
+        status=EntityStatus.VALIDATED,
     )
-    function = make_entity(EntityKind.FUNCTION, "Manage energy")
-    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "Energy controller")
-    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "Battery pack")
+    function = make_entity(EntityKind.FUNCTION, "Manage energy", status=EntityStatus.VALIDATED)
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "Energy controller", status=EntityStatus.VALIDATED)
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "Battery pack", status=EntityStatus.VALIDATED)
+    scope = {
+        "requirement_ids": [requirement.id],
+        "function_ids": [function.id],
+        "logical_component_ids": [logical.id],
+        "physical_ids": [physical.id],
+    }
     verification = make_entity(
         EntityKind.VERIFICATION_CASE,
         "Endurance test",
-        {"method": "test", "pass_criteria": ">=8h"},
+        {"method": "test", "pass_criteria": ">=8h", **scope},
+        status=EntityStatus.VALIDATED,
     )
     validation = make_entity(
         EntityKind.VALIDATION_CASE,
         "Operational confirmation",
-        {"method": "demonstration", "pass_criteria": "operator confirms"},
+        {"method": "demonstration", "pass_criteria": "operator confirms", **scope},
+        status=EntityStatus.VALIDATED,
     )
     relations = (
         Relate(requirement.id, RelationPredicate.SATISFIED_BY, function.id),
@@ -88,6 +99,38 @@ def test_build_contains_all_required_artifacts(tmp_path: Path):
     assert package["artifacts"]["vv_plan"]["content"]["metrics"]["requirement_count"] == 1
     assert package["artifacts"]["evidence"]["content"]["records"] == []
     assert package["artifacts"]["rflp_svg"]["content"].startswith("<svg")
+
+
+def test_traceability_deliverable_matches_canonical_summary_and_projection(tmp_path: Path):
+    services = _services_with_complete_graph(tmp_path)
+    graph = services.model("p1").graph("p1")
+    package = services.deliverables("p1").build("p1")
+    trace_rows = package["artifacts"]["traceability"]["content"]["rows"]
+    summary = build_traceability_summary(graph)
+
+    assert all(row["coverage_percent"] == 100.0 for row in trace_rows if row["status"] == "PASS")
+    assert package["artifacts"]["traceability"]["content"]["revision"] == graph.revision
+    assert package["artifacts"]["traceability"]["content"]["rows"] == list(
+        build_traceability_view(graph)["rows"]
+    )
+    assert tuple(summary.paths[0][:4]) == tuple([
+        trace_rows[0]["requirement_id"],
+        trace_rows[0]["functions"][0],
+        trace_rows[0]["logical_components"][0],
+        trace_rows[0]["physical_blocks"][0],
+    ])
+
+
+def test_broken_traceability_deliverable_matches_live_projection(tmp_path: Path):
+    services = _services_with_requirement_only(tmp_path)
+    graph = services.model("p1").graph("p1")
+    package = services.deliverables("p1").build("p1")
+    live_rows = build_traceability_view(graph)["rows"]
+    artifact_rows = package["artifacts"]["traceability"]["content"]["rows"]
+
+    assert [(row["status"], row["gaps"]) for row in artifact_rows] == [
+        (row["status"], row["gaps"]) for row in live_rows
+    ]
 
 
 def test_deliverable_snapshots_evidence_without_changing_model_revision(tmp_path: Path):

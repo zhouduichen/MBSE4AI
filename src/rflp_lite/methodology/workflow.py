@@ -14,7 +14,8 @@ from rflp_lite.domain.errors import (
     MethodologyValidationError,
     WorkflowInvariantError,
 )
-from rflp_lite.domain.model import Patch
+from rflp_lite.domain.entities import EntityStatus, Producer
+from rflp_lite.domain.model import AddEntity, Patch, UpdateEntity
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.completion import evaluate_completion
 from rflp_lite.methodology.contracts import ContextBundle, FailureStage, Phase, RunStatus, StepStatus, TaskExecutionResponse, TaskRuntime
@@ -277,6 +278,13 @@ class WorkflowRunner:
                     self._update_run_status(identity.run_id, RunStatus.DEGRADED, tuple(diagnostics))
                     return RunSummary(identity.run_id, project_id, phase, RunStatus.DEGRADED, tuple(sorted(completed)), tuple(diagnostics), failure_stage=response.failure_stage)
                 completion = evaluate_completion(task, self.model_repository.load_graph(project_id), response)
+                if completion.passed and response.patch is not None:
+                    revision = self._promote_completed_output(
+                        project_id,
+                        identity.run_id,
+                        response.patch,
+                        revision.sequence,
+                    )
                 if not completion.passed:
                     response = replace(response, status=StepStatus.DEGRADED, diagnostics=tuple(response.diagnostics) + completion.issue_codes)
                 if response.status is StepStatus.COMPLETED:
@@ -321,6 +329,46 @@ class WorkflowRunner:
         status = RunStatus.COMPLETED if len(completed) == len(tasks) else RunStatus.DEGRADED
         self._update_run_status(identity.run_id, status, tuple(diagnostics))
         return RunSummary(identity.run_id, project_id, phase, status, tuple(sorted(completed)), tuple(diagnostics))
+
+    def _promote_completed_output(
+        self,
+        project_id: str,
+        run_id: str,
+        patch: Patch,
+        expected_revision: int,
+    ):
+        """Mark semantically completed LLM output as ready for downstream trace."""
+
+        output_ids = {
+            operation.entity.id
+            for operation in patch.operations
+            if isinstance(operation, AddEntity)
+        }
+        if not output_ids:
+            return self.model_repository.load_graph(project_id).revision
+        graph = self.model_repository.load_graph(project_id)
+        operations = tuple(
+            UpdateEntity(entity_id, {"status": EntityStatus.VALIDATED.value})
+            for entity_id in sorted(output_ids)
+            if entity_id in graph.entity_index
+            and graph.entity_index[entity_id].meta.producer is Producer.LLM
+            and graph.entity_index[entity_id].meta.status is EntityStatus.CANDIDATE
+        )
+        if not operations:
+            return graph.revision
+        promotion = Patch.create(
+            project_id,
+            f"{run_id}:promote",
+            operations,
+            "任务语义检查通过，提升 LLM 输出为 validated",
+            expected_revision,
+        )
+        return self.model_repository.append_patch(
+            project_id,
+            promotion,
+            expected_revision,
+            run_id=run_id,
+        ).sequence
 
     def _fail_closed_task(
         self, project_id, phase, identity, task, request, context_hash,

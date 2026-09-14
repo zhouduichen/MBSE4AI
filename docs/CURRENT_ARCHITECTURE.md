@@ -82,3 +82,11 @@ Function→LogicalComponent→PhysicalBlock，并合并技术需求的直接物�
 比较。作用域不一致时，`global_cross_analysis` 不通过，Methodology Engine 记录
 `vv_scope_mismatch` 及其受影响的 RFLP/V&V 实体，Controller 复用既有验证与确认
 重分析入口。这个检查不改变用户输入或执行证据，只避免陈旧计划被统计为闭环。
+
+产品投影统一由 `resolve_requirement_trace` 提供逐需求的 ready-only
+Requirement→Function→Logical→Physical→Verification/Validation 结果：只有
+`validated`、`accepted`、`locked` 目标进入语义覆盖，候选/废弃目标只保留在诊断和
+审查数据中；V&V Case 还必须通过同一份图派生作用域校验。Generation Summary、
+Traceability Matrix、Coverage Matrix、RFLP 视图、`/trace` API 和
+`traceability.json` 都消费这一解析结果，因此覆盖率、缺口、主路径和端到端完成数
+不会因投影入口不同而分叉；该解析器是纯 ModelGraph 读操作，不触发本地或远程模型。

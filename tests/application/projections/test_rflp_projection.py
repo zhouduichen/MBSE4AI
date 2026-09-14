@@ -17,9 +17,9 @@ def test_rflp_projection_keeps_invalid_edge_but_never_marks_it_valid():
 
 def test_rflp_focus_is_stable_for_complete_path():
     requirement = make_entity(EntityKind.REQUIREMENT, "R", status=EntityStatus.ACCEPTED)
-    function = make_entity(EntityKind.FUNCTION, "F")
-    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "L")
-    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "P")
+    function = make_entity(EntityKind.FUNCTION, "F", status=EntityStatus.VALIDATED)
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "L", status=EntityStatus.VALIDATED)
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "P", status=EntityStatus.VALIDATED)
     relations = (Relation("rf", requirement.id, RelationPredicate.SATISFIED_BY, function.id), Relation("fl", function.id, RelationPredicate.ALLOCATED_TO, logical.id), Relation("lp", logical.id, RelationPredicate.ALLOCATED_TO, physical.id))
     view = build_rflp_view(ModelGraph("p1", (requirement, function, logical, physical), relations), selected_requirement=requirement.id)
     assert view["selected_trace"] == [requirement.id, function.id, logical.id, physical.id]

@@ -33,6 +33,8 @@
 - [自然语言工程约束抽取实施计划](plans/2026-09-13-natural-language-constraints.md)
 - [逐需求纵向覆盖闭环设计](specs/2026-09-14-per-requirement-coverage-design.md)
 - [逐需求纵向覆盖闭环实施计划](plans/2026-09-14-per-requirement-coverage-loop.md)
+- [Canonical Traceability Projection 设计](specs/2026-09-14-canonical-traceability-projection-design.md)
+- [Canonical Traceability Projection 实施计划](plans/2026-09-14-canonical-traceability-projection.md)
 
 ## Superseded
 

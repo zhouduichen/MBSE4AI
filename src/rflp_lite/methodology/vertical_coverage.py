@@ -378,7 +378,18 @@ def _has_matching_scope(
 
 
 def _source_ids(graph: ModelGraph, requirement_id: str) -> tuple[str, ...]:
-    return tuple(dict.fromkeys((requirement_id, *requirement_lineage(graph, requirement_id))))
+    index = graph.entity_index
+    source_ids = [requirement_id, *requirement_lineage(graph, requirement_id)]
+    requirement = index.get(requirement_id)
+    payload_sources = requirement.payload.get("source_requirement_ids", ()) if requirement else ()
+    if isinstance(payload_sources, (list, tuple, set)):
+        source_ids.extend(
+            str(source_id)
+            for source_id in payload_sources
+            if str(source_id) in index
+            and index[str(source_id)].kind is EntityKind.REQUIREMENT
+        )
+    return tuple(dict.fromkeys(source_ids))
 
 
 def _canonical_scope(
