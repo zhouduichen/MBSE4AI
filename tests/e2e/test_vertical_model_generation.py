@@ -231,6 +231,13 @@ def test_multiple_requirements_derive_separate_logical_and_physical_architecture
 
     assert len(functions) == len(logicals) == len(physicals) == 3
     assert result.traceability.complete_count == 3
+    flow = next(item for item in graph.entities if item.kind is EntityKind.FUNCTIONAL_FLOW)
+    assert len(flow.payload["source_function_ids"]) == 1
+    assert set(flow.payload["source_function_ids"] + flow.payload["target_function_ids"]) == {
+        item.id for item in functions
+    }
+    assert all(flow.id in item.payload["functional_flow_ids"] for item in logicals)
+    assert all(flow.id in item.payload["cross_component_flow_ids"] for item in logicals)
     assert all(
         any(
             relation.source_id == function.id

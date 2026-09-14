@@ -139,6 +139,31 @@ def test_partition_functions_groups_shared_state_and_exposes_labels():
     assert _partition_label(groups[0]) == "共享状态：任务状态"
 
 
+def test_partition_functions_clusters_transitive_dependency_references():
+    first = make_entity(EntityKind.FUNCTION, "采集", {})
+    second = make_entity(EntityKind.FUNCTION, "分析", {"dependencies": [first.id]})
+    third = make_entity(EntityKind.FUNCTION, "决策", {"depends_on": [second.meta.name]})
+
+    groups = _partition_functions((first, second, third))
+
+    assert [[item.meta.name for item in group] for group in groups] == [[
+        "采集", "分析", "决策",
+    ]]
+
+
+def test_logical_component_records_dependency_evidence():
+    first = make_entity(EntityKind.FUNCTION, "采集", {})
+    second = make_entity(EntityKind.FUNCTION, "分析", {"dependencies": [first.id]})
+
+    response = VerticalRuleRuntime().execute(_logical_request((first, second)))
+    graph = apply_patch(ModelGraph("robot", (first, second), revision=3), response.patch)
+    logical = next(item for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT)
+
+    assert logical.payload["dependency_evidence"] == [first.id]
+    assert "显式功能依赖" in logical.payload["partition_basis"]
+    assert "dependency_cluster_search" in logical.payload["alternative_partitions"]
+
+
 def test_shared_state_partition_is_reviewable_for_high_coupling():
     first = make_entity(EntityKind.FUNCTION, "采集", {"shared_state": ["任务状态"]})
     second = make_entity(EntityKind.FUNCTION, "调度", {"shared_state": ["任务状态"]})

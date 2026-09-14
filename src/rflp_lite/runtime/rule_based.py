@@ -511,7 +511,13 @@ class VerticalRuleRuntime:
                 "functional_requirement_status": "allocated",
             })
             builder.update(requirement, payload=requirement_payload)
-        flow_payload = {"direction": "双向", "content": f"{domain}任务与结果"}
+        function_ids = [item.id for item in functions]
+        flow_payload = {
+            "direction": "双向",
+            "content": f"{domain}任务与结果",
+            "source_function_ids": function_ids[:1],
+            "target_function_ids": function_ids[1:] or function_ids[:1],
+        }
         flow = next(
             (
                 item for item in _context_entities(
@@ -568,7 +574,6 @@ class VerticalRuleRuntime:
         variant = option if option in _LOGICAL_VARIANTS else ""
         domain = _domain_label(_requirements(request)) or "配送"
         functions = _context_entities(request.context_bundle, EntityKind.FUNCTION)
-        groups = _partition_functions(functions)
         if variant:
             existing_variant = next(
                 (
@@ -581,83 +586,26 @@ class VerticalRuleRuntime:
             )
             if existing_variant is not None:
                 return builder.response()
-            if variant == "one_component_per_function":
-                groups = tuple((function,) for function in functions)
-            elif variant == "shared_coordinator" and functions:
-                groups = (tuple(functions),)
-            elif variant == "dependency_cluster_search":
-                groups = _partition_functions(functions)
-            blocked = False
-            for item in request.context_bundle.entities:
-                if item.kind not in {
-                    EntityKind.LOGICAL_COMPONENT,
-                    EntityKind.INTERFACE,
-                    EntityKind.STATE,
-                }:
-                    continue
-                if item.meta.status is EntityStatus.LOCKED or bool(item.payload.get("user_modified")):
-                    blocked = True
-                    continue
-                builder.deprecate(item)
-        else:
-            blocked = False
-        logical_components = []
-        for group in groups:
-            label = _partition_label(group)
-            base_name = (
-                f"{domain}协同逻辑架构"
-                if len(groups) == 1 and len(group) == 1
-                else f"{group[0].meta.name}逻辑组件"
-                if variant == "one_component_per_function" and len(group) == 1
-                else f"{label}逻辑组件"
-            )
-            name = f"{base_name}（{variant}）" if variant else base_name
-            shared_state = _union_payload_values(group, "shared_state") or [f"{domain}任务状态"]
-            timing_constraints = _union_payload_values(group, "timing_constraints") or [f"{domain}任务状态更新必须可排序"]
-            payload = {
-                "responsibility": "；".join(
-                    str(item.payload.get("behavior") or item.meta.name)
-                    for item in group
-                ),
-                "partition_basis": (
-                    f"按 {label} 的功能职责形成独立分区"
-                    if len(group) == 1
-                    else f"按 {label} 共享状态和功能依赖形成分区"
-                ),
-                "dependencies": [item.id for item in group],
-                "shared_state": shared_state,
-                "timing_constraints": timing_constraints,
-                "safety_isolation": ["人工接管路径与自动执行路径隔离"],
-                "source_context_ids": sorted({
-                    source_id
-                    for function in group
-                    for source_id in _source_context_ids(function)
-                }),
-                "cohesion": "high",
-                "coupling": "controlled" if len(group) == 1 else "high",
-                "interfaces": [],
-                "architecture_rationale": (
-                    "单一功能职责保持边界清晰"
-                    if len(group) == 1
-                    else "共享状态使功能保持在同一逻辑边界，但需要评审耦合"
-                ),
-            }
-            if variant:
-                payload.update({
-                    "architecture_variant": variant,
-                    "architecture_decision": dict(_decision_payload(decision)),
-                })
-                if blocked:
-                    payload["blocked_by_locked_entity"] = True
-            existing = (
-                _existing_logical_for_group(builder.context, group)
-                if not variant
-                else None
-            )
-            logical = existing or builder.add(EntityKind.LOGICAL_COMPONENT, name, payload)
-            if existing is not None:
-                builder.update(logical, name=name, payload=payload)
-            logical_components.append(logical)
+        groups, blocked = _logical_groups(builder, functions, variant)
+        flow_evidence = _functional_flow_evidence(
+            request.context_bundle, functions
+        )
+        function_component_index = {
+            function.id: index
+            for index, group in enumerate(groups)
+            for function in group
+        }
+        logical_components = _build_logical_components(
+            builder,
+            domain,
+            functions,
+            groups,
+            variant,
+            decision,
+            blocked,
+            flow_evidence,
+            function_component_index,
+        )
         if not logical_components:
             return builder.response()
         suffix = f"（{variant}）" if variant else ""
@@ -960,8 +908,205 @@ class VerticalRuleRuntime:
         return builder.response()
 
 
-def _partition_functions(functions):
-    groups = {}
+def _logical_groups(builder, functions, variant):
+    groups = _partition_functions(functions, builder.context.relations)
+    if variant == "one_component_per_function":
+        groups = tuple((function,) for function in functions)
+    elif variant == "shared_coordinator" and functions:
+        groups = (tuple(functions),)
+    elif variant == "dependency_cluster_search":
+        groups = _partition_functions(functions, builder.context.relations)
+    blocked = False
+    if variant:
+        for item in builder.context.entities:
+            if item.kind not in {
+                EntityKind.LOGICAL_COMPONENT,
+                EntityKind.INTERFACE,
+                EntityKind.STATE,
+            }:
+                continue
+            if item.meta.status is EntityStatus.LOCKED or bool(item.payload.get("user_modified")):
+                blocked = True
+                continue
+            builder.deprecate(item)
+    return groups, blocked
+
+
+def _build_logical_components(
+    builder,
+    domain,
+    functions,
+    groups,
+    variant,
+    decision,
+    blocked,
+    flow_evidence,
+    function_component_index,
+):
+    components = []
+    for group in groups:
+        payload = _logical_component_payload(
+            domain,
+            group,
+            groups,
+            variant,
+            decision,
+            blocked,
+            flow_evidence,
+            function_component_index,
+            functions,
+        )
+        label = _partition_label(group)
+        base_name = (
+            f"{domain}协同逻辑架构"
+            if len(groups) == 1 and len(group) == 1
+            else f"{group[0].meta.name}逻辑组件"
+            if variant == "one_component_per_function" and len(group) == 1
+            else f"{label}逻辑组件"
+        )
+        name = f"{base_name}（{variant}）" if variant else base_name
+        existing = _existing_logical_for_group(builder.context, group) if not variant else None
+        logical = existing or builder.add(EntityKind.LOGICAL_COMPONENT, name, payload)
+        if existing is not None:
+            builder.update(logical, name=name, payload=payload)
+        components.append(logical)
+    return tuple(components)
+
+
+def _logical_component_payload(
+    domain,
+    group,
+    groups,
+    variant,
+    decision,
+    blocked,
+    flow_evidence,
+    function_component_index,
+    functions,
+):
+    label = _partition_label(group)
+    group_ids = {item.id for item in group}
+    dependency_evidence = sorted({
+        target.id
+        for function in group
+        for target in _resolved_function_dependencies(function, functions)
+        if target.id in group_ids
+    })
+    functional_flow_ids = sorted({
+        item["flow_id"]
+        for item in flow_evidence
+        if group_ids & set(item["function_ids"])
+    })
+    cross_component_flow_ids = _cross_component_flow_ids(
+        group_ids, flow_evidence, function_component_index
+    )
+    shared_state = _union_payload_values(group, "shared_state") or [f"{domain}任务状态"]
+    timing_constraints = _union_payload_values(group, "timing_constraints") or [f"{domain}任务状态更新必须可排序"]
+    partition_basis = _partition_basis(group, dependency_evidence)
+    payload = {
+        "responsibility": "；".join(
+            str(item.payload.get("behavior") or item.meta.name)
+            for item in group
+        ),
+        "partition_basis": f"按 {label} 的{partition_basis}形成分区",
+        "dependencies": [item.id for item in group],
+        "dependency_evidence": dependency_evidence,
+        "functional_flow_ids": functional_flow_ids,
+        "cross_component_flow_ids": cross_component_flow_ids,
+        "shared_state": shared_state,
+        "timing_constraints": timing_constraints,
+        "safety_isolation": ["人工接管路径与自动执行路径隔离"],
+        "source_context_ids": sorted({
+            source_id
+            for function in group
+            for source_id in _source_context_ids(function)
+        }),
+        "cohesion": "high",
+        "coupling": "high"
+        if cross_component_flow_ids
+        else "controlled"
+        if len(group) == 1
+        else "high",
+        "interfaces": [],
+        "alternative_partitions": [
+            "one_component_per_function",
+            "dependency_cluster_search",
+            "shared_coordinator",
+        ],
+        "architecture_rationale": _architecture_rationale(
+            group, dependency_evidence, cross_component_flow_ids
+        ),
+    }
+    if variant:
+        payload.update({
+            "architecture_variant": variant,
+            "architecture_decision": dict(_decision_payload(decision)),
+        })
+        if blocked:
+            payload["blocked_by_locked_entity"] = True
+    return payload
+
+
+def _partition_basis(group, dependency_evidence):
+    if dependency_evidence:
+        return "显式功能依赖"
+    if _union_payload_values(group, "shared_state"):
+        return "共享状态"
+    if any(
+        str(item.payload.get("logical_partition") or item.payload.get("partition_key") or "").strip()
+        for item in group
+    ):
+        return "显式分区键"
+    return "功能职责"
+
+
+def _cross_component_flow_ids(group_ids, flow_evidence, function_component_index):
+    return sorted({
+        item["flow_id"]
+        for item in flow_evidence
+        if group_ids & set(item["function_ids"])
+        and any(
+            function_component_index.get(source_id)
+            != function_component_index.get(target_id)
+            for source_id in item["source_function_ids"]
+            for target_id in item["target_function_ids"]
+            if source_id in function_component_index
+            and target_id in function_component_index
+        )
+    })
+
+
+def _architecture_rationale(group, dependency_evidence, cross_component_flow_ids):
+    if dependency_evidence:
+        rationale = "显式功能依赖支持同一逻辑边界"
+    elif len(group) == 1:
+        rationale = "单一功能职责保持边界清晰"
+    else:
+        rationale = "共享状态使功能保持在同一逻辑边界，但需要评审耦合"
+    if cross_component_flow_ids:
+        rationale += "；功能流跨越该边界，需要通过接口管理"
+    return rationale
+
+
+def _partition_functions(functions, relations=()):
+    functions = tuple(functions)
+    function_by_id = {item.id: item for item in functions}
+    function_by_name = {item.meta.name: item for item in functions}
+    parent = {item.id: item.id for item in functions}
+
+    def find(entity_id):
+        while parent[entity_id] != entity_id:
+            parent[entity_id] = parent[parent[entity_id]]
+            entity_id = parent[entity_id]
+        return entity_id
+
+    def union(first_id, second_id):
+        first_root = find(first_id)
+        second_root = find(second_id)
+        if first_root != second_root:
+            parent[second_root] = first_root
+
+    keyed: dict[object, list[str]] = {}
     for function in functions:
         payload = function.payload
         explicit = str(
@@ -980,8 +1125,84 @@ def _partition_functions(functions):
             if shared_values
             else ("function", function.id)
         )
-        groups.setdefault(key, []).append(function)
+        keyed.setdefault(key, []).append(function.id)
+        for target in _resolved_function_dependencies(function, functions):
+            union(function.id, target.id)
+    for ids in keyed.values():
+        for target_id in ids[1:]:
+            union(ids[0], target_id)
+    for relation in relations:
+        if relation.predicate is RelationPredicate.DECOMPOSES:
+            if relation.source_id in function_by_id and relation.target_id in function_by_id:
+                union(relation.source_id, relation.target_id)
+    groups: dict[str, list[object]] = {}
+    for function in functions:
+        groups.setdefault(find(function.id), []).append(function)
     return tuple(tuple(group) for group in groups.values())
+
+
+def _resolved_function_dependencies(function, functions):
+    by_id = {item.id: item for item in functions}
+    by_name = {item.meta.name: item for item in functions}
+    references = []
+    for key in ("dependencies", "depends_on", "dependency_ids", "depends_on_ids"):
+        raw = function.payload.get(key)
+        if isinstance(raw, str):
+            raw = (raw,)
+        if isinstance(raw, (list, tuple, set)):
+            references.extend(str(item).strip() for item in raw if str(item).strip())
+    resolved = []
+    for reference in references:
+        target = by_id.get(reference) or by_name.get(reference)
+        if target is not None and target.id != function.id:
+            resolved.append(target)
+    return tuple({item.id: item for item in resolved}.values())
+
+
+def _functional_flow_evidence(context, functions):
+    function_by_id = {item.id: item for item in functions}
+    function_by_name = {item.meta.name: item for item in functions}
+    function_ids = set(function_by_id)
+    evidence = []
+    for flow in _context_entities(context, EntityKind.FUNCTIONAL_FLOW):
+        source_ids = _resolve_function_values(
+            flow.payload.get("source_function_ids"), function_by_id, function_by_name
+        )
+        target_ids = _resolve_function_values(
+            flow.payload.get("target_function_ids"), function_by_id, function_by_name
+        )
+        if not source_ids or not target_ids:
+            members = sorted({
+                relation.source_id
+                for relation in context.relations
+                if relation.predicate is RelationPredicate.EXCHANGES_WITH
+                and relation.target_id == flow.id
+                and relation.source_id in function_ids
+            })
+            source_ids = tuple(members[:1])
+            target_ids = tuple(members[1:] or members[:1])
+        endpoint_ids = tuple(dict.fromkeys((*source_ids, *target_ids)))
+        if endpoint_ids:
+            evidence.append({
+                "flow_id": flow.id,
+                "function_ids": endpoint_ids,
+                "source_function_ids": source_ids,
+                "target_function_ids": target_ids,
+            })
+    return tuple(evidence)
+
+
+def _resolve_function_values(raw, by_id, by_name):
+    if isinstance(raw, str):
+        raw = (raw,)
+    if not isinstance(raw, (list, tuple, set)):
+        return ()
+    resolved = []
+    for value in raw:
+        target = by_id.get(str(value).strip()) or by_name.get(str(value).strip())
+        if target is not None:
+            resolved.append(target.id)
+    return tuple(dict.fromkeys(resolved))
 
 
 def _partition_label(group):
