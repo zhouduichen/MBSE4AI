@@ -9,6 +9,7 @@ from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import ContextBundle, TaskExecutionRequest
 from rflp_lite.methodology.proposal_compiler import compile_task_proposal, parse_task_proposal, proposal_schema
 from rflp_lite.methodology.tasks import output_contract, task_catalog
+from rflp_lite.methodology.vertical_generation import VerticalStage, stage_task
 
 
 def _request(output_kind: EntityKind = EntityKind.REQUIREMENT) -> TaskExecutionRequest:
@@ -423,6 +424,139 @@ def test_local_ref_mapping_is_scoped_to_one_proposal():
 
     with pytest.raises(ContractViolation, match="unknown"):
         compile_task_proposal(request, payload)
+
+
+def test_payload_reference_materialization_resolves_vertical_local_refs():
+    task = stage_task(VerticalStage.FUNCTIONAL)
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应完成投递",
+        {"obligation": "系统应完成投递"},
+    )
+    request = TaskExecutionRequest(
+        task.id,
+        "v2.1",
+        ContextBundle("p1", task.id, 3, (requirement,)),
+        (),
+        output_contract(task),
+        100,
+        patch_policy=task.patch_policy,
+    )
+    payload = {
+        "entities": [
+            {
+                "local_ref": "function-1",
+                "kind": EntityKind.FUNCTION.value,
+                "name": "规划配送",
+                "payload": {"behavior": "规划路径"},
+            },
+            {
+                "local_ref": "flow-1",
+                "kind": EntityKind.FUNCTIONAL_FLOW.value,
+                "name": "任务流",
+                "payload": {
+                    "source_function_ids": ["function-1"],
+                    "target_function_ids": ["function-1"],
+                },
+            },
+            {
+                "local_ref": "scenario-1",
+                "kind": EntityKind.FUNCTIONAL_SCENARIO.value,
+                "name": "配送场景",
+                "payload": {"function_ids": ["function-1"]},
+            },
+        ],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "物化阶段内图引用",
+    }
+
+    patch = compile_task_proposal(request, payload)
+
+    assert patch is not None
+    function_id = patch.operations[0].entity.id
+    flow = patch.operations[1].entity
+    scenario = patch.operations[2].entity
+    assert flow.payload["source_function_ids"] == [function_id]
+    assert flow.payload["target_function_ids"] == [function_id]
+    assert scenario.payload["function_ids"] == [function_id]
+
+
+def test_payload_reference_materialization_rejects_unknown_graph_ref():
+    task = stage_task(VerticalStage.FUNCTIONAL)
+    request = TaskExecutionRequest(
+        task.id,
+        "v2.1",
+        ContextBundle(
+            "p1",
+            task.id,
+            3,
+            (make_entity(EntityKind.REQUIREMENT, "系统应完成投递"),),
+        ),
+        (),
+        output_contract(task),
+        100,
+        patch_policy=task.patch_policy,
+    )
+    payload = {
+        "entities": [{
+            "local_ref": "flow-1",
+            "kind": EntityKind.FUNCTIONAL_FLOW.value,
+            "name": "任务流",
+            "payload": {"source_function_ids": ["missing-function"]},
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "拒绝未知阶段内图引用",
+    }
+
+    with pytest.raises(ContractViolation, match="unknown payload entity reference"):
+        compile_task_proposal(request, payload)
+
+
+def test_payload_reference_materialization_applies_to_existing_entity_updates():
+    task = stage_task(VerticalStage.FUNCTIONAL)
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应完成投递",
+        {"obligation": "系统应完成投递"},
+    )
+    request = TaskExecutionRequest(
+        task.id,
+        "v2.1",
+        ContextBundle("p1", task.id, 3, (requirement,)),
+        (),
+        output_contract(task),
+        100,
+        patch_policy=task.patch_policy,
+    )
+    payload = {
+        "entities": [{
+            "local_ref": "function-1",
+            "kind": EntityKind.FUNCTION.value,
+            "name": "规划配送",
+            "payload": {"behavior": "规划路径"},
+        }],
+        "relations": [],
+        "updates": [{
+            "entity_id": requirement.id,
+            "field_patch": {
+                "payload": {"functional_behavior_ids": ["function-1"]},
+            },
+        }],
+        "deprecations": [],
+        "reason": "更新需求的功能分配引用",
+    }
+
+    patch = compile_task_proposal(request, payload)
+
+    assert patch is not None
+    update = next(item for item in patch.operations if isinstance(item, UpdateEntity))
+    assert update.field_patch["payload"]["functional_behavior_ids"] == [
+        patch.operations[0].entity.id
+    ]
 
 
 def test_same_proposal_compiles_to_the_same_patch_deterministically():

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
@@ -11,6 +11,38 @@ from rflp_lite.domain.model import AddEntity, Deprecate, Patch, Relate, UpdateEn
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import TaskExecutionRequest
 from rflp_lite.methodology.policy import PatchPolicy
+
+
+_GRAPH_REFERENCE_FIELDS = frozenset({
+    "activity_ids",
+    "actor_ids",
+    "connected_component_ids",
+    "dependencies",
+    "dependency_ids",
+    "depends_on",
+    "depends_on_ids",
+    "functional_behavior_ids",
+    "functional_flow_ids",
+    "function_ids",
+    "impact_entity_ids",
+    "internal_component_ids",
+    "logical_component_ids",
+    "logical_ids",
+    "logical_id",
+    "owner_id",
+    "physical_candidate_ids",
+    "physical_ids",
+    "requirement_ids",
+    "scenario_ids",
+    "shared_state_ids",
+    "source_context_ids",
+    "source_function_ids",
+    "source_logical_ids",
+    "source_physical_ids",
+    "source_requirement_ids",
+    "stakeholder_ids",
+    "target_function_ids",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,6 +411,69 @@ def _in_scope(entity_id: str, context_entities: Mapping[str, object], output_ids
     return entity_id in context_entities or entity_id in output_ids
 
 
+def _resolve_payload_reference(
+    value: object,
+    *,
+    kind: EntityKind,
+    field: str,
+    ref_to_id: Mapping[str, str],
+    known_ids: set[str],
+) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ContractViolation(
+            f"payload entity reference must be a non-empty string: {kind.value}.{field}"
+        )
+    reference = value.strip()
+    if reference in ref_to_id:
+        return ref_to_id[reference]
+    if reference in known_ids:
+        return reference
+    raise ContractViolation(
+        f"unknown payload entity reference: {reference} ({kind.value}.{field})"
+    )
+
+
+def _materialize_payload_references(
+    kind: EntityKind,
+    payload: Mapping[str, object],
+    ref_to_id: Mapping[str, str],
+    known_ids: set[str],
+) -> Mapping[str, object]:
+    """Resolve typed graph references without rewriting free-form payload text."""
+
+    def visit(value: object, field: str = "") -> object:
+        if isinstance(value, Mapping):
+            return {key: visit(item, str(key)) for key, item in value.items()}
+        if field in _GRAPH_REFERENCE_FIELDS:
+            if isinstance(value, list):
+                resolved = [
+                    _resolve_payload_reference(
+                        item,
+                        kind=kind,
+                        field=field,
+                        ref_to_id=ref_to_id,
+                        known_ids=known_ids,
+                    )
+                    for item in value
+                ]
+                return list(dict.fromkeys(resolved))
+            return _resolve_payload_reference(
+                value,
+                kind=kind,
+                field=field,
+                ref_to_id=ref_to_id,
+                known_ids=known_ids,
+            )
+        if isinstance(value, list):
+            return [visit(item, field) for item in value]
+        return value
+
+    result = visit(payload)
+    if not isinstance(result, dict):
+        raise ContractViolation(f"{kind.value} payload must be an object")
+    return result
+
+
 def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, object]) -> Patch | None:
     """Validate one TaskProposal and compile it into a canonical Patch."""
 
@@ -395,6 +490,7 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
     operations = []
     ref_to_id: dict[str, str] = {}
     output_ids: set[str] = set()
+    pending_entities = []
     for item in proposal.entities:
         entity = make_entity(
             item.kind,
@@ -410,7 +506,16 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
         )
         ref_to_id[item.local_ref] = entity.id
         output_ids.add(entity.id)
-        operations.append(AddEntity(entity))
+        pending_entities.append((item, entity))
+    known_ids = set(context_entities) | output_ids
+    for item, entity in pending_entities:
+        materialized_payload = _materialize_payload_references(
+            item.kind,
+            item.payload,
+            ref_to_id,
+            known_ids,
+        )
+        operations.append(AddEntity(replace(entity, payload=materialized_payload)))
     for item in proposal.relations:
         source_id = _resolve_ref(item.source_ref, ref_to_id, context_entities)
         target_id = _resolve_ref(item.target_ref, ref_to_id, context_entities)
@@ -421,11 +526,19 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
         entity = context_entities.get(item.entity_id)
         if entity is None or entity.kind not in policy.writable_kinds:
             raise ContractViolation(f"task cannot update entity outside write scope: {item.entity_id}")
+        field_patch = dict(item.field_patch)
         if "payload" in item.field_patch:
             payload_patch = _mapping(item.field_patch["payload"], "updates.field_patch.payload")
+            payload_patch = _materialize_payload_references(
+                entity.kind,
+                payload_patch,
+                ref_to_id,
+                known_ids,
+            )
             merged_payload = {**dict(entity.payload), **payload_patch}
             _validate_entity_payload(entity.kind, merged_payload, request)
-        operations.append(UpdateEntity(item.entity_id, item.field_patch))
+            field_patch["payload"] = payload_patch
+        operations.append(UpdateEntity(item.entity_id, field_patch))
     for item in proposal.deprecations:
         entity = context_entities.get(item.entity_id)
         if entity is None or entity.kind not in policy.writable_kinds:
