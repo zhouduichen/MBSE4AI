@@ -11,9 +11,9 @@ from dataclasses import dataclass
 from collections.abc import Mapping
 
 from rflp_lite.domain.canonical import canonical_hash
-from rflp_lite.domain.entities import EntityKind, EntityStatus
+from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_evidence_entity
 from rflp_lite.domain.errors import ConflictError, ContractViolation, NotFoundError
-from rflp_lite.domain.model import Patch, UpdateEntity
+from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.controller import SystemsEngineeringController
 from rflp_lite.methodology.engine import MethodologyEngine
@@ -141,6 +141,20 @@ class VvExecutionService:
             project_id,
             "vv.execute",
             (
+                *(
+                    (
+                        AddEntity(
+                            make_evidence_entity(
+                                evidence,
+                                status=EntityStatus.ACCEPTED,
+                                producer=Producer.USER,
+                                revision=graph.revision,
+                            )
+                        ),
+                    )
+                    if evidence_id not in graph.entity_index
+                    else ()
+                ),
                 UpdateEntity(case_id, {
                     "evidence_ids": next_evidence_ids,
                     "payload": {
@@ -150,6 +164,16 @@ class VvExecutionService:
                         "execution_records": [*previous_records, record],
                     },
                 }),
+                *(
+                    (Relate(case_id, RelationPredicate.DESCRIBED_BY, evidence_id),)
+                    if evidence_id not in {
+                        relation.target_id
+                        for relation in graph.relations
+                        if relation.source_id == case_id
+                        and relation.predicate is RelationPredicate.DESCRIBED_BY
+                    }
+                    else ()
+                ),
             ),
             f"记录 {case.kind.value} 执行结果：{normalized}",
             graph.revision,

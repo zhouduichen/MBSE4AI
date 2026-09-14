@@ -48,6 +48,7 @@ _GROUPS: tuple[tuple[str, str, str, tuple[EntityKind, ...]], ...] = (
             EntityKind.VALIDATION_CASE,
             EntityKind.HAZARD,
             EntityKind.FAILURE_MODE,
+            EntityKind.EVIDENCE,
         ),
     ),
 )

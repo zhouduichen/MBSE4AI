@@ -17,7 +17,9 @@ def test_model_workbench_groups_real_entities_by_engineering_layer():
     ]
     assert view["metrics"]["entity_count"] == 5
     assert {item["id"] for item in view["groups"][1]["entities"]} == {function.id}
-    assert view["groups"][4]["entities"][0]["kind"] == "validation_case"
+    assert {
+        item["kind"] for item in view["groups"][4]["entities"]
+    } == {"verification_case", "validation_case"}
 
 
 def test_model_workbench_keeps_empty_groups_explicit():

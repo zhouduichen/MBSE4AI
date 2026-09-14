@@ -2,6 +2,7 @@ from pathlib import Path
 
 from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.domain.entities import EntityKind
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 
@@ -36,6 +37,15 @@ def test_vv_execution_result_is_persisted_and_failure_routes_iteration(tmp_path:
     assert result.revision == updated.revision
     assert case.payload["execution_status"] == "failed"
     assert result.evidence_id in case.payload["evidence_ids"]
+    evidence = updated.entity_index[result.evidence_id]
+    assert evidence.kind is EntityKind.EVIDENCE
+    assert evidence.payload["excerpt"] == "测试日志显示响应时间为 4.2 s，超过通过准则。"
+    assert any(
+        relation.source_id == verification.id
+        and relation.predicate is RelationPredicate.DESCRIBED_BY
+        and relation.target_id == result.evidence_id
+        for relation in updated.relations
+    )
     finding = next(
         item for item in result.methodology["findings"]
         if item["code"] == "verification_execution_failed"

@@ -159,5 +159,38 @@ def make_entity(
     )
 
 
+def make_evidence_entity(
+    evidence: Mapping[str, object],
+    *,
+    status: EntityStatus = EntityStatus.ACCEPTED,
+    producer: Producer = Producer.IMPORT,
+    revision: int = 0,
+) -> Entity:
+    """Create an Evidence node with the external record ID as its stable ID."""
+
+    evidence_id = str(evidence.get("id", "")).strip()
+    if not evidence_id:
+        raise ValueError("evidence id is required")
+    label = str(
+        evidence.get("claim") or evidence.get("excerpt") or evidence_id
+    ).strip() or evidence_id
+    return Entity(
+        EntityMeta(
+            evidence_id,
+            EntityKind.EVIDENCE,
+            label[:240],
+            status,
+            producer,
+            None,
+            (),
+            (),
+            (),
+            revision,
+            revision,
+        ),
+        dict(evidence),
+    )
+
+
 def entity_json(entity: Entity) -> str:
     return canonical_json(entity.as_dict())
