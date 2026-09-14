@@ -364,8 +364,11 @@ class LifecycleModel:
             add("verification", "verification_case", "验证输入需求", {
                 **scope,
                 "method": "test",
+                "verification_objective": "证明输入需求在规定条件下满足",
                 "precondition": "系统处于可测试状态",
+                "test_condition": "标准运行环境和需求边界条件",
                 "input": "输入需求场景",
+                "stimulus": "提交输入需求并施加运行事件",
                 "procedure": "执行系统行为并记录结果",
                 "expected_result": "行为满足需求",
                 "pass_criteria": "需求约束满足",
@@ -373,8 +376,11 @@ class LifecycleModel:
             add("validation", "validation_case", "确认用户场景", {
                 **scope,
                 "method": "demonstration",
+                "verification_objective": "确认用户场景目标达成",
                 "precondition": "典型用户场景可用",
+                "test_condition": "典型用户、真实场景和代表性任务条件",
                 "input": "用户任务",
+                "stimulus": "用户执行典型任务操作",
                 "procedure": "执行典型任务并收集反馈",
                 "expected_result": "用户目标达成",
                 "pass_criteria": "用户确认通过",

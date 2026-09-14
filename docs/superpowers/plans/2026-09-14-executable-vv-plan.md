@@ -112,6 +112,7 @@ git commit -m "feat: enforce executable V&V plan fields"
 **Files:**
 - Modify: `src/rflp_lite/runtime/rule_based.py:930-980,760-900`
 - Modify: `src/rflp_lite/runtime/lifecycle_rule.py:814-843`
+- Modify: `src/rflp_lite/resources/prompts/vertical/verification_validation.v1.md:1-9`
 - Modify: `tests/application/test_model_generation.py` V&V fixtures
 - Modify: `tests/methodology/test_engine.py` complete V&V fixture
 - Add assertions: `tests/e2e/test_campus_delivery_robot.py`
