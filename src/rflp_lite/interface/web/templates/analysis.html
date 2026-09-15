@@ -81,6 +81,7 @@
     {% for phase in phases if phase.phase != 'closure' %}<button class="button" type="button" data-phase="{{ phase.phase }}"{% if not has_analysis_input %} disabled title="请先提交需求、上传文档或导入已有模型"{% endif %}>执行{{ phase.action_label }}</button>{% endfor %}
     <label class="checkbox-control"><input id="force-run" type="checkbox"{% if not has_analysis_input %} disabled{% endif %}> 强制新运行</label>
     <span class="htmx-indicator" id="analysis-indicator"><span class="spinner"></span> 正在运行…</span>
+    <span class="form-hint" id="analysis-progress-text" aria-live="polite">当前阶段：等待运行</span>
   </form>
   <pre id="analysis-result" class="analysis-result" hidden></pre>
 </section>
@@ -225,6 +226,7 @@
   const form = document.getElementById("analysis-form");
   const output = document.getElementById("analysis-result");
   const indicator = document.getElementById("analysis-indicator");
+  const progressText = document.getElementById("analysis-progress-text");
   const forceRun = document.getElementById("force-run");
   const profileSelect = document.getElementById("analysis-profile");
   const intakeResult = document.getElementById("intake-result");
@@ -315,23 +317,75 @@
     }
   });
 
+  function setAnalysisBusy(busy) {
+    indicator.style.display = busy ? "inline-flex" : "none";
+    form.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
+  }
+
+  function showGenerationProgress(run) {
+    const progress = run?.progress || {};
+    const label = progress.current_stage_label || (run?.status === "completed" ? "已完成" : "准备运行");
+    const completed = progress.completed_stages ?? 0;
+    const total = progress.total_stages ?? 5;
+    progressText.textContent = `当前阶段：${label} · 已完成 ${completed}/${total} 个阶段`;
+    output.hidden = false;
+    output.textContent = progressText.textContent;
+  }
+
+  async function pollGeneration(progressUrl) {
+    const terminalStates = new Set(["completed", "failed", "blocked", "degraded", "cancelled"]);
+    for (let attempt = 0; attempt < 900; attempt += 1) {
+      const response = await fetch(progressUrl);
+      const payload = await response.json();
+      if (!response.ok || payload.status !== "ok") {
+        throw new Error(payload.message || "无法读取生成进度");
+      }
+      const run = payload.run || {};
+      showGenerationProgress(run);
+      if (terminalStates.has(run.status)) {
+        if (run.status === "completed") {
+          window.setTimeout(() => window.location.reload(), 300);
+        } else {
+          output.classList.add("warning");
+          output.textContent = `生成未完成：${run.diagnostics?.join("；") || run.status}`;
+        }
+        return;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    }
+    output.classList.add("warning");
+    output.textContent = "生成仍在后台运行，请稍后打开运行记录查看。";
+  }
+
   async function runAnalysis(mode, phase) {
     output.hidden = false;
     output.textContent = "正在运行…";
-    indicator.style.display = "inline-flex";
+    progressText.textContent = "当前阶段：准备运行";
+    output.classList.remove("warning");
+    setAnalysisBusy(true);
     const body = {mode, force_run: forceRun.checked};
     if (phase) body.phase = phase;
     if (profileSelect?.value) body.profile_id = profileSelect.value;
     try {
-      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/analysis`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
+      const endpoint = mode === "generate"
+        ? `/projects/${encodeURIComponent(projectId)}/analysis/runs`
+        : `/projects/${encodeURIComponent(projectId)}/analysis`;
+      const response = await fetch(endpoint, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
       const payload = await response.json();
-      output.textContent = JSON.stringify(payload, null, 2);
-      output.classList.toggle("warning", payload.status !== "ok");
-      if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+      if (mode === "generate") {
+        if (!response.ok || payload.status !== "accepted" || !payload.run?.progress_url) {
+          throw new Error(payload.message || "无法启动完整模型生成");
+        }
+        await pollGeneration(payload.run.progress_url);
+      } else {
+        output.textContent = JSON.stringify(payload, null, 2);
+        output.classList.toggle("warning", payload.status !== "ok");
+        if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+      }
     } catch (error) {
       output.textContent = "请求失败：" + error;
       output.classList.add("warning");
-    } finally { indicator.style.display = "none"; }
+    } finally { setAnalysisBusy(false); }
   }
   form.addEventListener("submit", (event) => { event.preventDefault(); runAnalysis("generate", null); });
   form.querySelectorAll("[data-phase]").forEach((button) => button.addEventListener("click", () => runAnalysis("phase", button.dataset.phase)));

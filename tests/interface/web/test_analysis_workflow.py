@@ -45,6 +45,18 @@ def test_analysis_page_shows_full_harness_workflow(tmp_path: Path) -> None:
         assert label in response.text
 
 
+def test_analysis_page_presents_async_vertical_generation_progress(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "workspaces"))
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    page = client.get("/ui/projects/p1/analysis")
+
+    assert page.status_code == 200
+    assert "/analysis/runs" in page.text
+    assert "当前阶段" in page.text
+    assert "vertical.requirements" not in page.text
+
+
 def test_analysis_view_contains_chinese_module_cards(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path / "workspaces"))
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
