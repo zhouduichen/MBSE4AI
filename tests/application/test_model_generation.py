@@ -179,6 +179,31 @@ class ControllerProposalModel:
         )
 
 
+def test_prepare_generation_creates_persisted_run_without_executing_runtime(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    generation = services.generation("robot")
+
+    run_id = generation.prepare_generation(
+        "robot",
+        requirement_text="系统应支持人工接管",
+        run_id="web-run-prepared",
+    )
+
+    run = services.repository("robot").load_run("robot", run_id)
+    assert run_id == "web-run-prepared"
+    assert run is not None
+    assert run.status == "running"
+    assert sorted(step.task_id for step in run.steps) == sorted([
+        "vertical.requirements",
+        "vertical.functional",
+        "vertical.logical",
+        "vertical.physical",
+        "vertical.verification_validation",
+    ])
+    assert services.model("robot").graph("robot").revision == 1
+
+
 class SemanticInvalidModel(ScriptedModel):
     def complete_json(self, request):
         response = super().complete_json(request)

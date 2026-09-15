@@ -209,17 +209,14 @@ class ModelGenerationService:
         run_id: str | None = None,
         force_new: bool = False,
     ) -> GenerateModelResult:
-        request = GenerateModelRequest(
+        effective_run_id = self.prepare_generation(
             project_id,
-            requirement_text,
-            tuple(document_ids),
-            run_id,
-            force_new,
+            requirement_text=requirement_text,
+            document_ids=document_ids,
+            run_id=run_id,
+            force_new=force_new,
         )
-        self._ensure_input(request)
         graph = self.repository.load_graph(project_id)
-        effective_run_id = run_id or f"generation-{uuid4().hex[:16]}"
-        self._ensure_run(effective_run_id, project_id, graph)
         stage_results: list[StageResult] = []
         warnings: list[str] = []
 
@@ -284,6 +281,30 @@ class ModelGenerationService:
             methodology,
             controller_plan,
         )
+
+    def prepare_generation(
+        self,
+        project_id: str,
+        *,
+        requirement_text: str | None = None,
+        document_ids: tuple[str, ...] = (),
+        run_id: str | None = None,
+        force_new: bool = False,
+    ) -> str:
+        """Validate inputs and persist the Run before executing any stage."""
+
+        request = GenerateModelRequest(
+            project_id,
+            requirement_text,
+            tuple(document_ids),
+            run_id,
+            force_new,
+        )
+        self._ensure_input(request)
+        graph = self.repository.load_graph(project_id)
+        effective_run_id = run_id or f"generation-{uuid4().hex[:16]}"
+        self._ensure_run(effective_run_id, project_id, graph)
+        return effective_run_id
 
     def impact_plan(
         self,
