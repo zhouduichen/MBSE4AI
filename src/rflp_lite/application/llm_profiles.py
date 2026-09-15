@@ -202,6 +202,11 @@ def normalize_profile(payload: object) -> dict[str, object]:
     kind = str(payload.get("kind", "remote")).strip().lower()
     if kind not in {"local", "remote"}:
         raise InvariantViolation("LLM 档案类型必须是 local 或 remote")
+    model_location = str(
+        payload.get("model_location", "local" if kind == "local" else "remote")
+    ).strip().lower()
+    if model_location not in {"local", "remote"}:
+        raise InvariantViolation("LLM 模型位置必须是 local 或 remote")
     protocol = str(payload.get("protocol", _PROTOCOL)).strip().lower()
     if protocol != _PROTOCOL:
         raise InvariantViolation("当前只支持 OpenAI-compatible Chat 协议")
@@ -234,6 +239,7 @@ def normalize_profile(payload: object) -> dict[str, object]:
         "label": label[:120],
         "provider": _provider(payload),
         "kind": kind,
+        "model_location": model_location,
         "protocol": protocol,
         "base_url": _base_url(payload.get("base_url")),
         "model": model[:200],

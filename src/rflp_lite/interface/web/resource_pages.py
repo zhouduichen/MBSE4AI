@@ -668,19 +668,33 @@ def _runtime_metadata(services, run: Mapping[str, object] | None = None) -> dict
         or active.get("id")
         or "offline-rule"
     )
+    selected = active
+    if profile_id == "offline-rule":
+        selected = {}
+    elif profile_id and profile_id != str(active.get("id") or ""):
+        try:
+            selected = _mapping(services.settings.config_for_profile(profile_id))
+        except Exception:
+            selected = active
     provider_id = str(
         run_data.get("provider_id")
         or run_data.get("provider")
         or recorded.get("provider_id")
-        or active.get("provider_id")
-        or active.get("provider")
-        or ("openai-compatible" if active else "offline")
+        or selected.get("provider_id")
+        or selected.get("provider")
+        or ("openai-compatible" if selected else "offline")
     )
     model_id = str(
         run_data.get("model_id")
         or recorded.get("model_id")
-        or active.get("model")
-        or ("rule-runtime" if not active else "")
+        or selected.get("model")
+        or ("rule-runtime" if not selected else "")
+    )
+    model_location = str(
+        run_data.get("model_location")
+        or recorded.get("model_location")
+        or selected.get("model_location")
+        or ("local" if selected.get("kind") == "local" else "remote" if selected else "local")
     )
     raw_mode = str(
         run_data.get("runtime_mode")
@@ -701,6 +715,8 @@ def _runtime_metadata(services, run: Mapping[str, object] | None = None) -> dict
         "provider_label": "离线规则" if provider_id == "offline" else provider_id,
         "model_id": model_id,
         "model_label": "规则引擎" if model_id == "rule-runtime" else model_id,
+        "model_location": model_location,
+        "model_location_label": {"local": "本机模型", "remote": "远程模型"}.get(model_location, "模型位置未标注"),
         "mode": mode,
         "mode_label": {"Injected Runtime": "注入运行时", "Configured Model": "已配置模型", "Offline Rule Mode": "离线规则模式"}.get(mode, mode),
         "configured": mode == "Configured Model",
@@ -1178,7 +1194,9 @@ def build_analysis_view(request: Request, project_id: str) -> dict[str, object]:
     model_profiles = [
         {
             key: profile.get(key)
-            for key in ("id", "label", "kind", "provider", "model", "enabled")
+            for key in (
+                "id", "label", "kind", "model_location", "provider", "model", "enabled",
+            )
         }
         for item in profile_snapshot.get("profiles", ())
         if isinstance(item, Mapping)
@@ -1380,6 +1398,9 @@ def build_settings_view(request: Request) -> dict[str, object]:
     for item in settings.get("profiles", ()):
         profile = _mapping(item)
         profile["kind_label"] = {"local": "本地服务", "remote": "远程服务"}.get(str(profile.get("kind", "")), "服务")
+        model_location = str(profile.get("model_location") or ("local" if profile.get("kind") == "local" else "remote"))
+        profile["model_location"] = model_location
+        profile["model_location_label"] = {"local": "本机模型", "remote": "远程模型"}.get(model_location, "模型")
         profile["provider_label"] = {"ollama": "Ollama", "openai-compatible": "OpenAI 兼容"}.get(str(profile.get("provider", "")), str(profile.get("provider", "服务")))
         profile["credential_label"] = "已配置" if profile.get("api_key_configured") else "未配置"
         profile["enabled_label"] = "已启用" if profile.get("enabled", True) else "已停用"

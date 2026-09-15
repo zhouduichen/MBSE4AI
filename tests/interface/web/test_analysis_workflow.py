@@ -109,6 +109,64 @@ def test_analysis_page_exposes_secret_free_per_run_profile_selector(tmp_path: Pa
     assert "must-not-render" not in page.text
 
 
+def test_ssh_forward_profile_is_presented_as_remote_model(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "workspaces")
+    config_dir = tmp_path / "config"
+    app.state.container.v2.settings.profiles.config_dir = config_dir
+    app.state.container.v2.settings.profiles.path = config_dir / "llm-profiles.json"
+    LLMProfileService(config_dir).save({
+        "id": "jiayuinter-vllm",
+        "label": "Jiayu-intern vLLM",
+        "kind": "local",
+        "model_location": "remote",
+        "provider": "openai-compatible",
+        "base_url": "http://127.0.0.1:18000/v1",
+        "model": "qwen3.5-controller",
+    })
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    page = client.get("/ui/projects/p1/analysis")
+
+    assert page.status_code == 200
+    assert "Jiayu-intern vLLM" in page.text
+    assert "qwen3.5-controller · 远程模型" in page.text
+
+
+def test_selected_profile_location_is_used_for_latest_run_metadata(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "workspaces")
+    config_dir = tmp_path / "config"
+    app.state.container.v2.settings.profiles.config_dir = config_dir
+    app.state.container.v2.settings.profiles.path = config_dir / "llm-profiles.json"
+    LLMProfileService(config_dir).save({
+        "id": "jiayuinter-vllm",
+        "label": "Jiayu-intern vLLM",
+        "kind": "local",
+        "model_location": "remote",
+        "provider": "openai-compatible",
+        "base_url": "http://127.0.0.1:18000/v1",
+        "model": "qwen3.5-controller",
+    })
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    client.app.state.container.v2._runtime_override = VerticalRuleRuntime()
+    generated = client.post(
+        "/projects/p1/analysis",
+        json={
+            "mode": "generate",
+            "profile_id": "jiayuinter-vllm",
+            "requirement_text": "系统应支持人工接管",
+        },
+    )
+
+    assert generated.status_code == 200
+    page = client.get("/ui/projects/p1/analysis")
+
+    assert page.status_code == 200
+    assert "本次模型" in page.text
+    assert "远程模型 · openai-compatible · jiayuinter-vllm" in page.text
+
+
 def test_analysis_page_exposes_existing_sysml_upload(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path / "workspaces"))
     assert client.post("/projects", json={"id": "p1"}).status_code == 200

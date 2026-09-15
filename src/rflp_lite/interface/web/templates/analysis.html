@@ -13,7 +13,7 @@
 <div class="metric-grid workflow-metrics" aria-label="分析状态">
   <article class="metric"><span>项目</span><strong>{{ project.id }}</strong><small>当前工作项目</small></article>
   <article class="metric"><span>当前模型版本</span><strong>{{ current_revision }}</strong><small>模型图快照</small></article>
-  <article class="metric"><span>活动模型</span><strong>{{ runtime.model_label }}</strong><small>{{ runtime.provider_label }} · {{ runtime.profile_label }}</small></article>
+  <article class="metric"><span>活动模型 · 本次模型</span><strong>{{ runtime.model_label }}</strong><small>{{ runtime.model_location_label }} · {{ runtime.provider_label }} · {{ runtime.profile_label }}</small></article>
   <article class="metric"><span>运行状态</span><strong>{{ latest_run.status_label if latest_run else '待运行' }}</strong><small>{% if latest_run %}最近一次模型生成{% else %}尚未运行{% endif %}</small></article>
   <article class="metric"><span>全局质量门禁</span><strong>{{ global_gate.status_label }}</strong><small>{{ global_gate.issues|length }} 个问题</small></article>
 </div>
@@ -73,7 +73,7 @@
     <label class="field compact-field" for="analysis-profile">本次生成使用的模型
       <select id="analysis-profile">
         <option value="">使用活动配置{% if active_profile_id %}（{{ active_profile_id }}）{% else %}（离线规则）{% endif %}</option>
-        {% for profile in model_profiles %}<option value="{{ profile.id }}"{% if not profile.enabled %} disabled{% endif %}>{{ profile.label or profile.id }} · {{ profile.model }} · {% if profile.kind == 'remote' %}远程{% else %}本地{% endif %}{% if profile.id == active_profile_id %}（活动）{% endif %}{% if not profile.enabled %}（已停用）{% endif %}</option>{% endfor %}
+        {% for profile in model_profiles %}<option value="{{ profile.id }}"{% if not profile.enabled %} disabled{% endif %}>{{ profile.label or profile.id }} · {{ profile.model }} · {% if profile.model_location == 'remote' %}远程模型{% else %}本机模型{% endif %}{% if profile.id == active_profile_id %}（活动）{% endif %}{% if not profile.enabled %}（已停用）{% endif %}</option>{% endfor %}
       </select>
     </label>
     <span class="form-hint">仅影响本次分析，不会切换活动配置；Profile 详情和凭据请在设置页管理。</span>

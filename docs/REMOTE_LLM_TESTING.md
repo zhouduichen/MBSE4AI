@@ -48,6 +48,7 @@ actual model remains remote.
   "id": "jiayuinter-vllm",
   "label": "Jiayu-intern vLLM",
   "kind": "local",
+  "model_location": "remote",
   "provider": "openai-compatible",
   "base_url": "http://127.0.0.1:18000/v1",
   "model": "qwen3.5-controller",

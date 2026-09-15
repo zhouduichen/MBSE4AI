@@ -121,3 +121,20 @@ def test_llm_profile_preserves_local_generation_controls(tmp_path: Path, monkeyp
     assert saved["temperature"] == 0.0
     assert saved["seed"] == 42
     assert saved["structured_output_mode"] == "json_schema"
+
+
+def test_ssh_forward_profile_distinguishes_remote_model_from_local_endpoint(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("rflp_lite.application.llm_profiles._keyring", lambda: None)
+    service = LLMProfileService(tmp_path / "config")
+
+    saved = service.save({
+        "id": "jiayuinter-vllm",
+        "kind": "local",
+        "model_location": "remote",
+        "provider": "openai-compatible",
+        "base_url": "http://127.0.0.1:18000/v1",
+        "model": "qwen3.5-controller",
+    })
+
+    assert saved["model_location"] == "remote"
+    assert service.active_config()["model_location"] == "remote"
