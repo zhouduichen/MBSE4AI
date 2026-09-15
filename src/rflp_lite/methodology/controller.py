@@ -84,6 +84,38 @@ class ControllerAction:
 
 
 @dataclass(frozen=True, slots=True)
+class ControllerProposal:
+    """A read-only recommendation attached to a deterministic plan."""
+
+    status: str
+    action_id: str | None
+    option_id: str | None
+    rationale: str = ""
+    assumptions: tuple[str, ...] = ()
+    open_questions: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+    input_hash: str = ""
+    output_hash: str = ""
+    provider_id: str = ""
+    model_id: str = ""
+
+    def as_dict(self) -> Mapping[str, object]:
+        return {
+            "status": self.status,
+            "action_id": self.action_id,
+            "option_id": self.option_id,
+            "rationale": self.rationale,
+            "assumptions": list(self.assumptions),
+            "open_questions": list(self.open_questions),
+            "diagnostics": list(self.diagnostics),
+            "input_hash": self.input_hash,
+            "output_hash": self.output_hash,
+            "provider_id": self.provider_id,
+            "model_id": self.model_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ControllerPlan:
     """Bounded control plan; it does not mutate the graph by itself."""
 
@@ -93,6 +125,7 @@ class ControllerPlan:
     actions: tuple[ControllerAction, ...] = ()
     impacted_entity_ids: tuple[str, ...] = ()
     impacted_stages: tuple[str, ...] = ()
+    proposal: ControllerProposal | None = None
 
     @property
     def next_action(self) -> ControllerAction | None:
@@ -107,6 +140,7 @@ class ControllerPlan:
             "next_action": self.next_action.as_dict() if self.next_action else None,
             "impacted_entity_ids": list(self.impacted_entity_ids),
             "impacted_stages": list(self.impacted_stages),
+            "llm_proposal": self.proposal.as_dict() if self.proposal else None,
         }
 
 

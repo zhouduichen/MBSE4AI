@@ -144,6 +144,7 @@ def test_controller_plan_and_execution_endpoint_expose_next_action(tmp_path: Pat
     assert plan_response.status_code == 200
     plan = plan_response.json()["controller"]
     assert plan["next_action"]["id"] == generated["controller"]["next_action"]["id"]
+    assert plan["llm_proposal"]["status"] == "not_configured"
 
     execution = client.post(
         "/projects/p1/controller/execute",

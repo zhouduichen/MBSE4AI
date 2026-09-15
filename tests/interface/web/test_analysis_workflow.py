@@ -196,6 +196,7 @@ def test_generated_analysis_page_uses_engineering_language_for_primary_summary(t
         "补充执行证据",
     ):
         assert label in page.text
+    assert "未配置模型" in page.text
     for internal_term in (
         "task_id",
         "vertical.physical",

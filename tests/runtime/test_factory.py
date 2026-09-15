@@ -86,3 +86,22 @@ def test_runtime_factory_preserves_explicit_generation_budgets(monkeypatch) -> N
 
     assert selection.context_window == 16384
     assert selection.max_output_tokens == 6144
+
+
+def test_runtime_factory_exposes_same_configured_model_to_controller():
+    selection = RuntimeFactory().select({
+        "id": "remote-model",
+        "provider": "openai-compatible",
+        "kind": "remote",
+        "base_url": "https://example.invalid/v1",
+        "model": "engineering-model",
+        "enabled": True,
+    })
+
+    assert selection.controller_model is selection.runtime.model
+
+
+def test_runtime_factory_offline_selection_has_no_controller_model():
+    selection = RuntimeFactory().select(None)
+
+    assert selection.controller_model is None

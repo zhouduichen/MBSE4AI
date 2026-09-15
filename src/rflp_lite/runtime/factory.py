@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from collections.abc import Mapping, MutableMapping
 
 from rflp_lite.methodology.contracts import TaskRuntime
+from rflp_lite.ports.generative_model import GenerativeModel
 from rflp_lite.runtime.openai_compatible import openai_compatible_runtime
 from rflp_lite.runtime.rule_based import RuleRuntime
 
@@ -32,6 +33,7 @@ class RuntimeSelection:
     temperature: float = 0.0
     seed: int | None = None
     structured_output_mode: str = "json_schema"
+    controller_model: GenerativeModel | None = None
 
     @property
     def configured(self) -> bool:
@@ -59,6 +61,7 @@ class RuntimeFactory:
                 _float_value(config, "temperature", 0.0) if config else 0.0,
                 _int_value(config, "seed") if config else None,
                 str(config.get("structured_output_mode", "json_schema")) if config else "json_schema",
+                _eligible_controller_model(runtime_override),
             )
         if config:
             profile_id = str(config.get("id", "")).strip()
@@ -79,8 +82,9 @@ class RuntimeFactory:
             _set_if_missing(runtime_config, "local_context_tokens", context_window)
             _set_if_missing(runtime_config, "max_output_tokens", max_output_tokens)
             _set_if_missing(runtime_config, "local_max_tokens", max_output_tokens)
+            runtime = openai_compatible_runtime(runtime_config)
             return RuntimeSelection(
-                openai_compatible_runtime(runtime_config),
+                runtime,
                 profile_id,
                 provider_id or "openai-compatible",
                 model_id,
@@ -90,8 +94,14 @@ class RuntimeFactory:
                 _float_value(config, "temperature", 0.0),
                 _int_value(config, "seed"),
                 str(config.get("structured_output_mode", "json_schema")),
+                _eligible_controller_model(runtime),
             )
         return RuntimeSelection(RuleRuntime(), "offline-rule", "offline", "rule-runtime", "offline")
+
+
+def _eligible_controller_model(runtime: object) -> GenerativeModel | None:
+    model = getattr(runtime, "model", None)
+    return model if bool(getattr(model, "supports_controller_proposals", False)) else None
 
 
 def _int_value(config: Mapping[str, object] | None, name: str) -> int | None:

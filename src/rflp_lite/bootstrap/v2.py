@@ -26,6 +26,7 @@ from rflp_lite.application.settings_service import SettingsService
 from rflp_lite.application.tool_layer import EngineeringToolLayer
 from rflp_lite.application.vv_execution import VvExecutionService
 from rflp_lite.methodology.workflow import WorkflowRunner
+from rflp_lite.methodology.llm_controller import LLMController
 from rflp_lite.repository.sqlite import SQLiteModelRepository
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.retrieval.evidence import RetrievalEngine
@@ -103,6 +104,7 @@ class V2Services:
             repository,
             selection.runtime,
             runtime_selection=selection,
+            llm_controller=LLMController(selection.controller_model),
             context_builder=ContextBuilder(retrieval_engine),
             tool_layer=EngineeringToolLayer(repository, retrieval_engine=retrieval_engine),
         )

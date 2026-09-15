@@ -22,6 +22,7 @@ from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.engine import MethodologyEngine, MethodologyReport
 from rflp_lite.methodology.controller import ControllerPlan, SystemsEngineeringController
+from rflp_lite.methodology.llm_controller import LLMController
 from rflp_lite.methodology.impact import ImpactPlan, TypedImpactPlanner
 from rflp_lite.methodology.architecture_persistence import enrich_architecture_patch
 from rflp_lite.methodology.tasks import task_spec_hash
@@ -177,6 +178,7 @@ class ModelGenerationService:
         runtime_selection=None,
         methodology_engine: MethodologyEngine | None = None,
         controller: SystemsEngineeringController | None = None,
+        llm_controller: LLMController | None = None,
         tool_layer: EngineeringToolLayer | None = None,
         context_builder: ContextBuilder | None = None,
         methodology_version: str = "v2.1",
@@ -187,6 +189,7 @@ class ModelGenerationService:
         self.runtime_selection = runtime_selection
         self.methodology_engine = methodology_engine or MethodologyEngine()
         self.controller = controller or SystemsEngineeringController(self.methodology_engine)
+        self.llm_controller = llm_controller
         self.impact_planner = TypedImpactPlanner()
         self.tool_layer = tool_layer or EngineeringToolLayer(repository)
         self.context_builder = context_builder or ContextBuilder()
@@ -239,7 +242,7 @@ class ModelGenerationService:
         final_graph = self.repository.load_graph(project_id)
         traceability = build_traceability_summary(final_graph)
         methodology = self.methodology_engine.analyze(final_graph)
-        controller_plan = self.controller.plan(final_graph, methodology)
+        controller_plan = self._controller_plan(final_graph, methodology)
         warnings.extend(
             f"{finding.stage}: {finding.code}: {finding.message}"
             for finding in methodology.findings
@@ -368,7 +371,7 @@ class ModelGenerationService:
             final_graph,
             changed_entity_ids=(entity_id,),
         )
-        controller_plan = self.controller.plan(final_graph, methodology)
+        controller_plan = self._controller_plan(final_graph, methodology)
         warnings.extend(
             f"{finding.stage}: {finding.code}: {finding.message}"
             for finding in methodology.findings
@@ -449,7 +452,7 @@ class ModelGenerationService:
                 graph,
                 changed_entity_ids=(entity_id,),
             )
-            controller_plan = self.controller.plan(graph, methodology)
+            controller_plan = self._controller_plan(graph, methodology)
             return _continuation_noop_payload(
                 graph,
                 entity_id,
@@ -516,7 +519,7 @@ class ModelGenerationService:
             final_graph,
             changed_entity_ids=(entity_id,),
         )
-        controller_plan = self.controller.plan(final_graph, methodology)
+        controller_plan = self._controller_plan(final_graph, methodology)
         warnings.extend(
             f"{finding.stage}: {finding.code}: {finding.message}"
             for finding in methodology.findings
@@ -567,7 +570,11 @@ class ModelGenerationService:
             graph,
             changed_entity_ids=changed_entity_ids,
         )
-        return self.controller.plan(graph, report, max_actions=max_actions).as_dict()
+        return self._controller_plan(
+            graph,
+            report,
+            max_actions=max_actions,
+        ).as_dict()
 
     def iterate_controller(
         self,
@@ -660,7 +667,7 @@ class ModelGenerationService:
                 break
         final_graph = self.repository.load_graph(project_id)
         final_report = self.methodology_engine.analyze(final_graph)
-        final_controller = self.controller.plan(final_graph, final_report)
+        final_controller = self._controller_plan(final_graph, final_report)
         if terminal_status == "max_iterations" and not final_controller.actions:
             terminal_status = "completed"
         payload = {
@@ -681,6 +688,24 @@ class ModelGenerationService:
             "iteration_count": len(records),
         })
         return payload
+
+    def _controller_plan(
+        self,
+        graph,
+        report: MethodologyReport,
+        *,
+        include_llm: bool = True,
+        max_actions: int = 8,
+    ) -> ControllerPlan:
+        """Attach one read-only proposal to a deterministic controller plan."""
+
+        plan = self.controller.plan(graph, report, max_actions=max_actions)
+        if self.llm_controller is None or not include_llm:
+            return plan
+        return replace(
+            plan,
+            proposal=self.llm_controller.propose(graph, report, plan),
+        )
 
     def execute_controller_action(
         self,

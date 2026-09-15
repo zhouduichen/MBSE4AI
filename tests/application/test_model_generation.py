@@ -15,6 +15,7 @@ from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
 from rflp_lite.application.tool_layer import ToolResult
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionResponse
 from rflp_lite.methodology.controller import ControllerAction, ControllerPlan
+from rflp_lite.methodology.llm_controller import LLMController
 from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
 from rflp_lite.ports.generative_model import GenerationResponse
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
@@ -142,6 +143,36 @@ class ScriptedModel:
             "basis": [],
         }]
         return GenerationResponse(request.lens_id, payload, "input", "output", False, "fake", "scripted")
+
+
+class ControllerProposalModel:
+    supports_controller_proposals = True
+
+    def __init__(self, error=None):
+        self.error = error
+        self.calls = 0
+
+    def complete_json(self, request):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        action = request.user_payload["controller_plan"]["actions"][0]
+        option_id = action["options"][0]["id"] if action["options"] else None
+        return GenerationResponse(
+            request.lens_id,
+            {
+                "action_id": action["id"],
+                "option_id": option_id,
+                "rationale": "先处理当前最高优先级的工程缺口。",
+                "assumptions": ["当前确定性检查结果仍然有效"],
+                "open_questions": [],
+            },
+            "controller-input",
+            "controller-output",
+            False,
+            "fake-controller",
+            "remote-test-model",
+        )
 
 
 class SemanticInvalidModel(ScriptedModel):
@@ -1961,6 +1992,53 @@ def test_vertical_generation_bounds_stage_context_to_configured_window(tmp_path:
     ]
     assert assurance_guidances
     assert all("context_selection" in guidance for guidance in assurance_guidances)
+
+
+def test_generation_attaches_read_only_controller_proposal(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    model = ControllerProposalModel()
+    repository = services.repository("robot")
+    generation = ModelGenerationService(
+        repository,
+        VerticalRuleRuntime(),
+        llm_controller=LLMController(model),
+    )
+
+    generated = generation.generate("robot", requirement_text="系统应支持人工接管")
+    revision_before_query = repository.load_graph("robot").revision
+    plan = generation.controller_plan("robot")
+
+    assert generated.controller.proposal.status == "proposed"
+    assert plan["llm_proposal"]["status"] == "proposed"
+    assert repository.load_graph("robot").revision == revision_before_query
+    assert model.calls == 2
+
+
+def test_controller_proposal_failure_does_not_fail_generation(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("robot")
+    model = ControllerProposalModel(
+        TransportFailure(
+            "remote unavailable",
+            code="network_error",
+            provider_id="remote",
+            model_id="model",
+        )
+    )
+    generation = ModelGenerationService(
+        services.repository("robot"),
+        VerticalRuleRuntime(),
+        llm_controller=LLMController(model),
+    )
+
+    result = generation.generate("robot", requirement_text="系统应支持人工接管")
+
+    assert result.status in {"completed", "completed_with_warnings"}
+    assert result.controller.proposal.status == "fallback"
+    assert result.controller.proposal.diagnostics == (
+        "controller_proposal_network_error",
+    )
 
 
 def test_controller_evidence_action_calls_tool_and_reanalyzes(tmp_path: Path):

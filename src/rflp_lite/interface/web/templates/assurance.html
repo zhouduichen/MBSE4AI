@@ -4,6 +4,7 @@
 <div class="page-heading"><div><p class="eyebrow">验证与确认</p><h1>验证与确认工作台</h1><p>查看已有验证、确认、安全分析和质量检查事实 · 当前模型版本 {{ revision }}</p></div><span class="status-badge info">{{ gates|length }} 项检查</span></div>
 <section class="panel controller-panel">
   <div class="panel-head"><div><h2>系统工程下一步</h2><p>根据当前模型、验证结果和工程检查，选择下一步动作；方案权衡需要人工决策。</p></div><span class="status-badge {% if controller.status == 'complete' %}accepted{% else %}candidate{% endif %}">{{ controller.status_label }}</span></div>
+  {% if controller.llm_proposal %}{% set proposal = controller.llm_proposal %}<div class="callout info controller-proposal"><strong>{{ proposal.status_label }}</strong>{% if proposal.rationale %}：{{ proposal.rationale }}{% endif %}{% if proposal.assumptions %}<small>前提：{{ proposal.assumptions|join('；') }}</small>{% endif %}{% if proposal.open_questions %}<small>待确认：{{ proposal.open_questions|join('；') }}</small>{% endif %}</div>{% endif %}
   {% if controller.next_action %}
   {% set action = controller.next_action %}
   <article class="controller-action">

@@ -513,6 +513,22 @@ def _decorate_controller(raw: object) -> View:
     ]
     next_action = controller.get("next_action")
     next_action_id = _mapping(next_action).get("id") if next_action else None
+    proposal = _mapping(controller.get("llm_proposal"))
+    if proposal:
+        proposal = {
+            **proposal,
+            "rationale": str(proposal.get("rationale") or "")[:800],
+            "assumptions": [str(item)[:200] for item in proposal.get("assumptions", ())][:4]
+            if isinstance(proposal.get("assumptions"), (tuple, list)) else [],
+            "open_questions": [str(item)[:200] for item in proposal.get("open_questions", ())][:4]
+            if isinstance(proposal.get("open_questions"), (tuple, list)) else [],
+            "status_label": {
+                "proposed": "AI 建议",
+                "fallback": "确定性 Controller",
+                "not_configured": "未配置模型",
+                "not_needed": "暂无建议",
+            }.get(str(proposal.get("status")), "Controller 建议"),
+        }
     value.update({
         "status_label": _CONTROLLER_STATUS_LABELS.get(
             str(controller.get("status") or ""), _status_label(controller.get("status"))
@@ -522,6 +538,7 @@ def _decorate_controller(raw: object) -> View:
             (item for item in decorated_actions if item.get("id") == next_action_id),
             _decorate_controller_action(next_action) if next_action else None,
         ),
+        "llm_proposal": proposal,
     })
     return value
 
@@ -815,7 +832,7 @@ def _decorate_generation_run(services, project_id: str, graph: ModelGraph, run):
                     key: payload.get(key)
                     for key in (
                         "status", "objective", "findings", "actions", "next_action",
-                        "impacted_entity_ids", "impacted_stages",
+                        "impacted_entity_ids", "impacted_stages", "llm_proposal",
                     )
                 }
                 break

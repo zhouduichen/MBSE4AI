@@ -60,6 +60,7 @@ class OpenAICompatibleModel:
     """Translate the stable application request into one JSON-only model call."""
 
     supports_requirement_batching = True
+    supports_controller_proposals = True
 
     def __init__(
         self,
