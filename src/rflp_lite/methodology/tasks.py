@@ -165,7 +165,7 @@ def task_spec_hash(task: TaskSpec) -> str:
 def output_contract(task: TaskSpec) -> dict[str, object]:
     """Return the semantic TaskProposal schema accepted from a task runtime."""
 
-    payload_schemas = _payload_schemas()
+    payload_schemas = _payload_schemas(strict_functional=task.id == "vertical.functional")
     schema = proposal_schema(
         tuple(sorted(task.output_kinds, key=lambda kind: kind.value)),
         task.output_schema_id,
@@ -181,8 +181,8 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
     return schema
 
 
-def _payload_schemas() -> dict[str, dict[str, object]]:
-    return {
+def _payload_schemas(*, strict_functional: bool = False) -> dict[str, dict[str, object]]:
+    schemas = {
         EntityKind.SYSTEM.value: {
             "type": "object", "additionalProperties": False,
             "required": [
@@ -257,10 +257,6 @@ def _payload_schemas() -> dict[str, dict[str, object]]:
                 "internal_component_ids": {"type": "array", "items": {"type": "string"}},
             },
         },
-        EntityKind.FUNCTIONAL_SCENARIO.value: {
-            "type": "object", "additionalProperties": False,
-            "properties": {"function_ids": {"type": "array", "items": {"type": "string"}}, "steps": {"type": "array"}},
-        },
         EntityKind.LOGICAL_COMPONENT.value: _logical_payload_schema(),
         EntityKind.VERIFICATION_CASE.value: _vv_payload_schema(include_cross_analysis=True),
         EntityKind.VALIDATION_CASE.value: _vv_payload_schema(),
@@ -284,6 +280,42 @@ def _payload_schemas() -> dict[str, dict[str, object]]:
         },
         EntityKind.PHYSICAL_BLOCK.value: _physical_payload_schema(),
     }
+    if strict_functional:
+        schemas.update({
+            EntityKind.FUNCTION.value: {
+                "type": "object",
+                "required": ["decomposition"],
+                "properties": {
+                    "decomposition": {"type": ["string", "array"]},
+                },
+            },
+            EntityKind.FUNCTIONAL_FLOW.value: {
+                "type": "object",
+                "required": ["source_function_ids", "target_function_ids"],
+                "properties": {
+                    "source_function_ids": {
+                        "type": "array", "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                    "target_function_ids": {
+                        "type": "array", "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                },
+            },
+            EntityKind.FUNCTIONAL_SCENARIO.value: {
+                "type": "object",
+                "required": ["function_ids"],
+                "properties": {
+                    "function_ids": {
+                        "type": "array", "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                    "steps": {"type": "array"},
+                },
+            },
+        })
+    return schemas
 
 
 def _logical_payload_schema():

@@ -448,7 +448,10 @@ def test_payload_reference_materialization_resolves_vertical_local_refs():
                 "local_ref": "function-1",
                 "kind": EntityKind.FUNCTION.value,
                 "name": "规划配送",
-                "payload": {"behavior": "规划路径"},
+                "payload": {
+                    "behavior": "规划路径",
+                    "decomposition": ["解析需求", "规划路径", "反馈结果"],
+                },
             },
             {
                 "local_ref": "flow-1",
@@ -504,7 +507,10 @@ def test_payload_reference_materialization_rejects_unknown_graph_ref():
             "local_ref": "flow-1",
             "kind": EntityKind.FUNCTIONAL_FLOW.value,
             "name": "任务流",
-            "payload": {"source_function_ids": ["missing-function"]},
+            "payload": {
+                "source_function_ids": ["missing-function"],
+                "target_function_ids": ["missing-function"],
+            },
         }],
         "relations": [],
         "updates": [],
@@ -537,7 +543,10 @@ def test_payload_reference_materialization_applies_to_existing_entity_updates():
             "local_ref": "function-1",
             "kind": EntityKind.FUNCTION.value,
             "name": "规划配送",
-            "payload": {"behavior": "规划路径"},
+            "payload": {
+                "behavior": "规划路径",
+                "decomposition": ["解析需求", "规划路径", "反馈结果"],
+            },
         }],
         "relations": [],
         "updates": [{

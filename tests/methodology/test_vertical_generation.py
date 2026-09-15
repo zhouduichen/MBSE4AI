@@ -89,3 +89,18 @@ def test_vertical_prompts_require_mandatory_logical_state_and_assurance_risk_obj
 
     assert "至少生成一个代表系统运行状态或功能状态机的 state 实体" in logical.prompt_text
     assert "无论资料是否显式给出风险，都至少生成一个 hazard 和一个 failure_mode" in assurance.prompt_text
+
+
+def test_functional_contract_requires_traceable_behavior_payloads():
+    request = TaskExecutor(RuleRuntime()).request(
+        stage_task(VerticalStage.FUNCTIONAL),
+        ContextBundle("p1", "vertical.functional", 0, ()),
+        "v2.1",
+    )
+    schemas = request.output_contract["x-payload-schemas"]
+
+    assert schemas[EntityKind.FUNCTION.value]["required"] == ["decomposition"]
+    assert schemas[EntityKind.FUNCTIONAL_FLOW.value]["required"] == [
+        "source_function_ids", "target_function_ids",
+    ]
+    assert schemas[EntityKind.FUNCTIONAL_SCENARIO.value]["required"] == ["function_ids"]
