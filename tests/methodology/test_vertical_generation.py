@@ -73,3 +73,19 @@ def test_vertical_prompt_resources_resolve_and_include_review_metadata():
     assert request.prompt_version == "v1"
     assert "物理架构工程师" in request.prompt_text
     assert request.output_contract["properties"]["assumptions"]["type"] == "array"
+
+
+def test_vertical_prompts_require_mandatory_logical_state_and_assurance_risk_objects():
+    logical = TaskExecutor(RuleRuntime()).request(
+        stage_task(VerticalStage.LOGICAL),
+        ContextBundle("p1", "vertical.logical", 0, ()),
+        "v2.1",
+    )
+    assurance = TaskExecutor(RuleRuntime()).request(
+        stage_task(VerticalStage.VERIFICATION_VALIDATION),
+        ContextBundle("p1", "vertical.verification_validation", 0, ()),
+        "v2.1",
+    )
+
+    assert "至少生成一个代表系统运行状态或功能状态机的 state 实体" in logical.prompt_text
+    assert "无论资料是否显式给出风险，都至少生成一个 hazard 和一个 failure_mode" in assurance.prompt_text

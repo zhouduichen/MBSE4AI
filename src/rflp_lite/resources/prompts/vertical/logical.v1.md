@@ -10,4 +10,4 @@ dependencies 必须优先填写所依赖功能的 canonical id；读取 function
 
 重分析时优先复用 Function→LogicalComponent 的 allocatedTo 对象：对未锁定且未被人工修改的组件使用 `updates` 保持 canonical id 并刷新职责、分区和评价；不要因责任文本变化重复创建同一组件。人工修改或锁定的组件只作为只读锚点参与分析。
 
-只返回 TaskProposal JSON。entities 只能使用 logical_component、interface、state；relations 只能使用 allocatedTo、exchangesWith、connectedTo、decomposes、derivedFrom。确保每个功能至少有一条到逻辑组件的分配关系，并为共享状态生成 state 实体。无法确定的内容写入 assumptions 或 open_questions，不要返回 operations、Patch、revision 或解释。
+只返回 TaskProposal JSON。entities 只能使用 logical_component、interface、state；relations 只能使用 allocatedTo、exchangesWith、connectedTo、decomposes、derivedFrom。确保每个功能至少有一条到逻辑组件的分配关系，并且无论资料是否明确给出共享状态，都至少生成一个代表系统运行状态或功能状态机的 state 实体；没有证据支撑的状态转移写入 assumptions 或 open_questions，不得省略必需的 state。无法确定的内容写入 assumptions 或 open_questions，不要返回 operations、Patch、revision 或解释。
