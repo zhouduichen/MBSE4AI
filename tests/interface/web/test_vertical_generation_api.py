@@ -1,10 +1,74 @@
 from pathlib import Path
+from threading import Event
+import time
 
 from fastapi.testclient import TestClient
 
 from rflp_lite.application.llm_profiles import LLMProfileService
 from rflp_lite.interface.web.app import create_app
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
+
+
+class BlockingVerticalRuntime(VerticalRuleRuntime):
+    def __init__(self):
+        self.started = Event()
+        self.release = Event()
+
+    def execute(self, request):
+        self.started.set()
+        assert self.release.wait(5)
+        return super().execute(request)
+
+
+def test_async_generation_returns_run_before_model_generation_finishes(tmp_path: Path):
+    app = create_app(tmp_path / "workspaces")
+    runtime = BlockingVerticalRuntime()
+    app.state.container.v2._runtime_override = runtime
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    accepted = client.post(
+        "/projects/p1/analysis/runs",
+        json={"mode": "generate", "requirement_text": "系统应支持人工接管"},
+    )
+
+    assert accepted.status_code == 202
+    run = accepted.json()["run"]
+    assert run["status"] == "running"
+    assert run["progress_url"] == f"/projects/p1/runs/{run['run_id']}"
+    assert runtime.started.wait(2)
+    progress = client.get(run["progress_url"]).json()
+    assert progress["status"] == "ok"
+    assert progress["run"]["progress"]["total_stages"] == 5
+    assert progress["run"]["progress"]["current_stage"] == "requirements"
+
+    runtime.release.set()
+    deadline = time.monotonic() + 5
+    completed = None
+    while time.monotonic() < deadline:
+        completed = client.get(run["progress_url"]).json()["run"]
+        if completed["status"] == "completed":
+            break
+        time.sleep(0.02)
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["progress"]["completed_stages"] == 5
+    assert client.get("/projects/p1/model").json()["revision"] >= 1
+
+
+def test_async_generation_rejects_pipeline_mode_before_creating_run(tmp_path: Path):
+    app = create_app(tmp_path / "workspaces")
+    app.state.container.v2._runtime_override = VerticalRuleRuntime()
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    response = client.post(
+        "/projects/p1/analysis/runs",
+        json={"mode": "pipeline", "requirement_text": "系统应支持人工接管"},
+    )
+
+    assert response.status_code == 422
+    assert app.state.container.v2.repository("p1").list_runs("p1") == ()
 
 
 def _client(tmp_path: Path) -> TestClient:

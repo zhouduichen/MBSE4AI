@@ -166,6 +166,71 @@ def _analysis_service(request: Request, project_id: str, *, profile_id: str | No
         return AnalysisService(WorkflowRunner(repository, repository, runtime or NoopRuntime()))
 
 
+_VERTICAL_PROGRESS_STAGES = (
+    ("requirements", "需求分析"),
+    ("functional", "功能分析"),
+    ("logical", "逻辑架构"),
+    ("physical", "物理架构"),
+    ("verification_validation", "验证与确认"),
+)
+_TERMINAL_RUN_STATES = frozenset({"completed", "failed", "blocked", "degraded", "cancelled"})
+
+
+def _run_progress(run) -> Mapping[str, object]:
+    """Expose a compact, stage-level progress view for the Web workbench."""
+
+    status = _value(getattr(run, "status", "queued"), "queued")
+    steps = {
+        str(getattr(step, "task_id", "")).removeprefix("vertical."): step
+        for step in getattr(run, "steps", ())
+    }
+    stages = []
+    for stage, label in _VERTICAL_PROGRESS_STAGES:
+        step = steps.get(stage)
+        step_status = _value(getattr(step, "status", "queued"), "queued")
+        if status in _TERMINAL_RUN_STATES and step_status == "running":
+            step_status = status
+        stages.append({"stage": stage, "label": label, "status": step_status})
+    completed_stages = sum(item["status"] == "completed" for item in stages)
+    current = next((item for item in stages if item["status"] not in {"completed", "cancelled"}), None)
+    return {
+        "status": status,
+        "current_stage": current["stage"] if current else None,
+        "current_stage_label": current["label"] if current else ("已完成" if status == "completed" else "准备运行"),
+        "completed_stages": completed_stages,
+        "total_stages": len(stages),
+        "stages": stages,
+    }
+
+
+def _run_generation_job(
+    services,
+    project_id: str,
+    run_id: str,
+    requirement_text: str | None,
+    document_ids: tuple[str, ...],
+    profile_id: str | None,
+) -> None:
+    try:
+        services.generation(project_id, profile_id=profile_id).generate(
+            project_id,
+            requirement_text=requirement_text,
+            document_ids=document_ids,
+            run_id=run_id,
+            force_new=True,
+        )
+    except Exception as exc:  # Background work must always settle its Run.
+        message = str(exc).strip()[:240] or type(exc).__name__
+        try:
+            services.repository(project_id).update_run(
+                run_id,
+                "failed",
+                (f"async_generation_{type(exc).__name__}: {message}",),
+            )
+        except Exception:
+            pass
+
+
 def _call_run(analysis, project_id: str, phase: Phase, run_id: str | None = None, *, force_run: bool = False):
     if run_id is None and not force_run:
         return analysis.run(project_id, phase)
@@ -631,6 +696,62 @@ async def run_analysis(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.post("/projects/{project_id}/analysis/runs", status_code=202)
+async def start_async_generation(request: Request, project_id: str):
+    try:
+        payload = await request.json()
+        if payload is not None and not isinstance(payload, Mapping):
+            raise ContractViolation("analysis payload must be an object")
+        payload = payload if isinstance(payload, Mapping) else {}
+        mode = str(payload.get("mode", "generate")).casefold()
+        if mode not in {"generate", "vertical"}:
+            raise ContractViolation("async generation only supports mode=generate or mode=vertical")
+
+        services = _services(request)
+        profile_id = str(payload.get("profile_id", "")).strip() or None
+        requirement_text = str(payload.get("requirement_text", "")).strip() or None
+        goal = str(payload.get("goal", "")).strip() or None
+        document_ids = tuple(
+            str(item) for item in payload.get("document_ids", ()) if str(item).strip()
+        )
+        if goal:
+            services.context(project_id).set_goal(goal)
+        if not services.projects.has_analysis_input(project_id) and not (requirement_text or document_ids):
+            raise InputRequired("submit a requirement or ingest a document before analysis")
+
+        run_id = f"web-run-{uuid4().hex[:16]}"
+        services.generation(project_id, profile_id=profile_id).prepare_generation(
+            project_id,
+            requirement_text=requirement_text,
+            document_ids=document_ids,
+            run_id=run_id,
+            force_new=True,
+        )
+        executor = getattr(request.app.state, "analysis_executor", None)
+        if executor is None:
+            raise ContractViolation("async generation executor is not configured")
+        executor.submit(
+            _run_generation_job,
+            services,
+            project_id,
+            run_id,
+            requirement_text,
+            document_ids,
+            profile_id,
+        )
+        return {
+            "status": "accepted",
+            "run": {
+                "run_id": run_id,
+                "project_id": project_id,
+                "status": "running",
+                "progress_url": f"/projects/{project_id}/runs/{run_id}",
+            },
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.get("/projects/{project_id}/analysis")
 def get_analysis(request: Request, project_id: str):
     try:
@@ -690,7 +811,9 @@ def get_run(request: Request, project_id: str, run_id: str):
         run = _services(request).repository(project_id).load_run(project_id, run_id)
         if run is None:
             raise ContractViolation(f"run not found: {run_id}")
-        return {"status": "ok", "run": asdict(run)}
+        payload = asdict(run)
+        payload["progress"] = _run_progress(run)
+        return {"status": "ok", "run": payload}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 
