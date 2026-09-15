@@ -164,6 +164,29 @@ _GUIDANCE_METRICS = {
         "verification_evidence_coverage", "validation_evidence_coverage",
     ),
 }
+_GUIDANCE_DECISION_STEPS = {
+    "requirements": frozenset({
+        "operational_context_check",
+        "system_requirement_derivation",
+    }),
+    "functional": frozenset({
+        "function_identification",
+        "functional_interaction",
+    }),
+    "logical": frozenset({
+        "dependency_clustering",
+        "architecture_evaluation",
+        "logical_architecture_trade_study",
+    }),
+    "physical": frozenset({
+        "physical_feasibility_trade_study",
+    }),
+    "assurance": frozenset({
+        "verification_validation",
+        "global_cross_analysis",
+        "verification_execution_feedback",
+    }),
+}
 
 
 def build_methodology_guidance(
@@ -180,6 +203,15 @@ def build_methodology_guidance(
         for key in _GUIDANCE_METRICS.get(stage, ())
         if key in report.metrics
     }
+    decision_steps = _GUIDANCE_DECISION_STEPS.get(stage)
+    if decision_steps is None:
+        scoped_decisions = list(report.decisions)
+    else:
+        scoped_decisions = [
+            item for item in report.decisions
+            if str(item.get("step", "")) in decision_steps
+        ]
+    decision_records = [dict(item) for item in scoped_decisions[-6:]]
     guidance = {
         "version": "methodology-guidance.v1",
         "task_id": task_id,
@@ -191,9 +223,16 @@ def build_methodology_guidance(
             if not stage or finding.stage == stage
         ][:6],
         "recommended_tasks": list(report.recommended_tasks[:8]),
-        "decisions": [dict(item) for item in report.decisions[-4:]],
+        "decisions": decision_records,
         "impacted_entity_ids": list(report.impacted_entity_ids[:24]),
     }
+    if stage:
+        guidance["decision_package"] = {
+            "stage": stage,
+            "decision_records": decision_records,
+            "decision_count": len(scoped_decisions),
+            "truncated": len(scoped_decisions) > len(decision_records),
+        }
     if task_id.startswith("vertical."):
         guidance["stage_contract"] = stage_spec(
             task_id.removeprefix("vertical.")

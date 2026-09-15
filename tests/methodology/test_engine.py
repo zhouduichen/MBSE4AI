@@ -526,3 +526,23 @@ def test_vertical_guidance_exposes_machine_readable_stage_contract():
         "dependency_clustering",
         "architecture_evaluation",
     ]
+
+
+def test_methodology_guidance_scopes_decisions_to_current_stage():
+    report = MethodologyEngine().analyze(_graph())
+
+    guidance = build_methodology_guidance(report, "logical_analysis")
+
+    steps = {item["step"] for item in guidance["decisions"]}
+    assert steps
+    assert steps <= {
+        "dependency_clustering",
+        "architecture_evaluation",
+        "logical_architecture_trade_study",
+    }
+    assert guidance["decision_package"] == {
+        "stage": "logical",
+        "decision_records": guidance["decisions"],
+        "decision_count": len(guidance["decisions"]),
+        "truncated": False,
+    }
