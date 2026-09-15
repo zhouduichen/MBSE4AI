@@ -371,6 +371,20 @@ def test_multi_kind_task_requires_kind():
         compile_task_proposal(request, payload)
 
 
+def test_multi_kind_provider_schema_binds_payload_to_entity_kind():
+    task = stage_task(VerticalStage.LOGICAL)
+    entity_schema = output_contract(task)["properties"]["entities"]["items"]
+
+    logical_branch = next(
+        item for item in entity_schema["oneOf"]
+        if item["properties"]["kind"] == {"const": EntityKind.LOGICAL_COMPONENT.value}
+    )
+
+    assert logical_branch["properties"]["payload"]["required"] == [
+        "responsibility", "architecture_rationale",
+    ]
+
+
 def test_local_ref_resolves_relation_to_entity_created_in_same_proposal():
     task = next(item for item in task_catalog() if item.id == "function_identification")
     requirement = make_entity(EntityKind.REQUIREMENT, "系统应完成投递", {"obligation": "shall"})
@@ -532,7 +546,7 @@ def test_vertical_architecture_payload_schema_rejects_missing_selection_evidence
         "reason": "缺少架构选择依据",
     }
 
-    with pytest.raises(ContractViolation, match=f"invalid {kind.value} payload"):
+    with pytest.raises(ContractViolation, match="task proposal schema is invalid"):
         compile_task_proposal(request, proposal)
 
 

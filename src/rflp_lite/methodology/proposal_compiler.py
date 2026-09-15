@@ -120,6 +120,9 @@ def proposal_schema(
     }
     if len(kind_values) > 1:
         entity_schema["required"].append("kind")
+        entity_schema["oneOf"] = _entity_kind_payload_branches(
+            kind_values, payload_schemas
+        )
     if len(kind_values) == 1:
         payload_schema = payload_schemas.get(kind_values[0])
         if isinstance(payload_schema, Mapping):
@@ -214,6 +217,32 @@ def proposal_schema(
             "max_operations": policy.max_operations,
         },
     }
+
+
+def _entity_kind_payload_branches(
+    kind_values: list[str],
+    payload_schemas: Mapping[str, Mapping[str, object]],
+) -> list[Mapping[str, object]]:
+    """Bind each multi-kind entity to its own payload contract.
+
+    The common entity envelope remains available for callers that inspect the
+    schema, while the provider-facing ``oneOf`` makes a multi-kind proposal
+    carry the same kind-specific fields that the compiler validates later.
+    Kinds without a dedicated payload schema intentionally keep an open object
+    payload so legacy task contracts remain compatible.
+    """
+
+    branches: list[Mapping[str, object]] = []
+    for kind_value in kind_values:
+        properties = {"kind": {"const": kind_value}}
+        payload_schema = payload_schemas.get(kind_value)
+        if isinstance(payload_schema, Mapping):
+            properties["payload"] = dict(payload_schema)
+        branches.append({
+            "type": "object",
+            "properties": properties,
+        })
+    return branches
 
 
 def _effective_policy(request: TaskExecutionRequest, allowed_kinds: set[EntityKind]) -> PatchPolicy:
