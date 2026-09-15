@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from rflp_lite.application.sysml_v2 import graph_to_sysml
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.model import ModelGraph
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.interface.web.app import create_app
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
@@ -102,17 +103,17 @@ def test_partial_sysml_model_can_start_analysis_without_requirement_text(tmp_pat
     app.state.container.v2._runtime_override = VerticalRuleRuntime()
     client = TestClient(app)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    source_entity = make_entity(
+        EntityKind.FUNCTION,
+        "已有配送功能",
+        {"behavior": "完成配送"},
+        status=EntityStatus.ACCEPTED,
+        producer=Producer.IMPORT,
+    )
     source = graph_to_sysml(
         ModelGraph(
             "source",
-            (
-                make_entity(
-                    EntityKind.FUNCTION,
-                    "已有配送功能",
-                    status=EntityStatus.ACCEPTED,
-                    producer=Producer.IMPORT,
-                ),
-            ),
+            (source_entity,),
             (),
             0,
         )
@@ -131,4 +132,14 @@ def test_partial_sysml_model_can_start_analysis_without_requirement_text(tmp_pat
     assert sum(item["kind"] == "requirement" for item in model["entities"]) == 1
     assert sum(item["kind"] == "function" for item in model["entities"]) == 1
     assert any(item["kind"] == "physical_block" for item in model["entities"])
+    function = next(item for item in model["entities"] if item["kind"] == "function")
+    assert function["id"] == source_entity.id
+    assert function["name"] == "已有配送功能"
+    requirement = next(item for item in model["entities"] if item["kind"] == "requirement")
+    assert any(
+        relation["source_id"] == requirement["id"]
+        and relation["predicate"] == RelationPredicate.SATISFIED_BY.value
+        and relation["target_id"] == source_entity.id
+        for relation in model["relations"]
+    )
     assert response.json()["run"]["traceability"]["complete_count"] == 1

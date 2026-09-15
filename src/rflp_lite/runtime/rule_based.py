@@ -518,7 +518,9 @@ class VerticalRuleRuntime:
             if function is None:
                 function = builder.add(EntityKind.FUNCTION, function_name, function_payload)
             else:
-                builder.update(function, name=function_name, payload=function_payload)
+                # An existing function may be an imported, reviewed model fact. Keep its
+                # stable name when continuing the chain; only refresh generated linkage.
+                builder.update(function, payload=function_payload)
             builder.relate(requirement, RelationPredicate.SATISFIED_BY, function)
         functions = _builder_entities(builder, EntityKind.FUNCTION)
         for requirement in requirements:
