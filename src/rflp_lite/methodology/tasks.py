@@ -165,7 +165,11 @@ def task_spec_hash(task: TaskSpec) -> str:
 def output_contract(task: TaskSpec) -> dict[str, object]:
     """Return the semantic TaskProposal schema accepted from a task runtime."""
 
-    payload_schemas = _payload_schemas(strict_functional=task.id == "vertical.functional")
+    payload_schemas = _payload_schemas(
+        strict_functional=task.id == "vertical.functional",
+        strict_logical=task.id == "vertical.logical",
+        strict_physical=task.id == "vertical.physical",
+    )
     schema = proposal_schema(
         tuple(sorted(task.output_kinds, key=lambda kind: kind.value)),
         task.output_schema_id,
@@ -181,7 +185,12 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
     return schema
 
 
-def _payload_schemas(*, strict_functional: bool = False) -> dict[str, dict[str, object]]:
+def _payload_schemas(
+    *,
+    strict_functional: bool = False,
+    strict_logical: bool = False,
+    strict_physical: bool = False,
+) -> dict[str, dict[str, object]]:
     schemas = {
         EntityKind.SYSTEM.value: {
             "type": "object", "additionalProperties": False,
@@ -315,6 +324,16 @@ def _payload_schemas(*, strict_functional: bool = False) -> dict[str, dict[str, 
                 },
             },
         })
+    if strict_logical:
+        schemas[EntityKind.LOGICAL_COMPONENT.value] = {
+            **schemas[EntityKind.LOGICAL_COMPONENT.value],
+            "required": ["responsibility", "architecture_rationale"],
+        }
+    if strict_physical:
+        schemas[EntityKind.PHYSICAL_BLOCK.value] = {
+            **schemas[EntityKind.PHYSICAL_BLOCK.value],
+            "required": ["candidate_type", "selection_rationale"],
+        }
     return schemas
 
 

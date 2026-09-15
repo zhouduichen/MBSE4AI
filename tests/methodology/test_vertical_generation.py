@@ -104,3 +104,20 @@ def test_functional_contract_requires_traceable_behavior_payloads():
         "source_function_ids", "target_function_ids",
     ]
     assert schemas[EntityKind.FUNCTIONAL_SCENARIO.value]["required"] == ["function_ids"]
+
+    logical_request = TaskExecutor(RuleRuntime()).request(
+        stage_task(VerticalStage.LOGICAL),
+        ContextBundle("p1", "vertical.logical", 0, ()),
+        "v2.1",
+    )
+    physical_request = TaskExecutor(RuleRuntime()).request(
+        stage_task(VerticalStage.PHYSICAL),
+        ContextBundle("p1", "vertical.physical", 0, ()),
+        "v2.1",
+    )
+    assert logical_request.output_contract["x-payload-schemas"][EntityKind.LOGICAL_COMPONENT.value]["required"] == [
+        "responsibility", "architecture_rationale",
+    ]
+    assert physical_request.output_contract["x-payload-schemas"][EntityKind.PHYSICAL_BLOCK.value]["required"] == [
+        "candidate_type", "selection_rationale",
+    ]

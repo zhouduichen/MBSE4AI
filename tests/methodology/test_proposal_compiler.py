@@ -486,6 +486,56 @@ def test_payload_reference_materialization_resolves_vertical_local_refs():
     assert scenario.payload["function_ids"] == [function_id]
 
 
+@pytest.mark.parametrize(
+    ("stage", "kind", "payload"),
+    (
+        (
+            VerticalStage.LOGICAL,
+            EntityKind.LOGICAL_COMPONENT,
+            {"responsibility": "协调配送功能"},
+        ),
+        (
+            VerticalStage.PHYSICAL,
+            EntityKind.PHYSICAL_BLOCK,
+            {"candidate_type": "可部署执行单元"},
+        ),
+    ),
+)
+def test_vertical_architecture_payload_schema_rejects_missing_selection_evidence(
+    stage, kind, payload,
+):
+    task = stage_task(stage)
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应完成投递",
+        {"obligation": "系统应完成投递"},
+    )
+    request = TaskExecutionRequest(
+        task.id,
+        "v2.1",
+        ContextBundle("p1", task.id, 3, (requirement,)),
+        (),
+        output_contract(task),
+        100,
+        patch_policy=task.patch_policy,
+    )
+    proposal = {
+        "entities": [{
+            "local_ref": "architecture-1",
+            "kind": kind.value,
+            "name": "配送架构候选",
+            "payload": payload,
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "缺少架构选择依据",
+    }
+
+    with pytest.raises(ContractViolation, match=f"invalid {kind.value} payload"):
+        compile_task_proposal(request, proposal)
+
+
 def test_payload_reference_materialization_rejects_unknown_graph_ref():
     task = stage_task(VerticalStage.FUNCTIONAL)
     request = TaskExecutionRequest(

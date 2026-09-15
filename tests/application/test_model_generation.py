@@ -109,7 +109,11 @@ class ScriptedModel:
             relation("function", "exchangesWith", "flow")
         elif request.lens_id == "vertical.logical":
             functions = by_kind.get("function", [])
-            entity("logical", "logical_component", "配送控制组件", {"responsibility": "协调配送功能", "interfaces": []})
+            entity("logical", "logical_component", "配送控制组件", {
+                "responsibility": "协调配送功能",
+                "architecture_rationale": "按配送职责形成逻辑分区",
+                "interfaces": [],
+            })
             entity("interface", "interface", "配送服务接口", {"protocol": "logical-message", "exchanges": ["request", "response"]})
             entity("state", "state", "配送任务状态", {"values": ["待受理", "执行中", "人工接管", "完成", "失败"], "transitions": ["待受理->执行中", "执行中->完成"]})
             if functions:
@@ -117,7 +121,12 @@ class ScriptedModel:
                 relation(functions[0]["id"], "exchangesWith", "interface")
             relation("logical", "decomposes", "state")
         elif request.lens_id == "vertical.physical":
-            entity("physical", "physical_block", "配送执行单元", {"candidate_type": "可部署执行单元", "constraints": ["满足逻辑职责"], "rationale": "承载配送控制"})
+            entity("physical", "physical_block", "配送执行单元", {
+                "candidate_type": "可部署执行单元",
+                "selection_rationale": "选择能够承载逻辑职责的物理候选",
+                "constraints": ["满足逻辑职责"],
+                "rationale": "承载配送控制",
+            })
             logical = by_kind.get("logical_component", [])
             if logical:
                 relation(logical[0]["id"], "allocatedTo", "physical")
