@@ -602,12 +602,16 @@ def test_structured_runtime_batches_large_vv_worklist_and_merges_patch():
             "requirement_id": item.id,
             "statement": item.payload["statement"],
             "missing": [],
-        }]
-        for item in ordered_requirements
+        } for item in batch]
+        for batch in (
+            ordered_requirements[:2],
+            ordered_requirements[2:4],
+            ordered_requirements[4:],
+        )
     ]
     assert [request.user_payload["requirement_batch"] for request in model.calls] == [
-        {"index": index, "count": 5, "is_first": index == 1}
-        for index in range(1, 6)
+        {"index": index, "count": 3, "is_first": index == 1}
+        for index in range(1, 4)
     ]
     added = [
         operation.entity
@@ -623,7 +627,7 @@ def test_structured_runtime_batches_large_vv_worklist_and_merges_patch():
     ]
     assert len(relation_keys) == 10
     assert len(relation_keys) == len(set(relation_keys))
-    assert "batch_count=5" in result.diagnostics
+    assert "batch_count=3" in result.diagnostics
 
 
 @pytest.mark.parametrize("stage", ("functional", "logical", "physical"))
@@ -650,17 +654,22 @@ def test_structured_runtime_batches_large_rflp_worklist(stage):
         [item["requirement_id"] for item in call.user_payload["requirement_worklist"]]
         for call in model.calls
     ] == [
-        [item.id] for item in ordered_requirements
+        [item.id for item in batch]
+        for batch in (
+            ordered_requirements[:2],
+            ordered_requirements[2:4],
+            ordered_requirements[4:],
+        )
     ]
     assert [call.user_payload["requirement_batch"] for call in model.calls] == [
-        {"index": index, "count": 5, "is_first": index == 1}
-        for index in range(1, 6)
+        {"index": index, "count": 3, "is_first": index == 1}
+        for index in range(1, 4)
     ]
     assert all(
         f"当前是 vertical.{stage} 第" in call.system_prompt
         for call in model.calls
     )
-    assert "batch_count=5" in result.diagnostics
+    assert "batch_count=3" in result.diagnostics
 
 
 def test_structured_runtime_rejects_merged_vv_patch_over_effective_limit():
@@ -678,7 +687,7 @@ def test_structured_runtime_rejects_merged_vv_patch_over_effective_limit():
         StructuredModelRuntime(model).execute(request)
 
     assert error.value.code == "batch_operation_limit"
-    assert len(model.calls) == 9
+    assert len(model.calls) == 5
 
 
 def test_structured_runtime_discards_partial_vv_batches_on_failure():

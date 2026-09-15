@@ -33,11 +33,10 @@ _VERTICAL_BATCH_TASKS = frozenset({
     _VV_BATCH_TASK,
 })
 _VERTICAL_BATCH_THRESHOLD = 3
-# One requirement per provider call keeps a legitimate RFLP slice below the
-# global 32-operation response contract. The extra calls are deliberate: a
-# small vertical increment is more useful than a mixed batch that cannot be
-# committed and therefore never reaches L/P/V&V.
-_VERTICAL_BATCH_SIZE = 1
+# Two requirements per provider call keeps a legitimate RFLP slice small while
+# avoiding a five-call serial bottleneck for ordinary CASE-04-sized inputs.
+# The aggregate patch is still validated after all batches are merged.
+_VERTICAL_BATCH_SIZE = 2
 
 
 @dataclass(frozen=True, slots=True)

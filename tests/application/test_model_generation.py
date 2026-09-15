@@ -1214,13 +1214,13 @@ def test_structured_runtime_batches_five_requirement_vv_and_keeps_full_trace(tmp
         for lens_id, worklist in zip(model.calls, model.requirement_worklists)
         if lens_id == "vertical.verification_validation"
     ]
-    assert [len(worklist) for worklist in vv_batches] == [1, 1, 1, 1, 1]
+    assert [len(worklist) for worklist in vv_batches] == [2, 2, 1]
     vv_stage = next(
         stage
         for stage in result.stage_results
         if stage.stage == "verification_validation"
     )
-    assert "batch_count=5" in vv_stage.diagnostics
+    assert "batch_count=3" in vv_stage.diagnostics
 
     exported = graph_to_sysml(graph)
     restored = sysml_to_graph(exported, "drone")
