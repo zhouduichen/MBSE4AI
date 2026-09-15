@@ -231,6 +231,47 @@ def resolve_vertical_coverage(
     return VerticalCoverage(stage_name, rows, all(not row.missing for row in rows))
 
 
+def build_requirement_worklist(
+    graph: ModelGraph,
+    stage: CoverageStage | str,
+    *,
+    max_items: int = 24,
+) -> Mapping[str, object]:
+    """Expose compact, per-requirement work items for a vertical LLM call.
+
+    The coverage resolver remains the source of truth.  This projection adds
+    the current canonical targets so a stage can repair an exact requirement
+    without relying on aggregate entity counts.
+    """
+
+    coverage = resolve_vertical_coverage(graph, stage)
+    limit = max(0, int(max_items))
+    items = []
+    for row in coverage.rows[:limit]:
+        requirement = graph.entity_index[row.requirement_id]
+        statement = requirement.payload.get("statement", requirement.meta.name)
+        items.append({
+            "requirement_id": row.requirement_id,
+            "statement": str(statement).strip() or requirement.meta.name,
+            "current": {
+                "function_ids": list(row.function_ids),
+                "logical_component_ids": list(row.logical_component_ids),
+                "physical_ids": list(row.physical_ids),
+                "verification_case_ids": list(row.verification_case_ids),
+                "validation_case_ids": list(row.validation_case_ids),
+            },
+            "missing": list(row.missing),
+            "path": list(row.path),
+        })
+    return {
+        "stage": coverage.stage,
+        "passed": coverage.passed,
+        "items": items,
+        "total_count": len(coverage.rows),
+        "truncated": len(coverage.rows) > limit,
+    }
+
+
 def _stage_requirements(
     graph: ModelGraph,
     stage: CoverageStage,

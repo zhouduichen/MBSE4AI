@@ -12,6 +12,7 @@ from rflp_lite.methodology.context_planner import ContextPlanner, PlannedContext
 from rflp_lite.methodology.contracts import ContextBundle, TaskSpec
 from rflp_lite.methodology.engine import MethodologyEngine
 from rflp_lite.methodology.trace_rules import requirement_trace_scope
+from rflp_lite.methodology.vertical_coverage import build_requirement_worklist
 from rflp_lite.retrieval.planner import KnowledgeGap, build_gap_query
 
 
@@ -101,6 +102,17 @@ class ContextBuilder:
         methodology_guidance = dict(
             self.methodology_engine.context_guidance(graph, task.id)
         )
+        coverage_stage = {
+            "vertical.functional": "functional",
+            "vertical.logical": "logical",
+            "vertical.physical": "physical",
+            "vertical.verification_validation": "verification_validation",
+        }.get(task.id)
+        if coverage_stage is not None:
+            methodology_guidance["requirement_worklist"] = build_requirement_worklist(
+                graph,
+                coverage_stage,
+            )
         if assurance_guidance:
             methodology_guidance["context_selection"] = assurance_guidance
         context = ContextBundle(

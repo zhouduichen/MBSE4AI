@@ -76,7 +76,7 @@ Review 后的显式“继续生成下游”调用 `ModelGenerationService.contin
 
 ## 当前纵向推理增强
 
-五阶段生成现在逐项计算其内部 23-task 完成检查，并把结果同时返回给工作台、写入阶段审计摘要、反馈到下一次 `methodology_guidance`。Logical 阶段读取功能依赖和功能流端点，支持有证据的传递聚类；没有明确边界证据的独立需求仍保持独立组件，同时在组件载荷中记录 flow、cross-component、内聚/耦合和备选分区证据。Physical 和 V&V 阶段对约束传播、可行性权衡和交叉分析字段执行同一套确定性完成检查；缺口会进入 `needs_review`，而不是伪报完整。
+五阶段生成现在逐项计算其内部 23-task 完成检查，并把结果同时返回给工作台、写入阶段审计摘要、反馈到下一次 `methodology_guidance`。ContextBuilder 针对 Functional、Logical、Physical 和 V&V 生成完整 ModelGraph 的逐需求 `requirement_worklist`，每项携带已有 canonical 目标、当前 RFLP/V&V 路径和确定性缺口；StructuredModelRuntime 优先复用这些 ID，只补当前阶段缺口，并显式保留有界投影的 `truncated` 标记。Logical 阶段读取功能依赖和功能流端点，支持有证据的传递聚类；没有明确边界证据的独立需求仍保持独立组件，同时在组件载荷中记录 flow、cross-component、内聚/耦合和备选分区证据。Physical 和 V&V 阶段对约束传播、可行性权衡和交叉分析字段执行同一套确定性完成检查；缺口会进入 `needs_review`，而不是伪报完整。
 
 追溯闭环另有共享的 `requirement_trace_scope` 规则：它沿需求派生链解析
 Function→LogicalComponent→PhysicalBlock，并合并技术需求的直接物理分配；

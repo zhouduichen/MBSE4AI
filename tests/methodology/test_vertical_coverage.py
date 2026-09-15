@@ -2,6 +2,7 @@ from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_e
 from rflp_lite.domain.model import ModelGraph, Relation
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.vertical_coverage import (
+    build_requirement_worklist,
     resolve_requirement_trace,
     resolve_rflp_paths,
     resolve_vertical_coverage,
@@ -192,3 +193,18 @@ def test_canonical_rflp_paths_are_deterministic_and_ready_only():
         (first.id, row.function_ids[0], row.logical_component_ids[0], row.physical_ids[0]),
     )
     assert resolve_rflp_paths(graph, second.id) == ()
+
+
+def test_requirement_worklist_exposes_current_path_and_exact_gap():
+    graph, first, second = _two_requirement_graph()
+
+    worklist = build_requirement_worklist(graph, "logical")
+
+    assert worklist["stage"] == "logical"
+    assert worklist["total_count"] == 2
+    assert worklist["truncated"] is False
+    first_item = next(item for item in worklist["items"] if item["requirement_id"] == first.id)
+    second_item = next(item for item in worklist["items"] if item["requirement_id"] == second.id)
+    assert first_item["current"]["logical_component_ids"]
+    assert first_item["path"][-1] == first_item["current"]["logical_component_ids"][0]
+    assert second_item["missing"] == ["function", "logical_component"]
