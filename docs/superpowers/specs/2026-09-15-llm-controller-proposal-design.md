@@ -70,6 +70,8 @@ class ControllerProposal:
     diagnostics: tuple[str, ...] = ()
     input_hash: str = ""
     output_hash: str = ""
+    provider_id: str = ""
+    model_id: str = ""
 ```
 
 `ControllerPlan` 增加可选 `proposal` 字段；其 `actions`、`next_action`、`impacted_entity_ids` 和 `impacted_stages` 语义保持不变。序列化时以 `llm_proposal` 字段附加提案，不改变现有 action JSON。
@@ -112,7 +114,7 @@ def propose(
 6. 校验成功后从确定性 action catalog 复制动作语义，只保留 LLM 的理由、假设和待补问题，返回 `proposed`。
 7. 对 Transport、结构化响应、schema 或未知引用错误只保存错误码、provider/model 和 hash/size 摘要，不保存无界原始响应；确定性计划仍正常返回。
 
-提案服务不持久化新的 ModelGraph 节点或数据库表。提案随当前 API/运行结果返回，并以受限审计事件记录输入/输出 hash、选定 action/option、provider/model 和状态。
+提案服务不持久化新的 ModelGraph 节点或数据库表。提案随当前 API/运行结果返回，并以受限审计事件记录输入/输出 hash、选定 action/option、provider/model 和状态；provider/model 只使用配置标识，不包含凭据。
 
 ## 运行时装配
 
