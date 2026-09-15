@@ -165,6 +165,31 @@ class BatchedVvModel:
         )
 
 
+class BatchedVerticalModel:
+    supports_requirement_batching = True
+
+    def __init__(self):
+        self.calls = []
+
+    def complete_json(self, request):
+        self.calls.append(request)
+        return GenerationResponse(
+            request.lens_id,
+            {
+                "entities": [],
+                "relations": [],
+                "updates": [],
+                "deprecations": [],
+                "reason": "等待当前批次的需求工作项",
+            },
+            "input",
+            f"output-{len(self.calls)}",
+            False,
+            "fake",
+            "fake-model",
+        )
+
+
 def test_runtime_adapts_task_context_to_generation_request():
     model = FakeModel()
     runtime = StructuredModelRuntime(model)
@@ -369,6 +394,46 @@ def test_structured_runtime_batches_large_vv_worklist_and_merges_patch():
     ]
     assert len(relation_keys) == 10
     assert len(relation_keys) == len(set(relation_keys))
+    assert "batch_count=3" in result.diagnostics
+
+
+@pytest.mark.parametrize("stage", ("functional", "logical", "physical"))
+def test_structured_runtime_batches_large_rflp_worklist(stage):
+    model = BatchedVerticalModel()
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求 {index}",
+            {"statement": f"系统应满足需求 {index}"},
+        )
+        for index in range(5)
+    )
+    context = ContextBundle("p1", f"vertical.{stage}", 3, requirements)
+    request = TaskExecutor(model).request(
+        stage_task(stage), context, "v2.1", token_budget=2048
+    )
+
+    result = StructuredModelRuntime(model).execute(request)
+
+    ordered_requirements = tuple(sorted(requirements, key=lambda item: item.id))
+    assert result.patch is None
+    assert [
+        [item["requirement_id"] for item in call.user_payload["requirement_worklist"]]
+        for call in model.calls
+    ] == [
+        [item.id for item in ordered_requirements[:2]],
+        [item.id for item in ordered_requirements[2:4]],
+        [ordered_requirements[4].id],
+    ]
+    assert [call.user_payload["requirement_batch"] for call in model.calls] == [
+        {"index": 1, "count": 3, "is_first": True},
+        {"index": 2, "count": 3, "is_first": False},
+        {"index": 3, "count": 3, "is_first": False},
+    ]
+    assert all(
+        f"当前是 vertical.{stage} 第" in call.system_prompt
+        for call in model.calls
+    )
     assert "batch_count=3" in result.diagnostics
 
 

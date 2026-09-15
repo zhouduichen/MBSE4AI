@@ -25,8 +25,14 @@ from rflp_lite.runtime.lifecycle_rule import LIFECYCLE_TASKS
 
 
 _VV_BATCH_TASK = "vertical.verification_validation"
-_VV_BATCH_THRESHOLD = 3
-_VV_BATCH_SIZE = 2
+_VERTICAL_BATCH_TASKS = frozenset({
+    "vertical.functional",
+    "vertical.logical",
+    "vertical.physical",
+    _VV_BATCH_TASK,
+})
+_VERTICAL_BATCH_THRESHOLD = 3
+_VERTICAL_BATCH_SIZE = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,7 +157,10 @@ class StructuredModelRuntime:
         contract: Mapping[str, object],
         payload: Mapping[str, object],
     ) -> _CompiledProposal:
-        batch_instruction = _batch_instruction(payload.get("requirement_batch"))
+        batch_instruction = _batch_instruction(
+            request.task_id,
+            payload.get("requirement_batch"),
+        )
         response = self.model.complete_json(
             GenerationRequest(
                 request.task_id,
@@ -231,11 +240,17 @@ def _structured_prompt(prompt: str, batch_instruction: str = "") -> str:
     return f"{str(prompt).strip()}\n\n{_STRUCTURED_RULES}{batch_instruction}"
 
 
-def _batch_instruction(meta: object) -> str:
+def _batch_instruction(task_id: str, meta: object) -> str:
     if not isinstance(meta, Mapping):
         return ""
     index = meta.get("index")
     count = meta.get("count")
+    if task_id != _VV_BATCH_TASK:
+        return (
+            f"当前是 {task_id} 第 {index}/{count} 个需求批次。"
+            "只处理 requirement_worklist 中的 canonical Requirement；"
+            "不得为其它批次需求新增实体或更新，也不要把本批缺口合并成无法追溯的对象。"
+        )
     is_first = bool(meta.get("is_first"))
     risk_instruction = (
         "本批可以生成一个代表当前上下文异常分支的 hazard 和 failure_mode；"
@@ -258,14 +273,14 @@ def _requirement_batches(
         return ((),)
     entries = tuple(item for item in worklist if isinstance(item, Mapping))
     if not (
-        request.task_id == _VV_BATCH_TASK
-        and len(entries) > _VV_BATCH_THRESHOLD
+        request.task_id in _VERTICAL_BATCH_TASKS
+        and len(entries) > _VERTICAL_BATCH_THRESHOLD
         and getattr(model, "supports_requirement_batching", False) is True
     ):
         return (entries,)
     return tuple(
-        entries[start : start + _VV_BATCH_SIZE]
-        for start in range(0, len(entries), _VV_BATCH_SIZE)
+        entries[start : start + _VERTICAL_BATCH_SIZE]
+        for start in range(0, len(entries), _VERTICAL_BATCH_SIZE)
     )
 
 
