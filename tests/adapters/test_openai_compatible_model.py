@@ -1,6 +1,9 @@
+import json
+
 import pytest
 
 from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
+from rflp_lite.adapters.llm_client import _fit_context_window
 from rflp_lite.domain.errors import AdapterFailure, StructuredOutputFailure, TransportFailure
 from rflp_lite.ports.generative_model import (
     GenerationRequest,
@@ -116,6 +119,17 @@ def test_adapter_rejects_prompt_when_context_window_cannot_fit_output():
         )
 
     assert error.value.code == "context_window_exceeded"
+
+
+def test_context_window_margin_covers_provider_tokenizer_boundary():
+    messages = [{"role": "user", "content": "中" * 12220}]
+
+    # The model-independent estimate is exactly at the old 64-token boundary;
+    # a provider counting 65 additional wrapper/punctuation tokens would
+    # reject the resulting 4096-token request against a 16384-token window.
+    assert _fit_context_window(
+        {"context_window": 16384}, messages, 4096
+    ) == 3904
 
 
 def test_adapter_preserves_finish_reason_and_usage():
@@ -304,6 +318,48 @@ def test_openai_compatible_receives_structured_response_format():
 
     assert captured["config"]["response_format"]["type"] == "json_schema"
     assert captured["config"]["response_format"]["json_schema"]["schema"] == proposal.response_schema
+
+
+def test_openai_json_schema_is_not_repeated_in_prompt():
+    captured = {}
+
+    def complete(config, messages, *, max_tokens=None):
+        captured["config"] = config
+        captured["messages"] = messages
+        return '{"items": []}'
+
+    OpenAICompatibleModel(
+        {
+            "provider": "openai-compatible",
+            "model": "remote",
+            "structured_output_mode": "json_schema",
+        },
+        complete=complete,
+    ).complete_json(request())
+
+    assert "response_schema" not in json.loads(captured["messages"][1]["content"])
+    assert captured["config"]["response_format"]["type"] == "json_schema"
+
+
+def test_openai_provider_schema_avoids_unsupported_one_of_but_keeps_common_shape():
+    captured = {}
+    proposal = request()
+    proposal.response_schema["oneOf"] = [{"required": ["items"]}]
+    proposal.response_schema["x-payload-schemas"] = {"requirement": {"type": "object"}}
+
+    def complete(config, _messages, *, max_tokens=None):
+        captured["config"] = config
+        return '{"items": []}'
+
+    OpenAICompatibleModel(
+        {"provider": "openai-compatible", "model": "remote"},
+        complete=complete,
+    ).complete_json(proposal)
+
+    provider_schema = captured["config"]["response_format"]["json_schema"]["schema"]
+    assert "oneOf" not in provider_schema
+    assert "x-payload-schemas" not in provider_schema
+    assert provider_schema["required"] == proposal.response_schema["required"]
 
 
 def test_openai_compatible_honors_json_object_output_mode():
@@ -497,7 +553,12 @@ def test_adapter_repair_keeps_full_block_budget_and_contains_only_block_envelope
         return next(answers)
 
     model = OpenAICompatibleModel(
-        {"kind": "local", "model": "qwen", "local_max_tokens": 2400},
+        {
+            "kind": "local",
+            "model": "qwen",
+            "local_max_tokens": 2400,
+            "structured_output_mode": "json_object",
+        },
         complete=complete,
     )
     model.complete_json(request())

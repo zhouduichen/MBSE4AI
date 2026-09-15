@@ -14,6 +14,7 @@ from rflp_lite.domain.errors import AdapterFailure, InvariantViolation
 
 _PROFILE_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 _PROTOCOL = "openai-chat"
+MAX_LLM_TIMEOUT_SECONDS = 900
 _KEYRING_SERVICE = "rflp-lite"
 
 PRESETS: dict[str, dict[str, object]] = {
@@ -217,8 +218,10 @@ def normalize_profile(payload: object) -> dict[str, object]:
         timeout = int(payload.get("timeout_seconds", 300))
     except (TypeError, ValueError) as exc:
         raise InvariantViolation("LLM 超时必须是整数") from exc
-    if not 1 <= timeout <= 300:
-        raise InvariantViolation("LLM 超时范围必须是 1 到 300 秒")
+    if not 1 <= timeout <= MAX_LLM_TIMEOUT_SECONDS:
+        raise InvariantViolation(
+            f"LLM 超时范围必须是 1 到 {MAX_LLM_TIMEOUT_SECONDS} 秒"
+        )
     context_window = _optional_int(
         payload, ("context_window", "local_context_tokens"),
         minimum=512, maximum=1_000_000, label="LLM context window",
@@ -234,6 +237,12 @@ def normalize_profile(payload: object) -> dict[str, object]:
     structured_output_mode = str(payload.get("structured_output_mode", "json_schema")).strip().lower()
     if structured_output_mode not in {"json_schema", "json_object", "json", "none"}:
         raise InvariantViolation("LLM structured output mode 无效")
+    reasoning_effort = payload.get("reasoning_effort")
+    if reasoning_effort is not None and not isinstance(reasoning_effort, str):
+        raise InvariantViolation("LLM reasoning_effort 必须是字符串")
+    think = payload.get("think")
+    if think is not None and not isinstance(think, bool):
+        raise InvariantViolation("LLM think 必须是布尔值")
     return {
         "id": profile_id,
         "label": label[:120],
@@ -253,6 +262,8 @@ def normalize_profile(payload: object) -> dict[str, object]:
         "temperature": temperature,
         "seed": seed,
         "structured_output_mode": structured_output_mode,
+        "reasoning_effort": reasoning_effort.strip() if isinstance(reasoning_effort, str) else None,
+        "think": think,
     }
 
 

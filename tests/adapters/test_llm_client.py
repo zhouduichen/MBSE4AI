@@ -104,6 +104,28 @@ def test_chat_completion_sends_structured_deepseek_options(monkeypatch):
     assert captured["body"]["thinking"] == {"type": "disabled"}
 
 
+def test_chat_completion_sends_remote_reasoning_controls(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(call, timeout):
+        captured["body"] = json.loads(call.data.decode())
+        return _Response()
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    llm_client.chat_completion(
+        {
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+            "reasoning_effort": "none",
+            "think": False,
+        },
+        [{"role": "user", "content": "json"}],
+    )
+
+    assert captured["body"]["reasoning_effort"] == "none"
+    assert captured["body"]["think"] is False
+
+
 def test_chat_completion_sends_ollama_reasoning_control(monkeypatch):
     captured = {}
 

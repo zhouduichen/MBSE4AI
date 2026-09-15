@@ -54,12 +54,13 @@
       <div>
         <label class="field" for="profile-base-url">Base URL<input id="profile-base-url" name="base_url" type="url" required placeholder="http://127.0.0.1:11434/v1"></label>
         <label class="field" for="profile-model">模型名<input id="profile-model" name="model" required placeholder="例如：llama3.2"></label>
-        <label class="field" for="profile-timeout">超时（秒）<input id="profile-timeout" name="timeout_seconds" type="number" min="1" max="300" value="300" required></label>
+        <label class="field" for="profile-timeout">超时（秒）<input id="profile-timeout" name="timeout_seconds" type="number" min="1" max="900" value="300" required></label>
         <label class="field" for="profile-context-window">上下文窗口<input id="profile-context-window" name="context_window" type="number" min="512" placeholder="例如：8192"></label>
         <label class="field" for="profile-max-output-tokens">最大输出令牌<input id="profile-max-output-tokens" name="max_output_tokens" type="number" min="1" placeholder="例如：2048"></label>
         <label class="field" for="profile-temperature">Temperature<input id="profile-temperature" name="temperature" type="number" min="0" max="2" step="0.1" value="0"></label>
         <label class="field" for="profile-seed">Seed（可选）<input id="profile-seed" name="seed" type="number" min="0" placeholder="固定随机种子"></label>
         <label class="field" for="profile-structured-output-mode">结构化输出<select id="profile-structured-output-mode" name="structured_output_mode"><option value="json_schema">JSON Schema</option><option value="json_object">JSON Object</option><option value="none">关闭 provider 约束</option></select></label>
+        <label class="field" for="profile-reasoning-effort">推理模式<select id="profile-reasoning-effort" name="reasoning_effort"><option value="">服务默认</option><option value="none">关闭思考（适合结构化批处理）</option></select></label>
         <label class="field" for="profile-api-key">API Key（可选）<input id="profile-api-key" name="api_key" type="password" autocomplete="new-password" placeholder="留空则保留已有凭据"></label>
       </div>
     </div>
@@ -82,13 +83,14 @@
   const saveOutput = document.getElementById("profile-result");
   const presetSelect = document.getElementById("profile-preset");
   const providerSelect = document.getElementById("profile-provider");
-  const presetFields = ["id", "label", "provider", "kind", "model_location", "base_url", "model", "context_window", "max_output_tokens", "temperature", "seed", "structured_output_mode"];
+  const presetFields = ["id", "label", "provider", "kind", "model_location", "base_url", "model", "context_window", "max_output_tokens", "temperature", "seed", "structured_output_mode", "reasoning_effort"];
   const setField = (name, value) => {
     const fieldNames = {
       base_url: "base-url",
       context_window: "context-window",
       max_output_tokens: "max-output-tokens",
       model_location: "model-location",
+      reasoning_effort: "reasoning-effort",
       structured_output_mode: "structured-output-mode",
     };
     const field = document.getElementById("profile-" + (fieldNames[name] || name));

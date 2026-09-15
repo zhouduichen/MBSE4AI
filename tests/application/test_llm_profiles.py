@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rflp_lite.application.llm_profiles import LLMProfileService
+from rflp_lite.application.llm_profiles import LLMProfileService, normalize_profile
 
 
 def _payload() -> dict[str, object]:
@@ -138,3 +138,27 @@ def test_ssh_forward_profile_distinguishes_remote_model_from_local_endpoint(tmp_
 
     assert saved["model_location"] == "remote"
     assert service.active_config()["model_location"] == "remote"
+
+
+def test_llm_profile_preserves_remote_reasoning_controls(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("rflp_lite.application.llm_profiles._keyring", lambda: None)
+    profile = normalize_profile({
+        **_payload(),
+        "id": "qwen-remote",
+        "reasoning_effort": "none",
+        "think": False,
+    })
+
+    assert profile["reasoning_effort"] == "none"
+    assert profile["think"] is False
+
+
+def test_remote_profile_allows_long_running_generation_timeout() -> None:
+    profile = normalize_profile({
+        **_payload(),
+        "id": "jiayuinter-vllm",
+        "base_url": "http://127.0.0.1:18000/v1",
+        "timeout_seconds": 900,
+    })
+
+    assert profile["timeout_seconds"] == 900

@@ -9,6 +9,13 @@ from rflp_lite.domain.errors import AdapterFailure, TransportFailure
 from rflp_lite.ports.token_budget import estimate_messages
 
 
+# Provider tokenizers can count JSON punctuation, chat wrappers, and CJK text
+# slightly differently from the model-independent estimate. Keep a bounded
+# margin so a request that appears to fit locally does not cross the provider
+# context limit by a handful of tokens.
+_CONTEXT_TOKEN_SAFETY_MARGIN = 256
+
+
 class _CompletionText(str):
     """Text response carrying the provider's completion stop reason."""
 
@@ -165,7 +172,11 @@ def _fit_context_window(
         context_window = 0
     if context_window <= 0:
         return max_tokens
-    available = context_window - estimate_messages(messages) - 64
+    available = (
+        context_window
+        - estimate_messages(messages)
+        - _CONTEXT_TOKEN_SAFETY_MARGIN
+    )
     if available < 256:
         raise TransportFailure(
             "LLM prompt exceeds the configured context window",

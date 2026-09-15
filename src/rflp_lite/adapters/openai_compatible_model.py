@@ -22,6 +22,13 @@ from rflp_lite.ports.generative_model import (
 
 
 _REPAIR_FAILURE = "LLM response is not valid JSON after one repair"
+_PROVIDER_SCHEMA_META_KEYS = frozenset({
+    "schema_id",
+    "output_kinds",
+    "patch_policy",
+    "validators",
+    "max_attempts",
+})
 
 
 class _InvalidStructuredResponse(ValueError):
@@ -44,9 +51,33 @@ def _openai_response_format(
         "json_schema": {
             "name": lens_id.replace("-", "_"),
             "strict": True,
-            "schema": response_schema,
+            "schema": _provider_transport_schema(response_schema),
         },
     }
+
+
+def _provider_transport_schema(value: object) -> object:
+    """Remove schema constructs unsupported by the remote grammar compiler.
+
+    The application keeps the complete contract for post-response validation.
+    Some OpenAI-compatible vLLM builds cannot compile nested ``oneOf`` and
+    silently weaken the generated grammar. A transport copy with the common
+    envelope and ordinary JSON Schema constraints intact lets the provider
+    enforce the stable shape; kind-specific payload rules remain enforced by
+    ``_parse_and_validate`` and the TaskProposal compiler.
+    """
+
+    if isinstance(value, Mapping):
+        return {
+            str(key): _provider_transport_schema(item)
+            for key, item in value.items()
+            if key != "oneOf"
+            and key not in _PROVIDER_SCHEMA_META_KEYS
+            and not str(key).startswith("x-")
+        }
+    if isinstance(value, list):
+        return [_provider_transport_schema(item) for item in value]
+    return value
 
 
 def _ollama_transport_schema(value: object) -> object:
@@ -194,11 +225,20 @@ class OpenAICompatibleModel:
         started = time.monotonic()
         max_tokens = _bounded_max_tokens(self._config, request.max_tokens)
         native_ollama = _is_native_ollama(self._config)
+        structured_output_mode = str(
+            self._config.get("structured_output_mode", "json_schema")
+        ).casefold()
         prompt_payload: dict[str, object] = {"input": request.user_payload}
-        if not native_ollama:
-            # Native Ollama receives the schema through `format`; repeating it
-            # in the prompt wastes context tokens and can cause local output
-            # truncation on a 4B model.
+        if not native_ollama and structured_output_mode in {
+            "json_object",
+            "json",
+            "none",
+        }:
+            # A json_schema response format already delivers the schema to an
+            # OpenAI-compatible provider. Repeating it in the user message
+            # wastes context tokens and can push a long vertical request over
+            # the provider's actual context window. Modes without schema
+            # enforcement still need the prompt copy as model guidance.
             prompt_payload["response_schema"] = request.response_schema
         messages = [
             {
@@ -212,9 +252,6 @@ class OpenAICompatibleModel:
         ]
         max_tokens = _fit_context_window(self._config, messages, max_tokens)
         call_config = dict(self._config)
-        structured_output_mode = str(
-            call_config.get("structured_output_mode", "json_schema")
-        ).casefold()
         if native_ollama:
             if structured_output_mode != "none":
                 call_config["json_schema"] = (
@@ -251,7 +288,13 @@ class OpenAICompatibleModel:
                 repaired_raw = self._complete(
                     call_config,
                     repair_messages := self._repair_messages(
-                        request, raw, include_schema=not native_ollama
+                        request,
+                        raw,
+                        include_schema=(
+                            not native_ollama
+                            and structured_output_mode
+                            in {"json_object", "json", "none"}
+                        ),
                     ),
                     max_tokens=_fit_context_window(
                         self._config,
