@@ -98,7 +98,11 @@ class ScriptedModel:
                 relation(requirements[0]["id"], "derivedFrom", "activity")
         elif request.lens_id == "vertical.functional":
             entity("function", "function", "规划并执行配送", {"behavior": "根据任务完成配送", "inputs": ["任务"], "outputs": ["结果"], "decomposition": ["解析任务", "执行配送", "反馈结果"]})
-            entity("flow", "functional_flow", "任务结果流", {"content": "任务和结果"})
+            entity("flow", "functional_flow", "任务结果流", {
+                "source_function_ids": ["function"],
+                "target_function_ids": ["function"],
+                "content": "任务和结果",
+            })
             entity("fscenario", "functional_scenario", "完成配送功能场景", {"function_ids": ["function"], "steps": ["输入", "处理", "输出"]})
             if requirements:
                 relation(requirements[0]["id"], "satisfiedBy", "function")

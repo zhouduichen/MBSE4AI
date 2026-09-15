@@ -348,6 +348,8 @@ class LifecycleModel:
                 update(function["id"], {"decomposition": "atomic_behavior"})
         elif request.lens_id == "functional_interaction":
             add("flow", "functional_flow", "任务状态信息流", {
+                "source_function_ids": [function["id"]] if function else [],
+                "target_function_ids": [function["id"]] if function else [],
                 "exchanges": ["任务请求", "状态反馈", "接管指令"],
             })
             if function:

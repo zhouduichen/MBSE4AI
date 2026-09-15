@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from rflp_lite.domain.entities import EntityKind, EntityStatus
+from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import TaskExecutionResponse, TaskSpec
@@ -105,32 +105,10 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
         for item in graph.relations
     }
 
-    def has(kind: EntityKind) -> bool:
-        return kind in kinds
-
-    def linked(source_kind: EntityKind, predicate, target_kind: EntityKind) -> bool:
-        return any(
-            index.get(item.source_id) is not None
-            and index[item.source_id].kind is source_kind
-            and item.predicate is predicate
-            and index.get(item.target_id) is not None
-            and index[item.target_id].kind is target_kind
-            for item in graph.relations
-        )
-
-    def linked_vv(requirement, predicate, target_kind: EntityKind) -> bool:
-        return any(
-            relation.source_id == requirement.id
-            and relation.predicate is predicate
-            and index.get(relation.target_id) is not None
-            and index[relation.target_id].kind is target_kind
-            and vv_scope_matches(graph, requirement.id, index[relation.target_id])
-            for relation in graph.relations
-        )
-
     requirements = tuple(item for item in active if item.kind is EntityKind.REQUIREMENT)
     functions = tuple(item for item in active if item.kind is EntityKind.FUNCTION)
     physicals = tuple(item for item in active if item.kind is EntityKind.PHYSICAL_BLOCK)
+    function_ids = {item.id for item in functions}
     explicit_constraints = any(
         bool(item.payload.get("constraints"))
         or any(str(key).startswith(("max_", "min_")) for key in item.payload)
@@ -138,36 +116,45 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
         if str(item.payload.get("level", "")).lower() != "technical"
     )
     rules = {
-        "system_definition": has(EntityKind.SYSTEM),
-        "stakeholder_analysis": has(EntityKind.STAKEHOLDER)
-        and has(EntityKind.CONCERN)
-        and linked(EntityKind.STAKEHOLDER, RelationPredicate.HAS_CONCERN, EntityKind.CONCERN),
+        "system_definition": _has_kind(kinds, EntityKind.SYSTEM),
+        "stakeholder_analysis": _has_kind(kinds, EntityKind.STAKEHOLDER)
+        and _has_kind(kinds, EntityKind.CONCERN)
+        and _linked(graph, index, EntityKind.STAKEHOLDER, RelationPredicate.HAS_CONCERN, EntityKind.CONCERN),
         "stakeholder_requirements": bool(requirements)
-        and linked(EntityKind.REQUIREMENT, RelationPredicate.DERIVED_FROM, EntityKind.CONCERN),
-        "lifecycle_analysis": has(EntityKind.LIFECYCLE_STAGE) and has(EntityKind.LIFECYCLE_TRANSITION),
-        "scenario_exploration": has(EntityKind.SCENARIO_HYPOTHESIS),
-        "use_case_analysis": has(EntityKind.USE_CASE),
-        "operational_scenario": has(EntityKind.OPERATIONAL_SCENARIO)
-        and linked(EntityKind.STAKEHOLDER, RelationPredicate.PARTICIPATES_IN, EntityKind.OPERATIONAL_SCENARIO),
-        "activity_analysis": has(EntityKind.ACTIVITY),
+        and _linked(graph, index, EntityKind.REQUIREMENT, RelationPredicate.DERIVED_FROM, EntityKind.CONCERN),
+        "lifecycle_analysis": _has_kind(kinds, EntityKind.LIFECYCLE_STAGE) and _has_kind(kinds, EntityKind.LIFECYCLE_TRANSITION),
+        "scenario_exploration": _has_kind(kinds, EntityKind.SCENARIO_HYPOTHESIS),
+        "use_case_analysis": _has_kind(kinds, EntityKind.USE_CASE),
+        "operational_scenario": _has_kind(kinds, EntityKind.OPERATIONAL_SCENARIO)
+        and _linked(graph, index, EntityKind.STAKEHOLDER, RelationPredicate.PARTICIPATES_IN, EntityKind.OPERATIONAL_SCENARIO),
+        "activity_analysis": _has_kind(kinds, EntityKind.ACTIVITY),
         "system_requirement_derivation": any(
             item.payload.get("derived_by") == "system_requirement_derivation"
             for item in requirements
         ),
         "function_identification": bool(functions)
-        and linked(EntityKind.REQUIREMENT, RelationPredicate.SATISFIED_BY, EntityKind.FUNCTION),
+        and _linked(graph, index, EntityKind.REQUIREMENT, RelationPredicate.SATISFIED_BY, EntityKind.FUNCTION),
         "functional_decomposition": bool(functions)
         and all(str(item.payload.get("decomposition", "")).strip() for item in functions),
-        "functional_interaction": has(EntityKind.FUNCTIONAL_FLOW)
-        and linked(EntityKind.FUNCTION, RelationPredicate.EXCHANGES_WITH, EntityKind.FUNCTIONAL_FLOW),
-        "functional_scenario": has(EntityKind.FUNCTIONAL_SCENARIO)
-        and any(bool(item.payload.get("function_ids")) for item in active if item.kind is EntityKind.FUNCTIONAL_SCENARIO),
+        "functional_interaction": _has_kind(kinds, EntityKind.FUNCTIONAL_FLOW)
+        and _linked(graph, index, EntityKind.FUNCTION, RelationPredicate.EXCHANGES_WITH, EntityKind.FUNCTIONAL_FLOW)
+        and all(
+            _flow_endpoints_are_grounded(item, function_ids)
+            for item in active
+            if item.kind is EntityKind.FUNCTIONAL_FLOW
+        ),
+        "functional_scenario": _has_kind(kinds, EntityKind.FUNCTIONAL_SCENARIO)
+        and all(
+            _scenario_functions_are_grounded(item, function_ids)
+            for item in active
+            if item.kind is EntityKind.FUNCTIONAL_SCENARIO
+        ),
         "functional_requirement": bool(requirements)
         and all(bool(item.payload.get("functional_behavior_ids")) for item in requirements),
-        "logical_analysis": has(EntityKind.LOGICAL_COMPONENT)
-        and linked(EntityKind.FUNCTION, RelationPredicate.ALLOCATED_TO, EntityKind.LOGICAL_COMPONENT),
+        "logical_analysis": _has_kind(kinds, EntityKind.LOGICAL_COMPONENT)
+        and _linked(graph, index, EntityKind.FUNCTION, RelationPredicate.ALLOCATED_TO, EntityKind.LOGICAL_COMPONENT),
         "dependency_clustering": bool(functions)
-        and has(EntityKind.LOGICAL_COMPONENT)
+        and _has_kind(kinds, EntityKind.LOGICAL_COMPONENT)
         and all(
             any(
                 source_id == function.id
@@ -178,20 +165,21 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
             )
             for function in functions
         ),
-        "architecture_evaluation": has(EntityKind.LOGICAL_COMPONENT)
+        "architecture_evaluation": _has_kind(kinds, EntityKind.LOGICAL_COMPONENT)
         and all(
             str(item.payload.get("cohesion", "")).strip()
             and str(item.payload.get("coupling", "")).strip()
             and str(item.payload.get("architecture_rationale", "")).strip()
+            and _has_logical_reasoning(item)
             for item in active
             if item.kind is EntityKind.LOGICAL_COMPONENT
         ),
-        "physical_candidates": has(EntityKind.PHYSICAL_BLOCK)
-        and linked(EntityKind.LOGICAL_COMPONENT, RelationPredicate.ALLOCATED_TO, EntityKind.PHYSICAL_BLOCK),
+        "physical_candidates": _has_kind(kinds, EntityKind.PHYSICAL_BLOCK)
+        and _linked(graph, index, EntityKind.LOGICAL_COMPONENT, RelationPredicate.ALLOCATED_TO, EntityKind.PHYSICAL_BLOCK),
         "allocation_tradeoff": bool(physicals)
         and all(bool(item.payload.get("trade_study")) for item in physicals),
         "technical_requirement": (
-            linked(EntityKind.REQUIREMENT, RelationPredicate.SATISFIED_BY, EntityKind.PHYSICAL_BLOCK)
+            _linked(graph, index, EntityKind.REQUIREMENT, RelationPredicate.SATISFIED_BY, EntityKind.PHYSICAL_BLOCK)
             if explicit_constraints
             else any(item.payload.get("technical_requirement_status") == "no_explicit_constraints" for item in physicals)
         ),
@@ -205,27 +193,28 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
         and all(
             isinstance(item.payload.get("feasibility"), Mapping)
             and isinstance(item.payload.get("trade_study"), Mapping)
+            and _has_physical_reasoning(item)
             for item in physicals
         ),
-        "interface_sequence_state": has(EntityKind.INTERFACE)
-        and has(EntityKind.STATE)
-        and linked(EntityKind.LOGICAL_COMPONENT, RelationPredicate.CONNECTED_TO, EntityKind.INTERFACE)
-        and linked(EntityKind.LOGICAL_COMPONENT, RelationPredicate.DECOMPOSES, EntityKind.STATE),
-        "fmea_stpa_hazard": has(EntityKind.HAZARD)
-        and has(EntityKind.FAILURE_MODE)
-        and linked(EntityKind.HAZARD, RelationPredicate.CAUSES, EntityKind.FAILURE_MODE),
+        "interface_sequence_state": _has_kind(kinds, EntityKind.INTERFACE)
+        and _has_kind(kinds, EntityKind.STATE)
+        and _linked(graph, index, EntityKind.LOGICAL_COMPONENT, RelationPredicate.CONNECTED_TO, EntityKind.INTERFACE)
+        and _linked(graph, index, EntityKind.LOGICAL_COMPONENT, RelationPredicate.DECOMPOSES, EntityKind.STATE),
+        "fmea_stpa_hazard": _has_kind(kinds, EntityKind.HAZARD)
+        and _has_kind(kinds, EntityKind.FAILURE_MODE)
+        and _linked(graph, index, EntityKind.HAZARD, RelationPredicate.CAUSES, EntityKind.FAILURE_MODE),
         "verification_validation": bool(requirements)
         and all(
-            linked_vv(requirement, RelationPredicate.VERIFIED_BY, EntityKind.VERIFICATION_CASE)
-            and linked_vv(requirement, RelationPredicate.VALIDATED_BY, EntityKind.VALIDATION_CASE)
+            _linked_vv(graph, index, requirement, RelationPredicate.VERIFIED_BY, EntityKind.VERIFICATION_CASE)
+            and _linked_vv(graph, index, requirement, RelationPredicate.VALIDATED_BY, EntityKind.VALIDATION_CASE)
             for requirement in requirements
         ),
         "reverse_feasibility": bool(requirements)
         and any(bool(item.payload.get("feasibility_review")) for item in requirements),
         "global_cross_analysis": bool(requirements)
         and all(
-            linked_vv(requirement, RelationPredicate.VERIFIED_BY, EntityKind.VERIFICATION_CASE)
-            and linked_vv(requirement, RelationPredicate.VALIDATED_BY, EntityKind.VALIDATION_CASE)
+            _linked_vv(graph, index, requirement, RelationPredicate.VERIFIED_BY, EntityKind.VERIFICATION_CASE)
+            and _linked_vv(graph, index, requirement, RelationPredicate.VALIDATED_BY, EntityKind.VALIDATION_CASE)
             and any(
                 relation.source_id == requirement.id
                 and relation.predicate is RelationPredicate.VERIFIED_BY
@@ -238,6 +227,98 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
         ),
     }
     return bool(rules.get(task_id, True))
+
+
+def _has_kind(kinds: set[EntityKind], kind: EntityKind) -> bool:
+    return kind in kinds
+
+
+def _linked(
+    graph: ModelGraph,
+    index: Mapping[str, Entity],
+    source_kind: EntityKind,
+    predicate: RelationPredicate,
+    target_kind: EntityKind,
+) -> bool:
+    return any(
+        index.get(item.source_id) is not None
+        and index[item.source_id].kind is source_kind
+        and item.predicate is predicate
+        and index.get(item.target_id) is not None
+        and index[item.target_id].kind is target_kind
+        for item in graph.relations
+    )
+
+
+def _linked_vv(
+    graph: ModelGraph,
+    index: Mapping[str, Entity],
+    requirement: Entity,
+    predicate: RelationPredicate,
+    target_kind: EntityKind,
+) -> bool:
+    return any(
+        relation.source_id == requirement.id
+        and relation.predicate is predicate
+        and index.get(relation.target_id) is not None
+        and index[relation.target_id].kind is target_kind
+        and vv_scope_matches(graph, requirement.id, index[relation.target_id])
+        for relation in graph.relations
+    )
+
+
+def _flow_endpoints_are_grounded(
+    flow: Entity,
+    function_ids: set[str],
+) -> bool:
+    source_ids = _string_ids(flow.payload.get("source_function_ids"))
+    target_ids = _string_ids(flow.payload.get("target_function_ids"))
+    return bool(source_ids or target_ids) and bool(
+        set(source_ids + target_ids) <= function_ids
+    )
+
+
+def _scenario_functions_are_grounded(
+    scenario: Entity,
+    function_ids: set[str],
+) -> bool:
+    scenario_ids = _string_ids(scenario.payload.get("function_ids"))
+    return bool(scenario_ids) and set(scenario_ids) <= function_ids
+
+
+def _has_logical_reasoning(component: Entity) -> bool:
+    reasoning = component.payload.get("architecture_reasoning")
+    if not isinstance(reasoning, Mapping):
+        return False
+    basis = reasoning.get("basis")
+    return (
+        isinstance(basis, Mapping)
+        and isinstance(reasoning.get("alternatives"), (list, tuple))
+        and bool(str(reasoning.get("recommended_alternative", "")).strip())
+        and bool(str(reasoning.get("selection_status", "")).strip())
+    )
+
+
+def _has_physical_reasoning(physical: Entity) -> bool:
+    reasoning = physical.payload.get("feasibility_reasoning")
+    if not isinstance(reasoning, Mapping):
+        return False
+    return all(
+        key in reasoning
+        for key in (
+            "requirement_ids", "logical_ids", "function_ids",
+            "propagated_constraints", "missing_fields", "conflicts",
+            "status", "score", "resolution_options",
+        )
+    )
+
+
+def _string_ids(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        return ()
+    return tuple(
+        item for item in (str(raw).strip() for raw in value) if item
+    )
 
 
 def _trace_rule_passed(rule: str, metrics: Mapping[str, object]) -> bool:

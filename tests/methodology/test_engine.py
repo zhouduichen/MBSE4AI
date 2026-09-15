@@ -509,3 +509,20 @@ def test_vertical_guidance_contains_bounded_requirement_coverage_gaps():
     assert coverage["gaps"][0]["requirement_id"] == missing.id
     assert len(coverage["gaps"]) <= 24
     assert guidance["requirement_coverage"] == coverage
+
+
+def test_vertical_guidance_exposes_machine_readable_stage_contract():
+    graph = _graph()
+
+    guidance = MethodologyEngine().context_guidance(graph, "vertical.logical")
+
+    contract = guidance["stage_contract"]
+    assert contract["stage"] == "logical"
+    assert "logical_component" in contract["required_kinds"]
+    assert "allocatedTo" in contract["allowed_predicates"]
+    assert contract["reasoning_tasks"] == [
+        "logical_analysis",
+        "interface_sequence_state",
+        "dependency_clustering",
+        "architecture_evaluation",
+    ]

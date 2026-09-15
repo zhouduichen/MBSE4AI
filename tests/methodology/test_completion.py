@@ -1,5 +1,6 @@
 from rflp_lite.domain.entities import EntityKind, make_entity
-from rflp_lite.domain.model import ModelGraph
+from rflp_lite.domain.model import ModelGraph, Relation
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.completion import evaluate_completion, evaluate_vertical_stage
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionResponse
 from rflp_lite.methodology.tasks import task_catalog
@@ -62,3 +63,28 @@ def test_vertical_stage_checks_logical_and_physical_evidence_fields():
 
     assert "completion_semantic:architecture_evaluation" in logical_result.issue_codes
     assert "completion_semantic:feasibility_selection" in physical_result.issue_codes
+
+
+def test_functional_completion_requires_grounded_flow_endpoints():
+    function = make_entity(
+        EntityKind.FUNCTION,
+        "配送",
+        {"decomposition": ["执行配送"]},
+    )
+    flow = make_entity(
+        EntityKind.FUNCTIONAL_FLOW,
+        "配送结果流",
+        {
+            "source_function_ids": [function.id],
+            "target_function_ids": ["function-missing"],
+        },
+    )
+    graph = ModelGraph(
+        "p1",
+        (function, flow),
+        (Relation("function-flow", function.id, RelationPredicate.EXCHANGES_WITH, flow.id),),
+    )
+
+    result = evaluate_vertical_stage(VerticalStage.FUNCTIONAL, graph)
+
+    assert "completion_semantic:functional_interaction" in result.issue_codes

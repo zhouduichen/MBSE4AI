@@ -22,6 +22,7 @@ from rflp_lite.methodology.trace_rules import (
     vv_scope_matches,
 )
 from rflp_lite.methodology.vv_contract import VV_PLAN_FIELDS, missing_vv_plan_fields
+from rflp_lite.methodology.vertical_generation import stage_spec
 
 
 _INACTIVE = frozenset({EntityStatus.REJECTED, EntityStatus.DEPRECATED})
@@ -193,6 +194,10 @@ def build_methodology_guidance(
         "decisions": [dict(item) for item in report.decisions[-4:]],
         "impacted_entity_ids": list(report.impacted_entity_ids[:24]),
     }
+    if task_id.startswith("vertical."):
+        guidance["stage_contract"] = stage_spec(
+            task_id.removeprefix("vertical.")
+        ).as_contract()
     synthesis = report.metrics.get("architecture_synthesis")
     if isinstance(synthesis, Mapping) and stage in {"logical", "physical"}:
         section = synthesis.get(stage)

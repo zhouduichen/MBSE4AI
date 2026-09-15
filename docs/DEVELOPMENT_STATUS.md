@@ -38,6 +38,7 @@
 | 一等架构推理载荷 | 五阶段和完整 23-task 路径都在同一 ModelGraph 中持久化 LogicalComponent 的分区依据/候选架构/评分/选择状态，以及 PhysicalBlock 的约束传播/测量缺口/冲突/可行性状态/回流选项；同一事实由 Controller、Workbench 和 SysML 往返复用 |
 | Methodology Engine v2 架构约束推理 | Logical 候选显式评估时序协调切分和安全隔离违反；结构化候选、Methodology guidance、Controller 复核信号、Workbench、SysML 往返和 Architecture Report 复用同一证据；自然语言安全文本没有明确端点时不被推断为硬约束 |
 | LLM 五阶段接入 | 每个纵向阶段通过现有 StructuredModelRuntime 的 TaskProposal → Compiler → Patch 边界执行；测试覆盖五次真实 stage lens 调用 |
+| F/L/P 阶段方法论契约 | 每次 vertical LLM 请求显式收到 stage contract（输入/输出/必需类型、允许关系和 reasoning tasks）；Functional 完成度校验功能流端点/场景覆盖，Logical/Physical 校验可复核架构与可行性推理证据 |
 | LLM Controller 决策提案 | 配置的 OpenAI-compatible Profile 可基于有界 ModelGraph/方法论上下文给出只读建议；建议必须引用确定性 Controller 已有动作并通过用户确认后才执行；离线模式保持确定性，真实 Provider 验证仅使用远程 SSH/Tailscale 模型 |
 | LLM 阶段反馈闭环 | 结构化 LLM 阶段在首轮写入并完成确定性检查后，若当前阶段仍有缺口则用最新 ModelGraph 和 methodology guidance 再尝试一次；同一 Step/audit 保留最终 attempt，最多两次；离线 RuleRuntime 保持每阶段单次 |
 | SysML v2 子集往返 | 导出实际 `part/requirement/action/interface/state/verification/validation` 声明及关系元数据；Concern、Hazard、FailureMode 使用可编辑的通用 part 声明并保留类型元数据；可重新读入新项目并继续编辑 |

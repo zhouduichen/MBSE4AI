@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Mapping
 
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.relations import RelationPredicate
@@ -34,6 +35,21 @@ class VerticalStageSpec:
     allowed_predicates: frozenset[RelationPredicate]
     required_kinds: frozenset[EntityKind]
     reasoning_tasks: tuple[str, ...] = ()
+
+    def as_contract(self) -> Mapping[str, object]:
+        """Return the machine-readable contract consumed by a vertical LLM call."""
+
+        return {
+            "stage": self.stage.value,
+            "phase": self.phase.value,
+            "input_kinds": sorted(kind.value for kind in self.input_kinds),
+            "output_kinds": sorted(kind.value for kind in self.output_kinds),
+            "required_kinds": sorted(kind.value for kind in self.required_kinds),
+            "allowed_predicates": sorted(
+                predicate.value for predicate in self.allowed_predicates
+            ),
+            "reasoning_tasks": list(self.reasoning_tasks),
+        }
 
 
 _ALL = frozenset(EntityKind)
