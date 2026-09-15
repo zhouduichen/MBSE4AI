@@ -243,6 +243,9 @@ def normalize_profile(payload: object) -> dict[str, object]:
     think = payload.get("think")
     if think is not None and not isinstance(think, bool):
         raise InvariantViolation("LLM think 必须是布尔值")
+    chat_template_kwargs = payload.get("chat_template_kwargs")
+    if chat_template_kwargs is not None and not isinstance(chat_template_kwargs, Mapping):
+        raise InvariantViolation("LLM chat_template_kwargs 必须是对象")
     return {
         "id": profile_id,
         "label": label[:120],
@@ -264,6 +267,11 @@ def normalize_profile(payload: object) -> dict[str, object]:
         "structured_output_mode": structured_output_mode,
         "reasoning_effort": reasoning_effort.strip() if isinstance(reasoning_effort, str) else None,
         "think": think,
+        "chat_template_kwargs": (
+            {str(key): value for key, value in chat_template_kwargs.items()}
+            if isinstance(chat_template_kwargs, Mapping)
+            else None
+        ),
     }
 
 

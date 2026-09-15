@@ -153,6 +153,15 @@ def test_llm_profile_preserves_remote_reasoning_controls(tmp_path: Path, monkeyp
     assert profile["think"] is False
 
 
+def test_llm_profile_preserves_chat_template_controls() -> None:
+    profile = normalize_profile({
+        **_payload(),
+        "chat_template_kwargs": {"enable_thinking": False},
+    })
+
+    assert profile["chat_template_kwargs"] == {"enable_thinking": False}
+
+
 def test_remote_profile_allows_long_running_generation_timeout() -> None:
     profile = normalize_profile({
         **_payload(),

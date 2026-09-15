@@ -263,6 +263,8 @@ def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *
         body["think"] = config["think"]
     if not native_ollama and isinstance(config.get("reasoning_effort"), (str, dict)):
         body["reasoning_effort"] = config["reasoning_effort"]
+    if not native_ollama and isinstance(config.get("chat_template_kwargs"), Mapping):
+        body["chat_template_kwargs"] = dict(config["chat_template_kwargs"])
     headers = {"Content-Type": "application/json"}
     api_key = str(config.get("api_key", ""))
     if api_key:
