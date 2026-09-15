@@ -493,7 +493,7 @@ def _requirement_worklist(context) -> list[Mapping[str, object]]:
         if isinstance(items, (list, tuple)):
             return [
                 dict(item)
-                for item in items[:24]
+                for item in items
                 if isinstance(item, Mapping)
             ]
     coverage = guidance.get("requirement_coverage")
@@ -518,7 +518,7 @@ def _requirement_worklist(context) -> list[Mapping[str, object]]:
         key=lambda entity: entity.id,
     )
     worklist: list[Mapping[str, object]] = []
-    for requirement in requirements[:24]:
+    for requirement in requirements:
         gap = gaps_by_requirement.get(requirement.id, {})
         statement = requirement.payload.get("statement", requirement.meta.name)
         worklist.append({

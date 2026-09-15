@@ -368,6 +368,61 @@ def test_vertical_runtime_preserves_context_scoped_traceability_metadata():
     assert item["unavailable_current"]["function_ids"] == [function_id]
 
 
+def test_vertical_runtime_does_not_drop_requirements_from_full_worklist():
+    model = FakeModel()
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求-{index}",
+            {"statement": f"系统应完成任务-{index}"},
+        )
+        for index in range(25)
+    )
+    context = ContextBundle(
+        "p1",
+        "vertical.functional",
+        3,
+        requirements,
+        methodology_guidance={
+            "requirement_worklist": {
+                "stage": "functional",
+                "passed": False,
+                "total_count": len(requirements),
+                "truncated": False,
+                "items": [
+                    {
+                        "requirement_id": requirement.id,
+                        "statement": requirement.payload["statement"],
+                        "current": {
+                            "function_ids": [],
+                            "logical_component_ids": [],
+                            "physical_ids": [],
+                            "verification_case_ids": [],
+                            "validation_case_ids": [],
+                        },
+                        "missing": ["function"],
+                        "path": [requirement.id],
+                    }
+                    for requirement in requirements
+                ],
+            },
+        },
+    )
+
+    request = TaskExecutor(model).request(
+        stage_task("functional"),
+        context,
+        "v2.1",
+    )
+    StructuredModelRuntime(model).execute(request)
+
+    assert len(model.request.user_payload["requirement_worklist"]) == 25
+    assert {
+        item["requirement_id"]
+        for item in model.request.user_payload["requirement_worklist"]
+    } == {requirement.id for requirement in requirements}
+
+
 def test_legacy_runtime_does_not_add_vertical_requirement_worklist():
     model = FakeModel()
     task = task_catalog()[1]
