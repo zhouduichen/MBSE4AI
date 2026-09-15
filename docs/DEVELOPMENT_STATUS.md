@@ -69,7 +69,10 @@
 | 多需求结构化五阶段验收 | 三条独立自然语言 Requirement 已通过生产结构化 Runtime→Compiler→Validator→CAS 路径分别形成 Function，并沿共享或独立的 Logical/Physical 架构保持逐需求 V&V scope、三条完整端到端追溯、SysML round-trip 和继续编辑；该证据仍是离线结构化模型验收，不等同于真实 Provider 稳定性 |
 | 大输入 V&V 批处理 | 配置的 OpenAI-compatible Runtime 在超过 3 条需求时按 2 条一批生成并合并一次结构化 Patch；5 条需求形成 10 个 V&V Case、完整追溯、SysML 往返和可编辑 revision；任一批失败不提交部分结果；仍不等同于真实远程 Provider 稳定性 |
 | 大输入 RFLP 批处理 | 配置的 OpenAI-compatible Runtime 对 Functional、Logical、Physical 与 V&V 统一支持逐需求批次；每批仍携带 canonical Requirement 工作项，并在全部批次合并后才进入既有 Validator/CAS 边界，避免大输入只处理上下文前缀 |
+| 完整纵向 Requirement worklist | 纵向结构化 Runtime 不再静默截断超过 24 条的 Requirement；支持批处理的 Provider 按完整 worklist 分批，所有需求在进入 Compiler/CAS 前均保留逐条覆盖 |
 | 逐需求纵向覆盖反馈 | Functional、Logical、Physical、Verification/Validation 阶段逐条解析活动 Requirement 的覆盖链，输出精确缺失 ID；结构化反馈轮只修复当前阶段缺口，并在 Analysis 工作台显示逐条覆盖结论 |
+| 上下文可见性追溯 | worklist 保留完整图上的 `current` 追溯，同时标注 `available_current` 与 `unavailable_current`；结构化 LLM 只能引用当前 Context 可见的 canonical ID，延后目标进入后续继续分析 |
+| 阶段化方法论决策包 | Methodology guidance 按 Requirements、Functional、Logical、Physical、Assurance 筛选对应决策记录，并以 `decision_package` 同时提供给 LLM、Controller 和工作台，避免跨阶段决策污染当前推理 |
 | Controller 物理冲突回流 | 在同一结构化 ModelGraph 上验证 physical constraint conflict→Trade Study 暂停→用户选择替代候选→仅 Physical/V&V 定向重分析；锁定和 user_modified 实体保持不变 |
 | 用户面工程工作台 | 分析、模型和验证与确认页面以需求→功能→逻辑→物理→V&V 的业务语言呈现阶段质量、追溯闭环和下一步动作；任务键、运行台账、模型标识和原始属性收进高级详情，保留既有编辑、权衡和执行入口 |
 | 追溯语义闭环 | 同一 canonical scope resolver 校验需求来源、功能、逻辑、物理及 V&V 载荷；技术需求支持来源链与直接物理候选，作用域失配会同时阻断 Assurance 完成检查并生成可回流的工程问题 |
