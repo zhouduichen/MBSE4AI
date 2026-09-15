@@ -1,4 +1,4 @@
-from rflp_lite.domain.entities import EntityKind, make_entity
+from rflp_lite.domain.entities import EntityKind, EntityStatus, make_entity
 from rflp_lite.domain.model import ModelGraph, Relation
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.context_planner import ContextPlanner, HeuristicTokenEstimator
@@ -76,6 +76,47 @@ def test_vertical_worklist_reports_requirements_omitted_by_context_budget():
     assert set(worklist["omitted_requirement_ids"]) == {
         item.id for item in requirements
     } - selected_ids
+
+
+def test_vertical_worklist_marks_current_targets_outside_context():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "需求",
+        {"statement": "系统应自主配送"},
+    )
+    function = make_entity(
+        EntityKind.FUNCTION,
+        "配送功能",
+        status=EntityStatus.VALIDATED,
+    )
+    graph = ModelGraph(
+        "p1",
+        (requirement, function),
+        (
+            Relation(
+                "r-f",
+                requirement.id,
+                RelationPredicate.SATISFIED_BY,
+                function.id,
+            ),
+        ),
+    )
+
+    context = ContextBuilder(
+        planner=ContextPlanner(_FixedContextEstimator())
+    ).build(
+        graph,
+        stage_task(VerticalStage.FUNCTIONAL),
+        root_entity_ids=(requirement.id,),
+        token_budget=10,
+        output_reserve=0,
+    )
+
+    item = context.methodology_guidance["requirement_worklist"]["items"][0]
+    assert {entity.id for entity in context.entities} == {requirement.id}
+    assert item["current"]["function_ids"] == [function.id]
+    assert item["available_current"]["function_ids"] == []
+    assert item["unavailable_current"]["function_ids"] == [function.id]
 
 
 def test_assurance_context_preserves_complete_rflp_scope_for_vv_tasks():

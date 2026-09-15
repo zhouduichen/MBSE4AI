@@ -306,6 +306,68 @@ def test_vertical_runtime_prefers_full_graph_requirement_worklist():
     }
 
 
+def test_vertical_runtime_preserves_context_scoped_traceability_metadata():
+    model = FakeModel()
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应自主配送",
+        {"statement": "系统应自主配送"},
+    )
+    function_id = "function-not-loaded"
+    context = ContextBundle(
+        "p1",
+        "vertical.functional",
+        3,
+        (requirement,),
+        methodology_guidance={
+            "requirement_worklist": {
+                "stage": "functional",
+                "passed": False,
+                "total_count": 1,
+                "truncated": False,
+                "items": [{
+                    "requirement_id": requirement.id,
+                    "statement": "系统应自主配送",
+                    "current": {
+                        "function_ids": [function_id],
+                        "logical_component_ids": [],
+                        "physical_ids": [],
+                        "verification_case_ids": [],
+                        "validation_case_ids": [],
+                    },
+                    "available_current": {
+                        "function_ids": [],
+                        "logical_component_ids": [],
+                        "physical_ids": [],
+                        "verification_case_ids": [],
+                        "validation_case_ids": [],
+                    },
+                    "unavailable_current": {
+                        "function_ids": [function_id],
+                        "logical_component_ids": [],
+                        "physical_ids": [],
+                        "verification_case_ids": [],
+                        "validation_case_ids": [],
+                    },
+                    "missing": ["function"],
+                    "path": [requirement.id, function_id],
+                }],
+            },
+        },
+    )
+
+    request = TaskExecutor(model).request(
+        stage_task("functional"),
+        context,
+        "v2.1",
+    )
+    StructuredModelRuntime(model).execute(request)
+
+    item = model.request.user_payload["requirement_worklist"][0]
+    assert item["available_current"]["function_ids"] == []
+    assert item["unavailable_current"]["function_ids"] == [function_id]
+
+
 def test_legacy_runtime_does_not_add_vertical_requirement_worklist():
     model = FakeModel()
     task = task_catalog()[1]

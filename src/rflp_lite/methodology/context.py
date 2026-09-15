@@ -129,9 +129,13 @@ class ContextBuilder:
                 for item in full_worklist["items"]
                 if item["requirement_id"] not in selected_requirement_ids
             ]
+            visible_entity_ids = {entity.id for entity in planned.entities}
             methodology_guidance["requirement_worklist"] = {
                 **full_worklist,
-                "items": selected_items,
+                "items": _scope_vertical_worklist_items(
+                    selected_items,
+                    visible_entity_ids,
+                ),
                 "omitted_requirement_ids": omitted_requirement_ids,
                 "truncated": bool(omitted_requirement_ids),
             }
@@ -198,6 +202,51 @@ def _unique_evidence(
         seen.add(key)
         unique.append(item)
     return tuple(unique)
+
+
+_VERTICAL_CURRENT_FIELDS = (
+    "function_ids",
+    "logical_component_ids",
+    "physical_ids",
+    "verification_case_ids",
+    "validation_case_ids",
+)
+
+
+def _scope_vertical_worklist_items(
+    items: Sequence[Mapping[str, object]],
+    visible_entity_ids: set[str],
+) -> list[Mapping[str, object]]:
+    """Annotate full-graph targets with the subset usable in this context.
+
+    The full ``current`` projection remains useful for traceability and later
+    continuation calls.  A model must not reference a canonical target that
+    is absent from ``context.entities`` in the current call, so expose the
+    usable and deferred portions separately.
+    """
+
+    scoped: list[Mapping[str, object]] = []
+    for item in items:
+        scoped_item = dict(item)
+        current = item.get("current")
+        if not isinstance(current, Mapping):
+            scoped.append(scoped_item)
+            continue
+        available: dict[str, list[str]] = {}
+        unavailable: dict[str, list[str]] = {}
+        for field in _VERTICAL_CURRENT_FIELDS:
+            values = current.get(field, ())
+            ids = (
+                [str(value) for value in values if str(value).strip()]
+                if isinstance(values, (list, tuple))
+                else []
+            )
+            available[field] = [value for value in ids if value in visible_entity_ids]
+            unavailable[field] = [value for value in ids if value not in visible_entity_ids]
+        scoped_item["available_current"] = available
+        scoped_item["unavailable_current"] = unavailable
+        scoped.append(scoped_item)
+    return scoped
 
 
 def _with_bounded_evidence(
