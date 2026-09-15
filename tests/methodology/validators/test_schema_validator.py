@@ -43,6 +43,23 @@ def test_schema_validator_allows_large_patch_from_offline_lifecycle_batch():
     validate(_context(response))
 
 
+def test_schema_validator_allows_large_patch_from_offline_vertical_batch():
+    patch = Patch.create(
+        "p1",
+        "task",
+        tuple(Relate(f"source-{index}", RelationPredicate.DERIVED_FROM, f"target-{index}") for index in range(33)),
+        "offline vertical batch",
+        0,
+    )
+    response = TaskExecutionResponse(
+        StepStatus.COMPLETED,
+        patch=patch,
+        diagnostics=("offline:vertical-runtime",),
+    )
+
+    validate(_context(response))
+
+
 def test_schema_validator_keeps_large_patch_limit_for_other_runtimes():
     patch = Patch.create(
         "p1",

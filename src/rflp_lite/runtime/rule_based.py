@@ -65,6 +65,8 @@ def _first(context, kind: EntityKind):
 class RuleRuntime:
     """Create reviewable candidates from context without inventing source facts."""
 
+    requires_complete_context = True
+
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         if request.task_id.startswith("vertical."):
             return VerticalRuleRuntime().execute(request)
@@ -359,6 +361,8 @@ class _VerticalPatchBuilder:
 
 class VerticalRuleRuntime:
     """Concrete offline generator used to exercise the product path."""
+
+    requires_complete_context = True
 
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         handler = {

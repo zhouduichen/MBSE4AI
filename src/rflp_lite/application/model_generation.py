@@ -1142,6 +1142,7 @@ class ModelGenerationService:
             output_reserve=output_reserve,
             prompt_reserve=256,
             evidence_bundle=evidence_bundle,
+            full_graph=bool(getattr(self.runtime, "requires_complete_context", False)),
         )
         evidence = context.evidence
         return replace(

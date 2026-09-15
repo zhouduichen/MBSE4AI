@@ -19,6 +19,17 @@ def test_extracts_compound_chinese_constraints_and_normalizes_units():
     ]
 
 
+def test_extracts_chinese_denial_comparators_in_compound_constraints():
+    result = extract_requirement_constraints(
+        "系统功耗不得超过 50 W，续航不得少于 10 h"
+    )
+
+    assert result["constraints"] == {
+        "max_power_w": 50.0,
+        "min_endurance_h": 10.0,
+    }
+
+
 def test_extracts_english_comparators_and_converts_units():
     result = extract_requirement_constraints(
         "Power <= 0.5 kW; latency must be at most 2 s; bandwidth >= 1 Gbps"

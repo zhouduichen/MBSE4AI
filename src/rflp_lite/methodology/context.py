@@ -72,6 +72,7 @@ class ContextBuilder:
         output_reserve: int | None = None,
         prompt_reserve: int = 0,
         evidence_bundle: Sequence[Mapping[str, object]] = (),
+        full_graph: bool = False,
     ) -> ContextBundle:
         total_budget = max(0, int(token_budget))
         if output_reserve is None:
@@ -88,14 +89,18 @@ class ContextBuilder:
             "allocation_tradeoff": _allocation_tradeoff_context_roots(graph),
             "technical_requirement": _technical_context_roots(graph),
         }.get(task.id, ())
-        planned = self.planner.plan(
-            graph,
-            task,
-            root_entity_ids=effective_root_entity_ids,
-            token_budget=available_context,
+        planned = (
+            _plan_full_graph(graph, task, self.planner)
+            if full_graph
+            else self.planner.plan(
+                graph,
+                task,
+                root_entity_ids=effective_root_entity_ids,
+                token_budget=available_context,
+            )
         )
         assurance_guidance: Mapping[str, object] = {}
-        if task.id in _ASSURANCE_TASK_IDS:
+        if task.id in _ASSURANCE_TASK_IDS and not full_graph:
             planned, assurance_guidance = _assurance_trace_context(
                 graph, self.planner, available_context, task.id
             )
@@ -202,6 +207,46 @@ def _unique_evidence(
         seen.add(key)
         unique.append(item)
     return tuple(unique)
+
+
+def _plan_full_graph(
+    graph: ModelGraph,
+    task: TaskSpec,
+    planner: ContextPlanner,
+) -> PlannedContext:
+    """Give deterministic runtimes the complete typed graph they can inspect.
+
+    The bounded planner is for model-provider context windows.  A deterministic
+    runtime has no provider window and must not lose a downstream endpoint just
+    because the graph became large; doing so would make its trace result depend
+    on an LLM-oriented projection heuristic.
+    """
+
+    selected = {
+        entity.id
+        for entity in graph.entities
+        if entity.kind in task.context_query.entity_kinds
+        and entity.meta.status not in _INACTIVE_STATUSES
+    }
+    entities = tuple(
+        sorted((graph.entity_index[item_id] for item_id in selected), key=lambda item: item.id)
+    )
+    relations = tuple(
+        sorted(
+            (
+                relation
+                for relation in graph.relations
+                if relation.source_id in selected and relation.target_id in selected
+            ),
+            key=lambda item: item.id,
+        )
+    )
+    return PlannedContext(
+        entities,
+        relations,
+        planner._estimate(graph, selected, relations),
+        (("FULL", tuple(item.id for item in entities)),),
+    )
 
 
 _VERTICAL_CURRENT_FIELDS = (

@@ -105,6 +105,41 @@ def test_generate_mode_returns_stage_and_traceability_payload(tmp_path: Path):
     assert run["controller"]["next_action"]["kind"] == "collect_evidence"
 
 
+def test_generate_mode_keeps_compound_constraints_closed_through_vv(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    response = client.post(
+        "/projects/p1/analysis",
+        json={
+            "mode": "generate",
+            "requirement_text": (
+                "系统应在校园内完成配送；"
+                "系统应支持运营人员人工接管；"
+                "系统功耗不得超过 50 W 且续航不少于 10 h"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    run = response.json()["run"]
+    assert run["status"] == "completed"
+    assert run["traceability"]["end_to_end_complete_count"] >= 4
+    model = client.get("/projects/p1/model").json()
+    constrained = next(
+        item
+        for item in model["entities"]
+        if item["kind"] == "requirement"
+        and item["payload"].get("constraints")
+    )
+    assert constrained["payload"]["constraints"] == {
+        "max_power_w": 50.0,
+        "min_endurance_h": 10.0,
+    }
+    assert sum(item["kind"] == "verification_case" for item in model["entities"]) >= 4
+    assert sum(item["kind"] == "validation_case" for item in model["entities"]) >= 4
+
+
 def test_generate_request_profile_overrides_active_profile_without_activation(tmp_path: Path):
     app = create_app(tmp_path / "workspaces")
     app.state.container.v2._runtime_override = VerticalRuleRuntime()

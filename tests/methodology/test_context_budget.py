@@ -235,6 +235,36 @@ def test_vertical_assurance_context_preserves_existing_vv_scope_during_reanalysi
     assert len(context.relations) == 5
 
 
+def test_full_graph_context_keeps_all_assurance_endpoints_without_budget_projection():
+    requirement = make_entity(EntityKind.REQUIREMENT, "需求")
+    function = make_entity(EntityKind.FUNCTION, "功能")
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "逻辑")
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "物理")
+    graph = ModelGraph(
+        "p1",
+        (requirement, function, logical, physical),
+        (
+            Relation("r-f", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+            Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+            Relation("l-p", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
+        ),
+    )
+    task = stage_task(VerticalStage.VERIFICATION_VALIDATION)
+
+    context = ContextBuilder().build(
+        graph,
+        task,
+        token_budget=1,
+        output_reserve=0,
+        full_graph=True,
+    )
+
+    assert {item.id for item in context.entities} == {
+        requirement.id, function.id, logical.id, physical.id,
+    }
+    assert len(context.relations) == 3
+
+
 class _EvidenceRetriever:
     def retrieve(self, gap, context):
         del gap, context

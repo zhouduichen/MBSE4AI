@@ -12,7 +12,7 @@ _LIST_PREFIX = re.compile(
 )
 _NUMBER = r"(?P<value>\d+(?:\.\d+)?)"
 _OPERATORS = (
-    r"(?P<operator>不超过|不大于|不高于|最多|小于等于|不少于|不小于|不低于|至少|大于等于|"
+    r"(?P<operator>不得超过|不得大于|不得高于|不得少于|不得低于|不超过|不大于|不高于|最多|小于等于|不少于|不小于|不低于|至少|大于等于|"
     r"no more than|no less than|at most|at least|<=|>=|≤|≥|<|>)"
 )
 _METRICS = (
@@ -57,7 +57,8 @@ _METRICS = (
     ),
 )
 _MAX_OPERATORS = {
-    "不超过", "不大于", "不高于", "最多", "小于等于", "no more than", "at most", "<=", "≤", "<"
+    "不得超过", "不得大于", "不得高于", "不超过", "不大于", "不高于", "最多", "小于等于",
+    "no more than", "at most", "<=", "≤", "<",
 }
 
 
