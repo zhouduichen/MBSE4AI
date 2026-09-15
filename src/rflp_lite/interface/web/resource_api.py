@@ -699,10 +699,7 @@ async def run_analysis(request: Request, project_id: str):
 @resource_api.post("/projects/{project_id}/analysis/runs", status_code=202)
 async def start_async_generation(request: Request, project_id: str):
     try:
-        payload = await request.json()
-        if payload is not None and not isinstance(payload, Mapping):
-            raise ContractViolation("analysis payload must be an object")
-        payload = payload if isinstance(payload, Mapping) else {}
+        payload = await _json_object(request)
         mode = str(payload.get("mode", "generate")).casefold()
         if mode not in {"generate", "vertical"}:
             raise ContractViolation("async generation only supports mode=generate or mode=vertical")
