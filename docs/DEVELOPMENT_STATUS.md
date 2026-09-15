@@ -22,6 +22,7 @@
 | CLI 单次模型选择 | `analyze generate --profile <id>` 可为本次五阶段生成选择已保存 Profile，不修改 active profile；适用于远程 SSH/Tailscale 模型验收 |
 | Web 单次模型选择 | Analysis 页面和 `/analysis` API 支持请求级 Profile 选择，显示无密钥摘要并保留 active profile 不变 |
 | Web 主流程入口 | `/` 重定向到项目列表；分析页支持需求文本和文档上传；无输入项目禁止运行分析并在页面禁用运行按钮 |
+| Web 异步纵向生成 | `POST /projects/{id}/analysis/runs` 立即创建后台 Run 并返回 `202`；`GET /projects/{id}/runs/{run_id}` 复用 Run/Step 台账投影五阶段进度，Analysis 页面轮询并展示当前阶段；单阶段调试入口保持同步兼容 |
 | Web 运行配置 | 设置页支持保存模型配置、激活已有配置和连接测试；API Key 不进入页面或公开响应 |
 | 文档接入 | TXT、Markdown、DOCX、PDF 解析；扫描 PDF 使用可选 OCR 适配器 |
 | 文档证据上下文 | 解析出的每个 Source Region 持久化为 `document_region` Evidence，文档 Requirement 同时保存 source/evidence ID，补丁提交时物化为 ModelGraph 节点并进入五阶段结构化 LLM 上下文 |

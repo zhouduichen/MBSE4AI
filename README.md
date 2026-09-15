@@ -33,11 +33,11 @@ python3 -m venv .venv
 .venv/bin/ai4mbse --workspace-root .local-workspaces model export campus-demo --format sysml > campus-demo.sysml
 ```
 
-使用已保存的远程 SSH/Tailscale Ollama Profile 做本次真实 LLM 生成（不会启动本机模型，也不会切换 active profile）：
+使用已保存的远程 SSH/Tailscale LLM Profile 做本次真实 LLM 生成（不会启动本机模型，也不会切换 active profile）：
 
 ```bash
 .venv/bin/ai4mbse --workspace-root .local-workspaces analyze generate campus-demo \
-  --profile windows-5080-ollama \
+  --profile <remote-profile-id> \
   --text "系统应在校园内完成配送，并允许运营人员人工接管"
 ```
 
@@ -94,6 +94,8 @@ model-profile list|save|activate
 ```bash
 .venv/bin/uvicorn rflp_lite.interface.web.app:create_app --factory --host 127.0.0.1 --port 8000
 ```
+
+完整生成按钮通过 `POST /projects/{id}/analysis/runs` 立即创建后台 Run 并返回 `202`，前端轮询 `GET /projects/{id}/runs/{run_id}` 展示需求、功能、逻辑、物理、验证与确认五个阶段的进度；单阶段调试和 23-task pipeline 入口保持兼容。
 
 页面收敛为 Projects、Analysis、MBSE Model、Evidence & Issues、Settings；API 资源以 `/projects` 为根，提供项目、分析运行、模型、实体 CAS 编辑、证据、已登记工程工具、V&V 执行结果、Issue、Repair 和 Export。Assurance 页面可以直接为 VerificationCase/ValidationCase 记录真实执行结果；结果进入 Evidence 表，并同步物化为 ModelGraph 的 `Evidence` 节点和 Case→Evidence `describedBy` 关系，失败结果生成 Issue 并给出下游迭代动作。工程工具适配器通过注册表接入，工具只能返回明确的 V&V outcome 和证据，再由统一服务写入 ModelGraph；内置 `model.constraint_check` 只分析已传播约束，缺少测量字段时返回 `inconclusive`。MBSE Model 页面按 System Definition、Functional、Logical、Physical、V&V 展示真实 ModelGraph 实体，并支持实体编辑、Review、锁定和重新分析。
 
