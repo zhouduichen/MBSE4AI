@@ -304,6 +304,44 @@ def test_operational_and_functional_analysis_reports_missing_context():
     assert any(item.code == "functional_decomposition_missing" for item in report.findings)
 
 
+def test_requirement_quality_is_a_methodology_input_before_downstream_analysis():
+    good = make_entity(
+        EntityKind.REQUIREMENT,
+        "可验证需求",
+        {
+            "statement": "系统应在典型环境完成任务",
+            "obligation": "系统应",
+            "verification_method": "test",
+            "constraints": {"max_power_w": 50},
+            "constraint_provenance": [{"text": "功耗不超过 50 W"}],
+        },
+        status=EntityStatus.VALIDATED,
+    )
+    incomplete = make_entity(
+        EntityKind.REQUIREMENT,
+        "待补充需求",
+        {"statement": "系统应完成任务", "obligation": "待确认"},
+        status=EntityStatus.VALIDATED,
+    )
+
+    report = MethodologyEngine().analyze(ModelGraph("p1", (good, incomplete)))
+
+    assert report.metrics["requirement_quality_coverage"] == 0.5
+    assert report.metrics["requirement_verification_method_coverage"] == 0.5
+    assert report.metrics["requirement_constraint_provenance_coverage"] == 1.0
+    finding = next(
+        item for item in report.findings
+        if item.code == "requirement_quality_incomplete"
+    )
+    assert finding.entity_ids == (incomplete.id,)
+    guidance = build_methodology_guidance(report, "vertical.requirements")
+    assert guidance["metrics"]["requirement_quality_coverage"] == 0.5
+    assert any(
+        item["step"] == "requirement_quality_review"
+        for item in guidance["decision_package"]["decision_records"]
+    )
+
+
 def test_physical_analysis_distinguishes_conflict_from_unknown_measurement():
     conflict = MethodologyEngine().analyze(_graph(power_w=80, max_power_w=50))
     unknown = MethodologyEngine().analyze(_graph(power_w=None, max_power_w=50))

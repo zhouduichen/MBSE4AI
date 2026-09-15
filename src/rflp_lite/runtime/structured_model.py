@@ -226,6 +226,8 @@ _STRUCTURED_RULES = (
     "每个 entities[i].local_ref 必须在当前 Proposal 内唯一；local_ref 只是本轮临时引用，不是领域 ID；"
     "relations 只能引用当前上下文中的 canonical entity id 或本 Proposal 内唯一的 local_ref；"
     "读取 methodology_guidance 中的确定性检查结果，优先补齐其指出的当前阶段缺口；不要把 guidance 当作新的实体事实；"
+    "如果 methodology_guidance.decision_package 存在，只按当前 stage 的 decision_records 推理；其它阶段记录不能替代当前阶段工作；"
+    "Requirements 阶段若 requirement_quality_coverage 或 requirement_verification_method_coverage 低于 1，逐条补充可复核字段或将不确定性写入 open_questions，不得默认为已满足；"
     "如果 methodology_guidance.stage_contract 存在，必须按其中的 reasoning_tasks 完成当前阶段，并遵守 required_kinds 与 allowed_predicates；"
     "如果 stage_completion.requirement_coverage.passed 为 false，必须优先修复其中列出的 missing_requirement_ids 和 coverage gap；"
     "如果 requirement_worklist 非空，必须逐条覆盖其中每个 requirement_id；不得把多条 Requirement 合并成一个无法追溯的下游对象；"

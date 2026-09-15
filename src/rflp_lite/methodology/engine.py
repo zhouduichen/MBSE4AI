@@ -141,6 +141,8 @@ _GUIDANCE_STAGE_BY_TASK = {
 _GUIDANCE_METRICS = {
     "requirements": (
         "operational_context_coverage", "operational_requirement_count",
+        "requirement_quality_coverage", "requirement_verification_method_coverage",
+        "requirement_constraint_provenance_coverage",
     ),
     "functional": (
         "functional_requirement_coverage", "functional_flow_coverage",
@@ -167,6 +169,7 @@ _GUIDANCE_METRICS = {
 _GUIDANCE_DECISION_STEPS = {
     "requirements": frozenset({
         "operational_context_check",
+        "requirement_quality_review",
         "system_requirement_derivation",
     }),
     "functional": frozenset({
@@ -363,6 +366,9 @@ class MethodologyEngine:
                     f"Operational Analysis 缺少 {kind.value} 实体。",
                     actions[kind],
                 ))
+        self._analyze_requirement_quality(
+            present[EntityKind.REQUIREMENT], findings, decisions, metrics
+        )
         relations = _relation_targets(graph, index, RelationPredicate.PARTICIPATES_IN)
         if present[EntityKind.STAKEHOLDER] and present[EntityKind.OPERATIONAL_SCENARIO]:
             if not any(
@@ -400,6 +406,88 @@ class MethodologyEngine:
                 "basis": [item.id for item in present[EntityKind.REQUIREMENT]],
             },
         ))
+
+    @staticmethod
+    def _analyze_requirement_quality(
+        requirements,
+        findings,
+        decisions,
+        metrics,
+    ) -> None:
+        """Check the minimum engineering fields before downstream analysis.
+
+        This is an advisory review, not a rewrite rule.  The LLM may still
+        propose a candidate requirement, but the missing basis remains
+        visible to the Requirements stage and the Controller.
+        """
+
+        if not requirements:
+            metrics.update({
+                "requirement_quality_coverage": 1.0,
+                "requirement_verification_method_coverage": 1.0,
+                "requirement_constraint_provenance_coverage": 1.0,
+            })
+            return
+        quality_count = 0
+        verification_count = 0
+        constrained_requirements = 0
+        constrained_with_provenance = 0
+        for requirement in requirements:
+            payload = requirement.payload
+            statement = str(payload.get("statement", requirement.meta.name)).strip()
+            obligation = str(payload.get("obligation", "")).strip()
+            verification_method = str(payload.get("verification_method", "")).strip()
+            missing = [
+                label
+                for label, value in (
+                    ("statement", statement),
+                    ("obligation", obligation),
+                    ("verification_method", verification_method),
+                )
+                if not _meaningful_requirement_text(value)
+            ]
+            if not missing:
+                quality_count += 1
+            if _meaningful_requirement_text(verification_method):
+                verification_count += 1
+            constraints = payload.get("constraints")
+            if isinstance(constraints, Mapping) and constraints:
+                constrained_requirements += 1
+                provenance = payload.get("constraint_provenance")
+                if isinstance(provenance, (list, tuple)) and provenance:
+                    constrained_with_provenance += 1
+                else:
+                    findings.append(MethodologyFinding(
+                        "requirement_constraint_provenance_missing",
+                        "warning",
+                        "requirements",
+                        (requirement.id,),
+                        f"需求“{requirement.meta.name}”包含工程约束但没有约束来源记录。",
+                        ("stakeholder_requirements", "system_requirement_derivation"),
+                    ))
+            if missing:
+                findings.append(MethodologyFinding(
+                    "requirement_quality_incomplete",
+                    "warning",
+                    "requirements",
+                    (requirement.id,),
+                    f"需求“{requirement.meta.name}”缺少可复核字段：{', '.join(missing)}。",
+                    ("stakeholder_requirements", "system_requirement_derivation"),
+                ))
+        metrics.update({
+            "requirement_quality_coverage": _ratio(quality_count, len(requirements)),
+            "requirement_verification_method_coverage": _ratio(
+                verification_count, len(requirements)
+            ),
+            "requirement_constraint_provenance_coverage": _ratio(
+                constrained_with_provenance, constrained_requirements
+            ),
+        })
+        decisions.append({
+            "step": "requirement_quality_review",
+            "decision": "检查每条需求的声明、义务、验证方法和约束来源是否可复核",
+            "basis": [item.id for item in requirements],
+        })
 
     def _analyze_functional(self, graph, index, findings, decisions, metrics) -> None:
         requirements = tuple(
@@ -1399,6 +1487,17 @@ def _number(value: object) -> float | None:
         return float(str(value).strip())
     except (TypeError, ValueError):
         return None
+
+
+def _meaningful_requirement_text(value: str) -> bool:
+    return str(value).strip().casefold() not in {
+        "",
+        "待确认",
+        "待补充",
+        "tbd",
+        "todo",
+        "unknown",
+    }
 
 
 def _ratio(numerator: int, denominator: int) -> float:
