@@ -41,6 +41,9 @@ python3 -m venv .venv
   --text "系统应在校园内完成配送，并允许运营人员人工接管"
 ```
 
+Jiayu-intern 的 SSH 转发、Profile JSON 和一次性 CASE-04 验收命令见
+[远程 LLM 测试手册](docs/REMOTE_LLM_TESTING.md)。
+
 也可以先输入项目目标；目标会进入 System 的 mission/objectives，并生成一条可继续追溯的候选需求：
 
 ```bash
