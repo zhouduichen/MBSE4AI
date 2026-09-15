@@ -40,6 +40,7 @@
 | LLM 五阶段接入 | 每个纵向阶段通过现有 StructuredModelRuntime 的 TaskProposal → Compiler → Patch 边界执行；测试覆盖五次真实 stage lens 调用 |
 | F/L/P 阶段方法论契约 | 每次 vertical LLM 请求显式收到 stage contract（输入/输出/必需类型、允许关系和 reasoning tasks）；ContextBuilder 以完整 ModelGraph 为源，按当前预算只投影 context 可见的逐需求 requirement_worklist，并携带已有 canonical 目标、当前路径、精确缺口和 omitted_requirement_ids；Functional 完成度校验功能流端点/场景覆盖，Logical/Physical 校验可复核架构与可行性推理证据 |
 | LLM Controller 决策提案 | 配置的 OpenAI-compatible Profile 可基于有界 ModelGraph/方法论上下文给出只读建议；建议必须引用确定性 Controller 已有动作并通过用户确认后才执行；离线模式保持确定性，真实 Provider 验证仅使用远程 SSH/Tailscale 模型 |
+| Controller 工作台按需建议 | Assurance 首屏先渲染确定性下一步动作；LLM 建议通过 `include_llm=true` 按需请求，远程节点不可达时不阻塞工作台，也不调用本机模型 |
 | LLM 阶段反馈闭环 | 结构化 LLM 阶段在首轮写入并完成确定性检查后，若当前阶段仍有缺口则用最新 ModelGraph 和 methodology guidance 再尝试一次；同一 Step/audit 保留最终 attempt，最多两次；离线 RuleRuntime 保持每阶段单次 |
 | SysML v2 子集往返 | 导出实际 `part/requirement/action/interface/state/verification/validation` 声明及关系元数据；Concern、Hazard、FailureMode 使用可编辑的通用 part 声明并保留类型元数据；可重新读入新项目并继续编辑 |
 | 产品验收指标 | 以 R→F→L→P→V&V 完整追溯、SysML 往返和 ModelGraph 编辑为主，不再以 23-task 重复运行次数作为主进度指标 |

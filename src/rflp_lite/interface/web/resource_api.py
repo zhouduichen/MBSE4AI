@@ -641,9 +641,12 @@ def get_analysis(request: Request, project_id: str):
 
 
 @resource_api.get("/projects/{project_id}/controller")
-def get_controller_plan(request: Request, project_id: str):
+def get_controller_plan(request: Request, project_id: str, include_llm: bool = False):
     try:
-        controller = _services(request).generation(project_id).controller_plan(project_id)
+        controller = _services(request).generation(project_id).controller_plan(
+            project_id,
+            include_llm=include_llm,
+        )
         return {"status": "ok", "controller": controller}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)

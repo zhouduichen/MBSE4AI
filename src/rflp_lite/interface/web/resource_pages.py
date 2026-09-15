@@ -1504,7 +1504,12 @@ def behavior_page(request: Request, project_id: str):
 def assurance_page(request: Request, project_id: str):
     context = _review_context(request, project_id)
     view = build_assurance_view(context["graph"], context["issues"])
-    controller = _decorate_controller(_v2(request).generation(project_id).controller_plan(project_id))
+    controller = _decorate_controller(
+        _v2(request).generation(project_id).controller_plan(
+            project_id,
+            include_llm=False,
+        )
+    )
     return templates.TemplateResponse(request=request, name="assurance.html", context={**view, "controller": controller, "project_id": project_id, "active": "assurance"})
 
 

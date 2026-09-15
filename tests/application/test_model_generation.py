@@ -2018,6 +2018,12 @@ def test_generation_attaches_read_only_controller_proposal(tmp_path: Path):
     assert repository.load_graph("robot").revision == revision_before_query
     assert model.calls == 2
 
+    deterministic_plan = generation.controller_plan("robot", include_llm=False)
+
+    assert deterministic_plan["llm_proposal"] is None
+    assert deterministic_plan["next_action"]["id"] == plan["next_action"]["id"]
+    assert model.calls == 2
+
 
 def test_controller_proposal_failure_does_not_fail_generation(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())

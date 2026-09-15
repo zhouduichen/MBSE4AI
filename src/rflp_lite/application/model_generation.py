@@ -21,7 +21,7 @@ from rflp_lite.methodology.completion import evaluate_vertical_stage
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.engine import MethodologyEngine, MethodologyReport
-from rflp_lite.methodology.controller import ControllerPlan, SystemsEngineeringController
+from rflp_lite.methodology.controller import ControllerPlan, ControllerProposal, SystemsEngineeringController
 from rflp_lite.methodology.llm_controller import LLMController
 from rflp_lite.methodology.impact import ImpactPlan, TypedImpactPlanner
 from rflp_lite.methodology.architecture_persistence import enrich_architecture_patch
@@ -562,19 +562,30 @@ class ModelGenerationService:
         *,
         changed_entity_ids: tuple[str, ...] = (),
         max_actions: int = 8,
+        include_llm: bool = True,
     ) -> Mapping[str, object]:
-        """Return the next controller actions without mutating the project."""
+        """Return the next controller actions without mutating the project.
+
+        Callers that render a latency-sensitive view can request the
+        deterministic catalog only and ask for the optional LLM overlay
+        separately.  Generation and explicit controller API callers keep the
+        historical opt-in-by-default behavior.
+        """
 
         graph = self.repository.load_graph(project_id)
         report = self.methodology_engine.analyze(
             graph,
             changed_entity_ids=changed_entity_ids,
         )
-        return self._controller_plan(
+        plan = self._controller_plan(
             graph,
             report,
+            include_llm=include_llm,
             max_actions=max_actions,
-        ).as_dict()
+        )
+        if not include_llm and self.llm_controller is not None and self.llm_controller.model is None:
+            plan = replace(plan, proposal=ControllerProposal("not_configured", None, None))
+        return plan.as_dict()
 
     def iterate_controller(
         self,
