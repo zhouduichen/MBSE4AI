@@ -235,7 +235,7 @@ def build_requirement_worklist(
     graph: ModelGraph,
     stage: CoverageStage | str,
     *,
-    max_items: int = 24,
+    max_items: int | None = 24,
 ) -> Mapping[str, object]:
     """Expose compact, per-requirement work items for a vertical LLM call.
 
@@ -245,7 +245,11 @@ def build_requirement_worklist(
     """
 
     coverage = resolve_vertical_coverage(graph, stage)
-    limit = max(0, int(max_items))
+    limit = (
+        len(coverage.rows)
+        if max_items is None
+        else max(0, int(max_items))
+    )
     items = []
     for row in coverage.rows[:limit]:
         requirement = graph.entity_index[row.requirement_id]

@@ -230,6 +230,7 @@ _STRUCTURED_RULES = (
     "如果 stage_completion.requirement_coverage.passed 为 false，必须优先修复其中列出的 missing_requirement_ids 和 coverage gap；"
     "如果 requirement_worklist 非空，必须逐条覆盖其中每个 requirement_id；不得把多条 Requirement 合并成一个无法追溯的下游对象；"
     "requirement_worklist.current 是已有的 canonical 追溯对象；优先复用其中的 ID，只修复 missing 列出的当前阶段缺口；"
+    "如果 requirement_worklist.truncated 为 true，只处理 items 中明确提供且在 context 中可见的 Requirement，不得声称已覆盖 omitted_requirement_ids；"
     "复用已有 Requirement、Function、LogicalComponent、PhysicalBlock 和 V&V Case 的 canonical id，只补缺失的 typed 实体或关系；"
     "无法由当前上下文证明的缺口写入 open_questions，不得把不完整覆盖声称为完成；"
     "不要返回 operations、Patch ID、revision、status、producer 或 kind/value/path 更新 DSL；不要解释。"

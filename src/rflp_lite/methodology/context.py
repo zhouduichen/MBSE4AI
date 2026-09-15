@@ -83,11 +83,11 @@ class ContextBuilder:
         effective_root_entity_ids = root_entity_ids
         if not effective_root_entity_ids:
             effective_root_entity_ids = {
-                "functional_requirement": _functional_requirement_context_roots(graph),
-                "physical_candidates": _physical_candidate_context_roots(graph),
-                "allocation_tradeoff": _allocation_tradeoff_context_roots(graph),
-                "technical_requirement": _technical_context_roots(graph),
-            }.get(task.id, ())
+            "functional_requirement": _functional_requirement_context_roots(graph),
+            "physical_candidates": _physical_candidate_context_roots(graph),
+            "allocation_tradeoff": _allocation_tradeoff_context_roots(graph),
+            "technical_requirement": _technical_context_roots(graph),
+        }.get(task.id, ())
         planned = self.planner.plan(
             graph,
             task,
@@ -109,10 +109,32 @@ class ContextBuilder:
             "vertical.verification_validation": "verification_validation",
         }.get(task.id)
         if coverage_stage is not None:
-            methodology_guidance["requirement_worklist"] = build_requirement_worklist(
+            full_worklist = build_requirement_worklist(
                 graph,
                 coverage_stage,
+                max_items=None,
             )
+            selected_requirement_ids = {
+                entity.id
+                for entity in planned.entities
+                if entity.kind is EntityKind.REQUIREMENT
+            }
+            selected_items = [
+                item
+                for item in full_worklist["items"]
+                if item["requirement_id"] in selected_requirement_ids
+            ]
+            omitted_requirement_ids = [
+                item["requirement_id"]
+                for item in full_worklist["items"]
+                if item["requirement_id"] not in selected_requirement_ids
+            ]
+            methodology_guidance["requirement_worklist"] = {
+                **full_worklist,
+                "items": selected_items,
+                "omitted_requirement_ids": omitted_requirement_ids,
+                "truncated": bool(omitted_requirement_ids),
+            }
         if assurance_guidance:
             methodology_guidance["context_selection"] = assurance_guidance
         context = ContextBundle(

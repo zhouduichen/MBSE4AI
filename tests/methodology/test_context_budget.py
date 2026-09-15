@@ -28,6 +28,56 @@ def test_context_builder_uses_planned_relation_subset():
     assert all(relation.source_id in {entity.id for entity in context.entities} and relation.target_id in {entity.id for entity in context.entities} for relation in context.relations)
 
 
+def test_vertical_functional_context_keeps_worklist_requirements_in_scope():
+    requirements = tuple(
+        make_entity(EntityKind.REQUIREMENT, f"需求-{index}")
+        for index in range(2)
+    )
+    graph = ModelGraph("p1", requirements)
+    context = ContextBuilder(
+        planner=ContextPlanner(_FixedContextEstimator())
+    ).build(
+        graph,
+        stage_task(VerticalStage.FUNCTIONAL),
+        token_budget=20,
+        output_reserve=0,
+    )
+
+    selected_ids = {item.id for item in context.entities}
+    worklist = context.methodology_guidance["requirement_worklist"]
+    assert selected_ids == {item.id for item in requirements}
+    assert {
+        item["requirement_id"] for item in worklist["items"]
+    } == selected_ids
+
+
+def test_vertical_worklist_reports_requirements_omitted_by_context_budget():
+    requirements = tuple(
+        make_entity(EntityKind.REQUIREMENT, f"需求-{index}")
+        for index in range(5)
+    )
+    graph = ModelGraph("p1", requirements)
+    context = ContextBuilder(
+        planner=ContextPlanner(_FixedContextEstimator())
+    ).build(
+        graph,
+        stage_task(VerticalStage.FUNCTIONAL),
+        token_budget=20,
+        output_reserve=0,
+    )
+
+    worklist = context.methodology_guidance["requirement_worklist"]
+    selected_ids = {item.id for item in context.entities}
+    assert context.token_estimate <= 20
+    assert selected_ids == {
+        item["requirement_id"] for item in worklist["items"]
+    }
+    assert worklist["truncated"] is True
+    assert set(worklist["omitted_requirement_ids"]) == {
+        item.id for item in requirements
+    } - selected_ids
+
+
 def test_assurance_context_preserves_complete_rflp_scope_for_vv_tasks():
     requirement = make_entity(EntityKind.REQUIREMENT, "需求")
     function = make_entity(EntityKind.FUNCTION, "功能")
