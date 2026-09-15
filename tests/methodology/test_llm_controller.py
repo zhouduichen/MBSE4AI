@@ -149,6 +149,47 @@ def test_llm_controller_accepts_only_ids_from_deterministic_plan():
     assert graph.revision == 7
 
 
+def test_llm_controller_prioritizes_action_impact_entities_over_graph_prefix():
+    entities = tuple(
+        make_entity(EntityKind.REQUIREMENT, f"需求 {index}")
+        for index in range(60)
+    )
+    target = entities[-1]
+    graph = ModelGraph("robot", entities, revision=7)
+    action = ControllerAction(
+        "controller-action-late",
+        "reanalyze",
+        "function_identification",
+        "functional",
+        "P0",
+        (target.id,),
+        "末尾需求缺少功能覆盖",
+    )
+    plan = ControllerPlan("needs_action", "补齐模型", actions=(action,))
+    model = RecordingModel({
+        "action_id": action.id,
+        "option_id": None,
+        "rationale": "补齐受影响需求的功能覆盖。",
+        "assumptions": [],
+        "open_questions": [],
+    })
+
+    proposal = LLMController(model).propose(
+        graph,
+        MethodologyReport(),
+        plan,
+    )
+
+    selection = model.requests[0].user_payload["context"]["selection"]
+    assert proposal.status == "proposed"
+    assert target.id in selection["selected_entity_ids"]
+    assert selection["selected_action_entity_ids"] == [target.id]
+    assert target.id in {
+        entity["id"] for entity in model.requests[0].user_payload["context"]["entities"]
+    }
+    assert len(selection["selected_entity_ids"]) <= 48
+
+
 def test_llm_controller_rejects_unknown_action_without_mutation():
     graph = _graph()
     model = RecordingModel({

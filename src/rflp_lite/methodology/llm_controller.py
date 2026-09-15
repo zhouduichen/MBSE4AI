@@ -44,6 +44,8 @@ _PROPOSAL_SCHEMA = {
 _PROPOSAL_FIELDS = frozenset(_PROPOSAL_SCHEMA["required"])
 _CODE_RE = re.compile(r"[^a-zA-Z0-9_-]+")
 _INACTIVE = frozenset({EntityStatus.REJECTED, EntityStatus.DEPRECATED})
+_ENTITY_CONTEXT_LIMIT = 48
+_RELATION_CONTEXT_LIMIT = 96
 
 
 class _ProposalContractViolation(ContractViolation):
@@ -127,11 +129,59 @@ def _bounded_controller_context(
         for entity in graph.entities
         if entity.meta.status not in _INACTIVE
     }
+    action_entity_ids = _unique_active_ids(
+        active_ids,
+        (
+            entity_id
+            for action in plan.actions
+            for entity_id in action.entity_ids
+        ),
+    )
+    finding_entity_ids = _unique_active_ids(
+        active_ids,
+        (
+            entity_id
+            for finding in report.findings
+            if finding.severity == "error"
+            for entity_id in finding.entity_ids
+        ),
+    )
+    impacted_entity_ids = _unique_active_ids(
+        active_ids,
+        report.impacted_entity_ids,
+    )
+    priority_ids = _ordered_unique(
+        (*action_entity_ids, *finding_entity_ids, *impacted_entity_ids)
+    )
+    neighbor_ids = _relation_neighbors(graph, priority_ids, active_ids)
+    ordered_entity_ids = _ordered_unique(
+        (*priority_ids, *neighbor_ids, *sorted(active_ids))
+    )
+    selected_entity_ids = set(ordered_entity_ids[:_ENTITY_CONTEXT_LIMIT])
     entities = [
-        _entity_summary(entity)
-        for entity in graph.entities
-        if entity.id in active_ids
-    ][:48]
+        _entity_summary(graph.entity_index[entity_id])
+        for entity_id in ordered_entity_ids[:_ENTITY_CONTEXT_LIMIT]
+    ]
+    priority_id_set = set(priority_ids)
+    impacted_id_set = set(impacted_entity_ids)
+    ordered_relations = sorted(
+        (
+            relation
+            for relation in graph.relations
+            if relation.source_id in selected_entity_ids
+            and relation.target_id in selected_entity_ids
+        ),
+        key=lambda relation: (
+            0
+            if relation.source_id in priority_id_set
+            or relation.target_id in priority_id_set
+            else 1
+            if relation.source_id in impacted_id_set
+            or relation.target_id in impacted_id_set
+            else 2,
+            relation.id,
+        ),
+    )
     relations = [
         {
             "id": relation.id,
@@ -139,9 +189,8 @@ def _bounded_controller_context(
             "predicate": relation.predicate.value,
             "target_id": relation.target_id,
         }
-        for relation in graph.relations
-        if relation.source_id in active_ids and relation.target_id in active_ids
-    ][:96]
+        for relation in ordered_relations[:_RELATION_CONTEXT_LIMIT]
+    ]
     return {
         "context": {
             "project_id": graph.project_id,
@@ -149,6 +198,31 @@ def _bounded_controller_context(
             "snapshot_hash": graph.snapshot_hash,
             "entities": entities,
             "relations": relations,
+            "selection": {
+                "policy": "action-impact-first",
+                "entity_limit": _ENTITY_CONTEXT_LIMIT,
+                "relation_limit": _RELATION_CONTEXT_LIMIT,
+                "selected_entity_ids": ordered_entity_ids[:_ENTITY_CONTEXT_LIMIT],
+                "omitted_entity_ids": sorted(active_ids - selected_entity_ids),
+                "action_entity_ids": list(action_entity_ids),
+                "selected_action_entity_ids": [
+                    entity_id
+                    for entity_id in action_entity_ids
+                    if entity_id in selected_entity_ids
+                ],
+                "omitted_action_entity_ids": [
+                    entity_id
+                    for entity_id in action_entity_ids
+                    if entity_id not in selected_entity_ids
+                ],
+                "selected_relation_ids": [
+                    relation.id for relation in ordered_relations[:_RELATION_CONTEXT_LIMIT]
+                ],
+                "omitted_relation_count": max(
+                    0,
+                    len(ordered_relations) - _RELATION_CONTEXT_LIMIT,
+                ),
+            },
         },
         "methodology": {
             "findings": [_finding_summary(item) for item in report.findings[:12]],
@@ -160,6 +234,13 @@ def _bounded_controller_context(
             "impact_paths": [
                 list(path[:8]) for path in report.impact_paths[:24]
             ],
+            "decision_package": {
+                "decision_records": [
+                    _bounded_value(item) for item in report.decisions[:12]
+                ],
+                "decision_count": len(report.decisions),
+                "truncated": len(report.decisions) > 12,
+            },
             "recommended_tasks": list(report.recommended_tasks[:8]),
         },
         "controller_plan": {
@@ -171,6 +252,38 @@ def _bounded_controller_context(
             "actions": [_action_summary(action) for action in plan.actions[:8]],
         },
     }
+
+
+def _unique_active_ids(
+    active_ids: set[str],
+    values,
+) -> tuple[str, ...]:
+    return _ordered_unique(
+        str(value).strip()
+        for value in values
+        if str(value).strip() in active_ids
+    )
+
+
+def _ordered_unique(values) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(str(value) for value in values if str(value)))
+
+
+def _relation_neighbors(
+    graph: ModelGraph,
+    seed_ids: Sequence[str],
+    active_ids: set[str],
+) -> tuple[str, ...]:
+    seeds = set(seed_ids)
+    neighbors: list[str] = []
+    for relation in sorted(graph.relations, key=lambda item: item.id):
+        if relation.source_id not in active_ids or relation.target_id not in active_ids:
+            continue
+        if relation.source_id in seeds and relation.target_id not in seeds:
+            neighbors.append(relation.target_id)
+        elif relation.target_id in seeds and relation.source_id not in seeds:
+            neighbors.append(relation.source_id)
+    return _ordered_unique(neighbors)
 
 
 def _entity_summary(entity) -> Mapping[str, object]:
