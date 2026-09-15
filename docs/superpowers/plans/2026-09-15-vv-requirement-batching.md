@@ -15,7 +15,7 @@
 - Do not add a database table or a second ModelGraph source of truth.
 - Keep three-or-fewer requirement requests, offline RuleRuntime, and non-V&V stages single-call and backward compatible.
 - A failed batch must return no committable Patch; partial batch results must never be written.
-- Enforce the existing V&V `PatchPolicy.max_operations` after merging.
+- Enforce the existing V&V `PatchPolicy.max_operations` after merging; when that policy is unset, preserve the schema's effective 32-operation structured-output contract.
 
 ---
 
@@ -74,7 +74,7 @@
 
 - [ ] **Step 3: Merge compiled batch patches without rewriting canonical references.**
 
-  Combine operations in batch order. Deduplicate `AddEntity` by entity ID, `Relate` by `(source_id, predicate, target_id, evidence_ids)`, `UpdateEntity` by `(entity_id, canonical field-patch JSON)`, and `Deprecate` by entity ID. Ignore later hazard/failure additions and relations that target those ignored IDs; retain the first batch's risk objects. If merged operation count exceeds `request.patch_policy.max_operations`, raise `ProposalCompileFailure` with `code="batch_operation_limit"` before returning.
+  Combine operations in batch order. Deduplicate `AddEntity` by entity ID, `Relate` by `(source_id, predicate, target_id, evidence_ids)`, `UpdateEntity` by `(entity_id, canonical field-patch JSON)`, and `Deprecate` by entity ID. Ignore later hazard/failure additions and relations that target those ignored IDs; retain the first batch's risk objects. If merged operation count exceeds `request.patch_policy.max_operations`, or the effective 32-operation structured-output contract when that policy is unset, raise `ProposalCompileFailure` with `code="batch_operation_limit"` before returning.
 
 - [ ] **Step 4: Merge response metadata and create one response.**
 

@@ -59,6 +59,8 @@ def _ollama_transport_schema(value: object) -> object:
 class OpenAICompatibleModel:
     """Translate the stable application request into one JSON-only model call."""
 
+    supports_requirement_batching = True
+
     def __init__(
         self,
         config: dict[str, object],

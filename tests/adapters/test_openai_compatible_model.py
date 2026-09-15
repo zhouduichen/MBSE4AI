@@ -42,6 +42,10 @@ def long_request() -> GenerationRequest:
     )
 
 
+def test_openai_compatible_model_enables_requirement_batching():
+    assert OpenAICompatibleModel({"model": "remote"}).supports_requirement_batching is True
+
+
 def test_adapter_parses_json_and_records_hashes():
     calls = []
 

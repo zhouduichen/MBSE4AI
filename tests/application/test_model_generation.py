@@ -5,7 +5,7 @@ import pytest
 
 from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
-from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.errors import ContractViolation, TransportFailure
 from rflp_lite.domain.model import AddEntity, ModelGraph, Patch, Relation, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.application.model_generation import build_traceability_summary
@@ -993,6 +993,57 @@ class ThreeRequirementStructuredModel(TwoRequirementFeedbackModel):
         return proposal
 
 
+class FiveRequirementBatchedStructuredModel(ThreeRequirementStructuredModel):
+    """Structured model double that consumes only the current V&V batch."""
+
+    supports_requirement_batching = True
+
+    def complete_json(self, request):
+        if request.lens_id != "vertical.verification_validation":
+            return super().complete_json(request)
+        self.requirement_worklists.append(
+            request.user_payload.get("requirement_worklist", [])
+        )
+        batch_ids = {
+            item["requirement_id"]
+            for item in request.user_payload["requirement_worklist"]
+        }
+        context = request.user_payload["context"]
+        filtered_context = {
+            **context,
+            "entities": [
+                item
+                for item in context["entities"]
+                if item["kind"] != EntityKind.REQUIREMENT.value
+                or item["id"] in batch_ids
+            ],
+        }
+        filtered_request = replace(
+            request,
+            user_payload={**request.user_payload, "context": filtered_context},
+        )
+        recorded = ScriptedModel.complete_json(self, filtered_request)
+        return replace(
+            recorded,
+            payload=self._assurance_proposal(filtered_request),
+        )
+
+
+class FiveRequirementBatchFailureModel(FiveRequirementBatchedStructuredModel):
+    def complete_json(self, request):
+        if (
+            request.lens_id == "vertical.verification_validation"
+            and request.user_payload["requirement_batch"]["index"] == 2
+        ):
+            raise TransportFailure(
+                "V&V batch provider unavailable",
+                code="network_error",
+                provider_id="fake",
+                model_id="scripted",
+            )
+        return super().complete_json(request)
+
+
 def test_structured_runtime_generates_three_requirement_vertical_model(tmp_path: Path):
     model = ThreeRequirementStructuredModel()
     services = build_v2_services(
@@ -1051,6 +1102,111 @@ def test_structured_runtime_generates_three_requirement_vertical_model(tmp_path:
     edited = services.model("robot").graph("robot")
     assert edited.revision == graph.revision + 1
     assert edited.entity_index[function.id].payload["review_note"] == "可继续编辑"
+
+
+def test_structured_runtime_batches_five_requirement_vv_and_keeps_full_trace(tmp_path: Path):
+    model = FiveRequirementBatchedStructuredModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+    )
+    services.projects.create("drone")
+
+    result = services.generation("drone").generate(
+        "drone",
+        requirement_text=(
+            "系统应按航线巡检；系统应采集图像；系统应上传巡检结果；"
+            "系统应在通信中断后进入安全模式；系统应在低电量时安全返航"
+        ),
+    )
+    graph = services.model("drone").graph("drone")
+
+    requirements = sorted(
+        (
+            item for item in graph.entities
+            if item.kind is EntityKind.REQUIREMENT
+        ),
+        key=lambda item: item.id,
+    )
+    assert result.status == "completed"
+    assert all(stage.status == "completed" for stage in result.stage_results)
+    assert result.traceability.end_to_end_complete_count == 5
+    assert len(tuple(
+        item for item in graph.entities
+        if item.kind is EntityKind.VERIFICATION_CASE
+    )) == 5
+    assert len(tuple(
+        item for item in graph.entities
+        if item.kind is EntityKind.VALIDATION_CASE
+    )) == 5
+    assert all(resolve_requirement_trace(graph, item.id).complete for item in requirements)
+    vv_batches = [
+        worklist
+        for lens_id, worklist in zip(model.calls, model.requirement_worklists)
+        if lens_id == "vertical.verification_validation"
+    ]
+    assert [len(worklist) for worklist in vv_batches] == [2, 2, 1]
+    vv_stage = next(
+        stage
+        for stage in result.stage_results
+        if stage.stage == "verification_validation"
+    )
+    assert "batch_count=3" in vv_stage.diagnostics
+
+    exported = graph_to_sysml(graph)
+    restored = sysml_to_graph(exported, "drone")
+    assert [item.as_dict() for item in restored.entities] == [
+        item.as_dict() for item in graph.entities
+    ]
+    assert restored.relations == graph.relations
+
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+    services.model("drone").apply_patch(
+        "drone",
+        Patch.create(
+            "drone",
+            "review.edit",
+            (UpdateEntity(function.id, {"payload": {"review_note": "可继续编辑"}}),),
+            "编辑批量 V&V 模型",
+            graph.revision,
+        ),
+        graph.revision,
+    )
+    assert services.model("drone").graph("drone").revision == graph.revision + 1
+
+
+def test_structured_runtime_vv_batch_failure_does_not_commit_partial_model(tmp_path: Path):
+    model = FiveRequirementBatchFailureModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+    )
+    services.projects.create("drone")
+
+    result = services.generation("drone").generate(
+        "drone",
+        requirement_text=(
+            "系统应按航线巡检；系统应采集图像；系统应上传巡检结果；"
+            "系统应在通信中断后进入安全模式；系统应在低电量时安全返航"
+        ),
+    )
+    graph = services.model("drone").graph("drone")
+
+    assert result.status == "failed"
+    assert [stage.stage for stage in result.stage_results] == [
+        "requirements",
+        "functional",
+        "logical",
+        "physical",
+    ]
+    assert graph.revision == result.stage_results[-1].revision
+    assert not any(
+        entity.kind in {
+            EntityKind.VERIFICATION_CASE,
+            EntityKind.VALIDATION_CASE,
+        }
+        for entity in graph.entities
+    )
 
 
 def test_structured_runtime_generates_complete_editable_vertical_model(tmp_path: Path):

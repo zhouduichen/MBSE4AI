@@ -1,9 +1,15 @@
 import json
 
+import pytest
+
 from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.model import ModelGraph, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
-from rflp_lite.domain.errors import StructuredOutputFailure
+from rflp_lite.domain.errors import (
+    ProposalCompileFailure,
+    StructuredOutputFailure,
+    TransportFailure,
+)
 from rflp_lite.methodology.contracts import ContextBundle, StepStatus, TaskExecutionRequest
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.registries import RetryPolicy
@@ -61,6 +67,98 @@ class CompilerRepairModel:
             },
             "input",
             f"output-{len(self.calls)}",
+            False,
+            "fake",
+            "fake-model",
+        )
+
+
+class BatchedVvModel:
+    supports_requirement_batching = True
+
+    def __init__(self, *, fail_on_batch: int | None = None):
+        self.calls = []
+        self.fail_on_batch = fail_on_batch
+
+    def complete_json(self, request):
+        batch = request.user_payload["requirement_batch"]
+        self.calls.append(request)
+        if batch["index"] == self.fail_on_batch:
+            raise TransportFailure(
+                "batch provider unavailable",
+                code="network_error",
+                provider_id="fake",
+                model_id="fake-model",
+            )
+        payload = {
+            "entities": [],
+            "relations": [],
+            "updates": [],
+            "deprecations": [],
+            "reason": f"批次 {batch['index']}",
+        }
+        for item in request.user_payload["requirement_worklist"]:
+            requirement_id = item["requirement_id"]
+            suffix = f"{batch['index']}-{requirement_id[-8:]}"
+            verification_ref = f"verification-{suffix}"
+            validation_ref = f"validation-{suffix}"
+            plan = {
+                "method": "test",
+                "verification_objective": "证明需求满足",
+                "precondition": "系统处于初始状态",
+                "test_condition": "代表性运行环境",
+                "input": "需求输入",
+                "stimulus": "施加需求场景",
+                "procedure": "执行步骤并记录结果",
+                "expected_result": "系统满足需求",
+                "pass_criteria": "结果满足需求",
+                "requirement_ids": [requirement_id],
+                "scenario_ids": [],
+                "activity_ids": [],
+                "covered_branches": [],
+                "evidence_ids": [],
+                "execution_evidence_ids": [],
+                "function_ids": [],
+                "logical_component_ids": [],
+                "physical_ids": [],
+                "constraint_fields": [],
+                "evidence_required": True,
+                "open_questions": ["尚未执行测试"],
+            }
+            payload["entities"].extend((
+                {
+                    "local_ref": verification_ref,
+                    "kind": EntityKind.VERIFICATION_CASE.value,
+                    "name": f"验证：{item['statement']}",
+                    "payload": {**plan, "cross_analysis_status": "checked"},
+                },
+                {
+                    "local_ref": validation_ref,
+                    "kind": EntityKind.VALIDATION_CASE.value,
+                    "name": f"确认：{item['statement']}",
+                    "payload": plan,
+                },
+            ))
+            payload["relations"].extend((
+                {
+                    "source_ref": requirement_id,
+                    "predicate": RelationPredicate.VERIFIED_BY.value,
+                    "target_ref": verification_ref,
+                    "evidence_ids": [],
+                },
+                {
+                    "source_ref": requirement_id,
+                    "predicate": RelationPredicate.VALIDATED_BY.value,
+                    "target_ref": validation_ref,
+                    "evidence_ids": [],
+                },
+            ))
+            payload["relations"].append(dict(payload["relations"][-1]))
+        return GenerationResponse(
+            request.lens_id,
+            payload,
+            f"input-{batch['index']}",
+            f"output-{batch['index']}",
             False,
             "fake",
             "fake-model",
@@ -151,6 +249,115 @@ def test_legacy_runtime_does_not_add_vertical_requirement_worklist():
     )
 
     assert "requirement_worklist" not in model.request.user_payload
+
+
+def test_structured_runtime_batches_large_vv_worklist_and_merges_patch():
+    model = BatchedVvModel()
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求 {index}",
+            {
+                "statement": f"系统应满足需求 {index}",
+                "obligation": "shall",
+                "level": "system",
+                "type": "functional",
+                "verification_method": "test",
+            },
+        )
+        for index in range(5)
+    )
+    context = ContextBundle("p1", "vertical.verification_validation", 3, requirements)
+    request = TaskExecutor(model).request(
+        stage_task("verification_validation"), context, "v2.1", token_budget=2048
+    )
+    ordered_requirements = tuple(sorted(requirements, key=lambda item: item.id))
+
+    result = StructuredModelRuntime(model).execute(request)
+
+    assert result.patch is not None
+    assert [
+        request.user_payload["requirement_worklist"] for request in model.calls
+    ] == [
+        [
+            {
+                "requirement_id": item.id,
+                "statement": item.payload["statement"],
+                "missing": [],
+            }
+            for item in ordered_requirements[:2]
+        ],
+        [
+            {
+                "requirement_id": item.id,
+                "statement": item.payload["statement"],
+                "missing": [],
+            }
+            for item in ordered_requirements[2:4]
+        ],
+        [
+            {
+                "requirement_id": ordered_requirements[4].id,
+                "statement": ordered_requirements[4].payload["statement"],
+                "missing": [],
+            }
+        ],
+    ]
+    assert [request.user_payload["requirement_batch"] for request in model.calls] == [
+        {"index": 1, "count": 3, "is_first": True},
+        {"index": 2, "count": 3, "is_first": False},
+        {"index": 3, "count": 3, "is_first": False},
+    ]
+    added = [
+        operation.entity
+        for operation in result.patch.operations
+        if hasattr(operation, "entity")
+    ]
+    assert sum(item.kind is EntityKind.VERIFICATION_CASE for item in added) == 5
+    assert sum(item.kind is EntityKind.VALIDATION_CASE for item in added) == 5
+    relation_keys = [
+        (operation.source_id, operation.predicate, operation.target_id)
+        for operation in result.patch.operations
+        if hasattr(operation, "source_id")
+    ]
+    assert len(relation_keys) == 10
+    assert len(relation_keys) == len(set(relation_keys))
+    assert "batch_count=3" in result.diagnostics
+
+
+def test_structured_runtime_rejects_merged_vv_patch_over_effective_limit():
+    model = BatchedVvModel()
+    requirements = tuple(
+        make_entity(EntityKind.REQUIREMENT, f"需求 {index}", {"statement": f"需求 {index}"})
+        for index in range(9)
+    )
+    context = ContextBundle("p1", "vertical.verification_validation", 3, requirements)
+    request = TaskExecutor(model).request(
+        stage_task("verification_validation"), context, "v2.1"
+    )
+
+    with pytest.raises(ProposalCompileFailure) as error:
+        StructuredModelRuntime(model).execute(request)
+
+    assert error.value.code == "batch_operation_limit"
+    assert len(model.calls) == 5
+
+
+def test_structured_runtime_discards_partial_vv_batches_on_failure():
+    model = BatchedVvModel(fail_on_batch=2)
+    requirements = tuple(
+        make_entity(EntityKind.REQUIREMENT, f"需求 {index}", {"statement": f"需求 {index}"})
+        for index in range(5)
+    )
+    context = ContextBundle("p1", "vertical.verification_validation", 3, requirements)
+    request = TaskExecutor(model).request(
+        stage_task("verification_validation"), context, "v2.1"
+    )
+
+    with pytest.raises(TransportFailure, match="batch provider unavailable"):
+        StructuredModelRuntime(model).execute(request)
+
+    assert len(model.calls) == 2
 
 
 def test_runtime_turns_allowed_output_into_patch():

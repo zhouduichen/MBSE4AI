@@ -14,7 +14,7 @@
 - 每个批次最多包含 2 条正式 Requirement；按 canonical Requirement ID 排序，保证调用顺序稳定。
 - 每个批次仍使用原有 `TaskProposal` schema、Proposal Compiler、Validator 和 CAS 写入边界；不引入第二份模型真源。
 - 批次输出只允许覆盖该批次的 Requirement 及其已有 RFLP scope；第一批承担跨需求的最小 Hazard/FailureMode 覆盖，后续批次只补本批需求的 V&V。
-- 每个批次编译得到的 Patch 在一个结构化 Runtime 响应中合并，最终由既有 `ModelGenerationService` 以一次 CAS Revision 提交；合并前必须去重操作并重新检查原阶段的最大操作数。
+- 每个批次编译得到的 Patch 在一个结构化 Runtime 响应中合并，最终由既有 `ModelGenerationService` 以一次 CAS Revision 提交；合并前必须去重操作并重新检查原阶段的最大操作数；V&V TaskSpec 未显式设置上限时，遵循现有结构化 schema 的 32-operation contract。
 - 三需求结构化离线夹具、离线 RuleRuntime、Requirements/Functional/Logical/Physical 阶段行为保持不变。
 - 远程节点不在线时不调用本机模型，也不把离线规则结果当成真实 Provider 验收。
 
@@ -35,7 +35,7 @@
 1. 按批次顺序合并 `AddEntity`、`Relate`、`UpdateEntity` 和 `Deprecate` 操作。
 2. 以完整 operation identity 去重；同一 canonical ID 的重复更新只保留第一次出现的字段，批次之间不应更新同一 Requirement。
 3. Hazard/FailureMode 只保留第一批生成的风险对象及其关系；后续批次的重复风险操作被丢弃并记录诊断。
-4. 合并后若超过当前 TaskSpec 的 `max_operations`，返回明确的 `batch_operation_limit` 编译失败，不提交部分 Patch。
+4. 合并后若超过当前 TaskSpec 的 `max_operations`，或 V&V 未设置该策略时超过 32-operation structured-output contract，返回明确的 `batch_operation_limit` 编译失败，不提交部分 Patch。
 5. 合并 Patch 的 `expected_revision` 仍是请求开始时的 context revision；ModelGenerationService 继续用一个 CAS Revision 原子写入，失败时沿现有错误路径处理。
 
 响应的 assumptions、open_questions、decision_records 和 diagnostics 按批次顺序合并并去重；`input_hash`、`output_hash` 和 `duration_ms` 反映全部批次，provider/model/finish_reason/usage 保留真实 Provider 元数据，并附加 `batch_count` 与 `batch=i/n` 诊断。
@@ -58,4 +58,3 @@
 - Application 回归：生产 `StructuredModelRuntime`、Compiler、Validator、CAS 路径处理五条需求，生成 10 个 V&V Case，每条需求 `resolve_requirement_trace(...).complete`，阶段和最终结果完成，SysML 往返保留实体/关系，并可继续编辑。
 - 全量回归继续运行 pytest、compileall、ruff、architecture metrics、import-linter 和 `git diff --check`。
 - 远程验收只在 `autoresearch-5080` 在线时执行一次 CASE-04；节点离线时只报告不可达，不执行本机模型。
-
