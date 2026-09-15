@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from rflp_lite.adapters.llm_client import (
     _bounded_max_tokens,
@@ -30,6 +30,23 @@ class _InvalidStructuredResponse(ValueError):
     def __init__(self, message: str, *, code: str = "schema_validation") -> None:
         self.code = code
         super().__init__(message)
+
+
+def _openai_response_format(
+    lens_id: str,
+    response_schema: Mapping[str, object],
+    mode: str,
+) -> Mapping[str, object]:
+    if mode.casefold() in {"json_object", "json"}:
+        return {"type": "json_object"}
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": lens_id.replace("-", "_"),
+            "strict": True,
+            "schema": response_schema,
+        },
+    }
 
 
 def _ollama_transport_schema(value: object) -> object:
@@ -206,14 +223,11 @@ class OpenAICompatibleModel:
         elif str(call_config.get("structured_output_mode", "json_schema")).casefold() != "none":
             call_config.setdefault(
                 "response_format",
-                {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": request.lens_id.replace("-", "_"),
-                        "strict": True,
-                        "schema": request.response_schema,
-                    },
-                },
+                _openai_response_format(
+                    request.lens_id,
+                    request.response_schema,
+                    structured_output_mode,
+                ),
             )
         try:
             raw = self._complete(call_config, messages, max_tokens=max_tokens)

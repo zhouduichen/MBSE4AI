@@ -306,6 +306,27 @@ def test_openai_compatible_receives_structured_response_format():
     assert captured["config"]["response_format"]["json_schema"]["schema"] == proposal.response_schema
 
 
+def test_openai_compatible_honors_json_object_output_mode():
+    captured = {}
+
+    def complete(config, _messages, *, max_tokens=None):
+        captured["config"] = config
+        return '{"items": []}'
+
+    OpenAICompatibleModel(
+        {
+            "kind": "local",
+            "provider": "openai-compatible",
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+            "structured_output_mode": "json_object",
+        },
+        complete=complete,
+    ).complete_json(request())
+
+    assert captured["config"]["response_format"] == {"type": "json_object"}
+
+
 def test_ollama_transport_schema_removes_only_grammar_incompatible_length_limit():
     captured = {}
 
