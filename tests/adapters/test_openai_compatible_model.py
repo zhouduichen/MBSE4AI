@@ -209,7 +209,7 @@ def test_adapter_repairs_provider_length_stop_with_full_budget():
     assert calls == [1200, 2400]
 
 
-def test_adapter_passes_request_schema_to_local_completion():
+def test_adapter_passes_request_schema_to_openai_compatible_completion():
     captured = {}
 
     def complete(config, messages, *, max_tokens=None):
@@ -217,11 +217,24 @@ def test_adapter_passes_request_schema_to_local_completion():
         return '{"items":[]}'
 
     model = OpenAICompatibleModel(
-        {"kind": "local", "model": "qwen3.5:4b"}, complete=complete
+        {
+            "kind": "local",
+            "provider": "openai-compatible",
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+        },
+        complete=complete,
     )
     model.complete_json(request())
 
-    assert captured["config"]["json_schema"] == request().response_schema
+    assert captured["config"]["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "stakeholders",
+            "strict": True,
+            "schema": request().response_schema,
+        },
+    }
 
 
 def test_ollama_receives_task_proposal_schema_as_format():

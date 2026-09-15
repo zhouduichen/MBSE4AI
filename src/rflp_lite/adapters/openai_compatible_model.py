@@ -203,8 +203,6 @@ class OpenAICompatibleModel:
                 call_config["json_schema"] = (
                     _ollama_transport_schema(request.response_schema)
                 )
-        elif str(call_config.get("kind", "")).casefold() == "local":
-            call_config["json_schema"] = request.response_schema
         elif str(call_config.get("structured_output_mode", "json_schema")).casefold() != "none":
             call_config.setdefault(
                 "response_format",

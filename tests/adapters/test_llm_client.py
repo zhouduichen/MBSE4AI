@@ -51,6 +51,36 @@ def test_chat_completion_uses_openai_compatible_endpoint(monkeypatch):
     assert captured["timeout"] == 7
 
 
+def test_chat_completion_sends_schema_to_openai_compatible_ssh_endpoint(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(call, timeout):
+        captured["body"] = json.loads(call.data.decode())
+        return _Response()
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    llm_client.chat_completion(
+        {
+            "kind": "local",
+            "provider": "openai-compatible",
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "task",
+                    "strict": True,
+                    "schema": {"type": "object", "required": ["items"]},
+                },
+            },
+        },
+        [{"role": "user", "content": "json"}],
+    )
+
+    assert captured["body"]["response_format"]["type"] == "json_schema"
+    assert captured["body"]["response_format"]["json_schema"]["strict"] is True
+
+
 def test_chat_completion_sends_structured_deepseek_options(monkeypatch):
     captured = {}
 
