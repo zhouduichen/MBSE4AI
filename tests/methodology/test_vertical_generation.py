@@ -75,6 +75,18 @@ def test_vertical_prompt_resources_resolve_and_include_review_metadata():
     assert request.output_contract["properties"]["assumptions"]["type"] == "array"
 
 
+def test_requirements_prompt_prefers_incremental_graph_closure():
+    request = TaskExecutor(RuleRuntime()).request(
+        stage_task(VerticalStage.REQUIREMENTS),
+        ContextBundle("p1", "vertical.requirements", 0, ()),
+        "v2.1",
+    )
+
+    assert "增量闭合" in request.prompt_text
+    assert "已有 requirement 应使用 updates" in request.prompt_text
+    assert "保持 Proposal 紧凑" in request.prompt_text
+
+
 def test_vertical_prompts_require_mandatory_logical_state_and_assurance_risk_objects():
     logical = TaskExecutor(RuleRuntime()).request(
         stage_task(VerticalStage.LOGICAL),

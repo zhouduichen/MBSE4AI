@@ -158,8 +158,11 @@ def _fit_context_window(
     config: Mapping[str, object],
     messages: list[dict[str, str]],
     max_tokens: int | None,
+    *,
+    extra_tokens: int = 0,
+    safety_margin: int = _CONTEXT_TOKEN_SAFETY_MARGIN,
 ) -> int | None:
-    """Keep provider input plus output inside the configured context window."""
+    """Keep provider input, extra transport data, and output inside the window."""
 
     if max_tokens is None:
         return None
@@ -175,7 +178,8 @@ def _fit_context_window(
     available = (
         context_window
         - estimate_messages(messages)
-        - _CONTEXT_TOKEN_SAFETY_MARGIN
+        - max(0, int(extra_tokens))
+        - max(0, int(safety_margin))
     )
     if available < 256:
         raise TransportFailure(

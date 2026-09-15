@@ -534,6 +534,12 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
             revision=request.context_bundle.revision,
         )
         ref_to_id[item.local_ref] = entity.id
+        if entity.id in context_entities:
+            # A completion retry may replay an already applied proposal. Keep
+            # its local reference resolvable, but do not attempt a second ADD.
+            # Explicit updates remain the only way to change the existing
+            # canonical entity.
+            continue
         output_ids.add(entity.id)
         pending_entities.append((item, entity))
     known_ids = set(context_entities) | output_ids
@@ -565,7 +571,11 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
                 known_ids,
             )
             merged_payload = {**dict(entity.payload), **payload_patch}
-            _validate_entity_payload(entity.kind, merged_payload, request)
+            _validate_entity_payload(
+                entity.kind,
+                _payload_for_update_validation(entity.kind, merged_payload),
+                request,
+            )
             field_patch["payload"] = payload_patch
         operations.append(UpdateEntity(item.entity_id, field_patch))
     for item in proposal.deprecations:
@@ -584,3 +594,20 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
         proposal.reason,
         request.context_bundle.revision,
     )
+
+
+def _payload_for_update_validation(
+    kind: EntityKind,
+    payload: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Ignore known fixture bookkeeping while validating an edited payload.
+
+    Imported benchmark entities may retain ``fixture_id`` for provenance even
+    though it is intentionally outside the typed Requirement payload schema.
+    Preserve that field in the graph, but do not let it block a valid semantic
+    update to the same Requirement.
+    """
+
+    if kind is not EntityKind.REQUIREMENT or "fixture_id" not in payload:
+        return payload
+    return {key: value for key, value in payload.items() if key != "fixture_id"}

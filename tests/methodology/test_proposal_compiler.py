@@ -644,6 +644,58 @@ def test_same_proposal_compiles_to_the_same_patch_deterministically():
     assert first.id == second.id
 
 
+def test_replayed_proposal_reuses_existing_canonical_entity():
+    task = stage_task(VerticalStage.FUNCTIONAL)
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应完成投递",
+        {"obligation": "系统应完成投递"},
+    )
+    function = make_entity(
+        EntityKind.FUNCTION,
+        "规划配送路径",
+        {"decomposition": ["解析需求", "规划路径", "反馈结果"]},
+        revision=3,
+    )
+    request = TaskExecutionRequest(
+        task.id,
+        "v2.1",
+        ContextBundle("p1", task.id, 4, (requirement, function)),
+        (),
+        output_contract(task),
+        100,
+        patch_policy=task.patch_policy,
+    )
+    payload = {
+        "entities": [{
+            "local_ref": "function-1",
+            "kind": EntityKind.FUNCTION.value,
+            "name": function.meta.name,
+            "payload": dict(function.payload),
+        }],
+        "relations": [{
+            "source_ref": requirement.id,
+            "predicate": RelationPredicate.SATISFIED_BY.value,
+            "target_ref": "function-1",
+            "evidence_ids": [],
+        }],
+        "updates": [],
+        "deprecations": [],
+        "reason": "重试时复用已有功能",
+    }
+
+    patch = compile_task_proposal(request, payload)
+
+    assert patch is not None
+    assert not any(isinstance(operation, AddEntity) for operation in patch.operations)
+    assert patch.operations[0] == Relate(
+        requirement.id,
+        RelationPredicate.SATISFIED_BY,
+        function.id,
+        (),
+    )
+
+
 def test_unknown_proposal_ref_is_rejected_before_patch_creation():
     payload = _proposal(entities=[])
     payload["relations"] = [{

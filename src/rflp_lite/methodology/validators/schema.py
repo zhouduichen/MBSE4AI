@@ -36,5 +36,12 @@ def validate(context: ValidationContext) -> None:
             diagnostic in response.diagnostics
             for diagnostic in _TRUSTED_BATCH_DIAGNOSTICS
         )
+        and not (
+            context.task.id.startswith("vertical.")
+            and any(
+                diagnostic.startswith("batch_count=")
+                for diagnostic in response.diagnostics
+            )
+        )
     ):
         raise MethodologyValidationError("schema_invalid", "patch exceeds the 32-operation contract")

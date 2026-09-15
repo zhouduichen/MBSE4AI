@@ -5,6 +5,8 @@ import pytest
 from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
 from rflp_lite.adapters.llm_client import _fit_context_window
 from rflp_lite.domain.errors import AdapterFailure, StructuredOutputFailure, TransportFailure
+from rflp_lite.methodology.tasks import output_contract
+from rflp_lite.methodology.vertical_generation import stage_task
 from rflp_lite.ports.generative_model import (
     GenerationRequest,
     SIMPLIFIED_CHINESE_OUTPUT_INSTRUCTION,
@@ -130,6 +132,89 @@ def test_context_window_margin_covers_provider_tokenizer_boundary():
     assert _fit_context_window(
         {"context_window": 16384}, messages, 4096
     ) == 3904
+
+
+def test_fit_context_window_accounts_for_transport_tokens_and_custom_margin():
+    messages = [{"role": "user", "content": "中" * 1000}]
+
+    assert _fit_context_window(
+        {"context_window": 4096},
+        messages,
+        3000,
+        extra_tokens=500,
+        safety_margin=512,
+    ) == 2080
+
+
+def test_openai_compatible_model_reserves_response_format_context():
+    calls = []
+
+    def complete(_config, _messages, *, max_tokens=None):
+        calls.append(max_tokens)
+        return '{"items": []}'
+
+    model = OpenAICompatibleModel(
+        {
+            "kind": "local",
+            "provider": "openai-compatible",
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+            "context_window": 8192,
+        },
+        complete=complete,
+    )
+    model.complete_json(
+        GenerationRequest(
+            lens_id="stakeholders",
+            system_prompt="只返回 JSON",
+            user_payload={"mission": "城市医疗运输" * 50},
+            response_schema={
+                "type": "object",
+                "required": ["items"],
+                "properties": {"items": {"type": "array"}},
+            },
+            max_tokens=5000,
+        )
+    )
+
+    assert 256 <= calls[0] < 5000
+
+
+def test_requirements_schema_accepts_operational_scenario_description():
+    schema = output_contract(stage_task("requirements"))
+    payload = {
+        "entities": [{
+            "local_ref": "operational-scenario",
+            "kind": "operational_scenario",
+            "name": "正常巡检作业",
+            "payload": {"description": "按预定航线执行巡检并上传结果"},
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "补齐运行场景",
+    }
+
+    OpenAICompatibleModel._parse_and_validate(json.dumps(payload, ensure_ascii=False), schema)
+
+
+def test_requirements_repair_keeps_context_without_redundant_guidance():
+    repair_request = GenerationRequest(
+        lens_id="vertical.requirements",
+        system_prompt="只返回 TaskProposal",
+        user_payload={
+            "context": {"entities": []},
+            "requirement_worklist": [],
+            "methodology_guidance": {"findings": ["重复信息"]},
+        },
+        response_schema={"type": "object"},
+    )
+
+    messages = OpenAICompatibleModel._repair_messages(repair_request, "失效响应")
+    envelope = json.loads(messages[1]["content"])
+
+    assert set(envelope["input"]) == {"context", "requirement_worklist"}
+    assert "最多返回 32 项" in messages[0]["content"]
 
 
 def test_adapter_preserves_finish_reason_and_usage():

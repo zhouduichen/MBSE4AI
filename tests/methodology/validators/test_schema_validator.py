@@ -7,6 +7,7 @@ from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.tasks import task_catalog
 from rflp_lite.methodology.validation import ValidationContext
 from rflp_lite.methodology.validators.schema import validate
+from rflp_lite.methodology.vertical_generation import stage_task
 
 
 def _context(response):
@@ -58,6 +59,28 @@ def test_schema_validator_allows_large_patch_from_offline_vertical_batch():
     )
 
     validate(_context(response))
+
+
+def test_schema_validator_allows_aggregate_structured_vertical_batch():
+    task = stage_task("functional")
+    response = TaskExecutionResponse(
+        StepStatus.COMPLETED,
+        patch=Patch.create(
+            "p1",
+            task.id,
+            tuple(
+                Relate(f"source-{index}", RelationPredicate.DERIVED_FROM, f"target-{index}")
+                for index in range(33)
+            ),
+            "structured batch",
+            0,
+        ),
+        diagnostics=("batch_count=5",),
+    )
+
+    validate(ValidationContext(
+        "p1", task, ModelGraph("p1"), ContextBundle("p1", task.id, 0, ()), response
+    ))
 
 
 def test_schema_validator_keeps_large_patch_limit_for_other_runtimes():

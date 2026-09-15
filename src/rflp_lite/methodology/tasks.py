@@ -261,7 +261,7 @@ def _payload_schemas(
         EntityKind.OPERATIONAL_SCENARIO.value: {
             "type": "object", "additionalProperties": False,
             "properties": {
-                "actor_ids": {"type": "array", "items": {"type": "string"}},
+                "description": {"type": "string"}, "context": {"type": "string"}, "actor_ids": {"type": "array", "items": {"type": "string"}},
                 "steps": {"type": "array"}, "exchanges": {"type": "array"},
                 "internal_component_ids": {"type": "array", "items": {"type": "string"}},
             },

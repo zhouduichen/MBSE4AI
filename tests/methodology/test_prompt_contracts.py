@@ -3,6 +3,7 @@ from rflp_lite.domain.model import ModelGraph
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.tasks import task_catalog
+from rflp_lite.methodology.vertical_generation import stage_task
 
 
 def test_request_contains_actual_prompt_version_and_content_hash():
@@ -115,3 +116,31 @@ def test_lifecycle_analysis_reuses_existing_stages_for_new_transitions():
 
     entity_schema = request.output_contract["properties"]["entities"]["items"]
     assert entity_schema["properties"]["kind"] == {"const": "lifecycle_transition"}
+
+
+def test_vertical_requirements_contract_only_allows_missing_r_kinds():
+    task = stage_task("requirements")
+    existing = tuple(
+        make_entity(kind, kind.value)
+        for kind in (
+            EntityKind.SYSTEM,
+            EntityKind.STAKEHOLDER,
+            EntityKind.LIFECYCLE_STAGE,
+            EntityKind.SCENARIO_HYPOTHESIS,
+            EntityKind.REQUIREMENT,
+        )
+    )
+
+    request = TaskExecutor(lambda request: None).request(
+        task,
+        ContextBuilder().build(ModelGraph("p1", existing), task),
+        "v2.1",
+    )
+
+    properties = request.output_contract["properties"]
+    entity_schema = properties["entities"]["items"]
+    assert entity_schema["properties"]["kind"] == {
+        "enum": ["activity", "concern", "lifecycle_transition", "operational_scenario", "use_case"]
+    }
+    assert properties["entities"]["maxItems"] == 5
+    assert properties["deprecations"]["maxItems"] == 0

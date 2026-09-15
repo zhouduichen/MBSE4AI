@@ -175,6 +175,8 @@ def _contextualize_contract(
 ) -> Mapping[str, object]:
     """Add state-dependent constraints to contracts with identity branches."""
 
+    if task.id == "vertical.requirements":
+        contract = _contextualize_vertical_requirements(context, contract)
     if task.id != "system_definition":
         contract = _contextualize_stakeholder_requirements(task, context, contract)
         return _contextualize_lifecycle_analysis(task, context, contract)
@@ -276,6 +278,50 @@ def _contextualize_lifecycle_analysis(
     entity_item["properties"] = entity_properties
     entities_schema["items"] = entity_item
     properties["entities"] = entities_schema
+    return {**contract, "properties": properties}
+
+
+def _contextualize_vertical_requirements(
+    context: ContextBundle,
+    contract: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Make the vertical R call an incremental closure when the graph has R data."""
+
+    active_kinds = {
+        entity.kind
+        for entity in context.entities
+        if entity.meta.status not in {EntityStatus.REJECTED, EntityStatus.DEPRECATED}
+    }
+    if not active_kinds:
+        return contract
+    properties = dict(contract["properties"])
+    entities_schema = dict(properties["entities"])
+    entity_item = dict(entities_schema["items"])
+    entity_properties = dict(entity_item["properties"])
+    stage_kinds = {
+        EntityKind.SYSTEM,
+        EntityKind.STAKEHOLDER,
+        EntityKind.CONCERN,
+        EntityKind.LIFECYCLE_STAGE,
+        EntityKind.LIFECYCLE_TRANSITION,
+        EntityKind.SCENARIO_HYPOTHESIS,
+        EntityKind.USE_CASE,
+        EntityKind.OPERATIONAL_SCENARIO,
+        EntityKind.ACTIVITY,
+        EntityKind.REQUIREMENT,
+    }
+    missing_kinds = tuple(
+        kind.value
+        for kind in sorted(stage_kinds - active_kinds, key=lambda item: item.value)
+    )
+    entity_properties["kind"] = {"enum": list(missing_kinds)}
+    entity_item["properties"] = entity_properties
+    entities_schema["items"] = entity_item
+    entities_schema["maxItems"] = len(missing_kinds)
+    properties["entities"] = entities_schema
+    deprecations_schema = dict(properties["deprecations"])
+    deprecations_schema["maxItems"] = 0
+    properties["deprecations"] = deprecations_schema
     return {**contract, "properties": properties}
 
 

@@ -19,6 +19,7 @@ from rflp_lite.ports.generative_model import (
     GenerationResponse,
     add_simplified_chinese_instruction,
 )
+from rflp_lite.ports.token_budget import estimate_tokens
 
 
 _REPAIR_FAILURE = "LLM response is not valid JSON after one repair"
@@ -29,6 +30,10 @@ _PROVIDER_SCHEMA_META_KEYS = frozenset({
     "validators",
     "max_attempts",
 })
+# vLLM counts chat wrappers and structured-output grammar tokens with its own
+# tokenizer.  The extra bounded margin keeps a 16k endpoint from rejecting a
+# request that the provider-neutral estimator considers just inside the limit.
+_OPENAI_CONTEXT_TOKEN_SAFETY_MARGIN = 5376
 
 
 class _InvalidStructuredResponse(ValueError):
@@ -37,6 +42,40 @@ class _InvalidStructuredResponse(ValueError):
     def __init__(self, message: str, *, code: str = "schema_validation") -> None:
         self.code = code
         super().__init__(message)
+
+
+def _provider_call_config(
+    config: Mapping[str, object],
+    request: GenerationRequest,
+    *,
+    native_ollama: bool,
+    structured_output_mode: str,
+) -> tuple[Mapping[str, object], int, int]:
+    call_config = dict(config)
+    provider_response_format: object | None = None
+    if native_ollama:
+        if structured_output_mode != "none":
+            call_config["json_schema"] = _ollama_transport_schema(request.response_schema)
+    elif str(call_config.get("structured_output_mode", "json_schema")).casefold() != "none":
+        provider_response_format = call_config.get("response_format")
+        if provider_response_format is None:
+            provider_response_format = _openai_response_format(
+                request.lens_id,
+                request.response_schema,
+                structured_output_mode,
+            )
+            call_config["response_format"] = provider_response_format
+    extra_tokens = (
+        estimate_tokens(json.dumps(provider_response_format, ensure_ascii=False))
+        if provider_response_format is not None
+        else 0
+    )
+    safety_margin = (
+        _OPENAI_CONTEXT_TOKEN_SAFETY_MARGIN
+        if provider_response_format is not None
+        else 256
+    )
+    return call_config, extra_tokens, safety_margin
 
 
 def _openai_response_format(
@@ -102,6 +141,117 @@ def _ollama_transport_schema(value: object) -> object:
     if isinstance(value, list):
         return [_ollama_transport_schema(item) for item in value]
     return value
+
+
+def _repair_input(request: GenerationRequest) -> Mapping[str, object]:
+    """Keep structural retries small enough to leave room for a full result."""
+
+    if not request.lens_id.startswith("vertical."):
+        return request.user_payload
+    retained = {
+        "task_id",
+        "methodology_version",
+        "requirement_worklist",
+    }
+    result = {
+        key: value
+        for key, value in request.user_payload.items()
+        if key in retained
+    }
+    context = request.user_payload.get("context")
+    if isinstance(context, Mapping):
+        result["context"] = _compact_repair_context(context)
+    return result
+
+
+def _compact_repair_context(context: Mapping[str, object]) -> Mapping[str, object]:
+    """Keep canonical identity evidence without resending the full graph."""
+
+    entities = context.get("entities")
+    compact_entities: list[Mapping[str, object]] = []
+    if isinstance(entities, (list, tuple)):
+        for entity in entities:
+            if not isinstance(entity, Mapping):
+                continue
+            compact = {
+                key: entity[key]
+                for key in ("id", "kind", "name", "status")
+                if key in entity
+            }
+            payload = entity.get("payload")
+            if isinstance(payload, Mapping):
+                fields_by_kind = {
+                    "requirement": (
+                        "statement", "level", "type", "obligation",
+                        "verification_method", "functional_behavior_ids",
+                    ),
+                    "function": ("decomposition",),
+                    "functional_flow": (
+                        "source_function_ids", "target_function_ids",
+                    ),
+                    "functional_scenario": ("function_ids",),
+                    "logical_component": (
+                        "function_id", "responsibility", "dependencies",
+                    ),
+                    "physical_block": (
+                        "logical_id", "source_logical_ids", "source_function_ids",
+                    ),
+                    "verification_case": (
+                        "requirement_ids", "function_ids", "logical_component_ids",
+                        "physical_ids",
+                    ),
+                    "validation_case": (
+                        "requirement_ids", "scenario_ids", "function_ids",
+                    ),
+                }
+                fields = fields_by_kind.get(str(entity.get("kind")), ())
+                compact_payload = {
+                    key: payload[key] for key in fields if key in payload
+                }
+                if compact_payload:
+                    compact["payload"] = compact_payload
+            compact_entities.append(compact)
+    relations = context.get("relations")
+    compact_relations = []
+    if isinstance(relations, (list, tuple)):
+        for relation in relations:
+            if not isinstance(relation, Mapping):
+                continue
+            compact_relations.append({
+                key: relation[key]
+                for key in ("source_id", "predicate", "target_id")
+                if key in relation
+            })
+    return {
+        key: context[key]
+        for key in ("project_id", "revision")
+        if key in context
+    } | {"entities": compact_entities, "relations": compact_relations}
+
+
+def _vertical_repair_instruction(task_id: str) -> str:
+    rules = {
+        "vertical.requirements": (
+            "entities 只能使用当前缺失的 operational/R 类型；不要输出 function、"
+            "logical_component、physical_block 或 V&V 类型。"
+        ),
+        "vertical.functional": (
+            "entities 只能使用 function、functional_flow、functional_scenario、requirement；"
+            "不得把 context.entities 中的 Requirement 复制到 entities。"
+        ),
+        "vertical.logical": (
+            "entities 只能使用 logical_component、interface、state；"
+            "不得输出 Requirement、Function 或 PhysicalBlock。"
+        ),
+        "vertical.physical": (
+            "entities 只能使用 physical_block、requirement；不得输出其它类型。"
+        ),
+        "vertical.verification_validation": (
+            "entities 只能使用 verification_case、validation_case、hazard、failure_mode、requirement；"
+            "不得输出其它类型。"
+        ),
+    }
+    return rules.get(task_id, "")
 
 
 class OpenAICompatibleModel:
@@ -200,10 +350,10 @@ class OpenAICompatibleModel:
     ) -> list[dict[str, str]]:
         max_items = request.user_payload.get("max_items")
         if not isinstance(max_items, int) or max_items < 1:
-            max_items = 8
+            max_items = 32
         envelope = {
-            "input": request.user_payload,
-            "invalid_response": str(raw or "")[:6000],
+            "input": _repair_input(request),
+            "invalid_response": str(raw or "")[:4000],
         }
         if include_schema:
             envelope["response_schema"] = request.response_schema
@@ -212,7 +362,10 @@ class OpenAICompatibleModel:
                 "role": "system",
                 "content": add_simplified_chinese_instruction(
                     f"重新生成完整的 JSON 分析结果，最多返回 {max_items} 项；"
-                    "保留有效内容，修复 TaskProposal 结构，不要解释，也不要用空数组规避任务。"
+                    "保留有效内容，修复 TaskProposal 结构；已有 canonical 实体不要重复新增，"
+                    "使用最小数量的 entities、updates 和 relations 完成闭合；"
+                    + _vertical_repair_instruction(request.lens_id)
+                    + "不要解释，也不要用空数组规避任务。"
                 ),
             },
             {
@@ -220,6 +373,7 @@ class OpenAICompatibleModel:
                 "content": json.dumps(envelope, ensure_ascii=False, sort_keys=True),
             },
         ]
+
 
     def complete_json(self, request: GenerationRequest) -> GenerationResponse:
         started = time.monotonic()
@@ -250,22 +404,19 @@ class OpenAICompatibleModel:
                 "content": json.dumps(prompt_payload, ensure_ascii=False, sort_keys=True),
             },
         ]
-        max_tokens = _fit_context_window(self._config, messages, max_tokens)
-        call_config = dict(self._config)
-        if native_ollama:
-            if structured_output_mode != "none":
-                call_config["json_schema"] = (
-                    _ollama_transport_schema(request.response_schema)
-                )
-        elif str(call_config.get("structured_output_mode", "json_schema")).casefold() != "none":
-            call_config.setdefault(
-                "response_format",
-                _openai_response_format(
-                    request.lens_id,
-                    request.response_schema,
-                    structured_output_mode,
-                ),
-            )
+        call_config, transport_extra_tokens, transport_safety_margin = _provider_call_config(
+            self._config,
+            request,
+            native_ollama=native_ollama,
+            structured_output_mode=structured_output_mode,
+        )
+        max_tokens = _fit_context_window(
+            self._config,
+            messages,
+            max_tokens,
+            extra_tokens=transport_extra_tokens,
+            safety_margin=transport_safety_margin,
+        )
         try:
             raw = self._complete(call_config, messages, max_tokens=max_tokens)
         except Exception as exc:
@@ -300,6 +451,8 @@ class OpenAICompatibleModel:
                         self._config,
                         repair_messages,
                         self._repair_budget(max_tokens, raw),
+                        extra_tokens=transport_extra_tokens,
+                        safety_margin=transport_safety_margin,
                     ),
                 )
                 self._ensure_complete(repaired_raw)

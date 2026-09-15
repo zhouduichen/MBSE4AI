@@ -3,7 +3,7 @@ import json
 import pytest
 
 from rflp_lite.domain.entities import EntityKind, make_entity
-from rflp_lite.domain.model import ModelGraph, UpdateEntity
+from rflp_lite.domain.model import AddEntity, ModelGraph, Relation, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.domain.errors import (
     ProposalCompileFailure,
@@ -259,6 +259,78 @@ def test_vertical_runtime_exposes_canonical_requirement_worklist():
     ]
 
 
+def test_vertical_runtime_compacts_model_context_but_keeps_typed_payload_fields():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应保持续航",
+        {
+            "statement": "系统应保持续航",
+            "level": "system",
+            "fixture_id": "imported-fixture-1",
+        },
+        source_ids=("document-1",),
+        evidence_ids=("evidence-1",),
+    )
+    system = make_entity(EntityKind.SYSTEM, "无人机系统")
+    relation = Relation(
+        "relation-1",
+        requirement.id,
+        RelationPredicate.DERIVED_FROM,
+        system.id,
+        evidence_ids=("evidence-1",),
+    )
+    context = ContextBundle(
+        "drone",
+        "vertical.logical",
+        4,
+        (requirement, system),
+        (relation,),
+        methodology_guidance={
+            "version": "methodology-guidance.v1",
+            "task_id": "vertical.logical",
+            "stage_completion": {
+                "issue_codes": ["completion_semantic:logical_analysis"],
+                "checks": [{
+                    "id": "requirement_coverage:logical",
+                    "passed": False,
+                    "missing_requirement_ids": [requirement.id],
+                    "gaps": [{
+                        "requirement_id": requirement.id,
+                        "missing": ["logical"],
+                        "path": [requirement.id, system.id] * 100,
+                    }],
+                }],
+            },
+        },
+    )
+    model = FakeModel()
+    request = TaskExecutor(model).request(
+        stage_task("logical"),
+        context,
+        "v2.1",
+    )
+
+    StructuredModelRuntime(model).execute(request)
+
+    wire_entity = next(
+        item for item in model.request.user_payload["context"]["entities"]
+        if item["kind"] == EntityKind.REQUIREMENT.value
+    )
+    assert set(wire_entity) == {"id", "kind", "name", "payload"}
+    assert wire_entity["payload"] == {
+        "statement": "系统应保持续航",
+        "level": "system",
+    }
+    assert set(model.request.user_payload["context"]["relations"][0]) == {
+        "source_id", "predicate", "target_id",
+    }
+    completion = model.request.user_payload["methodology_guidance"]["stage_completion"]
+    assert completion["checks"][0]["gaps"] == [{
+        "requirement_id": requirement.id,
+        "missing": ["logical"],
+    }]
+
+
 def test_vertical_runtime_prefers_full_graph_requirement_worklist():
     model = FakeModel()
     requirement = make_entity(
@@ -304,6 +376,64 @@ def test_vertical_runtime_prefers_full_graph_requirement_worklist():
         "verification_case_ids": [],
         "validation_case_ids": [],
     }
+
+
+def test_vertical_runtime_drops_fixture_metadata_from_requirement_updates():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应安全返航",
+        {
+            "statement": "系统应安全返航",
+            "fixture_id": "drone-low-battery-return",
+        },
+    )
+    model = FakeModel(payload={
+        "entities": [{
+            "local_ref": "function-1",
+            "kind": EntityKind.FUNCTION.value,
+            "name": "执行安全返航",
+            "payload": {"decomposition": ["监测电量", "规划返航", "执行着陆"]},
+        }],
+        "relations": [{
+            "source_ref": requirement.id,
+            "predicate": RelationPredicate.SATISFIED_BY.value,
+            "target_ref": "function-1",
+            "evidence_ids": [],
+        }],
+        "updates": [{
+            "entity_id": requirement.id,
+            "field_patch": {
+                "payload": {
+                    "fixture_id": "copied-import-metadata",
+                    "functional_behavior_ids": ["function-1"],
+                    "functional_requirement_status": "derived",
+                    "type": "technical",
+                },
+            },
+        }],
+        "deprecations": [],
+        "reason": "建立需求到功能的回接",
+    })
+    request = TaskExecutor(RuleRuntime()).request(
+        stage_task("functional"),
+        ContextBundle("p1", "vertical.functional", 3, (requirement,)),
+        "v2.1",
+    )
+
+    response = StructuredModelRuntime(model).execute(request)
+
+    assert response.patch is not None
+    update = next(
+        operation for operation in response.patch.operations
+        if isinstance(operation, UpdateEntity)
+    )
+    assert update.field_patch["payload"] == {
+        "functional_behavior_ids": [
+            next(operation.entity.id for operation in response.patch.operations if isinstance(operation, AddEntity))
+        ],
+        "functional_requirement_status": "derived",
+    }
+    assert "type" not in update.field_patch["payload"]
 
 
 def test_vertical_runtime_preserves_context_scoped_traceability_metadata():
@@ -468,34 +598,16 @@ def test_structured_runtime_batches_large_vv_worklist_and_merges_patch():
     assert [
         request.user_payload["requirement_worklist"] for request in model.calls
     ] == [
-        [
-            {
-                "requirement_id": item.id,
-                "statement": item.payload["statement"],
-                "missing": [],
-            }
-            for item in ordered_requirements[:2]
-        ],
-        [
-            {
-                "requirement_id": item.id,
-                "statement": item.payload["statement"],
-                "missing": [],
-            }
-            for item in ordered_requirements[2:4]
-        ],
-        [
-            {
-                "requirement_id": ordered_requirements[4].id,
-                "statement": ordered_requirements[4].payload["statement"],
-                "missing": [],
-            }
-        ],
+        [{
+            "requirement_id": item.id,
+            "statement": item.payload["statement"],
+            "missing": [],
+        }]
+        for item in ordered_requirements
     ]
     assert [request.user_payload["requirement_batch"] for request in model.calls] == [
-        {"index": 1, "count": 3, "is_first": True},
-        {"index": 2, "count": 3, "is_first": False},
-        {"index": 3, "count": 3, "is_first": False},
+        {"index": index, "count": 5, "is_first": index == 1}
+        for index in range(1, 6)
     ]
     added = [
         operation.entity
@@ -511,7 +623,7 @@ def test_structured_runtime_batches_large_vv_worklist_and_merges_patch():
     ]
     assert len(relation_keys) == 10
     assert len(relation_keys) == len(set(relation_keys))
-    assert "batch_count=3" in result.diagnostics
+    assert "batch_count=5" in result.diagnostics
 
 
 @pytest.mark.parametrize("stage", ("functional", "logical", "physical"))
@@ -538,20 +650,17 @@ def test_structured_runtime_batches_large_rflp_worklist(stage):
         [item["requirement_id"] for item in call.user_payload["requirement_worklist"]]
         for call in model.calls
     ] == [
-        [item.id for item in ordered_requirements[:2]],
-        [item.id for item in ordered_requirements[2:4]],
-        [ordered_requirements[4].id],
+        [item.id] for item in ordered_requirements
     ]
     assert [call.user_payload["requirement_batch"] for call in model.calls] == [
-        {"index": 1, "count": 3, "is_first": True},
-        {"index": 2, "count": 3, "is_first": False},
-        {"index": 3, "count": 3, "is_first": False},
+        {"index": index, "count": 5, "is_first": index == 1}
+        for index in range(1, 6)
     ]
     assert all(
         f"当前是 vertical.{stage} 第" in call.system_prompt
         for call in model.calls
     )
-    assert "batch_count=3" in result.diagnostics
+    assert "batch_count=5" in result.diagnostics
 
 
 def test_structured_runtime_rejects_merged_vv_patch_over_effective_limit():
@@ -569,7 +678,7 @@ def test_structured_runtime_rejects_merged_vv_patch_over_effective_limit():
         StructuredModelRuntime(model).execute(request)
 
     assert error.value.code == "batch_operation_limit"
-    assert len(model.calls) == 5
+    assert len(model.calls) == 9
 
 
 def test_structured_runtime_discards_partial_vv_batches_on_failure():
