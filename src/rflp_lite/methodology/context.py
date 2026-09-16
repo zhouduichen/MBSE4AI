@@ -371,26 +371,29 @@ def _assurance_trace_context(
     # Reserve the first pass for every Requirement so a large project does not
     # spend its entire budget on the first requirement's downstream path.
     priority_ids: list[str] = [item.id for item in requirements]
-    if task_id not in {"global_cross_analysis", "vertical.global_cross_analysis"}:
-        for field in (
-            "function_ids",
-            "logical_component_ids",
-            "physical_ids",
-        ):
-            priority_ids.extend(
-                target_id
-                for requirement in requirements
-                for target_id in sorted(
-                    (
-                        item_id for item_id in getattr(scopes[requirement.id], field)
-                        if item_id in active
-                    ),
-                    key=lambda item_id: (
-                        active[item_id].meta.status not in _READY_STATUSES,
-                        item_id,
-                    ),
-                )
+    # global_cross_analysis rewrites existing V&V scopes with the graph-derived
+    # scope, so it needs the same R→F→L→P endpoints as the initial V&V task.
+    # Omitting them here makes a bounded context look like an empty trace and
+    # can silently erase a previously complete scope during CAS reanalysis.
+    for field in (
+        "function_ids",
+        "logical_component_ids",
+        "physical_ids",
+    ):
+        priority_ids.extend(
+            target_id
+            for requirement in requirements
+            for target_id in sorted(
+                (
+                    item_id for item_id in getattr(scopes[requirement.id], field)
+                    if item_id in active
+                ),
+                key=lambda item_id: (
+                    active[item_id].meta.status not in _READY_STATUSES,
+                    item_id,
+                ),
             )
+        )
     requirement_ids = {item.id for item in requirements}
     priority_ids.extend(
         _matching_vv_ids(graph, requirement_ids, active)

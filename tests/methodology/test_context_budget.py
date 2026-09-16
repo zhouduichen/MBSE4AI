@@ -263,6 +263,41 @@ def test_vertical_assurance_context_preserves_existing_vv_scope_during_reanalysi
     assert len(context.relations) == 5
 
 
+def test_global_assurance_context_preserves_rflp_scope_for_cross_analysis():
+    requirement = make_entity(EntityKind.REQUIREMENT, "需求")
+    function = make_entity(EntityKind.FUNCTION, "功能")
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "逻辑")
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "物理")
+    verification = make_entity(EntityKind.VERIFICATION_CASE, "验证")
+    graph = ModelGraph(
+        "p1",
+        (requirement, function, logical, physical, verification),
+        (
+            Relation("r-f", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+            Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+            Relation("l-p", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
+            Relation("r-v", requirement.id, RelationPredicate.VERIFIED_BY, verification.id),
+        ),
+    )
+    task = next(
+        item for item in tasks_for_phase(Phase.ASSURANCE)
+        if item.id == "global_cross_analysis"
+    )
+
+    context = ContextBuilder().build(graph, task, token_budget=10000)
+
+    selected_ids = {item.id for item in context.entities}
+    assert {requirement.id, function.id, logical.id, physical.id} <= selected_ids
+    assert {
+        (relation.source_id, relation.target_id)
+        for relation in context.relations
+    } >= {
+        (requirement.id, function.id),
+        (function.id, logical.id),
+        (logical.id, physical.id),
+    }
+
+
 def test_full_graph_context_keeps_all_assurance_endpoints_without_budget_projection():
     requirement = make_entity(EntityKind.REQUIREMENT, "需求")
     function = make_entity(EntityKind.FUNCTION, "功能")

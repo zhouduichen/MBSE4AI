@@ -277,6 +277,31 @@ def test_configured_runtime_parallelizes_dependency_safe_task_group(tmp_path):
     assert runtime.max_active <= runtime.max_parallel_requests
 
 
+def test_configured_full_lifecycle_parallelizes_only_independent_groups(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    RequirementInputService(repository, "p1").ensure_text_requirements(
+        "系统应支持人工接管"
+    )
+    runtime = ParallelTrackingRuntime()
+    runner = WorkflowRunner(repository, repository, runtime)
+    runner.runtime_selection = SimpleNamespace(
+        mode="configured", profile_id="test-llm", provider_id="test", model_id="test"
+    )
+
+    summary = runner.run("p1", force_run=True)
+
+    assert summary.status is RunStatus.COMPLETED
+    assert runtime.max_active >= 2
+    assert runtime.max_active <= runtime.max_parallel_requests
+    assert summary.phase is Phase.CLOSURE
+    assert len(summary.completed_tasks) == 23
+    stored = repository.load_run("p1", summary.run_id)
+    assert stored is not None
+    assert all(step.status == StepStatus.COMPLETED.value for step in stored.steps)
+    assert repository.load_graph("p1").revision >= len(stored.steps)
+
+
 def test_configured_transport_gap_recovers_complete_lifecycle(tmp_path):
     repository = SQLiteModelRepository(tmp_path / "model.db")
     repository.ensure_project("p1")
