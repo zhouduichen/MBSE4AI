@@ -11,6 +11,8 @@ _TRUSTED_BATCH_DIAGNOSTICS = frozenset({
     "offline:lifecycle-runtime",
     "offline:vertical-runtime",
 })
+_VERTICAL_OPERATION_LIMIT = 64
+_DEFAULT_OPERATION_LIMIT = 32
 
 
 def validate(context: ValidationContext) -> None:
@@ -27,11 +29,18 @@ def validate(context: ValidationContext) -> None:
         )
     if not isinstance(response.patch.operations, tuple):
         raise MethodologyValidationError("schema_invalid", "patch operations must be a tuple")
-    # The 32-operation limit bounds untrusted structured outputs.  The
-    # deterministic runtimes already own the typed Patch and need to batch one
-    # independent V&V pair per requirement in a single task.
+    # Vertical generation is a product-level closure: the Requirements stage
+    # may legitimately add the operational entities and their typed relations
+    # in one response. Keep that envelope bounded, but do not make the
+    # entity-count and relation-count limits add up to an impossible total.
+    # Legacy fine-grained tasks retain the smaller limit.
+    operation_limit = (
+        _VERTICAL_OPERATION_LIMIT
+        if context.task.id.startswith("vertical.")
+        else _DEFAULT_OPERATION_LIMIT
+    )
     if (
-        len(response.patch.operations) > 32
+        len(response.patch.operations) > operation_limit
         and not any(
             diagnostic in response.diagnostics
             for diagnostic in _TRUSTED_BATCH_DIAGNOSTICS
@@ -44,4 +53,7 @@ def validate(context: ValidationContext) -> None:
             )
         )
     ):
-        raise MethodologyValidationError("schema_invalid", "patch exceeds the 32-operation contract")
+        raise MethodologyValidationError(
+            "schema_invalid",
+            f"patch exceeds the {operation_limit}-operation contract",
+        )

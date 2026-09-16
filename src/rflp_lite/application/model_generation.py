@@ -38,6 +38,7 @@ from rflp_lite.methodology.vertical_generation import (
 from rflp_lite.application.tool_layer import EngineeringToolLayer
 from rflp_lite.application.requirement_input import RequirementInputService
 from rflp_lite.repository.port import ModelRepository, Run, Step
+from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 
 @dataclass(frozen=True, slots=True)
@@ -927,6 +928,32 @@ class ModelGenerationService:
                     "completion_issue_codes": list(execution.result.completion_issue_codes),
                 })
                 continue
+            if (
+                execution.result.status == "needs_review"
+                and attempt == max_attempts
+                and self._completion_bridge_enabled()
+            ):
+                bridged = self._apply_completion_bridge(
+                    project_id,
+                    run_id,
+                    stage,
+                    task,
+                    execution,
+                    document_ids,
+                    controller_decision=controller_decision,
+                )
+                if bridged is not None:
+                    warnings.extend(bridged.warnings)
+                    self._finalize_stage_attempt(
+                        project_id,
+                        run_id,
+                        task,
+                        bridged,
+                    )
+                    return _StageExecution(
+                        bridged.result,
+                        tuple(dict.fromkeys(warnings)),
+                    )
             warnings.extend(execution.warnings)
             self._finalize_stage_attempt(
                 project_id,
@@ -939,6 +966,109 @@ class ModelGenerationService:
                 tuple(dict.fromkeys(warnings)),
             )
         return _StageExecution(None, diagnostics=("stage feedback loop exhausted",))
+
+    def _apply_completion_bridge(
+        self,
+        project_id: str,
+        run_id: str,
+        stage,
+        task,
+        execution: _StageAttemptResult,
+        document_ids: tuple[str, ...],
+        *,
+        controller_decision: Mapping[str, object] | None = None,
+    ) -> _StageAttemptResult | None:
+        """Close an explicit vertical gap after the bounded LLM feedback pass.
+
+        The remote model remains responsible for the substantive proposal. The
+        existing deterministic vertical runtime is used only as a typed
+        completion bridge when the same-stage feedback pass still leaves a
+        checked gap. It reuses the current graph, preserves locked/user-edited
+        entities, and contributes only the minimum missing model structure and
+        trace links.
+        """
+
+        graph = self.repository.load_graph(project_id)
+        context = self._context(
+            graph,
+            task.id,
+            document_ids,
+            controller_decision=controller_decision,
+            full_graph=True,
+        )
+        bridge_request = self.executor.request(
+            task,
+            context,
+            self.methodology_version,
+            evidence_bundle=context.evidence,
+            token_budget=self.output_budget,
+        )
+        bridge_response = VerticalRuleRuntime().execute(bridge_request)
+        if bridge_response.status is not StepStatus.COMPLETED or bridge_response.patch is None:
+            return None
+        bridge_patch = _preserve_existing_bridge_content(graph, bridge_response.patch)
+        bridge_patch = enrich_architecture_patch(graph, bridge_patch)
+        if bridge_patch != bridge_response.patch:
+            bridge_response = replace(bridge_response, patch=bridge_patch)
+        self.executor.validate_response(
+            project_id,
+            task,
+            graph,
+            context,
+            bridge_response,
+        )
+        patch = _promote_generated_entities(bridge_response.patch, validated=True)
+        revision = self.repository.append_patch(
+            project_id,
+            patch,
+            graph.revision,
+            run_id=run_id,
+        ).sequence
+        current = self.repository.load_graph(project_id)
+        missing_kinds = self._missing_stage_kinds(current, stage.stage)
+        completion = evaluate_vertical_stage(stage.stage, current)
+        diagnostics = tuple(dict.fromkeys(
+            (
+                *execution.result.diagnostics,
+                "completion_bridge=vertical-rule",
+                *bridge_response.diagnostics,
+            )
+        ))
+        result = replace(
+            execution.result,
+            status="needs_review" if missing_kinds or completion.issue_codes else "completed",
+            revision=revision,
+            entity_count=sum(
+                1
+                for entity in current.entities
+                if entity.kind in stage.output_kinds
+                and entity.meta.status is not EntityStatus.DEPRECATED
+            ),
+            relation_count=len(current.relations),
+            diagnostics=diagnostics,
+            completion_checks=completion.checks,
+            completion_issue_codes=completion.issue_codes,
+        )
+        warning = (
+            f"{stage.stage.value}: completion bridge applied after LLM feedback; "
+            "bridge provenance is recorded as offline vertical-rule"
+        )
+        self._audit(project_id, "model_generation.completion_bridge", {
+            "run_id": run_id,
+            "stage": stage.stage.value,
+            "source_provider_id": execution.response.provider_id if execution.response else "",
+            "source_model_id": execution.response.model_id if execution.response else "",
+            "source_issue_codes": list(execution.result.completion_issue_codes),
+            "bridge_patch_id": patch.id,
+            "revision": revision,
+            "completion_issue_codes": list(completion.issue_codes),
+        })
+        return replace(
+            execution,
+            result=result,
+            warnings=(warning,),
+            response=execution.response,
+        )
 
     def _continue_after_feedback_failure(
         self,
@@ -1129,7 +1259,7 @@ class ModelGenerationService:
                 result.attempts,
                 response.input_hash or execution.context_hash,
                 response.patch.id if response.patch else None,
-                tuple(response.diagnostics),
+                tuple(dict.fromkeys((*response.diagnostics, *result.diagnostics))),
                 response.output_hash,
                 response.provider_id or self._provider_id(),
                 response.model_id or self._model_id(),
@@ -1180,6 +1310,7 @@ class ModelGenerationService:
         document_ids: tuple[str, ...],
         *,
         controller_decision: Mapping[str, object] | None = None,
+        full_graph: bool | None = None,
     ) -> ContextBundle:
         task = stage_task(task_id.removeprefix("vertical."))
         context_budget = self._context_budget()
@@ -1199,7 +1330,11 @@ class ModelGenerationService:
             output_reserve=output_reserve,
             prompt_reserve=256,
             evidence_bundle=evidence_bundle,
-            full_graph=bool(getattr(self.runtime, "requires_complete_context", False)),
+            full_graph=(
+                bool(getattr(self.runtime, "requires_complete_context", False))
+                if full_graph is None
+                else full_graph
+            ),
         )
         evidence = context.evidence
         return replace(
@@ -1350,6 +1485,21 @@ class ModelGenerationService:
 
         return (
             self._mode() in {"configured", "injected"}
+            and hasattr(self.runtime, "model")
+            and bool(
+                getattr(
+                    self.runtime.model,
+                    "automatic_vertical_stage_feedback",
+                    True,
+                )
+            )
+        )
+
+    def _completion_bridge_enabled(self) -> bool:
+        """Use the deterministic bridge only for a configured model run."""
+
+        return (
+            self._mode() == "configured"
             and hasattr(self.runtime, "model")
             and bool(
                 getattr(
@@ -1532,6 +1682,61 @@ def _promote_generated_entities(patch: Patch, *, validated: bool = True) -> Patc
         else:
             operations.append(operation)
     return replace(patch, operations=tuple(operations))
+
+
+def _preserve_existing_bridge_content(graph, patch: Patch) -> Patch:
+    """Merge bridge fields only where an existing LLM entity has a gap."""
+
+    operations = []
+    for operation in patch.operations:
+        if not isinstance(operation, UpdateEntity):
+            operations.append(operation)
+            continue
+        current = graph.entity_index.get(operation.entity_id)
+        if current is None:
+            operations.append(operation)
+            continue
+        field_patch = dict(operation.field_patch)
+        # The completion bridge must not rename or replace an LLM-produced
+        # engineering object. Its payload is only a source of missing typed
+        # fields and nested completion evidence.
+        field_patch.pop("name", None)
+        candidate_payload = field_patch.get("payload")
+        if isinstance(candidate_payload, Mapping):
+            field_patch["payload"] = _merge_missing_payload(
+                current.payload,
+                candidate_payload,
+            )
+        if field_patch:
+            operations.append(UpdateEntity(operation.entity_id, field_patch))
+    if tuple(operations) == patch.operations:
+        return patch
+    return Patch.create(
+        patch.project_id,
+        patch.task_id,
+        tuple(operations),
+        patch.reason,
+        patch.expected_revision,
+    )
+
+
+def _merge_missing_payload(
+    current: Mapping[str, object],
+    candidate: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Recursively add empty/missing fields without overwriting model content."""
+
+    merged = dict(current)
+    for key, value in candidate.items():
+        if key not in merged or _payload_value_empty(merged[key]):
+            merged[key] = value
+        elif isinstance(merged[key], Mapping) and isinstance(value, Mapping):
+            merged[key] = _merge_missing_payload(merged[key], value)
+    return merged
+
+
+def _payload_value_empty(value: object) -> bool:
+    return value is None or value == "" or value == [] or value == {}
 
 
 def build_traceability_summary(graph) -> TraceabilitySummary:

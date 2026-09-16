@@ -710,10 +710,13 @@ class OpenAICompatibleModel:
     # still compiles and validates the merged patch only after every batch has
     # returned, preserving the single CAS boundary.
     supports_parallel_requirement_batching = True
-    # The product vertical path should keep moving after a review-worthy first
-    # pass.  Targeted Review/Controller re-analysis remains available, while
-    # automatically replaying an entire stage doubles remote provider cost.
-    automatic_vertical_stage_feedback = False
+    # The product vertical path needs one bounded completion pass: a provider
+    # can return a structurally valid proposal that omits one required R/F/L/P
+    # semantic link.  ModelGenerationService feeds the exact completion gap
+    # back once, then continues with the usable partial result if the retry
+    # endpoint is unavailable. This is completion-oriented feedback, not a
+    # stability experiment or an open-ended retry loop.
+    automatic_vertical_stage_feedback = True
     supports_controller_proposals = True
 
     def __init__(

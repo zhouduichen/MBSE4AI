@@ -2037,6 +2037,40 @@ def test_vertical_generation_bounds_stage_context_to_configured_window(tmp_path:
     assert all("context_selection" in guidance for guidance in assurance_guidances)
 
 
+def test_configured_vertical_generation_bridges_remaining_completion_gaps(tmp_path: Path):
+    model = ScriptedModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+        runtime_config={
+            "id": "configured-test",
+            "provider": "openai-compatible",
+            "kind": "remote",
+            "base_url": "https://example.invalid/v1",
+            "model": "engineering-model",
+            "context_window": 8192,
+            "max_output_tokens": 2048,
+        },
+    )
+    services.projects.create("robot")
+
+    result = services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+
+    assert result.traceability.complete_count == 1
+    assert all(item.status == "completed" for item in result.stage_results)
+    assert all(item.attempts == 2 for item in result.stage_results)
+    assert all(
+        "completion_bridge=vertical-rule" in item.diagnostics
+        for item in result.stage_results
+    )
+    assert sum(
+        event["kind"] == "model_generation.completion_bridge"
+        for event in services.repository("robot").list_audit_events("robot")
+    ) == 5
+
+
 def test_generation_attaches_read_only_controller_proposal(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("robot")

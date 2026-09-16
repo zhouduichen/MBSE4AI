@@ -83,6 +83,27 @@ def test_schema_validator_allows_aggregate_structured_vertical_batch():
     ))
 
 
+def test_schema_validator_allows_full_vertical_requirements_closure():
+    task = stage_task("requirements")
+    response = TaskExecutionResponse(
+        StepStatus.COMPLETED,
+        patch=Patch.create(
+            "p1",
+            task.id,
+            tuple(
+                Relate(f"source-{index}", RelationPredicate.DERIVED_FROM, f"target-{index}")
+                for index in range(33)
+            ),
+            "requirements closure",
+            0,
+        ),
+    )
+
+    validate(ValidationContext(
+        "p1", task, ModelGraph("p1"), ContextBundle("p1", task.id, 0, ()), response
+    ))
+
+
 def test_schema_validator_keeps_large_patch_limit_for_other_runtimes():
     patch = Patch.create(
         "p1",
