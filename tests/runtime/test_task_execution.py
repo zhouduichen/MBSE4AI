@@ -4,7 +4,7 @@ import threading
 import pytest
 
 from rflp_lite.domain.entities import EntityKind, make_entity
-from rflp_lite.domain.model import AddEntity, ModelGraph, Relation, Relate, UpdateEntity
+from rflp_lite.domain.model import AddEntity, ModelGraph, Relation, Relate, UpdateEntity, apply_patch
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.domain.errors import (
     ProposalCompileFailure,
@@ -15,6 +15,7 @@ from rflp_lite.methodology.contracts import ContextBundle, StepStatus, TaskExecu
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.registries import RetryPolicy
 from rflp_lite.methodology.tasks import task_catalog
+from rflp_lite.methodology.trace_rules import vv_scope_matches
 from rflp_lite.methodology.vertical_generation import stage_task
 from rflp_lite.runtime.structured_model import StructuredModelRuntime, _sanitize_vertical_proposal
 from rflp_lite.runtime.rule_based import RuleRuntime
@@ -1267,8 +1268,82 @@ def test_rule_runtime_traces_late_requirements_to_functions_and_vv():
         if hasattr(operation, "predicate")
     }
     assert (added.id, RelationPredicate.SATISFIED_BY, function.id) in relations
-    assert (added.id, RelationPredicate.VERIFIED_BY, verification.id) in relations
-    assert (added.id, RelationPredicate.VALIDATED_BY, validation.id) in relations
+    assert any(
+        source_id == added.id and predicate is RelationPredicate.VERIFIED_BY
+        for source_id, predicate, _target_id in relations
+    )
+    assert any(
+        source_id == added.id and predicate is RelationPredicate.VALIDATED_BY
+        for source_id, predicate, _target_id in relations
+    )
+
+
+def test_reverse_feasibility_gives_late_requirements_scoped_vv_cases():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "原始需求",
+        {"statement": "系统应完成配送"},
+    )
+    function = make_entity(EntityKind.FUNCTION, "执行功能")
+    verification = make_entity(
+        EntityKind.VERIFICATION_CASE,
+        "验证原始需求",
+        {
+            "requirement_id": requirement.id,
+            "requirement_ids": [requirement.id],
+            "function_ids": [function.id],
+            "logical_component_ids": [],
+            "physical_ids": [],
+        },
+    )
+    validation = make_entity(
+        EntityKind.VALIDATION_CASE,
+        "确认原始需求",
+        {
+            "requirement_id": requirement.id,
+            "requirement_ids": [requirement.id],
+            "function_ids": [function.id],
+            "logical_component_ids": [],
+            "physical_ids": [],
+        },
+    )
+    context = ContextBundle(
+        "p1",
+        "reverse_feasibility",
+        3,
+        (requirement, function, verification, validation),
+        (
+            Relation("seed-r-to-f", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+        ),
+    )
+    task = next(item for item in task_catalog() if item.id == "reverse_feasibility")
+    request = TaskExecutor(RuleRuntime()).request(task, context, "v2.1")
+
+    response = RuleRuntime().execute(request)
+
+    assert response.patch is not None
+    graph = apply_patch(
+        ModelGraph("p1", context.entities, context.relations, context.revision),
+        response.patch,
+    )
+    reverse = next(
+        item
+        for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and item.payload.get("source") == "reverse_feasibility"
+    )
+    linked_cases = {
+        relation.target_id: graph.entity_index[relation.target_id]
+        for relation in graph.relations
+        if relation.source_id == reverse.id
+        and relation.predicate in {
+            RelationPredicate.VERIFIED_BY,
+            RelationPredicate.VALIDATED_BY,
+        }
+    }
+
+    assert linked_cases
+    assert all(vv_scope_matches(graph, reverse.id, case) for case in linked_cases.values())
 
 
 def test_global_cross_analysis_repairs_vv_links_for_late_requirements():
@@ -1284,15 +1359,29 @@ def test_global_cross_analysis_repairs_vv_links_for_late_requirements():
     response = RuleRuntime().execute(TaskExecutor(RuleRuntime()).request(task, context, "v2.1"))
 
     assert response.patch is not None
-    relations = {
-        (operation.source_id, operation.predicate, operation.target_id)
-        for operation in response.patch.operations
-        if hasattr(operation, "predicate")
-    }
+    graph = apply_patch(
+        ModelGraph("p1", context.entities, context.relations, context.revision),
+        response.patch,
+    )
     assert all(
-        (requirement.id, RelationPredicate.VALIDATED_BY, validation.id) in relations
-        and (requirement.id, RelationPredicate.VERIFIED_BY, verification.id) in relations
+        any(
+            relation.source_id == requirement.id
+            and relation.predicate is RelationPredicate.VERIFIED_BY
+            and vv_scope_matches(graph, requirement.id, graph.entity_index[relation.target_id])
+            for relation in graph.relations
+        )
+        and any(
+            relation.source_id == requirement.id
+            and relation.predicate is RelationPredicate.VALIDATED_BY
+            and vv_scope_matches(graph, requirement.id, graph.entity_index[relation.target_id])
+            for relation in graph.relations
+        )
         for requirement in requirements
+    )
+    assert all(
+        graph.entity_index[relation.target_id].payload.get("cross_analysis_status") == "checked"
+        for relation in graph.relations
+        if relation.predicate is RelationPredicate.VERIFIED_BY
     )
 
 

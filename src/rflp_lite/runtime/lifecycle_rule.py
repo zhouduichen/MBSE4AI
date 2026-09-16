@@ -15,11 +15,12 @@ from rflp_lite.domain.model import (
     AddEntity,
     ModelGraph,
     Patch,
+    Relation,
     Relate,
     UpdateEntity,
 )
 from rflp_lite.domain.relations import RelationPredicate
-from rflp_lite.methodology.contracts import ContextBundle, StepStatus, TaskExecutionRequest, TaskExecutionResponse
+from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
 from rflp_lite.methodology.architecture_persistence import enrich_architecture_patch
 from rflp_lite.methodology.naming import solution_neutral_function_name
 from rflp_lite.methodology.trace_rules import requirement_trace_scope
@@ -92,6 +93,30 @@ class TaskGraphBuilder:
         return next(
             (item for item in self.active(kind) if item.payload.get(field) == value),
             None,
+        )
+
+    def graph(self) -> ModelGraph:
+        """Return the current in-memory graph, including this task's changes."""
+
+        relations = tuple(
+            Relation(
+                f"builder-relation-{index}",
+                source_id,
+                predicate,
+                target_id,
+            )
+            for index, (source_id, predicate, target_id) in enumerate(
+                sorted(
+                    self.relation_keys,
+                    key=lambda item: (item[0], item[1].value, item[2]),
+                )
+            )
+        )
+        return ModelGraph(
+            self.context.project_id,
+            tuple(sorted(self.entities.values(), key=lambda item: item.id)),
+            relations,
+            self.context.revision,
         )
 
     def add(
@@ -695,7 +720,7 @@ class LifecycleTaskRuleRuntime:
     def _verification_validation(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
         scenario = builder.first(EntityKind.OPERATIONAL_SCENARIO)
         for requirement in builder.active(EntityKind.REQUIREMENT):
-            scope = _context_requirement_scope(builder.context, requirement)
+            scope = _builder_requirement_scope(builder, requirement)
             verification = _ensure_vv_case(
                 builder, requirement, scenario, "test", scope
             )
@@ -721,8 +746,6 @@ class LifecycleTaskRuleRuntime:
                 })
         if not physicals:
             function = builder.first(EntityKind.FUNCTION)
-            verification = builder.first(EntityKind.VERIFICATION_CASE)
-            validation = builder.first(EntityKind.VALIDATION_CASE)
             for requirement in requirements:
                 reverse = builder.find(
                     EntityKind.REQUIREMENT,
@@ -751,6 +774,13 @@ class LifecycleTaskRuleRuntime:
                 builder.relate(reverse, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.ACTIVITY))
                 builder.relate(reverse, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.USE_CASE))
                 builder.relate(reverse, RelationPredicate.SATISFIED_BY, function)
+                scope = _builder_requirement_scope(builder, reverse)
+                verification = _ensure_vv_case(
+                    builder, reverse, builder.first(EntityKind.OPERATIONAL_SCENARIO), "test", scope
+                )
+                validation = _ensure_vv_case(
+                    builder, reverse, builder.first(EntityKind.OPERATIONAL_SCENARIO), "demonstration", scope
+                )
                 builder.relate(reverse, RelationPredicate.VERIFIED_BY, verification)
                 builder.relate(reverse, RelationPredicate.VALIDATED_BY, validation)
         else:
@@ -764,13 +794,20 @@ class LifecycleTaskRuleRuntime:
             builder.relate(reverse, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.ACTIVITY))
             builder.relate(reverse, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.USE_CASE))
             builder.relate(reverse, RelationPredicate.SATISFIED_BY, builder.first(EntityKind.FUNCTION))
-            builder.relate(reverse, RelationPredicate.VERIFIED_BY, builder.first(EntityKind.VERIFICATION_CASE))
-            builder.relate(reverse, RelationPredicate.VALIDATED_BY, builder.first(EntityKind.VALIDATION_CASE))
+            if reverse is not None:
+                scope = _builder_requirement_scope(builder, reverse)
+                verification = _ensure_vv_case(
+                    builder, reverse, builder.first(EntityKind.OPERATIONAL_SCENARIO), "test", scope
+                )
+                validation = _ensure_vv_case(
+                    builder, reverse, builder.first(EntityKind.OPERATIONAL_SCENARIO), "demonstration", scope
+                )
+                builder.relate(reverse, RelationPredicate.VERIFIED_BY, verification)
+                builder.relate(reverse, RelationPredicate.VALIDATED_BY, validation)
         return builder.response("生命周期任务执行反向可行性检查")
 
     def _global_cross_analysis(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
         verifications = builder.active(EntityKind.VERIFICATION_CASE)
-        validations = builder.active(EntityKind.VALIDATION_CASE)
         requirements = builder.active(EntityKind.REQUIREMENT)
         for verification in verifications:
             builder.update_payload(verification, {
@@ -778,18 +815,27 @@ class LifecycleTaskRuleRuntime:
                 "traceability_checked": True,
             })
         for requirement in requirements:
-            if verifications and not any(
-                source_id == requirement.id
-                and predicate is RelationPredicate.VERIFIED_BY
-                for source_id, predicate, _target_id in builder.relation_keys
-            ):
-                builder.relate(requirement, RelationPredicate.VERIFIED_BY, verifications[0])
-            if validations and not any(
-                source_id == requirement.id
-                and predicate is RelationPredicate.VALIDATED_BY
-                for source_id, predicate, _target_id in builder.relation_keys
-            ):
-                builder.relate(requirement, RelationPredicate.VALIDATED_BY, validations[0])
+            scope = _builder_requirement_scope(builder, requirement)
+            verification = _ensure_vv_case(
+                builder,
+                requirement,
+                builder.first(EntityKind.OPERATIONAL_SCENARIO),
+                "test",
+                scope,
+            )
+            validation = _ensure_vv_case(
+                builder,
+                requirement,
+                builder.first(EntityKind.OPERATIONAL_SCENARIO),
+                "demonstration",
+                scope,
+            )
+            builder.relate(requirement, RelationPredicate.VERIFIED_BY, verification)
+            builder.relate(requirement, RelationPredicate.VALIDATED_BY, validation)
+            builder.update_payload(verification, {
+                "cross_analysis_status": "checked",
+                "traceability_checked": True,
+            })
         return builder.response("生命周期任务完成全局交叉分析")
 
 
@@ -1051,14 +1097,8 @@ def _technical_payload(
     }
 
 
-def _context_requirement_scope(context: ContextBundle, requirement: Entity):
-    graph = ModelGraph(
-        context.project_id,
-        context.entities,
-        tuple(context.relations),
-        context.revision,
-    )
-    return requirement_trace_scope(graph, requirement.id)
+def _builder_requirement_scope(builder: TaskGraphBuilder, requirement: Entity):
+    return requirement_trace_scope(builder.graph(), requirement.id)
 
 
 def _ensure_vv_case(builder: TaskGraphBuilder, requirement: Entity, scenario: Entity | None, method: str, scope):
