@@ -425,6 +425,7 @@ class LifecycleTaskRuleRuntime:
         for requirement in builder.active(EntityKind.REQUIREMENT):
             builder.update_payload(requirement, {
                 "level": "system" if requirement.payload.get("level") != "technical" else "technical",
+                "obligation": requirement.payload.get("obligation") or "系统应",
                 "verification_method": requirement.payload.get("verification_method", "test"),
                 "derived_by": "system_requirement_derivation",
             })

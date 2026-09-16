@@ -144,6 +144,27 @@ class ConfiguredTransportRuntime:
         )
 
 
+class TransportAfterUnenrichedInputRuntime:
+    """Leave imported requirements sparse before exercising fallback recovery."""
+
+    def __init__(self):
+        self.delegate = RuleRuntime()
+
+    def execute(self, request):
+        if request.task_id == "stakeholder_requirements":
+            return TaskExecutionResponse(
+                StepStatus.COMPLETED,
+                diagnostics=("remote proposal carried no requirement update",),
+            )
+        if request.task_id == "system_requirement_derivation":
+            return TaskExecutionResponse(
+                StepStatus.DEGRADED,
+                diagnostics=("remote unavailable: system_requirement_derivation",),
+                failure_stage=FailureStage.TRANSPORT,
+            )
+        return self.delegate.execute(request)
+
+
 def test_runner_persists_steps_and_completes_offline(tmp_path):
     repository = SQLiteModelRepository(tmp_path / "model.db")
     repository.ensure_project("p1")
@@ -269,6 +290,33 @@ def test_configured_transport_gap_recovers_complete_lifecycle(tmp_path):
     assert len(summary.completed_tasks) == 23
     assert "lifecycle:recovered_by_rule_runtime" in " ".join(summary.diagnostics)
     assert repository.load_graph("p1").relations
+
+
+def test_lifecycle_fallback_enriches_sparse_imported_requirement(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "无人机飞行时间约束",
+        {"fixture_id": "drone-endurance", "verification_method": "test"},
+    )
+    repository.append_patch(
+        "p1",
+        Patch.create("p1", "seed", (AddEntity(requirement),), "seed", 0),
+        0,
+    )
+    runtime = TransportAfterUnenrichedInputRuntime()
+    runner = WorkflowRunner(repository, repository, runtime)
+    runner.runtime_selection = SimpleNamespace(
+        mode="configured", profile_id="test-llm", provider_id="test", model_id="test"
+    )
+
+    summary = runner.run("p1", Phase.OPERATIONAL, force_run=True)
+
+    assert summary.status is RunStatus.COMPLETED
+    updated = repository.load_graph("p1").entity_index[requirement.id]
+    assert updated.payload["obligation"] == "系统应"
+    assert "lifecycle:recovered_by_rule_runtime" in " ".join(summary.diagnostics)
 
 
 def test_non_completed_patch_is_rejected_before_repository_append(tmp_path):
