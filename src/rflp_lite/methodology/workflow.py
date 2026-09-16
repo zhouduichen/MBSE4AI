@@ -782,11 +782,27 @@ class WorkflowRunner:
         if task.id not in LIFECYCLE_TASKS or self._mode() != "configured":
             return None
         try:
+            fallback_context = context
+            fallback_request = request
+            if context.revision != current.revision:
+                fallback_context = self.context_builder.build(
+                    current,
+                    task,
+                    token_budget=self._context_budget(),
+                    output_reserve=self._output_budget() if self._configured_output_budget() else None,
+                    prompt_reserve=256,
+                )
+                fallback_request = self.executor.request(
+                    task,
+                    fallback_context,
+                    self.methodology_version,
+                    token_budget=self._output_budget(),
+                )
             response = self._lifecycle_fallback_executor.execute(
                 task,
-                context,
+                fallback_context,
                 self.methodology_version,
-                evidence_bundle=context.evidence,
+                evidence_bundle=fallback_context.evidence,
                 token_budget=self._output_budget(),
             )
             if response.status is not StepStatus.COMPLETED:
@@ -797,10 +813,16 @@ class WorkflowRunner:
                     patch=enrich_architecture_patch(current, response.patch),
                     provider_id="offline",
                     model_id="lifecycle-rule-runtime",
-                    input_hash=canonical_hash(context),
+                    input_hash=canonical_hash(fallback_context),
                     output_hash=canonical_hash(response.patch),
                 )
-                self.executor.validate_response(project_id, task, current, context, response)
+                self.executor.validate_response(
+                    project_id,
+                    task,
+                    current,
+                    fallback_context,
+                    response,
+                )
             patch_id = response.patch.id if response.patch is not None else None
             if response.patch is not None:
                 revision = self.model_repository.append_patch(
@@ -848,18 +870,18 @@ class WorkflowRunner:
                     task.id,
                     status.value,
                     prior_attempt + 1,
-                    response.input_hash or canonical_hash(context),
+                    response.input_hash or canonical_hash(fallback_context),
                     patch_id,
                     diagnostics,
                     response.output_hash,
                     "offline",
                     "lifecycle-rule-runtime",
                     task.prompt_template_id,
-                    canonical_hash(context),
+                    canonical_hash(fallback_context),
                     started,
                     time.time(),
-                    request.prompt_version,
-                    request.prompt_hash,
+                    fallback_request.prompt_version,
+                    fallback_request.prompt_hash,
                     task_spec_hash(task),
                     "rule_runtime_fallback",
                     0,

@@ -133,6 +133,17 @@ class ParallelTrackingRuntime:
                 self.active -= 1
 
 
+class ConfiguredTransportRuntime:
+    supports_parallel_tasks = True
+
+    def execute(self, request):
+        return TaskExecutionResponse(
+            StepStatus.DEGRADED,
+            diagnostics=(f"remote unavailable: {request.task_id}",),
+            failure_stage=FailureStage.TRANSPORT,
+        )
+
+
 def test_runner_persists_steps_and_completes_offline(tmp_path):
     repository = SQLiteModelRepository(tmp_path / "model.db")
     repository.ensure_project("p1")
@@ -241,6 +252,23 @@ def test_configured_runtime_parallelizes_dependency_safe_task_group(tmp_path):
 
     assert summary.status is RunStatus.COMPLETED
     assert runtime.max_active >= 2
+
+
+def test_configured_transport_gap_recovers_complete_lifecycle(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    RequirementInputService(repository, "p1").ensure_text_requirements("系统应支持人工接管")
+    runner = WorkflowRunner(repository, repository, ConfiguredTransportRuntime())
+    runner.runtime_selection = SimpleNamespace(
+        mode="configured", profile_id="test-llm", provider_id="test", model_id="test"
+    )
+
+    summary = runner.run("p1", force_run=True)
+
+    assert summary.status is RunStatus.COMPLETED
+    assert len(summary.completed_tasks) == 23
+    assert "lifecycle:recovered_by_rule_runtime" in " ".join(summary.diagnostics)
+    assert repository.load_graph("p1").relations
 
 
 def test_non_completed_patch_is_rejected_before_repository_append(tmp_path):
