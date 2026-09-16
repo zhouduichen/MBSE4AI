@@ -56,6 +56,9 @@ actual model remains remote.
   "context_window": 32768,
   "max_output_tokens": 4096,
   "temperature": 0.0,
+  "reasoning_effort": "none",
+  "think": false,
+  "chat_template_kwargs": {"enable_thinking": false},
   "vertical_feedback": false,
   "vertical_batch_size": 2,
   "vertical_batch_output_tokens": 3072,
@@ -64,6 +67,12 @@ actual model remains remote.
   "active": false
 }
 ```
+
+For Qwen3.5 served by vLLM, keep thinking disabled for this structured
+endpoint. Otherwise the model can spend the output budget on a visible
+`Thinking Process` instead of the TaskProposal JSON, causing truncation and
+making a full vertical run exceed its timeout. These are transport controls;
+they do not replace the Methodology Engine or the post-response validators.
 
 For a remote profile, `vertical_feedback` defaults to `false` so a multi-
 requirement run does not repeat every provider batch. The product still runs
