@@ -114,6 +114,7 @@ class InvalidLifecycleRelationRuntime:
 
 class ParallelTrackingRuntime:
     supports_parallel_tasks = True
+    max_parallel_requests = 2
 
     def __init__(self):
         self.delegate = RuleRuntime()
@@ -273,6 +274,7 @@ def test_configured_runtime_parallelizes_dependency_safe_task_group(tmp_path):
 
     assert summary.status is RunStatus.COMPLETED
     assert runtime.max_active >= 2
+    assert runtime.max_active <= runtime.max_parallel_requests
 
 
 def test_configured_transport_gap_recovers_complete_lifecycle(tmp_path):

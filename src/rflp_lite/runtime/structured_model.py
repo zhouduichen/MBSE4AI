@@ -96,6 +96,13 @@ class StructuredModelRuntime:
                 )
             ),
         )
+        try:
+            self.max_parallel_requests = max(
+                1,
+                min(4, int(getattr(model, "max_parallel_requests", 4))),
+            )
+        except (TypeError, ValueError):
+            self.max_parallel_requests = 4
 
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         payload: dict[str, object] = {
@@ -228,7 +235,7 @@ class StructuredModelRuntime:
 
         if getattr(self.model, "supports_parallel_requirement_batching", False) is True:
             with ThreadPoolExecutor(
-                max_workers=min(4, len(payloads)),
+                max_workers=min(self.max_parallel_requests, len(payloads)),
                 thread_name_prefix="rflp-llm-batch",
             ) as executor:
                 # executor.map preserves payload order, so merged hashes and

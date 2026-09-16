@@ -586,6 +586,51 @@ def test_payload_reference_materialization_rejects_unknown_graph_ref():
         compile_task_proposal(request, payload)
 
 
+def test_lifecycle_transition_payload_refs_create_stage_trace_relations():
+    task = next(item for item in task_catalog() if item.id == "lifecycle_analysis")
+    system = make_entity(EntityKind.SYSTEM, "校园配送系统")
+    design = make_entity(EntityKind.LIFECYCLE_STAGE, "设计")
+    operation = make_entity(EntityKind.LIFECYCLE_STAGE, "运行")
+    request = TaskExecutionRequest(
+        task.id,
+        "v2.1",
+        ContextBundle("p1", task.id, 3, (system, design, operation)),
+        (),
+        output_contract(task),
+        100,
+        patch_policy=task.patch_policy,
+    )
+
+    patch = compile_task_proposal(request, {
+        "entities": [{
+            "local_ref": "transition-1",
+            "kind": EntityKind.LIFECYCLE_TRANSITION.value,
+            "name": "设计到运行",
+            "payload": {
+                "from_stage_id": design.id,
+                "to_stage_id": operation.id,
+                "condition": "部署验收通过",
+            },
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "连接生命周期阶段转换",
+    })
+
+    assert patch is not None
+    transition = patch.operations[0].entity
+    assert transition.payload["from_stage_id"] == design.id
+    assert transition.payload["to_stage_id"] == operation.id
+    inferred = {
+        (operation.source_id, operation.target_id)
+        for operation in patch.operations
+        if isinstance(operation, Relate)
+        and operation.predicate is RelationPredicate.DERIVED_FROM
+    }
+    assert inferred == {(transition.id, design.id), (transition.id, operation.id)}
+
+
 def test_payload_reference_materialization_applies_to_existing_entity_updates():
     task = stage_task(VerticalStage.FUNCTIONAL)
     requirement = make_entity(

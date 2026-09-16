@@ -57,6 +57,7 @@
         <label class="field" for="profile-timeout">超时（秒）<input id="profile-timeout" name="timeout_seconds" type="number" min="1" max="900" value="300" required></label>
         <label class="field" for="profile-context-window">上下文窗口<input id="profile-context-window" name="context_window" type="number" min="512" placeholder="例如：8192"></label>
         <label class="field" for="profile-max-output-tokens">最大输出令牌<input id="profile-max-output-tokens" name="max_output_tokens" type="number" min="1" placeholder="例如：2048"></label>
+        <label class="field" for="profile-max-parallel-requests">最大并行请求数<input id="profile-max-parallel-requests" name="max_parallel_requests" type="number" min="1" max="4" value="2" required></label>
         <label class="field" for="profile-temperature">Temperature<input id="profile-temperature" name="temperature" type="number" min="0" max="2" step="0.1" value="0"></label>
         <label class="field" for="profile-seed">Seed（可选）<input id="profile-seed" name="seed" type="number" min="0" placeholder="固定随机种子"></label>
         <label class="field" for="profile-structured-output-mode">结构化输出<select id="profile-structured-output-mode" name="structured_output_mode"><option value="json_schema">JSON Schema</option><option value="json_object">JSON Object</option><option value="none">关闭 provider 约束</option></select></label>
@@ -83,12 +84,13 @@
   const saveOutput = document.getElementById("profile-result");
   const presetSelect = document.getElementById("profile-preset");
   const providerSelect = document.getElementById("profile-provider");
-  const presetFields = ["id", "label", "provider", "kind", "model_location", "base_url", "model", "context_window", "max_output_tokens", "temperature", "seed", "structured_output_mode", "reasoning_effort"];
+  const presetFields = ["id", "label", "provider", "kind", "model_location", "base_url", "model", "context_window", "max_output_tokens", "max_parallel_requests", "temperature", "seed", "structured_output_mode", "reasoning_effort"];
   const setField = (name, value) => {
     const fieldNames = {
       base_url: "base-url",
       context_window: "context-window",
       max_output_tokens: "max-output-tokens",
+      max_parallel_requests: "max-parallel-requests",
       model_location: "model-location",
       reasoning_effort: "reasoning-effort",
       structured_output_mode: "structured-output-mode",
@@ -137,7 +139,7 @@
     const payload = Object.fromEntries(formData.entries());
     payload.active = document.getElementById("profile-active").checked;
     payload.timeout_seconds = Number(payload.timeout_seconds || 300);
-    ["context_window", "max_output_tokens", "seed"].forEach((name) => {
+    ["context_window", "max_output_tokens", "max_parallel_requests", "seed"].forEach((name) => {
       if (payload[name] !== undefined && payload[name] !== "") payload[name] = Number(payload[name]);
     });
     payload.temperature = Number(payload.temperature || 0);

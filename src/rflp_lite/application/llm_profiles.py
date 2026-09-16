@@ -268,6 +268,18 @@ def normalize_profile(payload: object) -> dict[str, object]:
     )
     if vertical_batch_output_tokens is None:
         vertical_batch_output_tokens = 3072
+    max_parallel_requests = _optional_int(
+        payload,
+        ("max_parallel_requests",),
+        minimum=1,
+        maximum=4,
+        label="LLM 最大并行请求数",
+    )
+    if max_parallel_requests is None:
+        # Remote single-GPU endpoints commonly expose fewer safe in-flight
+        # slots than a local service. Keep remote execution concurrent, but
+        # do not assume the historical four-request ceiling is safe there.
+        max_parallel_requests = 2 if model_location == "remote" else 4
     think = payload.get("think")
     if think is not None and not isinstance(think, bool):
         raise InvariantViolation("LLM think 必须是布尔值")
@@ -297,6 +309,7 @@ def normalize_profile(payload: object) -> dict[str, object]:
         "vertical_feedback": vertical_feedback,
         "vertical_batch_size": vertical_batch_size,
         "vertical_batch_output_tokens": vertical_batch_output_tokens,
+        "max_parallel_requests": max_parallel_requests,
         "think": think,
         "chat_template_kwargs": (
             {str(key): value for key, value in chat_template_kwargs.items()}

@@ -52,13 +52,14 @@ actual model remains remote.
   "provider": "openai-compatible",
   "base_url": "http://127.0.0.1:18000/v1",
   "model": "qwen3.5-controller",
-  "timeout_seconds": 1800,
+  "timeout_seconds": 900,
   "context_window": 32768,
   "max_output_tokens": 4096,
   "temperature": 0.0,
   "vertical_feedback": false,
   "vertical_batch_size": 2,
   "vertical_batch_output_tokens": 3072,
+  "max_parallel_requests": 2,
   "structured_output_mode": "json_schema",
   "active": false
 }
@@ -124,7 +125,9 @@ RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-profile \
 ```
 
 When the configured Runtime advertises parallel support, this path dispatches
-only dependency-safe task groups concurrently (up to four requests). The
+only dependency-safe task groups concurrently. The profile's
+`max_parallel_requests` bounds both task-level and requirement-batch calls
+(1–4; remote profiles default to 2). The
 Operational, Functional, Logical/Physical, and Assurance phase boundaries
 remain ordered; patches are merged deterministically through the normal
 Validator/CAS path. If the remote port is unavailable, wait for the GPU

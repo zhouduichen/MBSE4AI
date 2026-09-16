@@ -201,3 +201,27 @@ def test_remote_profile_defaults_to_single_vertical_pass_but_allows_feedback() -
     assert local["vertical_batch_size"] == 2
     assert local["vertical_batch_output_tokens"] == 3072
     assert opted_in["vertical_feedback"] is True
+
+
+def test_llm_profile_defaults_remote_parallelism_lower_than_local() -> None:
+    remote = normalize_profile({
+        **_payload(),
+        "id": "remote-parallel",
+        "model_location": "remote",
+    })
+    local = normalize_profile({
+        **_payload(),
+        "id": "local-parallel",
+        "kind": "local",
+        "model_location": "local",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "model": "local-model",
+    })
+    explicit = normalize_profile({
+        **remote,
+        "max_parallel_requests": 1,
+    })
+
+    assert remote["max_parallel_requests"] == 2
+    assert local["max_parallel_requests"] == 4
+    assert explicit["max_parallel_requests"] == 1

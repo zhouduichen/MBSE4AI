@@ -13,6 +13,12 @@ _TRUSTED_BATCH_DIAGNOSTICS = frozenset({
 })
 _VERTICAL_OPERATION_LIMIT = 64
 _DEFAULT_OPERATION_LIMIT = 32
+_TASK_OPERATION_LIMITS = {
+    # Scenario exploration is a bounded fan-out task: one compact hypothesis
+    # per supported scenario class plus its source edges can legitimately
+    # exceed the legacy fine-grained 32-operation envelope.
+    "scenario_exploration": 64,
+}
 
 
 def validate(context: ValidationContext) -> None:
@@ -34,10 +40,11 @@ def validate(context: ValidationContext) -> None:
     # in one response. Keep that envelope bounded, but do not make the
     # entity-count and relation-count limits add up to an impossible total.
     # Legacy fine-grained tasks retain the smaller limit.
-    operation_limit = (
+    operation_limit = _TASK_OPERATION_LIMITS.get(
+        context.task.id,
         _VERTICAL_OPERATION_LIMIT
         if context.task.id.startswith("vertical.")
-        else _DEFAULT_OPERATION_LIMIT
+        else _DEFAULT_OPERATION_LIMIT,
     )
     if (
         len(response.patch.operations) > operation_limit

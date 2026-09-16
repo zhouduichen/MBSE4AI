@@ -116,3 +116,24 @@ def test_schema_validator_keeps_large_patch_limit_for_other_runtimes():
 
     with pytest.raises(MethodologyValidationError, match="32-operation"):
         validate(_context(response))
+
+
+def test_schema_validator_allows_bounded_scenario_fanout():
+    task = next(item for item in task_catalog() if item.id == "scenario_exploration")
+    response = TaskExecutionResponse(
+        StepStatus.COMPLETED,
+        patch=Patch.create(
+            "p1",
+            task.id,
+            tuple(
+                Relate(f"source-{index}", RelationPredicate.DERIVED_FROM, f"target-{index}")
+                for index in range(33)
+            ),
+            "bounded scenarios",
+            0,
+        ),
+    )
+
+    validate(ValidationContext(
+        "p1", task, ModelGraph("p1"), ContextBundle("p1", task.id, 0, ()), response
+    ))

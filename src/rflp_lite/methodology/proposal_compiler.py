@@ -24,6 +24,7 @@ _GRAPH_REFERENCE_FIELDS = frozenset({
     "functional_behavior_ids",
     "functional_flow_ids",
     "function_ids",
+    "from_stage_id",
     "impact_entity_ids",
     "internal_component_ids",
     "logical_component_ids",
@@ -42,6 +43,7 @@ _GRAPH_REFERENCE_FIELDS = frozenset({
     "source_requirement_ids",
     "stakeholder_ids",
     "target_function_ids",
+    "to_stage_id",
 })
 
 
@@ -543,6 +545,7 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
         output_ids.add(entity.id)
         pending_entities.append((item, entity))
     known_ids = set(context_entities) | output_ids
+    materialized_payloads: dict[str, Mapping[str, object]] = {}
     for item, entity in pending_entities:
         materialized_payload = _materialize_payload_references(
             item.kind,
@@ -550,13 +553,41 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
             ref_to_id,
             known_ids,
         )
+        materialized_payloads[entity.id] = materialized_payload
         operations.append(AddEntity(replace(entity, payload=materialized_payload)))
+    relation_keys: set[tuple[str, RelationPredicate, str]] = set()
     for item in proposal.relations:
         source_id = _resolve_ref(item.source_ref, ref_to_id, context_entities)
         target_id = _resolve_ref(item.target_ref, ref_to_id, context_entities)
         if not _in_scope(source_id, context_entities, output_ids, policy) or not _in_scope(target_id, context_entities, output_ids, policy):
             raise ContractViolation("task proposal relation endpoint is outside write scope")
         operations.append(Relate(source_id, item.predicate, target_id, item.evidence_ids))
+        relation_keys.add((source_id, item.predicate, target_id))
+    if request.task_id == "lifecycle_analysis":
+        known_entities = dict(context_entities)
+        known_entities.update({entity.id: entity for _, entity in pending_entities})
+        stage_ids = {
+            entity_id
+            for entity_id, entity in known_entities.items()
+            if entity.kind is EntityKind.LIFECYCLE_STAGE
+        }
+        for item, entity in pending_entities:
+            if item.kind is not EntityKind.LIFECYCLE_TRANSITION:
+                continue
+            materialized_payload = materialized_payloads[entity.id]
+            for field in ("from_stage_id", "to_stage_id"):
+                stage_id = materialized_payload.get(field)
+                if stage_id is None:
+                    continue
+                if stage_id not in stage_ids:
+                    raise ContractViolation(
+                        f"lifecycle transition reference must target a lifecycle stage: {field}"
+                    )
+                key = (entity.id, RelationPredicate.DERIVED_FROM, stage_id)
+                if key in relation_keys:
+                    continue
+                operations.append(Relate(entity.id, RelationPredicate.DERIVED_FROM, stage_id))
+                relation_keys.add(key)
     for item in proposal.updates:
         entity = context_entities.get(item.entity_id)
         if entity is None or entity.kind not in policy.writable_kinds:

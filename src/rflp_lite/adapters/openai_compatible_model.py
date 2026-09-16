@@ -778,6 +778,16 @@ class OpenAICompatibleModel:
             )
         except (TypeError, ValueError):
             self.vertical_batch_output_token_budget = 3072
+        try:
+            configured_parallelism = int(
+                self._config.get(
+                    "max_parallel_requests",
+                    2 if str(self._config.get("model_location", "local")).casefold() == "remote" else 4,
+                )
+            )
+        except (TypeError, ValueError):
+            configured_parallelism = 2
+        self.max_parallel_requests = max(1, min(4, configured_parallelism))
 
     @staticmethod
     def _parse_json(raw: object) -> object:

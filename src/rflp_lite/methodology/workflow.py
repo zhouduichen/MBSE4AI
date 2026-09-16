@@ -663,6 +663,20 @@ class WorkflowRunner:
             or getattr(model, "supports_parallel_requirement_batching", False)
         )
 
+    def _parallel_request_limit(self) -> int:
+        """Return the configured provider concurrency cap for task-level calls."""
+
+        model = getattr(self.runtime, "model", None)
+        value = getattr(
+            self.runtime,
+            "max_parallel_requests",
+            getattr(model, "max_parallel_requests", 4),
+        )
+        try:
+            return max(1, min(4, int(value)))
+        except (TypeError, ValueError):
+            return 4
+
     def _build_context(self, graph, task, *, full_graph: bool | None = None):
         """Build a bounded provider view or a complete deterministic view."""
 
@@ -740,7 +754,7 @@ class WorkflowRunner:
             )
             if self._parallel_executor is None:
                 self._parallel_executor = ThreadPoolExecutor(
-                    max_workers=4,
+                    max_workers=self._parallel_request_limit(),
                     thread_name_prefix="rflp-llm-task",
                 )
             future = self._parallel_executor.submit(

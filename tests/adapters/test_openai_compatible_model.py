@@ -76,6 +76,26 @@ def test_openai_compatible_remote_model_uses_single_vertical_pass_by_default():
     assert opted_in.automatic_vertical_stage_feedback is True
 
 
+def test_openai_compatible_model_exposes_bounded_parallelism():
+    remote = OpenAICompatibleModel({
+        "model": "remote",
+        "model_location": "remote",
+    })
+    local = OpenAICompatibleModel({
+        "model": "local",
+        "model_location": "local",
+    })
+    explicit = OpenAICompatibleModel({
+        "model": "remote",
+        "model_location": "remote",
+        "max_parallel_requests": 1,
+    })
+
+    assert remote.max_parallel_requests == 2
+    assert local.max_parallel_requests == 4
+    assert explicit.max_parallel_requests == 1
+
+
 def test_adapter_parses_json_and_records_hashes():
     calls = []
 
