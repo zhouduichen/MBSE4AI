@@ -2,6 +2,7 @@ from pathlib import Path
 
 from rflp_lite.application.requirement_input import RequirementInputService
 from rflp_lite.domain.entities import EntityKind, EntityStatus
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import ContextBundle
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.tasks import task_catalog
@@ -52,6 +53,34 @@ def test_operational_and_functional_tasks_create_typed_objects(tmp_path: Path):
         EntityKind.FUNCTIONAL_FLOW,
         EntityKind.FUNCTIONAL_SCENARIO,
     } <= _active_kinds(repository)
+
+    graph = repository.load_graph("p1")
+    use_case = next(item for item in graph.entities if item.kind is EntityKind.USE_CASE)
+    activity = next(item for item in graph.entities if item.kind is EntityKind.ACTIVITY)
+    requirements = [
+        item for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and str(item.payload.get("level", "")).lower() != "technical"
+    ]
+    assert set(activity.payload["branch_types"]) == {
+        "normal", "failure", "alternative", "boundary", "exception",
+    }
+    assert activity.payload["use_case_ids"] == [use_case.id]
+    assert all(
+        any(
+            relation.source_id == requirement.id
+            and relation.target_id == use_case.id
+            and relation.predicate is RelationPredicate.DERIVED_FROM
+            for relation in graph.relations
+        )
+        for requirement in requirements
+    )
+    assert any(
+        relation.source_id == use_case.id
+        and relation.target_id == activity.id
+        and relation.predicate is RelationPredicate.DECOMPOSES
+        for relation in graph.relations
+    )
 
 
 def test_remaining_tasks_create_logical_physical_and_assurance_objects(tmp_path: Path):

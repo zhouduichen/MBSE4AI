@@ -352,7 +352,13 @@ class LifecycleTaskRuleRuntime:
                 "postconditions": ["任务完成、失败或已明确转交人工"],
             },
         )
+        requirements = _analysis_requirements(builder)
+        builder.update_payload(use_case, {
+            "requirement_ids": [item.id for item in requirements],
+        })
         builder.relate(use_case, RelationPredicate.DERIVED_FROM, scenario)
+        for requirement in requirements:
+            builder.relate(requirement, RelationPredicate.DERIVED_FROM, use_case)
         return builder.response("生命周期任务生成用例")
 
     def _operational_scenario(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
@@ -375,16 +381,43 @@ class LifecycleTaskRuleRuntime:
     def _activity_analysis(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
         scenario = builder.first(EntityKind.OPERATIONAL_SCENARIO)
         stage = builder.first(EntityKind.LIFECYCLE_STAGE)
+        use_case = builder.first(EntityKind.USE_CASE)
+        requirements = _analysis_requirements(builder)
         activity = builder.first(EntityKind.ACTIVITY) or builder.add(
             EntityKind.ACTIVITY,
             "执行任务与异常处置",
             {
                 "steps": ["接收任务", "执行任务", "识别异常", "人工接管", "反馈结果"],
                 "scenario_id": scenario.id if scenario else "",
+                "use_case_ids": [use_case.id] if use_case else [],
+                "requirement_ids": [item.id for item in requirements],
+                "branch_types": ["normal", "failure", "alternative", "boundary", "exception"],
+                "branches": [
+                    "normal:正常执行路径",
+                    "failure:任务失败后重试",
+                    "alternative:人工接管",
+                    "boundary:需求、资源或环境边界达到时暂停并评审",
+                    "exception:异常状态转入人工接管",
+                ],
             },
         )
+        builder.update_payload(activity, {
+            "use_case_ids": [use_case.id] if use_case else [],
+            "requirement_ids": [item.id for item in requirements],
+            "branch_types": ["normal", "failure", "alternative", "boundary", "exception"],
+            "branches": [
+                "normal:正常执行路径",
+                "failure:任务失败后重试",
+                "alternative:人工接管",
+                "boundary:需求、资源或环境边界达到时暂停并评审",
+                "exception:异常状态转入人工接管",
+            ],
+        })
         builder.relate(activity, RelationPredicate.DERIVED_FROM, scenario)
         builder.relate(activity, RelationPredicate.OCCURS_IN, stage)
+        builder.relate(use_case, RelationPredicate.DECOMPOSES, activity)
+        for requirement in requirements:
+            builder.relate(requirement, RelationPredicate.DERIVED_FROM, activity)
         return builder.response("生命周期任务生成活动")
 
     def _system_requirement_derivation(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
@@ -396,6 +429,7 @@ class LifecycleTaskRuleRuntime:
                 "derived_by": "system_requirement_derivation",
             })
             builder.relate(requirement, RelationPredicate.DERIVED_FROM, activity)
+            builder.relate(requirement, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.USE_CASE))
         fixture_requirement = _add_fixture_requirement(
             builder,
             "system_requirement_derivation",
@@ -404,6 +438,7 @@ class LifecycleTaskRuleRuntime:
             statement="系统应提供可验证的校园运行能力",
         )
         builder.relate(fixture_requirement, RelationPredicate.DERIVED_FROM, activity)
+        builder.relate(fixture_requirement, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.USE_CASE))
         return builder.response("生命周期任务推导系统需求")
 
     def _function_identification(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
@@ -478,6 +513,8 @@ class LifecycleTaskRuleRuntime:
                 "functional_behavior_ids": function_ids,
                 "functional_requirement_status": "allocated",
             })
+            builder.relate(requirement, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.ACTIVITY))
+            builder.relate(requirement, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.USE_CASE))
         fixture_requirement = _add_fixture_requirement(
             builder,
             "functional_requirement",
@@ -490,6 +527,8 @@ class LifecycleTaskRuleRuntime:
             "functional_requirement_status": "allocated",
         })
         builder.relate(fixture_requirement, RelationPredicate.SATISFIED_BY, builder.first(EntityKind.FUNCTION))
+        builder.relate(fixture_requirement, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.ACTIVITY))
+        builder.relate(fixture_requirement, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.USE_CASE))
         return builder.response("生命周期任务补全功能需求")
 
     def _logical_analysis(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:
@@ -572,6 +611,8 @@ class LifecycleTaskRuleRuntime:
                     source_ids=requirement.meta.source_ids,
                 )
                 builder.relate(technical, RelationPredicate.DERIVED_FROM, requirement)
+                builder.relate(technical, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.ACTIVITY))
+                builder.relate(technical, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.USE_CASE))
                 builder.relate(technical, RelationPredicate.SATISFIED_BY, physical)
         for physical in physicals:
             related_requirements = _requirements_for_physical(builder, physical)
@@ -705,6 +746,8 @@ class LifecycleTaskRuleRuntime:
                     },
                 )
                 builder.relate(reverse, RelationPredicate.DERIVED_FROM, requirement)
+                builder.relate(reverse, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.ACTIVITY))
+                builder.relate(reverse, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.USE_CASE))
                 builder.relate(reverse, RelationPredicate.SATISFIED_BY, function)
                 builder.relate(reverse, RelationPredicate.VERIFIED_BY, verification)
                 builder.relate(reverse, RelationPredicate.VALIDATED_BY, validation)
@@ -716,6 +759,8 @@ class LifecycleTaskRuleRuntime:
                 level="derived",
                 statement="需要确认校园系统需求与物理候选之间的可行性",
             )
+            builder.relate(reverse, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.ACTIVITY))
+            builder.relate(reverse, RelationPredicate.DERIVED_FROM, builder.first(EntityKind.USE_CASE))
             builder.relate(reverse, RelationPredicate.SATISFIED_BY, builder.first(EntityKind.FUNCTION))
             builder.relate(reverse, RelationPredicate.VERIFIED_BY, builder.first(EntityKind.VERIFICATION_CASE))
             builder.relate(reverse, RelationPredicate.VALIDATED_BY, builder.first(EntityKind.VALIDATION_CASE))
@@ -772,7 +817,7 @@ def _add_fixture_requirement(
     if not roots:
         return None
     name = _FIXTURE_DERIVED_NAMES[task_id]
-    return builder.find(EntityKind.REQUIREMENT, name) or builder.add(
+    fixture = builder.find(EntityKind.REQUIREMENT, name) or builder.add(
         EntityKind.REQUIREMENT,
         name,
         {
@@ -788,6 +833,13 @@ def _add_fixture_requirement(
             "open_questions": ["需要结合项目证据确认派生需求"],
         },
     )
+    # Keep the fixture checkpoints in the same typed trace graph as LLM
+    # outputs.  The payload source IDs are useful for import/export, while
+    # these relations are what downstream validators and impact traversal use.
+    for root in roots:
+        if root.id != fixture.id:
+            builder.relate(fixture, RelationPredicate.DERIVED_FROM, root)
+    return fixture
 
 
 def _constraint_map(requirements: tuple[Entity, ...]) -> dict[str, object]:
@@ -1041,6 +1093,7 @@ def _case_payload(
         "procedure": "执行需求对应的任务并记录系统响应",
         "expected_result": "系统行为满足需求并留下可审查结果",
         "pass_criteria": "需求约束和行为结果均满足",
+        "covered_branches": ["normal", "failure", "alternative", "boundary", "exception"],
     }
 
 
