@@ -9,7 +9,11 @@ from typing import Mapping
 
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind, EntityStatus
-from rflp_lite.domain.errors import ContractViolation, ProposalCompileFailure
+from rflp_lite.domain.errors import (
+    ContractViolation,
+    ProposalCompileFailure,
+    StructuredOutputFailure,
+)
 from rflp_lite.domain.model import AddEntity, Deprecate, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate, validate_endpoint_kinds
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
@@ -51,6 +55,7 @@ class _CompiledProposal:
     proposal: TaskProposal
     patch: Patch | None
     compiler_repaired: bool = False
+    batch_fallback: bool = False
 
 
 class StructuredModelRuntime:
@@ -98,25 +103,29 @@ class StructuredModelRuntime:
             self.model,
         )
         batch_payloads = tuple(
-            {
-                **payload,
-                **(
-                    {"requirement_worklist": list(batch)}
-                    if "requirement_worklist" in payload
-                    else {}
-                ),
-                **(
-                    {
-                        "requirement_batch": {
-                            "index": index,
-                            "count": len(batches),
-                            "is_first": index == 1,
+            _scope_batch_payload(
+                request,
+                {
+                    **payload,
+                    **(
+                        {"requirement_worklist": list(batch)}
+                        if "requirement_worklist" in payload
+                        else {}
+                    ),
+                    **(
+                        {
+                            "requirement_batch": {
+                                "index": index,
+                                "count": len(batches),
+                                "is_first": index == 1,
+                            }
                         }
-                    }
-                    if len(batches) > 1
-                    else {}
-                ),
-            }
+                        if len(batches) > 1
+                        else {}
+                    ),
+                },
+                batch,
+            )
             for index, batch in enumerate(batches, start=1)
         )
         compiled = self._complete_batches(request, contract, batch_payloads)
@@ -141,6 +150,8 @@ class StructuredModelRuntime:
                 f"batch={index}/{len(compiled)}"
                 for index in range(1, len(compiled) + 1)
             )
+        if any(item.batch_fallback for item in compiled):
+            diagnostics.append("batch_fallback=single_requirement")
         if request.task_id in LIFECYCLE_TASKS:
             diagnostics.append("lifecycle:structured")
         return TaskExecutionResponse(
@@ -167,34 +178,69 @@ class StructuredModelRuntime:
     ) -> tuple[_CompiledProposal, ...]:
         """Complete independent requirement batches without widening the write boundary."""
 
-        if len(payloads) < 2 or getattr(
-            self.model, "supports_parallel_requirement_batching", False
-        ) is not True:
+        if len(payloads) < 2:
             return tuple(
                 self._complete_batch(request, contract, payload)
                 for payload in payloads
             )
-        with ThreadPoolExecutor(
-            max_workers=min(4, len(payloads)),
-            thread_name_prefix="rflp-llm-batch",
-        ) as executor:
-            # executor.map preserves payload order, so merged hashes and
-            # diagnostics remain deterministic even when responses finish out
-            # of order at the provider.
-            return tuple(
-                executor.map(
-                    lambda payload: self._complete_batch(
-                        request, contract, payload
-                    ),
-                    payloads,
+
+        def complete(payload: Mapping[str, object]):
+            try:
+                return self._complete_batch(request, contract, payload), None
+            except Exception as exc:  # Preserve the original failure for routing.
+                return None, exc
+
+        if getattr(self.model, "supports_parallel_requirement_batching", False) is True:
+            with ThreadPoolExecutor(
+                max_workers=min(4, len(payloads)),
+                thread_name_prefix="rflp-llm-batch",
+            ) as executor:
+                # executor.map preserves payload order, so merged hashes and
+                # diagnostics remain deterministic even when responses finish
+                # out of order at the provider.
+                outcomes = tuple(executor.map(complete, payloads))
+        else:
+            sequential_outcomes = []
+            for payload in payloads:
+                outcome = complete(payload)
+                failure = outcome[1]
+                if failure is not None and not isinstance(
+                    failure, (StructuredOutputFailure, ProposalCompileFailure)
+                ):
+                    raise failure
+                sequential_outcomes.append(outcome)
+            outcomes = tuple(sequential_outcomes)
+
+        result: list[_CompiledProposal] = []
+        for payload, (compiled, failure) in zip(payloads, outcomes):
+            if compiled is not None:
+                result.append(compiled)
+                continue
+            if failure is None:
+                raise RuntimeError("batch completion returned no result")
+            if not isinstance(failure, (StructuredOutputFailure, ProposalCompileFailure)):
+                raise failure
+            split_payloads = _split_requirement_batch(request, payload)
+            if not split_payloads:
+                raise failure
+            result.extend(
+                self._complete_batch(
+                    request,
+                    contract,
+                    split_payload,
+                    batch_fallback=True,
                 )
+                for split_payload in split_payloads
             )
+        return tuple(result)
 
     def _complete_batch(
         self,
         request: TaskExecutionRequest,
         contract: Mapping[str, object],
         payload: Mapping[str, object],
+        *,
+        batch_fallback: bool = False,
     ) -> _CompiledProposal:
         token_budget = _batch_token_budget(request, payload)
         batch_instruction = _batch_instruction(
@@ -263,7 +309,13 @@ class StructuredModelRuntime:
                 ) from second_error
             response = replace(repair_response, repaired=True)
             compiler_repaired = True
-        return _CompiledProposal(response, proposal, patch, compiler_repaired)
+        return _CompiledProposal(
+            response,
+            proposal,
+            patch,
+            compiler_repaired,
+            batch_fallback,
+        )
 
 
 def _sanitize_vertical_proposal(
@@ -824,6 +876,88 @@ def _requirement_batches(
         entries[start : start + _VERTICAL_BATCH_SIZE]
         for start in range(0, len(entries), _VERTICAL_BATCH_SIZE)
     )
+
+
+def _scope_batch_payload(
+    request: TaskExecutionRequest,
+    payload: Mapping[str, object],
+    batch: tuple[Mapping[str, object], ...] | list[Mapping[str, object]],
+) -> Mapping[str, object]:
+    """Keep a multi-request wire payload grounded in its current batch."""
+
+    result = dict(payload)
+    if "requirement_worklist" not in result:
+        return result
+    result["requirement_worklist"] = list(batch)
+    if not isinstance(result.get("requirement_batch"), Mapping):
+        return result
+    context = result.get("context")
+    if not isinstance(context, Mapping):
+        return result
+    requirement_ids = {
+        str(item.get("requirement_id", ""))
+        for item in batch
+        if isinstance(item, Mapping) and str(item.get("requirement_id", ""))
+    }
+    if not requirement_ids:
+        return result
+    entities = context.get("entities")
+    if not isinstance(entities, (list, tuple)):
+        return result
+    scoped_entities = [
+        entity
+        for entity in entities
+        if not isinstance(entity, Mapping)
+        or entity.get("kind") != EntityKind.REQUIREMENT.value
+        or str(entity.get("id", "")) in requirement_ids
+    ]
+    visible_ids = {
+        str(entity.get("id", ""))
+        for entity in scoped_entities
+        if isinstance(entity, Mapping) and str(entity.get("id", ""))
+    }
+    relations = context.get("relations")
+    scoped_relations = relations
+    if isinstance(relations, (list, tuple)):
+        scoped_relations = [
+            relation
+            for relation in relations
+            if isinstance(relation, Mapping)
+            and str(relation.get("source_id", "")) in visible_ids
+            and str(relation.get("target_id", "")) in visible_ids
+        ]
+    scoped_context = {
+        **context,
+        "entities": scoped_entities,
+        "relations": scoped_relations,
+    }
+    result["context"] = scoped_context
+    result["context_hash"] = canonical_hash(scoped_context)
+    return result
+
+
+def _split_requirement_batch(
+    request: TaskExecutionRequest,
+    payload: Mapping[str, object],
+) -> tuple[Mapping[str, object], ...]:
+    """Turn one failed multi-requirement request into bounded singleton calls."""
+
+    worklist = payload.get("requirement_worklist")
+    if not isinstance(worklist, (list, tuple)) or len(worklist) < 2:
+        return ()
+    metadata = payload.get("requirement_batch")
+    result: list[Mapping[str, object]] = []
+    for offset, item in enumerate(worklist):
+        if not isinstance(item, Mapping):
+            continue
+        split_payload = dict(payload)
+        split_payload["requirement_worklist"] = [item]
+        if isinstance(metadata, Mapping):
+            split_metadata = dict(metadata)
+            split_metadata["is_first"] = bool(metadata.get("is_first")) and offset == 0
+            split_payload["requirement_batch"] = split_metadata
+        result.append(_scope_batch_payload(request, split_payload, [item]))
+    return tuple(result)
 
 
 def _batch_token_budget(

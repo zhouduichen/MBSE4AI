@@ -191,6 +191,21 @@ class BatchedVerticalModel:
         )
 
 
+class SplitBatchedVvModel(BatchedVvModel):
+    """Fail wide V&V calls so the runtime's singleton fallback is exercised."""
+
+    def complete_json(self, request):
+        if len(request.user_payload["requirement_worklist"]) > 1:
+            self.calls.append(request)
+            raise StructuredOutputFailure(
+                "batch output truncated",
+                code="truncated",
+                provider_id="fake",
+                model_id="fake-model",
+            )
+        return super().complete_json(request)
+
+
 def test_runtime_adapts_task_context_to_generation_request():
     model = FakeModel()
     runtime = StructuredModelRuntime(model)
@@ -761,6 +776,87 @@ def test_structured_runtime_batches_large_rflp_worklist(stage):
         for call in model.calls
     )
     assert "batch_count=3" in result.diagnostics
+
+
+def test_structured_runtime_scopes_each_batch_to_current_requirements():
+    model = BatchedVerticalModel()
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求 {index}",
+            {"statement": f"系统应满足需求 {index}"},
+        )
+        for index in range(5)
+    )
+    system = make_entity(EntityKind.SYSTEM, "系统")
+    relation = Relation(
+        "relation-1",
+        requirements[0].id,
+        RelationPredicate.DERIVED_FROM,
+        system.id,
+    )
+    context = ContextBundle(
+        "p1",
+        "vertical.functional",
+        3,
+        (*requirements, system),
+        (relation,),
+    )
+    request = TaskExecutor(model).request(
+        stage_task("functional"), context, "v2.1", token_budget=2048
+    )
+
+    StructuredModelRuntime(model).execute(request)
+
+    ordered_requirements = tuple(sorted(requirements, key=lambda item: item.id))
+    for call, expected in zip(
+        model.calls,
+        (ordered_requirements[:2], ordered_requirements[2:4], ordered_requirements[4:]),
+    ):
+        expected_ids = {item.id for item in expected}
+        visible_requirements = {
+            item["id"]
+            for item in call.user_payload["context"]["entities"]
+            if item["kind"] == EntityKind.REQUIREMENT.value
+        }
+        assert visible_requirements == expected_ids
+        assert system.id in {
+            item["id"] for item in call.user_payload["context"]["entities"]
+        }
+        visible_relations = call.user_payload["context"]["relations"]
+        assert bool(visible_relations) is (requirements[0].id in expected_ids)
+
+
+def test_structured_runtime_retries_failed_batch_as_single_requirements():
+    model = SplitBatchedVvModel()
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求 {index}",
+            {"statement": f"系统应满足需求 {index}"},
+        )
+        for index in range(5)
+    )
+    context = ContextBundle("p1", "vertical.verification_validation", 3, requirements)
+    request = TaskExecutor(model).request(
+        stage_task("verification_validation"), context, "v2.1", token_budget=4096
+    )
+
+    result = StructuredModelRuntime(model).execute(request)
+
+    assert result.patch is not None
+    assert len(model.calls) == 7
+    assert "batch_fallback=single_requirement" in result.diagnostics
+    assert sum(
+        operation.entity.kind is EntityKind.VERIFICATION_CASE
+        for operation in result.patch.operations
+        if isinstance(operation, AddEntity)
+    ) == 5
+    assert sum(
+        operation.entity.kind is EntityKind.VALIDATION_CASE
+        for operation in result.patch.operations
+        if isinstance(operation, AddEntity)
+    ) == 5
 
 
 def test_structured_runtime_parallelizes_batches_only_for_capable_models():
