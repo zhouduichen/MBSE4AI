@@ -160,7 +160,26 @@ def _operation_entity_id(operation: object) -> str:
 
 def _has_reasoning(entity: Entity, field: str) -> bool:
     value = entity.payload.get(field)
-    return isinstance(value, Mapping) and bool(value)
+    if not isinstance(value, Mapping) or not value:
+        return False
+    if field == "architecture_reasoning":
+        basis = value.get("basis")
+        return (
+            isinstance(basis, Mapping)
+            and isinstance(value.get("alternatives"), (list, tuple))
+            and bool(str(value.get("recommended_alternative", "")).strip())
+            and bool(str(value.get("selection_status", "")).strip())
+        )
+    if field == "feasibility_reasoning":
+        return all(
+            key in value
+            for key in (
+                "requirement_ids", "logical_ids", "function_ids",
+                "propagated_constraints", "missing_fields", "conflicts",
+                "status", "score", "resolution_options",
+            )
+        )
+    return True
 
 
 def _protected(entity: Entity) -> bool:

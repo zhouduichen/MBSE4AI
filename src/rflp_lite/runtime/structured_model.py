@@ -395,6 +395,26 @@ def _sanitize_vertical_proposal(
     context_kinds = {
         entity.id: entity.kind for entity in request.context_bundle.entities
     }
+    filtered_entities = []
+    discarded_local_refs: set[str] = set()
+    for entity in raw_entities:
+        if not isinstance(entity, Mapping):
+            filtered_entities.append(entity)
+            continue
+        kind = str(entity.get("kind", ""))
+        payload_value = entity.get("payload")
+        if (
+            request.task_id == "vertical.verification_validation"
+            and kind in {EntityKind.HAZARD.value, EntityKind.FAILURE_MODE.value}
+            and isinstance(payload_value, Mapping)
+            and not payload_value
+        ):
+            local_ref = str(entity.get("local_ref", "")).strip()
+            if local_ref:
+                discarded_local_refs.add(local_ref)
+            continue
+        filtered_entities.append(entity)
+    raw_entities = filtered_entities
     local_kinds = {
         str(entity.get("local_ref")): EntityKind(str(entity.get("kind")))
         for entity in raw_entities
@@ -428,6 +448,8 @@ def _sanitize_vertical_proposal(
             continue
         valid_relations.append(relation)
     result = dict(payload)
+    if discarded_local_refs:
+        result["entities"] = list(raw_entities)
     if len(valid_relations) != len(raw_relations):
         result["relations"] = valid_relations
     sanitized_entities = _sanitize_vertical_entity_references(

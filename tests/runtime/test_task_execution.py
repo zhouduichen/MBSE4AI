@@ -618,6 +618,69 @@ def test_vertical_runtime_drops_updates_for_unknown_entities_without_losing_vv_e
     assert sanitized["updates"] == []
 
 
+def test_vertical_runtime_drops_empty_risk_entities_before_semantic_validation():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应安全返航",
+        {"statement": "系统应安全返航"},
+    )
+    request = TaskExecutor(RuleRuntime()).request(
+        stage_task("verification_validation"),
+        ContextBundle("p1", "vertical.verification_validation", 3, (requirement,)),
+        "v2.1",
+    )
+    valid_case = {
+        "local_ref": "verification-1",
+        "kind": EntityKind.VERIFICATION_CASE.value,
+        "name": "安全返航验证",
+        "payload": {
+            "method": "test",
+            "verification_objective": "验证安全返航",
+            "precondition": "系统飞行中",
+            "test_condition": "注入低电量",
+            "input": "低电量事件",
+            "stimulus": "触发低电量",
+            "procedure": "观察返航",
+            "expected_result": "系统返航",
+            "pass_criteria": "返航成功",
+            "requirement_ids": [requirement.id],
+        },
+    }
+    sanitized = _sanitize_vertical_proposal(
+        request,
+        {
+            "entities": [
+                valid_case,
+                {
+                    "local_ref": "empty-failure",
+                    "kind": EntityKind.FAILURE_MODE.value,
+                    "name": "空失效模式",
+                    "payload": {},
+                },
+            ],
+            "relations": [{
+                "source_ref": "empty-failure",
+                "predicate": RelationPredicate.CAUSES.value,
+                "target_ref": "verification-1",
+            }],
+            "updates": [],
+            "deprecations": [],
+            "reason": "建立验证计划",
+        },
+    )
+
+    assert sanitized["entities"] == [valid_case]
+    assert all(
+        relation["predicate"] != RelationPredicate.CAUSES.value
+        for relation in sanitized["relations"]
+    )
+    assert any(
+        relation["predicate"] == RelationPredicate.VERIFIED_BY.value
+        and relation["target_ref"] == "verification-1"
+        for relation in sanitized["relations"]
+    )
+
+
 def test_vertical_runtime_drops_unknown_typed_payload_ids_without_discarding_entity():
     requirement = make_entity(
         EntityKind.REQUIREMENT,
