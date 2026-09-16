@@ -1031,13 +1031,21 @@ class ModelGenerationService:
         bridge_patch = enrich_architecture_patch(graph, bridge_patch)
         if bridge_patch != bridge_response.patch:
             bridge_response = replace(bridge_response, patch=bridge_patch)
-        self.executor.validate_response(
+        bridge_semantic_invalid = self._validate_response_for_commit(
             project_id,
             task,
             graph,
             context,
             bridge_response,
         )
+        if bridge_semantic_invalid:
+            self._save_semantic_issue(
+                project_id,
+                run_id,
+                task.id,
+                bridge_response.patch,
+                bridge_semantic_invalid,
+            )
         patch = _promote_generated_entities(bridge_response.patch, validated=True)
         revision = self.repository.append_patch(
             project_id,
@@ -1064,6 +1072,9 @@ class ModelGenerationService:
                 diagnostics=tuple(execution.diagnostics),
                 completion_issue_codes=("llm_execution_unavailable",),
             )
+        source_semantic_warnings = tuple(
+            item for item in execution.warnings if "semantic_invalid" in item
+        )
         diagnostics = tuple(dict.fromkeys(
             (
                 *source_result.diagnostics,
@@ -1073,7 +1084,16 @@ class ModelGenerationService:
         ))
         result = replace(
             source_result,
-            status="needs_review" if missing_kinds or completion.issue_codes else "completed",
+            status=(
+                "needs_review"
+                if (
+                    source_semantic_warnings
+                    or bridge_semantic_invalid
+                    or missing_kinds
+                    or completion.issue_codes
+                )
+                else "completed"
+            ),
             revision=revision,
             entity_count=sum(
                 1
@@ -1090,6 +1110,12 @@ class ModelGenerationService:
             f"{stage.stage.value}: completion bridge applied after LLM feedback; "
             "bridge provenance is recorded as offline vertical-rule"
         )
+        bridge_warnings = list(source_semantic_warnings)
+        bridge_warnings.append(warning)
+        if bridge_semantic_invalid:
+            bridge_warnings.append(
+                f"{stage.stage.value}: semantic_invalid: {bridge_semantic_invalid}"
+            )
         self._audit(project_id, "model_generation.completion_bridge", {
             "run_id": run_id,
             "stage": stage.stage.value,
@@ -1108,10 +1134,10 @@ class ModelGenerationService:
             return replace(
                 execution,
                 result=result,
-                warnings=(warning,),
+                warnings=tuple((*source_semantic_warnings, warning)),
                 response=bridge_response,
             )
-        return replace(execution, result=result, warnings=(warning,))
+        return replace(execution, result=result, warnings=tuple(bridge_warnings))
 
     def _continue_after_feedback_failure(
         self,
@@ -1224,17 +1250,13 @@ class ModelGenerationService:
             enriched_patch = enrich_architecture_patch(graph, response.patch)
             if enriched_patch != response.patch:
                 response = replace(response, patch=enriched_patch)
-            try:
-                self.executor.validate_response(project_id, task, graph, context, response)
-            except MethodologyValidationError as exc:
-                if exc.code != "semantic_invalid":
-                    raise
-                semantic_invalid = str(exc)
-                relaxed = replace(
-                    task,
-                    validators=tuple(item for item in task.validators if item != "semantic"),
-                )
-                self.executor.validate_response(project_id, relaxed, graph, context, response)
+            semantic_invalid = self._validate_response_for_commit(
+                project_id,
+                task,
+                graph,
+                context,
+                response,
+            )
             patch = _promote_generated_entities(response.patch, validated=not semantic_invalid)
             revision = self.repository.append_patch(
                 project_id, patch, graph.revision, run_id=run_id
@@ -1484,6 +1506,36 @@ class ModelGenerationService:
                 "status": "open",
             },
         )
+
+    def _validate_response_for_commit(
+        self,
+        project_id: str,
+        task,
+        graph,
+        context,
+        response,
+    ) -> str:
+        """Validate a patch while retaining semantic-invalid output for review.
+
+        A configured LLM may produce a structurally valid but solution-specific
+        Function name. That is a model-quality issue, not a reason to discard
+        the rest of the vertical slice. All non-semantic validators remain
+        authoritative; only the semantic validator is relaxed after recording
+        the exact diagnostic so the candidate can be reviewed or repaired.
+        """
+
+        try:
+            self.executor.validate_response(project_id, task, graph, context, response)
+        except MethodologyValidationError as exc:
+            if exc.code != "semantic_invalid":
+                raise
+            relaxed = replace(
+                task,
+                validators=tuple(item for item in task.validators if item != "semantic"),
+            )
+            self.executor.validate_response(project_id, relaxed, graph, context, response)
+            return str(exc)
+        return ""
 
     def _finish_failed(
         self,

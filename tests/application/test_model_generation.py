@@ -237,7 +237,7 @@ class SemanticInvalidModel(ScriptedModel):
     def complete_json(self, request):
         response = super().complete_json(request)
         if request.lens_id == "vertical.functional" and response.payload["entities"]:
-            response.payload["entities"][0]["name"] = "配送传感器控制"
+            response.payload["entities"][0]["name"] = "搭载传感器与计算通信模块"
         return response
 
 
@@ -2439,6 +2439,7 @@ def test_semantic_invalid_output_stays_candidate_and_creates_review_issue(tmp_pa
     services = build_v2_services(
         tmp_path / "workspaces",
         runtime=StructuredModelRuntime(SemanticInvalidModel()),
+        runtime_config={"id": "configured-test", "model": "test-model"},
     )
     services.projects.create("robot")
 
