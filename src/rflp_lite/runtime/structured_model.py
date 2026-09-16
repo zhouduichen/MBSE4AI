@@ -310,9 +310,131 @@ def _sanitize_vertical_proposal(
     result = dict(payload)
     if len(valid_relations) != len(raw_relations):
         result["relations"] = valid_relations
+    inferred_relations = _infer_vertical_relations(
+        request.task_id,
+        raw_entities,
+        valid_relations,
+        local_kinds,
+        context_kinds,
+    )
+    if len(inferred_relations) != len(valid_relations):
+        result["relations"] = inferred_relations
     sanitized_updates = _sanitize_vertical_updates(request, raw_updates, context_kinds)
     if sanitized_updates is not None:
         result["updates"] = sanitized_updates
+    return result
+
+
+def _infer_vertical_relations(
+    task_id: str,
+    raw_entities: list[object] | tuple[object, ...],
+    relations: list[Mapping[str, object]],
+    local_kinds: Mapping[str, EntityKind],
+    context_kinds: Mapping[str, EntityKind],
+) -> list[Mapping[str, object]]:
+    """Close typed links from payload IDs when a vertical response omits them.
+
+    These links are derived only from canonical/local IDs already present in a
+    validated typed payload.  The LLM still chooses the entities and payload;
+    this adapter merely makes the ModelGraph's required edge representation
+    explicit for downstream coverage and traceability.
+    """
+
+    if task_id not in {
+        "vertical.functional",
+        "vertical.logical",
+        "vertical.physical",
+        "vertical.verification_validation",
+    }:
+        return relations
+    result = list(relations)
+    existing = {
+        (str(item.get("source_ref")), str(item.get("predicate")), str(item.get("target_ref")))
+        for item in result
+        if isinstance(item, Mapping)
+    }
+
+    def kind(reference: object) -> EntityKind | None:
+        return _proposal_ref_kind(reference, local_kinds, context_kinds)
+
+    def add(source_ref: object, predicate: RelationPredicate, target_ref: object) -> None:
+        source = str(source_ref or "").strip()
+        target = str(target_ref or "").strip()
+        key = (source, predicate.value, target)
+        if not source or not target or key in existing:
+            return
+        source_kind = kind(source)
+        target_kind = kind(target)
+        if source_kind is None or target_kind is None:
+            return
+        try:
+            validate_endpoint_kinds(predicate, source_kind, target_kind)
+        except ContractViolation:
+            return
+        result.append({
+            "source_ref": source,
+            "predicate": predicate.value,
+            "target_ref": target,
+            "evidence_ids": [],
+        })
+        existing.add(key)
+
+    for raw_entity in raw_entities:
+        if not isinstance(raw_entity, Mapping):
+            continue
+        local_ref = str(raw_entity.get("local_ref") or "").strip()
+        entity_kind = kind(local_ref)
+        payload = raw_entity.get("payload")
+        if not local_ref or entity_kind is None or not isinstance(payload, Mapping):
+            continue
+
+        if task_id == "vertical.functional":
+            if entity_kind is EntityKind.FUNCTIONAL_FLOW:
+                endpoints = tuple(payload.get("source_function_ids", ())) + tuple(
+                    payload.get("target_function_ids", ())
+                )
+                for function_ref in endpoints:
+                    if kind(function_ref) is EntityKind.FUNCTION:
+                        add(function_ref, RelationPredicate.EXCHANGES_WITH, local_ref)
+            elif entity_kind is EntityKind.FUNCTIONAL_SCENARIO:
+                for function_ref in payload.get("function_ids", ()):
+                    if kind(function_ref) is EntityKind.FUNCTION:
+                        add(function_ref, RelationPredicate.DERIVED_FROM, local_ref)
+        elif task_id == "vertical.logical":
+            if entity_kind is EntityKind.LOGICAL_COMPONENT:
+                function_ref = payload.get("function_id")
+                if kind(function_ref) is EntityKind.FUNCTION:
+                    add(function_ref, RelationPredicate.ALLOCATED_TO, local_ref)
+            elif entity_kind is EntityKind.INTERFACE:
+                for logical_ref in payload.get("connected_component_ids", ()):
+                    if kind(logical_ref) is EntityKind.LOGICAL_COMPONENT:
+                        add(logical_ref, RelationPredicate.CONNECTED_TO, local_ref)
+            elif entity_kind is EntityKind.STATE:
+                logical_ref = payload.get("owner_id")
+                if kind(logical_ref) is EntityKind.LOGICAL_COMPONENT:
+                    add(logical_ref, RelationPredicate.DECOMPOSES, local_ref)
+        elif task_id == "vertical.physical":
+            logical_refs = []
+            if payload.get("logical_id"):
+                logical_refs.append(payload["logical_id"])
+            logical_refs.extend(payload.get("source_logical_ids", ()))
+            for logical_ref in logical_refs:
+                if kind(logical_ref) is EntityKind.LOGICAL_COMPONENT:
+                    add(logical_ref, RelationPredicate.ALLOCATED_TO, local_ref)
+        elif task_id == "vertical.verification_validation":
+            if entity_kind is EntityKind.VERIFICATION_CASE:
+                for requirement_ref in payload.get("requirement_ids", ()):
+                    if kind(requirement_ref) is EntityKind.REQUIREMENT:
+                        add(requirement_ref, RelationPredicate.VERIFIED_BY, local_ref)
+            elif entity_kind is EntityKind.VALIDATION_CASE:
+                for requirement_ref in payload.get("requirement_ids", ()):
+                    if kind(requirement_ref) is EntityKind.REQUIREMENT:
+                        add(requirement_ref, RelationPredicate.VALIDATED_BY, local_ref)
+            # Risk payloads are intentionally multi-requirement scopes.  The
+            # assurance engine consumes their typed ``requirement_ids``
+            # directly; fan-out into one derivedFrom relation per requirement
+            # would duplicate the same risk across V&V batches and consume the
+            # aggregate Patch operation budget without improving coverage.
     return result
 
 

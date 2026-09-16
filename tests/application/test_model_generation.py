@@ -9,7 +9,11 @@ from rflp_lite.domain.errors import ContractViolation, TransportFailure
 from rflp_lite.domain.model import AddEntity, ModelGraph, Patch, Relation, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.application.model_generation import build_traceability_summary
-from rflp_lite.application.model_generation import ModelGenerationService
+from rflp_lite.application.model_generation import (
+    ModelGenerationService,
+    StageResult,
+    _StageAttemptResult,
+)
 from rflp_lite.application.projections.traceability import build_traceability_view
 from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
 from rflp_lite.application.tool_layer import ToolResult
@@ -17,6 +21,7 @@ from rflp_lite.methodology.contracts import StepStatus, TaskExecutionResponse
 from rflp_lite.methodology.controller import ControllerAction, ControllerPlan
 from rflp_lite.methodology.llm_controller import LLMController
 from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
+from rflp_lite.methodology.vertical_generation import stage_spec, stage_task
 from rflp_lite.ports.generative_model import GenerationResponse
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
@@ -2301,6 +2306,95 @@ def test_incomplete_operational_stage_is_marked_for_review(tmp_path: Path):
     assert result.status == "completed_with_warnings"
     assert result.stage_results[0].status == "needs_review"
     assert any("missing required kinds" in warning for warning in result.warnings)
+
+
+def test_feedback_transport_failure_keeps_applied_stage_for_downstream_work(
+    tmp_path: Path, monkeypatch
+):
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(ScriptedModel()),
+    )
+    services.projects.create("robot")
+    generation = services.generation("robot")
+    run_id = generation.prepare_generation(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+    repository = services.repository("robot")
+    graph = repository.load_graph("robot")
+    stage = stage_spec("functional")
+    task = stage_task("functional")
+    function = make_entity(
+        EntityKind.FUNCTION,
+        "执行人工接管",
+        {"decomposition": ["接收接管指令", "执行接管", "反馈状态"]},
+        status=EntityStatus.VALIDATED,
+        producer=Producer.LLM,
+    )
+    patch = Patch.create(
+        "robot",
+        task.id,
+        (AddEntity(function),),
+        "首次功能分析",
+        graph.revision,
+    )
+    revision = repository.append_patch("robot", patch, graph.revision, run_id=run_id).sequence
+    response = TaskExecutionResponse(
+        StepStatus.COMPLETED,
+        patch=patch,
+        diagnostics=("provider=remote",),
+        input_hash="input",
+        output_hash="output",
+        provider_id="remote",
+        model_id="remote-model",
+    )
+    first = _StageAttemptResult(
+        StageResult(
+            "functional",
+            "needs_review",
+            revision,
+            1,
+            len(graph.relations),
+            completion_issue_codes=("completion_requirement_coverage:functional",),
+        ),
+        warnings=("functional: incomplete",),
+        response=response,
+        context_hash="context-1",
+        started_at=1.0,
+    )
+    calls = []
+
+    def fail_feedback(*_args, **_kwargs):
+        calls.append(len(calls) + 1)
+        if len(calls) == 1:
+            return first
+        return _StageAttemptResult(
+            None,
+            diagnostics=("remote feedback connection reset",),
+            response=TaskExecutionResponse(
+                StepStatus.DEGRADED,
+                diagnostics=("remote feedback connection reset",),
+            ),
+        )
+
+    monkeypatch.setattr(generation, "_execute_stage_attempt", fail_feedback)
+
+    execution = generation._execute_stage(
+        "robot", run_id, stage, graph, ()
+    )
+
+    assert calls == [1, 2]
+    assert execution.result is not None
+    assert execution.result.status == "needs_review"
+    assert execution.result.revision == revision
+    assert any("continuing with the previously committed partial result" in item for item in execution.warnings)
+    run = repository.load_run("robot", run_id)
+    functional_step = next(step for step in run.steps if step.task_id == task.id)
+    assert functional_step.status == StepStatus.COMPLETED.value
+    assert any(
+        event["kind"] == "model_generation.stage_feedback_failed"
+        for event in repository.list_audit_events("robot")
+    )
 
 
 def test_traceability_requires_both_verification_and_validation():

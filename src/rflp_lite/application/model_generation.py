@@ -880,6 +880,7 @@ class ModelGenerationService:
         task = stage_task(stage.stage)
         max_attempts = 2 if self._feedback_enabled() else 1
         warnings: list[str] = []
+        previous_execution: _StageAttemptResult | None = None
         for attempt in range(1, max_attempts + 1):
             current = graph if attempt == 1 else self.repository.load_graph(project_id)
             try:
@@ -894,10 +895,29 @@ class ModelGenerationService:
                     attempt=attempt,
                 )
             except Exception as exc:
+                if attempt > 1 and previous_execution is not None:
+                    return self._continue_after_feedback_failure(
+                        project_id,
+                        run_id,
+                        task,
+                        stage,
+                        previous_execution,
+                        (str(exc),),
+                    )
                 return _StageExecution(None, diagnostics=(str(exc),))
             if execution.result is None:
+                if attempt > 1 and previous_execution is not None:
+                    return self._continue_after_feedback_failure(
+                        project_id,
+                        run_id,
+                        task,
+                        stage,
+                        previous_execution,
+                        execution.diagnostics,
+                    )
                 return _StageExecution(None, diagnostics=execution.diagnostics)
             if attempt < max_attempts and execution.result.status == "needs_review":
+                previous_execution = execution
                 self._audit(project_id, "model_generation.stage_feedback", {
                     "run_id": run_id,
                     "stage": execution.result.stage,
@@ -919,6 +939,43 @@ class ModelGenerationService:
                 tuple(dict.fromkeys(warnings)),
             )
         return _StageExecution(None, diagnostics=("stage feedback loop exhausted",))
+
+    def _continue_after_feedback_failure(
+        self,
+        project_id: str,
+        run_id: str,
+        task,
+        stage,
+        previous_execution: _StageAttemptResult,
+        diagnostics: tuple[str, ...],
+    ) -> _StageExecution:
+        """Keep an applied partial stage usable when its retry endpoint disappears."""
+
+        result = previous_execution.result
+        if result is None:
+            return _StageExecution(None, diagnostics=diagnostics)
+        self._finalize_stage_attempt(
+            project_id,
+            run_id,
+            task,
+            previous_execution,
+        )
+        retry_warning = (
+            f"{stage.stage.value}: feedback retry failed; continuing with the "
+            "previously committed partial result"
+        )
+        self._audit(project_id, "model_generation.stage_feedback_failed", {
+            "run_id": run_id,
+            "stage": stage.stage.value,
+            "attempt": result.attempts + 1,
+            "revision": result.revision,
+            "diagnostics": list(diagnostics),
+            "continued_with_revision": result.revision,
+        })
+        return _StageExecution(
+            result,
+            tuple(dict.fromkeys((*previous_execution.warnings, retry_warning, *diagnostics))),
+        )
 
     def _execute_stage_attempt(
         self,

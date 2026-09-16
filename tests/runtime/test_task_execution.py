@@ -4,7 +4,7 @@ import threading
 import pytest
 
 from rflp_lite.domain.entities import EntityKind, make_entity
-from rflp_lite.domain.model import AddEntity, ModelGraph, Relation, UpdateEntity
+from rflp_lite.domain.model import AddEntity, ModelGraph, Relation, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.domain.errors import (
     ProposalCompileFailure,
@@ -330,6 +330,76 @@ def test_vertical_runtime_compacts_model_context_but_keeps_typed_payload_fields(
         "requirement_id": requirement.id,
         "missing": ["logical"],
     }]
+
+
+def test_vertical_runtime_closes_function_links_from_typed_flow_payloads():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应支持人工接管",
+        {"statement": "系统应支持人工接管"},
+    )
+    model = FakeModel(payload={
+        "entities": [
+            {
+                "local_ref": "function-1",
+                "kind": EntityKind.FUNCTION.value,
+                "name": "执行人工接管",
+                "payload": {"decomposition": ["接收指令", "执行接管"]},
+            },
+            {
+                "local_ref": "flow-1",
+                "kind": EntityKind.FUNCTIONAL_FLOW.value,
+                "name": "接管状态流",
+                "payload": {
+                    "source_function_ids": ["function-1"],
+                    "target_function_ids": ["function-1"],
+                },
+            },
+            {
+                "local_ref": "scenario-1",
+                "kind": EntityKind.FUNCTIONAL_SCENARIO.value,
+                "name": "人工接管场景",
+                "payload": {"function_ids": ["function-1"]},
+            },
+        ],
+        "relations": [{
+            "source_ref": requirement.id,
+            "predicate": RelationPredicate.SATISFIED_BY.value,
+            "target_ref": "function-1",
+            "evidence_ids": [],
+        }],
+        "updates": [],
+        "deprecations": [],
+        "reason": "补齐功能关系",
+    })
+    context = ContextBundle("p1", "vertical.functional", 3, (requirement,))
+    request = TaskExecutor(model).request(stage_task("functional"), context, "v2.1")
+
+    result = StructuredModelRuntime(model).execute(request)
+
+    assert result.patch is not None
+    links = {
+        (operation.predicate, operation.source_id, operation.target_id)
+        for operation in result.patch.operations
+        if isinstance(operation, Relate)
+    }
+    function_id = next(
+        operation.entity.id
+        for operation in result.patch.operations
+        if isinstance(operation, AddEntity) and operation.entity.kind is EntityKind.FUNCTION
+    )
+    flow_id = next(
+        operation.entity.id
+        for operation in result.patch.operations
+        if isinstance(operation, AddEntity) and operation.entity.kind is EntityKind.FUNCTIONAL_FLOW
+    )
+    scenario_id = next(
+        operation.entity.id
+        for operation in result.patch.operations
+        if isinstance(operation, AddEntity) and operation.entity.kind is EntityKind.FUNCTIONAL_SCENARIO
+    )
+    assert (RelationPredicate.EXCHANGES_WITH, function_id, flow_id) in links
+    assert (RelationPredicate.DERIVED_FROM, function_id, scenario_id) in links
 
 
 def test_vertical_runtime_prefers_full_graph_requirement_worklist():
