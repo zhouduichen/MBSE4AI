@@ -286,6 +286,20 @@ def normalize_profile(payload: object) -> dict[str, object]:
     chat_template_kwargs = payload.get("chat_template_kwargs")
     if chat_template_kwargs is not None and not isinstance(chat_template_kwargs, Mapping):
         raise InvariantViolation("LLM chat_template_kwargs 必须是对象")
+    if (
+        chat_template_kwargs is None
+        and think is None
+        and reasoning_effort is None
+        and model_location == "remote"
+        and structured_output_mode != "none"
+        and "qwen3.5" in model.casefold()
+        and _provider(payload) == "openai-compatible"
+    ):
+        # Qwen3.5's vLLM chat template enables a visible thinking block unless
+        # it is explicitly disabled. Structured TaskProposal calls need the
+        # output budget for JSON; keep this transport default narrow and let an
+        # explicit profile control opt back into reasoning.
+        chat_template_kwargs = {"enable_thinking": False}
     return {
         "id": profile_id,
         "label": label[:120],

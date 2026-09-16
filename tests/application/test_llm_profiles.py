@@ -162,6 +162,31 @@ def test_llm_profile_preserves_chat_template_controls() -> None:
     assert profile["chat_template_kwargs"] == {"enable_thinking": False}
 
 
+def test_remote_qwen35_structured_profile_disables_thinking_by_default() -> None:
+    profile = normalize_profile({
+        **_payload(),
+        "id": "qwen-remote",
+        "kind": "local",
+        "model_location": "remote",
+        "model": "qwen3.5-controller",
+    })
+
+    assert profile["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_remote_qwen35_explicit_thinking_control_wins() -> None:
+    profile = normalize_profile({
+        **_payload(),
+        "id": "qwen-remote",
+        "kind": "local",
+        "model_location": "remote",
+        "model": "qwen3.5-controller",
+        "chat_template_kwargs": {"enable_thinking": True},
+    })
+
+    assert profile["chat_template_kwargs"] == {"enable_thinking": True}
+
+
 def test_remote_profile_allows_long_running_generation_timeout() -> None:
     profile = normalize_profile({
         **_payload(),
