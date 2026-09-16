@@ -233,10 +233,17 @@ def _plan_full_graph(
     on an LLM-oriented projection heuristic.
     """
 
+    allowed_kinds = task.context_query.entity_kinds
+    if task.id in _ASSURANCE_TASK_IDS:
+        # Assurance handlers calculate V&V scope from the graph, not only
+        # from their direct input kinds. Keep the complete R→F→L→P slice in
+        # deterministic contexts so full-graph mode cannot create empty or
+        # truncated scope payloads.
+        allowed_kinds = allowed_kinds | _ASSURANCE_TRACE_KINDS
     selected = {
         entity.id
         for entity in graph.entities
-        if entity.kind in task.context_query.entity_kinds
+        if entity.kind in allowed_kinds
         and entity.meta.status not in _INACTIVE_STATUSES
     }
     entities = tuple(

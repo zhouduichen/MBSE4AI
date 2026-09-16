@@ -319,6 +319,29 @@ def test_lifecycle_fallback_enriches_sparse_imported_requirement(tmp_path):
     assert "lifecycle:recovered_by_rule_runtime" in " ".join(summary.diagnostics)
 
 
+def test_lifecycle_transport_fallback_recovers_hardware_named_requirement(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    RequirementInputService(repository, "p1").ensure_text_requirements(
+        "无人机系统通信链路应稳定，支持高清视频与传感器数据回传"
+    )
+    runner = WorkflowRunner(repository, repository, ConfiguredTransportRuntime())
+    runner.runtime_selection = SimpleNamespace(
+        mode="configured", profile_id="test-llm", provider_id="test", model_id="test"
+    )
+
+    summary = runner.run("p1", force_run=True)
+
+    assert summary.status is RunStatus.COMPLETED
+    functions = [
+        item for item in repository.load_graph("p1").entities
+        if item.kind is EntityKind.FUNCTION
+    ]
+    assert functions
+    assert all("传感器" not in item.meta.name for item in functions)
+    assert "传感器" in functions[0].payload["behavior"]
+
+
 def test_non_completed_patch_is_rejected_before_repository_append(tmp_path):
     repository = SQLiteModelRepository(tmp_path / "model.db")
     repository.ensure_project("p1")

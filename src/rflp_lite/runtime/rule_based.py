@@ -15,6 +15,7 @@ from rflp_lite.methodology.architecture_reasoning import (
 )
 from rflp_lite.methodology.architecture_synthesis import synthesize_architecture
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
+from rflp_lite.methodology.naming import solution_neutral_function_name
 from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
 from rflp_lite.runtime.lifecycle_rule import (
     LIFECYCLE_TASKS,
@@ -479,7 +480,7 @@ class VerticalRuleRuntime:
                     RelationPredicate.SATISFIED_BY,
                     EntityKind.FUNCTION,
                 )
-            function_name = f"执行：{_requirement_text(requirement)[:36]}"
+            function_name = solution_neutral_function_name(requirement)
             function_payload = {
                 "behavior": f"实现{_requirement_text(requirement)}",
                 "inputs": [],

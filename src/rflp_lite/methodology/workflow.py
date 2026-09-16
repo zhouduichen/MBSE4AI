@@ -610,13 +610,7 @@ class WorkflowRunner:
 
     def _prepare_task(self, project_id: str, run_id: str, task, existing):
         current = self.model_repository.load_graph(project_id)
-        context = self.context_builder.build(
-            current,
-            task,
-            token_budget=self._context_budget(),
-            output_reserve=self._output_budget() if self._configured_output_budget() else None,
-            prompt_reserve=256,
-        )
+        context = self._build_context(current, task)
         request = self.executor.request(
             task,
             context,
@@ -669,6 +663,20 @@ class WorkflowRunner:
             or getattr(model, "supports_parallel_requirement_batching", False)
         )
 
+    def _build_context(self, graph, task, *, full_graph: bool | None = None):
+        """Build a bounded provider view or a complete deterministic view."""
+
+        if full_graph is None:
+            full_graph = self._mode() != "configured"
+        return self.context_builder.build(
+            graph,
+            task,
+            token_budget=self._context_budget(),
+            output_reserve=self._output_budget() if self._configured_output_budget() else None,
+            prompt_reserve=256,
+            full_graph=full_graph,
+        )
+
     def _prepare_parallel_tasks(
         self,
         project_id: str,
@@ -690,13 +698,7 @@ class WorkflowRunner:
         current = self.model_repository.load_graph(project_id)
         prepared: dict[str, _PreparedParallelTask] = {}
         for task in pending:
-            context = self.context_builder.build(
-                current,
-                task,
-                token_budget=self._context_budget(),
-                output_reserve=self._output_budget() if self._configured_output_budget() else None,
-                prompt_reserve=256,
-            )
+            context = self._build_context(current, task, full_graph=False)
             request = self.executor.request(
                 task,
                 context,
@@ -782,22 +784,16 @@ class WorkflowRunner:
         if task.id not in LIFECYCLE_TASKS or self._mode() != "configured":
             return None
         try:
-            fallback_context = context
-            fallback_request = request
-            if context.revision != current.revision:
-                fallback_context = self.context_builder.build(
-                    current,
-                    task,
-                    token_budget=self._context_budget(),
-                    output_reserve=self._output_budget() if self._configured_output_budget() else None,
-                    prompt_reserve=256,
-                )
-                fallback_request = self.executor.request(
-                    task,
-                    fallback_context,
-                    self.methodology_version,
-                    token_budget=self._output_budget(),
-                )
+            # Rule recovery has no provider context window. Rebuild from the
+            # complete current graph so V&V scopes cannot depend on the
+            # bounded LLM projection that failed.
+            fallback_context = self._build_context(current, task, full_graph=True)
+            fallback_request = self.executor.request(
+                task,
+                fallback_context,
+                self.methodology_version,
+                token_budget=self._output_budget(),
+            )
             response = self._lifecycle_fallback_executor.execute(
                 task,
                 fallback_context,

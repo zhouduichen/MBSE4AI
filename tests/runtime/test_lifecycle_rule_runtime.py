@@ -3,9 +3,10 @@ from pathlib import Path
 from rflp_lite.application.requirement_input import RequirementInputService
 from rflp_lite.domain.entities import EntityKind, EntityStatus
 from rflp_lite.domain.relations import RelationPredicate
-from rflp_lite.methodology.contracts import ContextBundle
+from rflp_lite.methodology.contracts import ContextBundle, Phase, RunStatus
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.tasks import task_catalog
+from rflp_lite.methodology.workflow import WorkflowRunner
 from rflp_lite.repository.sqlite import SQLiteModelRepository
 from rflp_lite.runtime.rule_based import RuleRuntime
 
@@ -81,6 +82,26 @@ def test_operational_and_functional_tasks_create_typed_objects(tmp_path: Path):
         and relation.predicate is RelationPredicate.DECOMPOSES
         for relation in graph.relations
     )
+
+
+def test_lifecycle_fallback_function_name_stays_solution_neutral(tmp_path: Path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    RequirementInputService(repository, "p1").ensure_text_requirements(
+        "无人机系统通信链路应稳定，支持高清视频与传感器数据回传"
+    )
+    runner = WorkflowRunner(repository, repository, RuleRuntime())
+
+    summary = runner.run("p1", force_run=True)
+
+    assert summary.status is RunStatus.COMPLETED
+    functions = [
+        item for item in repository.load_graph("p1").entities
+        if item.kind is EntityKind.FUNCTION
+    ]
+    assert functions
+    assert all("传感器" not in item.meta.name for item in functions)
+    assert "传感器" in functions[0].payload["behavior"]
 
 
 def test_remaining_tasks_create_logical_physical_and_assurance_objects(tmp_path: Path):

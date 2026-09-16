@@ -21,6 +21,7 @@ from rflp_lite.domain.model import (
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import ContextBundle, StepStatus, TaskExecutionRequest, TaskExecutionResponse
 from rflp_lite.methodology.architecture_persistence import enrich_architecture_patch
+from rflp_lite.methodology.naming import solution_neutral_function_name
 from rflp_lite.methodology.trace_rules import requirement_trace_scope
 
 
@@ -449,7 +450,7 @@ class LifecycleTaskRuleRuntime:
             if function is None:
                 function = builder.add(
                     EntityKind.FUNCTION,
-                    f"满足：{requirement.meta.name}",
+                    solution_neutral_function_name(requirement),
                     {
                         "requirement_id": requirement.id,
                         "behavior": requirement.payload.get("statement", requirement.meta.name),
