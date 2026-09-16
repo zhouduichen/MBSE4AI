@@ -16,7 +16,7 @@ from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.registries import RetryPolicy
 from rflp_lite.methodology.tasks import task_catalog
 from rflp_lite.methodology.vertical_generation import stage_task
-from rflp_lite.runtime.structured_model import StructuredModelRuntime
+from rflp_lite.runtime.structured_model import StructuredModelRuntime, _sanitize_vertical_proposal
 from rflp_lite.runtime.rule_based import RuleRuntime
 from rflp_lite.ports.generative_model import GenerationResponse
 
@@ -275,6 +275,56 @@ def test_vertical_runtime_exposes_canonical_requirement_worklist():
     ]
 
 
+def test_vertical_runtime_keeps_entities_when_relation_reference_is_unresolvable():
+    model = FakeModel({
+        "entities": [
+            {
+                "local_ref": "system-1",
+                "kind": EntityKind.SYSTEM.value,
+                "name": "系统",
+                "payload": {
+                    "mission": "完成任务",
+                    "system_boundary": {"inside": [], "outside": []},
+                    "objectives": [],
+                    "environment_assumptions": [],
+                    "exclusions": [],
+                    "open_questions": [],
+                },
+            },
+            {
+                "local_ref": "stakeholder-1",
+                "kind": EntityKind.STAKEHOLDER.value,
+                "name": "操作员",
+                "payload": {"role": "执行任务"},
+            },
+        ],
+        "relations": [{
+            "source_ref": "system-1",
+            "predicate": RelationPredicate.DECOMPOSES.value,
+            "target_ref": "missing-display-name",
+            "evidence_ids": [],
+        }],
+        "updates": [],
+        "deprecations": [],
+        "reason": "补充运行上下文",
+    })
+    task = stage_task("requirements")
+    context = ContextBundle(
+        "p1",
+        task.id,
+        3,
+        (make_entity(EntityKind.REQUIREMENT, "系统应完成任务", {"statement": "系统应完成任务"}),),
+    )
+
+    result = StructuredModelRuntime(model).execute(
+        TaskExecutor(model).request(task, context, "v2.1")
+    )
+
+    assert result.patch is not None
+    assert sum(isinstance(operation, AddEntity) for operation in result.patch.operations) == 2
+    assert not any(isinstance(operation, Relate) for operation in result.patch.operations)
+
+
 def test_vertical_runtime_compacts_model_context_but_keeps_typed_payload_fields():
     requirement = make_entity(
         EntityKind.REQUIREMENT,
@@ -520,6 +570,52 @@ def test_vertical_runtime_drops_fixture_metadata_from_requirement_updates():
         "functional_requirement_status": "derived",
     }
     assert "type" not in update.field_patch["payload"]
+
+
+def test_vertical_runtime_drops_updates_for_unknown_entities_without_losing_vv_entities():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应安全返航",
+        {"statement": "系统应安全返航"},
+    )
+    request = TaskExecutor(RuleRuntime()).request(
+        stage_task("verification_validation"),
+        ContextBundle("p1", "vertical.verification_validation", 3, (requirement,)),
+        "v2.1",
+    )
+    validation = {
+        "local_ref": "validation-1",
+        "kind": EntityKind.VALIDATION_CASE.value,
+        "name": "安全返航场景确认",
+        "payload": {
+            "method": "演示",
+            "verification_objective": "确认返航场景达成",
+            "precondition": "系统处于待命状态",
+            "test_condition": "模拟低电量场景",
+            "input": "低电量事件",
+            "stimulus": "触发低电量事件",
+            "procedure": "执行返航并记录结果",
+            "expected_result": "系统完成安全返航",
+            "pass_criteria": "返航成功且无异常",
+            "requirement_ids": [requirement.id],
+        },
+    }
+    sanitized = _sanitize_vertical_proposal(
+        request,
+        {
+            "entities": [validation],
+            "relations": [],
+            "updates": [{
+                "entity_id": "validation-not-yet-canonical",
+                "field_patch": {"payload": {"execution_evidence_ids": []}},
+            }],
+            "deprecations": [],
+            "reason": "建立验证计划",
+        },
+    )
+
+    assert sanitized["entities"] == [validation]
+    assert sanitized["updates"] == []
 
 
 def test_vertical_runtime_preserves_context_scoped_traceability_metadata():

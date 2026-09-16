@@ -284,6 +284,423 @@ def _is_wide_vertical_batch(request: GenerationRequest) -> bool:
     return isinstance(batch, Mapping) and isinstance(worklist, (list, tuple)) and len(worklist) > 1
 
 
+def _normalize_vertical_payload(
+    payload: object,
+    response_schema: Mapping[str, object],
+) -> object:
+    """Keep useful vertical JSON while normalizing harmless wire omissions.
+
+    The vertical endpoint is deliberately validated twice: this function only
+    removes transport noise and fills fields whose meaning is unambiguous;
+    the canonical JSON schema and proposal compiler remain authoritative for
+    semantic content.
+    """
+
+    if not isinstance(payload, dict):
+        return payload
+    properties = response_schema.get("properties")
+    if not isinstance(properties, Mapping):
+        return payload
+    result = {
+        str(key): value
+        for key, value in payload.items()
+        if key in properties
+    }
+    for field in ("entities", "relations", "updates", "deprecations"):
+        if field not in result:
+            result[field] = []
+    if not isinstance(result.get("reason"), str) or not result["reason"].strip():
+        result["reason"] = "保留远程模型返回的可用增量"
+
+    entity_schema = properties.get("entities")
+    entity_item = _array_item_schema(entity_schema)
+    entity_properties = _schema_properties(entity_item)
+    raw_entities = payload.get("entities")
+    if isinstance(raw_entities, (list, tuple)) and entity_properties is not None:
+        normalized_entities = []
+        for entity in raw_entities:
+            if not isinstance(entity, Mapping):
+                continue
+            normalized = {
+                str(key): value
+                for key, value in entity.items()
+                if key in entity_properties
+            }
+            if not all(key in normalized for key in ("local_ref", "name", "payload")):
+                continue
+            kind = str(normalized.get("kind", "")).strip()
+            entity_payload = normalized.get("payload")
+            if isinstance(entity_payload, Mapping):
+                normalized["payload"] = _normalize_vertical_entity_payload(
+                    kind,
+                    entity_payload,
+                    entity_item,
+                    normalized.get("name"),
+                )
+            normalized_entities.append(normalized)
+        result["entities"] = normalized_entities
+
+    relation_schema = properties.get("relations")
+    relation_properties = _array_item_properties(relation_schema)
+    allowed_predicates = _array_item_enum(relation_schema, "predicate")
+    relations = payload.get("relations")
+    if isinstance(relations, (list, tuple)) and relation_properties is not None:
+        normalized_relations = []
+        for relation in relations:
+            if not isinstance(relation, Mapping):
+                continue
+            predicate = relation.get("predicate")
+            if allowed_predicates and predicate not in allowed_predicates:
+                continue
+            normalized = {
+                str(key): value
+                for key, value in relation.items()
+                if key in relation_properties
+            }
+            normalized.setdefault("evidence_ids", [])
+            normalized_relations.append(normalized)
+        result["relations"] = normalized_relations
+    return result
+
+
+def _array_item_schema(schema: object) -> Mapping[str, object] | None:
+    if not isinstance(schema, Mapping):
+        return None
+    items = schema.get("items")
+    return items if isinstance(items, Mapping) else None
+
+
+def _schema_properties(schema: object) -> Mapping[str, object] | None:
+    if not isinstance(schema, Mapping):
+        return None
+    properties = schema.get("properties")
+    return properties if isinstance(properties, Mapping) else None
+
+
+def _entity_payload_schema(
+    entity_schema: Mapping[str, object] | None,
+    kind: str,
+) -> Mapping[str, object] | None:
+    if entity_schema is None:
+        return None
+    properties = _schema_properties(entity_schema)
+    if properties is not None:
+        direct = properties.get("payload")
+        if isinstance(direct, Mapping) and len(properties) <= 4:
+            return direct
+    branches = entity_schema.get("oneOf")
+    if not isinstance(branches, (list, tuple)):
+        return None
+    for branch in branches:
+        branch_properties = _schema_properties(branch)
+        kind_schema = branch_properties.get("kind") if branch_properties else None
+        if not isinstance(kind_schema, Mapping) or kind_schema.get("const") != kind:
+            continue
+        payload_schema = branch_properties.get("payload") if branch_properties else None
+        return payload_schema if isinstance(payload_schema, Mapping) else None
+    return None
+
+
+def _normalize_vertical_entity_payload(
+    kind: str,
+    payload: Mapping[str, object],
+    entity_schema: Mapping[str, object] | None,
+    entity_name: object,
+) -> Mapping[str, object]:
+    """Normalize only fields that are explicit equivalents in the wire form."""
+
+    payload_schema = _entity_payload_schema(entity_schema, kind)
+    payload_properties = _schema_properties(payload_schema)
+    source = dict(payload)
+    if (
+        isinstance(payload_schema, Mapping)
+        and payload_schema.get("additionalProperties") is False
+        and payload_properties is not None
+    ):
+        source = {
+            str(key): value
+            for key, value in source.items()
+            if key in payload_properties
+        }
+    if kind == "system":
+        source.setdefault(
+            "mission",
+            str(payload.get("description") or entity_name or "系统目标").strip(),
+        )
+        source.setdefault("system_boundary", {"inside": [], "outside": []})
+        source.setdefault("objectives", [])
+        source.setdefault("environment_assumptions", [])
+        source.setdefault("exclusions", [])
+        source.setdefault("open_questions", [])
+    elif kind == "concern":
+        source.setdefault(
+            "topic",
+            str(payload.get("description") or entity_name or "待澄清关注点").strip(),
+        )
+    elif kind == "requirement" and "statement" not in source:
+        source["statement"] = str(payload.get("description") or entity_name or "待澄清需求").strip()
+    elif kind == "logical_component":
+        partition_basis = source.get("partition_basis")
+        if isinstance(partition_basis, Mapping):
+            source["partition_basis"] = _wire_text(partition_basis)
+        for field in (
+            "dependencies",
+            "functional_flow_ids",
+            "cross_component_flow_ids",
+            "shared_state_ids",
+            "source_context_ids",
+        ):
+            if field in source:
+                source[field] = _wire_string_list(source[field])
+        shared_state = source.get("shared_state")
+        if isinstance(shared_state, (list, tuple)):
+            existing_state_ids = source.get("shared_state_ids")
+            shared_state_ids = (
+                list(existing_state_ids)
+                if isinstance(existing_state_ids, (list, tuple))
+                else []
+            )
+            normalized_state = []
+            for item in shared_state:
+                if isinstance(item, Mapping):
+                    item_id = str(item.get("id") or "").strip()
+                    if item_id and item_id not in shared_state_ids:
+                        shared_state_ids.append(item_id)
+                    normalized_state.append(
+                        str(item.get("name") or item.get("description") or _wire_text(item)).strip()
+                    )
+                elif str(item).strip():
+                    normalized_state.append(str(item).strip())
+            source["shared_state"] = normalized_state
+            if shared_state_ids:
+                source["shared_state_ids"] = shared_state_ids
+        safety_isolation = source.get("safety_isolation")
+        if isinstance(safety_isolation, Mapping):
+            source["safety_isolation"] = [safety_isolation]
+        for field in ("timing_constraints", "safety_isolation", "safety_constraints"):
+            if isinstance(source.get(field), Mapping):
+                source[field] = [source[field]]
+            elif field in source and not isinstance(source[field], (list, tuple)):
+                source[field] = [source[field]]
+        rationale = source.get("architecture_rationale")
+        if isinstance(rationale, Mapping):
+            reasoning = source.get("architecture_reasoning")
+            if isinstance(reasoning, Mapping):
+                source["architecture_reasoning"] = {
+                    **dict(reasoning),
+                    **dict(rationale),
+                }
+            else:
+                source["architecture_reasoning"] = dict(rationale)
+            source["architecture_rationale"] = _wire_text(rationale)
+    elif kind == "state":
+        for field in ("values", "transitions"):
+            if field in source:
+                source[field] = _wire_string_list(source[field])
+    elif kind == "function":
+        decomposition = source.get("decomposition")
+        if isinstance(decomposition, Mapping):
+            source["decomposition"] = _wire_text(decomposition)
+    elif kind in {"functional_flow", "functional_scenario"}:
+        for field in ("source_function_ids", "target_function_ids", "function_ids"):
+            if field in source:
+                source[field] = _wire_string_list(source[field])
+    elif kind == "physical_block":
+        for field in ("candidate_type", "selection_rationale"):
+            if isinstance(source.get(field), Mapping):
+                source[field] = _wire_text(source[field])
+        if "selection_rationale" not in source:
+            rationale = source.get("rationale") or source.get("feasibility_reasoning")
+            if isinstance(rationale, Mapping):
+                source["selection_rationale"] = _wire_text(rationale)
+            elif str(rationale or "").strip():
+                source["selection_rationale"] = str(rationale).strip()
+            else:
+                source["selection_rationale"] = (
+                    "根据当前逻辑职责选择可部署的物理候选"
+                )
+        if isinstance(source.get("propagated_constraints"), (list, tuple)):
+            source["propagated_constraints"] = {
+                "items": list(source["propagated_constraints"]),
+            }
+        for field in (
+            "source_logical_ids", "source_function_ids", "source_requirement_ids",
+            "alternatives", "open_questions",
+        ):
+            if field in source:
+                source[field] = _wire_string_list(source[field])
+    elif kind in {"verification_case", "validation_case"}:
+        for field in (
+            "method", "verification_objective", "precondition", "test_condition",
+            "input", "stimulus", "procedure", "expected_result", "pass_criteria",
+        ):
+            if field in source:
+                source[field] = _wire_scalar_text(source[field])
+        for field in (
+            "requirement_ids", "scenario_ids", "activity_ids", "function_ids",
+            "logical_component_ids", "physical_ids", "covered_branches",
+        ):
+            if field in source:
+                source[field] = _wire_string_list(source[field])
+    elif kind in {"hazard", "failure_mode"}:
+        for field in (
+            "requirement_ids", "scenario_ids", "activity_ids", "function_ids",
+            "logical_component_ids", "physical_ids", "covered_branches",
+        ):
+            if field in source:
+                source[field] = _wire_string_list(source[field])
+    return source
+
+
+def _wire_string_list(value: object) -> list[str]:
+    """Normalize scalar/object list members for a string-array schema slot."""
+
+    values = value if isinstance(value, (list, tuple)) else [value]
+    result = []
+    for item in values:
+        if isinstance(item, Mapping):
+            text = str(
+                item.get("id")
+                or item.get("name")
+                or item.get("description")
+                or item.get("option")
+                or item.get("label")
+                or item.get("value")
+                or ""
+            ).strip()
+        else:
+            text = str(item or "").strip()
+        if text:
+            result.append(text)
+    return result
+
+
+def _wire_text(value: Mapping[str, object]) -> str:
+    """Keep a structured provider value in a scalar schema slot."""
+
+    for key in ("rationale", "reason", "description", "basis"):
+        candidate = value.get(key)
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return json.dumps(dict(value), ensure_ascii=False, sort_keys=True)
+
+
+def _wire_scalar_text(value: object) -> object:
+    """Normalize structured/list wire values into a scalar text field."""
+
+    if isinstance(value, Mapping):
+        return _wire_text(value)
+    if isinstance(value, (list, tuple)):
+        return "；".join(_wire_string_list(value))
+    return value
+
+
+def _array_item_properties(schema: object) -> Mapping[str, object] | None:
+    return _schema_properties(_array_item_schema(schema))
+
+
+def _array_item_enum(schema: object, field: str) -> frozenset[object]:
+    properties = _array_item_properties(schema)
+    if properties is None:
+        return frozenset()
+    field_schema = properties.get(field)
+    if not isinstance(field_schema, Mapping):
+        return frozenset()
+    values = field_schema.get("enum")
+    return frozenset(values) if isinstance(values, (list, tuple, set)) else frozenset()
+
+
+def _recover_json_array(text: str, start: int) -> list[object] | None:
+    """Recover complete items from an array whose final item was truncated."""
+
+    if start >= len(text) or text[start] != "[":
+        return None
+    decoder = json.JSONDecoder()
+    cursor = start + 1
+    items: list[object] = []
+    while cursor < len(text):
+        while cursor < len(text) and text[cursor].isspace():
+            cursor += 1
+        if cursor < len(text) and text[cursor] == "]":
+            return items
+        if cursor < len(text) and text[cursor] == ",":
+            cursor += 1
+            continue
+        try:
+            item, end = decoder.raw_decode(text, cursor)
+        except json.JSONDecodeError:
+            break
+        items.append(item)
+        cursor = end
+    return items or None
+
+
+def _recover_vertical_json(raw: object) -> Mapping[str, object] | None:
+    """Recover a usable TaskProposal prefix before asking the provider again.
+
+    Qwen/vLLM can stop after emitting several complete entities while the last
+    relation or update is still open.  Complete array items are safe to keep;
+    the incomplete tail is intentionally discarded and must still pass the
+    normal schema/compiler path.
+    """
+
+    text = str(raw or "").strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3:
+            text = "\n".join(lines[1:-1]).strip()
+            if text.casefold().startswith("json"):
+                text = text[4:].lstrip()
+    start = text.find("{")
+    if start < 0:
+        return None
+    decoder = json.JSONDecoder()
+    cursor = start + 1
+    recovered = {}
+    array_fields = {"entities", "relations", "updates", "deprecations"}
+    while cursor < len(text):
+        while cursor < len(text) and text[cursor].isspace():
+            cursor += 1
+        if cursor < len(text) and text[cursor] == ",":
+            cursor += 1
+            continue
+        if cursor < len(text) and text[cursor] == "}":
+            break
+        try:
+            key, key_end = decoder.raw_decode(text, cursor)
+        except json.JSONDecodeError:
+            break
+        if not isinstance(key, str):
+            break
+        cursor = key_end
+        while cursor < len(text) and text[cursor].isspace():
+            cursor += 1
+        if cursor >= len(text) or text[cursor] != ":":
+            break
+        value_start = cursor + 1
+        while value_start < len(text) and text[value_start].isspace():
+            value_start += 1
+        try:
+            value, value_end = decoder.raw_decode(text, value_start)
+        except json.JSONDecodeError:
+            if key in array_fields:
+                items = _recover_json_array(text, value_start)
+                if items:
+                    recovered[key] = items
+            break
+        recovered[key] = value
+        cursor = value_end
+    if not any(
+        isinstance(recovered.get(field), list) and recovered[field]
+        for field in array_fields
+    ):
+        return None
+    for field in array_fields:
+        recovered.setdefault(field, [])
+    recovered.setdefault("reason", "保留远程模型返回的可用增量")
+    return recovered
+
+
 class OpenAICompatibleModel:
     """Translate the stable application request into one JSON-only model call."""
 
@@ -334,9 +751,15 @@ class OpenAICompatibleModel:
 
     @classmethod
     def _parse_and_validate(
-        cls, raw: object, response_schema: dict[str, object]
+        cls,
+        raw: object,
+        response_schema: dict[str, object],
+        *,
+        normalize_vertical: bool = False,
     ) -> dict[str, object]:
         payload = cls._parse_json(raw)
+        if normalize_vertical:
+            payload = _normalize_vertical_payload(payload, response_schema)
         # Keep the older requirements/ai provider shape usable while the
         # application still receives the strict object envelope.  This is
         # deliberately limited to schemas whose only contract is an `items`
@@ -355,7 +778,12 @@ class OpenAICompatibleModel:
         try:
             jsonschema.validate(instance=payload, schema=response_schema)
         except jsonschema.ValidationError as exc:
-            raise _InvalidStructuredResponse("response does not match schema", code="schema_validation") from exc
+            path = ".".join(str(item) for item in exc.absolute_path)
+            detail = f": {exc.message}" + (f" at {path}" if path else "")
+            raise _InvalidStructuredResponse(
+                "response does not match schema" + detail,
+                code="schema_validation",
+            ) from exc
         except jsonschema.SchemaError as exc:
             raise AdapterFailure("LLM response schema is invalid") from exc
         return payload
@@ -415,6 +843,123 @@ class OpenAICompatibleModel:
         ]
 
 
+    def _validate_or_repair(
+        self,
+        request: GenerationRequest,
+        raw: object,
+        call_config: Mapping[str, object],
+        max_tokens: int,
+        *,
+        native_ollama: bool,
+        structured_output_mode: str,
+        transport_extra_tokens: int,
+        transport_safety_margin: int,
+    ) -> tuple[Mapping[str, object], bool, object]:
+        repaired = False
+        recovered = False
+        final_raw = raw
+        try:
+            self._ensure_complete(raw)
+            payload = self._parse_and_validate(
+                raw,
+                request.response_schema,
+                normalize_vertical=request.lens_id.startswith("vertical."),
+            )
+            return payload, repaired, final_raw
+        except _InvalidStructuredResponse as initial_error:
+            if request.lens_id.startswith("vertical."):
+                recovered_payload = _recover_vertical_json(raw)
+                if recovered_payload is not None:
+                    try:
+                        payload = self._parse_and_validate(
+                            json.dumps(recovered_payload, ensure_ascii=False),
+                            request.response_schema,
+                            normalize_vertical=True,
+                        )
+                        recovered = True
+                        repaired = True
+                    except _InvalidStructuredResponse:
+                        pass
+            if recovered:
+                return payload, repaired, final_raw
+            if _is_wide_vertical_batch(request):
+                raise StructuredOutputFailure(
+                    f"{_REPAIR_FAILURE}: {initial_error}",
+                    code=initial_error.code,
+                    raw_response=str(raw or ""),
+                    initial_raw_response=str(raw or ""),
+                    schema_hash=canonical_hash(request.response_schema),
+                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    model_id=str(self._config.get("model", "")),
+                    finish_reason=str(getattr(raw, "done_reason", "")),
+                    usage=getattr(raw, "usage", {}),
+                ) from initial_error
+            repaired = True
+            try:
+                repaired_raw = self._complete(
+                    call_config,
+                    repair_messages := self._repair_messages(
+                        request,
+                        raw,
+                        include_schema=(
+                            not native_ollama
+                            and structured_output_mode in {"json_object", "json", "none"}
+                        ),
+                    ),
+                    max_tokens=_fit_context_window(
+                        self._config,
+                        repair_messages,
+                        self._repair_budget(max_tokens, raw),
+                        extra_tokens=transport_extra_tokens,
+                        safety_margin=transport_safety_margin,
+                    ),
+                )
+                self._ensure_complete(repaired_raw)
+                payload = self._parse_and_validate(
+                    repaired_raw,
+                    request.response_schema,
+                    normalize_vertical=request.lens_id.startswith("vertical."),
+                )
+                return payload, repaired, repaired_raw
+            except _InvalidStructuredResponse as exc:
+                raise StructuredOutputFailure(
+                    f"{_REPAIR_FAILURE}: {exc}",
+                    code=exc.code,
+                    raw_response=str(repaired_raw or ""),
+                    initial_raw_response=str(raw or ""),
+                    schema_hash=canonical_hash(request.response_schema),
+                    retry_count=1,
+                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    model_id=str(self._config.get("model", "")),
+                    finish_reason=str(getattr(repaired_raw, "done_reason", "")),
+                    usage=getattr(repaired_raw, "usage", {}),
+                ) from exc
+            except TransportFailure as exc:
+                raise TransportFailure(
+                    str(exc),
+                    code=exc.code,
+                    provider_id=exc.provider_id or str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    model_id=exc.model_id or str(self._config.get("model", "")),
+                    raw_response=str(raw or ""),
+                    initial_raw_response=str(raw or ""),
+                    schema_hash=canonical_hash(request.response_schema),
+                    retry_count=1,
+                ) from exc
+            except Exception as exc:
+                if isinstance(exc, AdapterFailure):
+                    raise
+                raise TransportFailure(
+                    _REPAIR_FAILURE,
+                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    model_id=str(self._config.get("model", "")),
+                    code="structural_retry_transport",
+                    raw_response=str(raw or ""),
+                    initial_raw_response=str(raw or ""),
+                    schema_hash=canonical_hash(request.response_schema),
+                    retry_count=1,
+                ) from exc
+
+
     def complete_json(self, request: GenerationRequest) -> GenerationResponse:
         started = time.monotonic()
         max_tokens = _bounded_max_tokens(self._config, request.max_tokens)
@@ -468,87 +1013,16 @@ class OpenAICompatibleModel:
                 provider_id=str(self._config.get("id", self._config.get("provider", ""))),
                 model_id=str(self._config.get("model", "")),
             ) from exc
-        repaired = False
-        final_raw = raw
-        try:
-            self._ensure_complete(raw)
-            payload = self._parse_and_validate(raw, request.response_schema)
-        except _InvalidStructuredResponse as initial_error:
-            if _is_wide_vertical_batch(request):
-                raise StructuredOutputFailure(
-                    _REPAIR_FAILURE,
-                    code=initial_error.code,
-                    raw_response=str(raw or ""),
-                    initial_raw_response=str(raw or ""),
-                    schema_hash=canonical_hash(request.response_schema),
-                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
-                    model_id=str(self._config.get("model", "")),
-                    finish_reason=str(getattr(raw, "done_reason", "")),
-                    usage=getattr(raw, "usage", {}),
-                ) from initial_error
-            repaired = True
-            try:
-                repaired_raw = self._complete(
-                    call_config,
-                    repair_messages := self._repair_messages(
-                        request,
-                        raw,
-                        include_schema=(
-                            not native_ollama
-                            and structured_output_mode
-                            in {"json_object", "json", "none"}
-                        ),
-                    ),
-                    max_tokens=_fit_context_window(
-                        self._config,
-                        repair_messages,
-                        self._repair_budget(max_tokens, raw),
-                        extra_tokens=transport_extra_tokens,
-                        safety_margin=transport_safety_margin,
-                    ),
-                )
-                self._ensure_complete(repaired_raw)
-                payload = self._parse_and_validate(
-                    repaired_raw, request.response_schema
-                )
-                final_raw = repaired_raw
-            except _InvalidStructuredResponse as exc:
-                raise StructuredOutputFailure(
-                    _REPAIR_FAILURE,
-                    code=exc.code,
-                    raw_response=str(repaired_raw or ""),
-                    initial_raw_response=str(raw or ""),
-                    schema_hash=canonical_hash(request.response_schema),
-                    retry_count=1,
-                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
-                    model_id=str(self._config.get("model", "")),
-                    finish_reason=str(getattr(repaired_raw, "done_reason", "")),
-                    usage=getattr(repaired_raw, "usage", {}),
-                ) from exc
-            except TransportFailure as exc:
-                raise TransportFailure(
-                    str(exc),
-                    code=exc.code,
-                    provider_id=exc.provider_id or str(self._config.get("id", self._config.get("label", "openai-compatible"))),
-                    model_id=exc.model_id or str(self._config.get("model", "")),
-                    raw_response=str(raw or ""),
-                    initial_raw_response=str(raw or ""),
-                    schema_hash=canonical_hash(request.response_schema),
-                    retry_count=1,
-                ) from exc
-            except Exception as exc:
-                if isinstance(exc, AdapterFailure):
-                    raise
-                raise TransportFailure(
-                    _REPAIR_FAILURE,
-                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
-                    model_id=str(self._config.get("model", "")),
-                    code="structural_retry_transport",
-                    raw_response=str(raw or ""),
-                    initial_raw_response=str(raw or ""),
-                    schema_hash=canonical_hash(request.response_schema),
-                    retry_count=1,
-                ) from exc
+        payload, repaired, final_raw = self._validate_or_repair(
+            request,
+            raw,
+            call_config,
+            max_tokens,
+            native_ollama=native_ollama,
+            structured_output_mode=structured_output_mode,
+            transport_extra_tokens=transport_extra_tokens,
+            transport_safety_margin=transport_safety_margin,
+        )
         return GenerationResponse(
             lens_id=request.lens_id,
             payload=payload,

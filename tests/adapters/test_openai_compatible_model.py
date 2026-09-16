@@ -270,6 +270,215 @@ def test_wide_vertical_batch_routes_structural_failure_to_runtime_split():
     assert error.value.retry_count == 0
 
 
+def test_vertical_payload_normalizes_wire_relations_before_schema_validation():
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["entities", "relations", "updates", "deprecations", "reason"],
+        "properties": {
+            "entities": {"type": "array", "items": {"type": "object"}},
+            "relations": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["source_ref", "predicate", "target_ref", "evidence_ids"],
+                    "properties": {
+                        "source_ref": {"type": "string"},
+                        "predicate": {"enum": ["derivedFrom"]},
+                        "target_ref": {"type": "string"},
+                        "evidence_ids": {"type": "array"},
+                    },
+                },
+            },
+            "updates": {"type": "array"},
+            "deprecations": {"type": "array"},
+            "reason": {"type": "string"},
+        },
+    }
+    payload = OpenAICompatibleModel._parse_and_validate(
+        json.dumps({
+            "entities": [],
+            "relations": [
+                {"source_ref": "r-1", "predicate": "derivedFrom", "target_ref": "c-1"},
+                {"source_ref": "r-1", "predicate": "participatesI", "target_ref": "s-1"},
+            ],
+            "updates": [],
+            "deprecations": [],
+            "reason": "保留有效关系",
+            "ignored": True,
+        }),
+        schema,
+        normalize_vertical=True,
+    )
+
+    assert payload["relations"] == [{
+        "source_ref": "r-1",
+        "predicate": "derivedFrom",
+        "target_ref": "c-1",
+        "evidence_ids": [],
+    }]
+    assert "ignored" not in payload
+
+
+def test_vertical_payload_normalizes_minimal_system_wire_payload():
+    schema = output_contract(stage_task("requirements"))
+    payload = {
+        "entities": [{
+            "local_ref": "system-1",
+            "kind": "system",
+            "name": "人工接管系统",
+            "payload": {"description": "支持人工安全接管"},
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "建立系统边界",
+    }
+
+    normalized = OpenAICompatibleModel._parse_and_validate(
+        json.dumps(payload, ensure_ascii=False),
+        schema,
+        normalize_vertical=True,
+    )
+
+    system_payload = normalized["entities"][0]["payload"]
+    assert system_payload["mission"] == "支持人工安全接管"
+    assert system_payload["system_boundary"] == {"inside": [], "outside": []}
+    assert system_payload["open_questions"] == []
+
+
+def test_vertical_payload_normalizes_structured_logical_reasoning():
+    schema = output_contract(stage_task("logical"))
+    payload = {
+        "entities": [{
+            "local_ref": "logical-1",
+            "kind": "logical_component",
+            "name": "安全接管逻辑单元",
+            "payload": {
+                "responsibility": "执行安全接管",
+                "partition_basis": {"function_ids": ["function-1"]},
+                "shared_state": [{"id": "state-1", "name": "接管中"}],
+                "safety_isolation": {"level": "high"},
+                "architecture_rationale": {"basis": "控制权转移需要隔离"},
+            },
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "建立逻辑架构",
+    }
+
+    normalized = OpenAICompatibleModel._parse_and_validate(
+        json.dumps(payload, ensure_ascii=False),
+        schema,
+        normalize_vertical=True,
+    )
+
+    logical_payload = normalized["entities"][0]["payload"]
+    assert logical_payload["partition_basis"] == '{"function_ids": ["function-1"]}'
+    assert logical_payload["shared_state"] == ["接管中"]
+    assert logical_payload["shared_state_ids"] == ["state-1"]
+    assert logical_payload["safety_isolation"] == [{"level": "high"}]
+    assert logical_payload["architecture_rationale"] == "控制权转移需要隔离"
+    assert logical_payload["architecture_reasoning"] == {"basis": "控制权转移需要隔离"}
+
+
+def test_vertical_payload_normalizes_physical_constraint_shape_and_rationale():
+    schema = output_contract(stage_task("physical"))
+    payload = {
+        "entities": [{
+            "local_ref": "physical-1",
+            "kind": "physical_block",
+            "name": "安全接管执行单元",
+            "payload": {
+                "candidate_type": "solution_class",
+            "rationale": "承载接管控制职责",
+            "propagated_constraints": [{"name": "实时响应"}],
+            "alternatives": [{"option": "shared_safety_bus", "task": "评估复用"}],
+        },
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "选择物理候选",
+    }
+
+    normalized = OpenAICompatibleModel._parse_and_validate(
+        json.dumps(payload, ensure_ascii=False),
+        schema,
+        normalize_vertical=True,
+    )
+
+    physical_payload = normalized["entities"][0]["payload"]
+    assert physical_payload["selection_rationale"] == "承载接管控制职责"
+    assert physical_payload["propagated_constraints"] == {
+        "items": [{"name": "实时响应"}],
+    }
+    assert physical_payload["alternatives"] == ["shared_safety_bus"]
+
+
+def test_vertical_payload_normalizes_vv_procedure_steps_to_executable_text():
+    schema = output_contract(stage_task("verification_validation"))
+    payload = {
+        "entities": [{
+            "local_ref": "validation-1",
+            "kind": "validation_case",
+            "name": "场景确认用例",
+            "payload": {
+                "method": "演示",
+                "verification_objective": "确认场景目标达成",
+                "precondition": "系统处于待命状态",
+                "test_condition": "高保真模拟场景",
+                "input": "模拟事件流",
+                "stimulus": "触发安全事件",
+                "procedure": ["触发事件", "执行接管", "记录结果"],
+                "expected_result": "接管成功",
+                "pass_criteria": "总耗时满足需求",
+            },
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "建立验证计划",
+    }
+
+    normalized = OpenAICompatibleModel._parse_and_validate(
+        json.dumps(payload, ensure_ascii=False),
+        schema,
+        normalize_vertical=True,
+    )
+
+    assert normalized["entities"][0]["payload"]["procedure"] == "触发事件；执行接管；记录结果"
+
+
+def test_vertical_payload_recovers_complete_prefix_without_provider_repair():
+    class TruncatedText(str):
+        done_reason = "length"
+
+    schema = output_contract(stage_task("requirements"))
+    raw = TruncatedText(
+        '{"entities":[{"local_ref":"system-1","kind":"system",'
+        '"name":"人工接管系统","payload":{"description":"支持人工安全接管"}}]'
+    )
+    calls = []
+
+    result = OpenAICompatibleModel(
+        {"model": "qwen", "local_max_tokens": 1000},
+        complete=lambda *_args, **_kwargs: (calls.append(True) or raw),
+    ).complete_json(GenerationRequest(
+        lens_id="vertical.requirements",
+        system_prompt="只返回 TaskProposal",
+        user_payload={},
+        response_schema=schema,
+        max_tokens=800,
+    ))
+
+    assert calls == [True]
+    assert result.repaired is True
+    assert result.payload["entities"][0]["payload"]["mission"] == "支持人工安全接管"
+
+
 def test_adapter_preserves_finish_reason_and_usage():
     class CompletedText(str):
         done_reason = "stop"

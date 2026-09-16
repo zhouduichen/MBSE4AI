@@ -357,6 +357,9 @@ def _failure_stage(exc: Exception) -> FailureStage | None:
 def _diagnostic(exc: Exception, attempt: int) -> str:
     payload: dict[str, object] = {
         "attempt": attempt,
+        # Keep the actionable failure before the potentially large response
+        # excerpts in sorted JSON diagnostics.
+        "error": str(exc),
         "message": str(exc),
     }
     if isinstance(exc, (StructuredOutputFailure, ProposalCompileFailure, TransportFailure)):

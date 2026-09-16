@@ -377,7 +377,10 @@ def _sanitize_vertical_proposal(
             relation.get("target_ref"), local_kinds, context_kinds
         )
         if source_kind is None or target_kind is None:
-            valid_relations.append(relation)
+            # A useful entity batch must not be discarded because the model
+            # guessed a display name or an unavailable downstream id.  The
+            # relation cannot be materialized safely, so leave it out and let
+            # typed payload references/coverage determine what remains open.
             continue
         try:
             validate_endpoint_kinds(
@@ -543,8 +546,16 @@ def _sanitize_vertical_updates(
         if not isinstance(raw_update, Mapping):
             updates.append(raw_update)
             continue
+        entity_id = str(raw_update.get("entity_id", ""))
+        if entity_id not in context_kinds:
+            # A vertical batch may contain a new V&V entity whose canonical ID
+            # is not known until compilation.  An update cannot target that
+            # entity, and an unknown target is outside the task write scope;
+            # drop only this operation so the rest of the batch can commit.
+            changed = True
+            continue
         field_patch = raw_update.get("field_patch")
-        entity_kind = context_kinds.get(str(raw_update.get("entity_id", "")))
+        entity_kind = context_kinds.get(entity_id)
         schema = schemas.get(entity_kind.value) if entity_kind is not None else None
         if not isinstance(field_patch, Mapping) or not isinstance(schema, Mapping):
             updates.append(raw_update)
