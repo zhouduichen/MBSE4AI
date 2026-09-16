@@ -1,4 +1,5 @@
 import json
+import threading
 
 import pytest
 
@@ -630,6 +631,26 @@ def test_structured_runtime_batches_large_vv_worklist_and_merges_patch():
     assert "batch_count=3" in result.diagnostics
 
 
+def test_structured_runtime_caps_only_multi_requirement_batch_output_budget():
+    model = BatchedVerticalModel()
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求 {index}",
+            {"statement": f"系统应满足需求 {index}"},
+        )
+        for index in range(5)
+    )
+    context = ContextBundle("p1", "vertical.functional", 3, requirements)
+    request = TaskExecutor(model).request(
+        stage_task("functional"), context, "v2.1", token_budget=4096
+    )
+
+    StructuredModelRuntime(model).execute(request)
+
+    assert [call.max_tokens for call in model.calls] == [2048, 2048, 2048]
+
+
 @pytest.mark.parametrize("stage", ("functional", "logical", "physical"))
 def test_structured_runtime_batches_large_rflp_worklist(stage):
     model = BatchedVerticalModel()
@@ -670,6 +691,38 @@ def test_structured_runtime_batches_large_rflp_worklist(stage):
         for call in model.calls
     )
     assert "batch_count=3" in result.diagnostics
+
+
+def test_structured_runtime_parallelizes_batches_only_for_capable_models():
+    class ParallelBatchedModel(BatchedVerticalModel):
+        supports_parallel_requirement_batching = True
+
+        def __init__(self):
+            super().__init__()
+            self.barrier = threading.Barrier(3)
+
+        def complete_json(self, request):
+            self.barrier.wait(timeout=5)
+            return super().complete_json(request)
+
+    model = ParallelBatchedModel()
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求 {index}",
+            {"statement": f"系统应满足需求 {index}"},
+        )
+        for index in range(5)
+    )
+    context = ContextBundle("p1", "vertical.functional", 3, requirements)
+    request = TaskExecutor(model).request(
+        stage_task("functional"), context, "v2.1", token_budget=2048
+    )
+
+    result = StructuredModelRuntime(model).execute(request)
+
+    assert result.patch is None
+    assert len(model.calls) == 3
 
 
 def test_structured_runtime_rejects_merged_vv_patch_over_effective_limit():

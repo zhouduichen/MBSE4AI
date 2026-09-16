@@ -24,6 +24,23 @@ from rflp_lite.methodology.tasks import output_contract
 from rflp_lite.methodology.validators import default_validators
 
 
+def _request_task(task: TaskSpec) -> TaskSpec:
+    """Make vertical updates semantic-only; runtime owns lifecycle status."""
+
+    if not task.id.startswith("vertical."):
+        return task
+    return replace(
+        task,
+        patch_policy=replace(
+            task.patch_policy,
+            writable_fields=frozenset(
+                field for field in task.patch_policy.writable_fields
+                if field != "status"
+            ),
+        ),
+    )
+
+
 class TaskExecutor:
     def __init__(
         self,
@@ -46,7 +63,8 @@ class TaskExecutor:
         evidence_bundle: tuple[dict[str, object], ...] | None = None,
         token_budget: int = 2000,
     ) -> TaskExecutionRequest:
-        contract = output_contract(task)
+        request_task = _request_task(task)
+        contract = output_contract(request_task)
         contract = _contextualize_contract(task, context, contract)
         self.schemas.register(task.output_schema_id, contract)
         prompt = self.prompts.resolve(task.prompt_template_id)
@@ -69,11 +87,12 @@ class TaskExecutor:
             task.prompt_template_id,
             task.validators,
             task.max_attempts,
-            task.patch_policy,
+            request_task.patch_policy,
             prompt.text,
             prompt.version,
             prompt.prompt_hash,
         )
+
 
     def execute(
         self,

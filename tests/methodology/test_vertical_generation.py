@@ -75,6 +75,17 @@ def test_vertical_prompt_resources_resolve_and_include_review_metadata():
     assert request.output_contract["properties"]["assumptions"]["type"] == "array"
 
 
+def test_vertical_request_does_not_delegate_entity_status_to_the_llm():
+    request = TaskExecutor(RuleRuntime()).request(
+        stage_task(VerticalStage.FUNCTIONAL),
+        ContextBundle("p1", "vertical.functional", 0, ()),
+        "v2.1",
+    )
+
+    assert "status" not in request.patch_policy.writable_fields
+    assert "status" not in request.output_contract["patch_policy"]["writable_fields"]
+
+
 def test_requirements_prompt_prefers_incremental_graph_closure():
     request = TaskExecutor(RuleRuntime()).request(
         stage_task(VerticalStage.REQUIREMENTS),

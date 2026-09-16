@@ -152,6 +152,10 @@ def _repair_input(request: GenerationRequest) -> Mapping[str, object]:
         "task_id",
         "methodology_version",
         "requirement_worklist",
+        # Preserve the vertical runtime's batch boundary during repair.  If
+        # this metadata is dropped, a malformed batch retry may regenerate the
+        # whole worklist and exceed the provider's output budget.
+        "requirement_batch",
     }
     result = {
         key: value
@@ -254,10 +258,31 @@ def _vertical_repair_instruction(task_id: str) -> str:
     return rules.get(task_id, "")
 
 
+def _vertical_batch_repair_instruction(request: GenerationRequest) -> str:
+    """Keep a vertical structural retry scoped to its original requirement batch."""
+
+    if not request.lens_id.startswith("vertical."):
+        return ""
+    batch = request.user_payload.get("requirement_batch")
+    if not isinstance(batch, Mapping):
+        return ""
+    index = batch.get("index")
+    count = batch.get("count")
+    return (
+        f"这是当前阶段第 {index}/{count} 个需求批次；修复时只处理本批 "
+        "requirement_worklist，禁止扩展到其它批次或重新生成完整 worklist。"
+    )
+
+
 class OpenAICompatibleModel:
     """Translate the stable application request into one JSON-only model call."""
 
     supports_requirement_batching = True
+    # The adapter is stateless per request, so independent requirement batches
+    # can use the provider's in-flight request slots.  StructuredModelRuntime
+    # still compiles and validates the merged patch only after every batch has
+    # returned, preserving the single CAS boundary.
+    supports_parallel_requirement_batching = True
     supports_controller_proposals = True
 
     def __init__(
@@ -364,6 +389,7 @@ class OpenAICompatibleModel:
                     f"重新生成完整的 JSON 分析结果，最多返回 {max_items} 项；"
                     "保留有效内容，修复 TaskProposal 结构；已有 canonical 实体不要重复新增，"
                     "使用最小数量的 entities、updates 和 relations 完成闭合；"
+                    + _vertical_batch_repair_instruction(request)
                     + _vertical_repair_instruction(request.lens_id)
                     + "不要解释，也不要用空数组规避任务。"
                 ),

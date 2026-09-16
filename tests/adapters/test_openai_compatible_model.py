@@ -49,6 +49,7 @@ def long_request() -> GenerationRequest:
 
 def test_openai_compatible_model_enables_requirement_batching():
     assert OpenAICompatibleModel({"model": "remote"}).supports_requirement_batching is True
+    assert OpenAICompatibleModel({"model": "remote"}).supports_parallel_requirement_batching is True
 
 
 def test_adapter_parses_json_and_records_hashes():
@@ -215,6 +216,29 @@ def test_requirements_repair_keeps_context_without_redundant_guidance():
 
     assert set(envelope["input"]) == {"context", "requirement_worklist"}
     assert "最多返回 32 项" in messages[0]["content"]
+
+
+def test_vertical_repair_preserves_requirement_batch_scope():
+    repair_request = GenerationRequest(
+        lens_id="vertical.functional",
+        system_prompt="只返回 TaskProposal",
+        user_payload={
+            "context": {"entities": []},
+            "requirement_worklist": [{"requirement_id": "req-1"}],
+            "requirement_batch": {"index": 2, "count": 3, "is_first": False},
+        },
+        response_schema={"type": "object"},
+    )
+
+    messages = OpenAICompatibleModel._repair_messages(repair_request, "失效响应")
+    envelope = json.loads(messages[1]["content"])
+
+    assert envelope["input"]["requirement_batch"] == {
+        "count": 3,
+        "index": 2,
+        "is_first": False,
+    }
+    assert "第 2/3 个需求批次" in messages[0]["content"]
 
 
 def test_adapter_preserves_finish_reason_and_usage():

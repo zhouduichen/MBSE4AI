@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import Mapping
 
@@ -37,6 +38,7 @@ _VERTICAL_BATCH_THRESHOLD = 3
 # avoiding a five-call serial bottleneck for ordinary CASE-04-sized inputs.
 # The aggregate patch is still validated after all batches are merged.
 _VERTICAL_BATCH_SIZE = 2
+_VERTICAL_BATCH_OUTPUT_TOKEN_BUDGET = 2048
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,32 +93,29 @@ class StructuredModelRuntime:
             payload.get("requirement_worklist", []),
             self.model,
         )
-        compiled = tuple(
-            self._complete_batch(
-                request,
-                contract,
-                {
-                    **payload,
-                    **(
-                        {"requirement_worklist": list(batch)}
-                        if "requirement_worklist" in payload
-                        else {}
-                    ),
-                    **(
-                        {
-                            "requirement_batch": {
-                                "index": index,
-                                "count": len(batches),
-                                "is_first": index == 1,
-                            }
+        batch_payloads = tuple(
+            {
+                **payload,
+                **(
+                    {"requirement_worklist": list(batch)}
+                    if "requirement_worklist" in payload
+                    else {}
+                ),
+                **(
+                    {
+                        "requirement_batch": {
+                            "index": index,
+                            "count": len(batches),
+                            "is_first": index == 1,
                         }
-                        if len(batches) > 1
-                        else {}
-                    ),
-                },
-            )
+                    }
+                    if len(batches) > 1
+                    else {}
+                ),
+            }
             for index, batch in enumerate(batches, start=1)
         )
+        compiled = self._complete_batches(request, contract, batch_payloads)
         response, proposal, patch, compiler_repaired = _merge_compiled(
             request, compiled
         )
@@ -156,12 +155,44 @@ class StructuredModelRuntime:
             decision_records=proposal.decision_records,
         )
 
+    def _complete_batches(
+        self,
+        request: TaskExecutionRequest,
+        contract: Mapping[str, object],
+        payloads: tuple[Mapping[str, object], ...],
+    ) -> tuple[_CompiledProposal, ...]:
+        """Complete independent requirement batches without widening the write boundary."""
+
+        if len(payloads) < 2 or getattr(
+            self.model, "supports_parallel_requirement_batching", False
+        ) is not True:
+            return tuple(
+                self._complete_batch(request, contract, payload)
+                for payload in payloads
+            )
+        with ThreadPoolExecutor(
+            max_workers=min(4, len(payloads)),
+            thread_name_prefix="rflp-llm-batch",
+        ) as executor:
+            # executor.map preserves payload order, so merged hashes and
+            # diagnostics remain deterministic even when responses finish out
+            # of order at the provider.
+            return tuple(
+                executor.map(
+                    lambda payload: self._complete_batch(
+                        request, contract, payload
+                    ),
+                    payloads,
+                )
+            )
+
     def _complete_batch(
         self,
         request: TaskExecutionRequest,
         contract: Mapping[str, object],
         payload: Mapping[str, object],
     ) -> _CompiledProposal:
+        token_budget = _batch_token_budget(request, payload)
         batch_instruction = _batch_instruction(
             request.task_id,
             payload.get("requirement_batch"),
@@ -175,7 +206,7 @@ class StructuredModelRuntime:
                 ),
                 payload,
                 contract,
-                request.token_budget,
+                token_budget,
             )
         )
         compiler_repaired = False
@@ -196,12 +227,12 @@ class StructuredModelRuntime:
                     request.task_id,
                     _compiler_repair_prompt(
                         request.prompt_text + batch_instruction, first_error
-                    ),
-                    repair_payload,
-                    contract,
-                    request.token_budget,
+                        ),
+                        repair_payload,
+                        contract,
+                        token_budget,
+                    )
                 )
-            )
             repair_payload = _sanitize_vertical_proposal(request, repair_response.payload)
             try:
                 proposal = parse_task_proposal(request, repair_payload)
@@ -667,6 +698,18 @@ def _requirement_batches(
         entries[start : start + _VERTICAL_BATCH_SIZE]
         for start in range(0, len(entries), _VERTICAL_BATCH_SIZE)
     )
+
+
+def _batch_token_budget(
+    request: TaskExecutionRequest,
+    payload: Mapping[str, object],
+) -> int:
+    """Keep multi-requirement provider calls bounded without shrinking R output."""
+
+    batch = payload.get("requirement_batch")
+    if request.task_id not in _VERTICAL_BATCH_TASKS or not isinstance(batch, Mapping):
+        return request.token_budget
+    return min(request.token_budget, _VERTICAL_BATCH_OUTPUT_TOKEN_BUDGET)
 
 
 def _merge_compiled(
