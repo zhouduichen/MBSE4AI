@@ -828,7 +828,10 @@ def _add_fixture_requirement(
             "level": level,
             "type": "constraint" if level == "technical" else "functional",
             "obligation": "系统应",
-            "verification_method": "review",
+            "verification_method": (
+                "analysis" if level in {"technical", "derived"}
+                else "demonstration"
+            ),
             "requires_human_review": True,
             "open_questions": ["需要结合项目证据确认派生需求"],
         },
