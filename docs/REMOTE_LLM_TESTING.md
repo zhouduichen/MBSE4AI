@@ -107,3 +107,25 @@ RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-profile \
 The result is an explicit LLM-track report. It must be kept separate from the
 deterministic offline Harness acceptance and must not be described as a local
 model test.
+
+For the compatibility/diagnostic 23-task lifecycle, use the same isolated
+profile with `--path lifecycle`:
+
+```bash
+RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-profile \
+  ./.venv/bin/python tests/mbse_benchmark/run_benchmark.py \
+  --track llm \
+  --profile jiayuinter-vllm \
+  --path lifecycle \
+  --case CASE-04 \
+  --repeats 1 \
+  --timeout 2400 \
+  --baseline harness
+```
+
+When the configured Runtime advertises parallel support, this path dispatches
+only dependency-safe task groups concurrently (up to four requests). The
+Operational, Functional, Logical/Physical, and Assurance phase boundaries
+remain ordered; patches are merged deterministically through the normal
+Validator/CAS path. If the remote port is unavailable, wait for the GPU
+launcher and do not start a local model or stop unrelated remote jobs.
