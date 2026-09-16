@@ -916,6 +916,27 @@ class ModelGenerationService:
                         previous_execution,
                         execution.diagnostics,
                     )
+                if self._completion_bridge_enabled():
+                    bridged = self._apply_completion_bridge(
+                        project_id,
+                        run_id,
+                        stage,
+                        task,
+                        execution,
+                        document_ids,
+                        controller_decision=controller_decision,
+                    )
+                    if bridged is not None:
+                        self._finalize_stage_attempt(
+                            project_id,
+                            run_id,
+                            task,
+                            bridged,
+                        )
+                        return _StageExecution(
+                            bridged.result,
+                            tuple(dict.fromkeys(bridged.warnings)),
+                        )
                 return _StageExecution(None, diagnostics=execution.diagnostics)
             if attempt < max_attempts and execution.result.status == "needs_review":
                 previous_execution = execution
@@ -1027,15 +1048,31 @@ class ModelGenerationService:
         current = self.repository.load_graph(project_id)
         missing_kinds = self._missing_stage_kinds(current, stage.stage)
         completion = evaluate_vertical_stage(stage.stage, current)
+        source_result = execution.result
+        if source_result is None:
+            source_result = StageResult(
+                stage.stage.value,
+                "needs_review",
+                graph.revision,
+                sum(
+                    1
+                    for entity in graph.entities
+                    if entity.kind in stage.output_kinds
+                    and entity.meta.status is not EntityStatus.DEPRECATED
+                ),
+                len(graph.relations),
+                diagnostics=tuple(execution.diagnostics),
+                completion_issue_codes=("llm_execution_unavailable",),
+            )
         diagnostics = tuple(dict.fromkeys(
             (
-                *execution.result.diagnostics,
+                *source_result.diagnostics,
                 "completion_bridge=vertical-rule",
                 *bridge_response.diagnostics,
             )
         ))
         result = replace(
-            execution.result,
+            source_result,
             status="needs_review" if missing_kinds or completion.issue_codes else "completed",
             revision=revision,
             entity_count=sum(
@@ -1058,17 +1095,23 @@ class ModelGenerationService:
             "stage": stage.stage.value,
             "source_provider_id": execution.response.provider_id if execution.response else "",
             "source_model_id": execution.response.model_id if execution.response else "",
-            "source_issue_codes": list(execution.result.completion_issue_codes),
+            "source_issue_codes": list(source_result.completion_issue_codes),
             "bridge_patch_id": patch.id,
             "revision": revision,
             "completion_issue_codes": list(completion.issue_codes),
         })
-        return replace(
-            execution,
-            result=result,
-            warnings=(warning,),
-            response=execution.response,
-        )
+        if execution.result is None:
+            warning = (
+                f"{stage.stage.value}: LLM execution unavailable; completion bridge "
+                "applied with offline vertical-rule provenance"
+            )
+            return replace(
+                execution,
+                result=result,
+                warnings=(warning,),
+                response=bridge_response,
+            )
+        return replace(execution, result=result, warnings=(warning,))
 
     def _continue_after_feedback_failure(
         self,

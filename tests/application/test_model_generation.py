@@ -163,6 +163,21 @@ class ScriptedModel:
         return GenerationResponse(request.lens_id, payload, "input", "output", False, "fake", "scripted")
 
 
+class TransportFailingVerticalRuntime:
+    def __init__(self):
+        self.model = ScriptedModel()
+        self.model.automatic_vertical_stage_feedback = False
+        self._delegate = StructuredModelRuntime(self.model)
+
+    def execute(self, request):
+        if request.task_id == "vertical.verification_validation":
+            return TaskExecutionResponse(
+                StepStatus.DEGRADED,
+                diagnostics=("remote connection reset",),
+            )
+        return self._delegate.execute(request)
+
+
 class ControllerProposalModel:
     supports_controller_proposals = True
 
@@ -2119,6 +2134,34 @@ def test_configured_vertical_generation_can_skip_remote_feedback_and_still_bridg
         "vertical.physical",
         "vertical.verification_validation",
     ]
+
+
+def test_configured_vertical_generation_bridges_transport_gap_after_rflp(tmp_path: Path):
+    runtime = TransportFailingVerticalRuntime()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=runtime,
+        runtime_config={
+            "id": "remote-transport-gap",
+            "provider": "openai-compatible",
+            "kind": "remote",
+            "base_url": "https://example.invalid/v1",
+            "model": "engineering-model",
+            "context_window": 8192,
+            "max_output_tokens": 2048,
+        },
+    )
+    services.projects.create("robot")
+
+    result = services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+
+    assert result.status == "completed_with_warnings"
+    assert result.traceability.complete_count == 1
+    assert result.stage_results[-1].status == "completed"
+    assert "LLM execution unavailable" in result.warnings[-1]
+    assert "completion_bridge=vertical-rule" in result.stage_results[-1].diagnostics
 
 
 def test_completion_bridge_repairs_missing_requirement_semantics(tmp_path: Path):
