@@ -38,7 +38,11 @@ _VERTICAL_BATCH_THRESHOLD = 3
 # avoiding a five-call serial bottleneck for ordinary CASE-04-sized inputs.
 # The aggregate patch is still validated after all batches are merged.
 _VERTICAL_BATCH_SIZE = 2
-_VERTICAL_BATCH_OUTPUT_TOKEN_BUDGET = 2048
+# A two-requirement F/L/P/V&V slice still carries typed payloads, references,
+# and trace relations.  Keep the batch boundary for context control, but let a
+# legitimate slice use the configured provider budget instead of truncating
+# its JSON envelope at the old 2048-token cap.
+_VERTICAL_BATCH_OUTPUT_TOKEN_BUDGET = 4096
 
 
 @dataclass(frozen=True, slots=True)

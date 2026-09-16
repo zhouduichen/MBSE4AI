@@ -718,7 +718,7 @@ def test_structured_runtime_caps_only_multi_requirement_batch_output_budget():
 
     StructuredModelRuntime(model).execute(request)
 
-    assert [call.max_tokens for call in model.calls] == [2048, 2048, 2048]
+    assert [call.max_tokens for call in model.calls] == [4096, 4096, 4096]
 
 
 @pytest.mark.parametrize("stage", ("functional", "logical", "physical"))
