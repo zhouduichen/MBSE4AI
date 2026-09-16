@@ -241,6 +241,35 @@ def test_vertical_repair_preserves_requirement_batch_scope():
     assert "第 2/3 个需求批次" in messages[0]["content"]
 
 
+def test_wide_vertical_batch_routes_structural_failure_to_runtime_split():
+    calls = []
+    wide_request = GenerationRequest(
+        lens_id="vertical.functional",
+        system_prompt="只返回 TaskProposal",
+        user_payload={
+            "context": {"entities": []},
+            "requirement_worklist": [
+                {"requirement_id": "req-1"},
+                {"requirement_id": "req-2"},
+            ],
+            "requirement_batch": {"index": 1, "count": 1, "is_first": True},
+        },
+        response_schema={"type": "object"},
+    )
+
+    def complete(*_args, **_kwargs):
+        calls.append(True)
+        return "not-json"
+
+    with pytest.raises(StructuredOutputFailure) as error:
+        OpenAICompatibleModel(
+            {"kind": "local", "model": "qwen"}, complete=complete
+        ).complete_json(wide_request)
+
+    assert len(calls) == 1
+    assert error.value.retry_count == 0
+
+
 def test_adapter_preserves_finish_reason_and_usage():
     class CompletedText(str):
         done_reason = "stop"

@@ -274,6 +274,16 @@ def _vertical_batch_repair_instruction(request: GenerationRequest) -> str:
     )
 
 
+def _is_wide_vertical_batch(request: GenerationRequest) -> bool:
+    """Let the runtime split a failed batch before spending another provider call."""
+
+    if not request.lens_id.startswith("vertical."):
+        return False
+    batch = request.user_payload.get("requirement_batch")
+    worklist = request.user_payload.get("requirement_worklist")
+    return isinstance(batch, Mapping) and isinstance(worklist, (list, tuple)) and len(worklist) > 1
+
+
 class OpenAICompatibleModel:
     """Translate the stable application request into one JSON-only model call."""
 
@@ -459,7 +469,19 @@ class OpenAICompatibleModel:
         try:
             self._ensure_complete(raw)
             payload = self._parse_and_validate(raw, request.response_schema)
-        except _InvalidStructuredResponse:
+        except _InvalidStructuredResponse as initial_error:
+            if _is_wide_vertical_batch(request):
+                raise StructuredOutputFailure(
+                    _REPAIR_FAILURE,
+                    code=initial_error.code,
+                    raw_response=str(raw or ""),
+                    initial_raw_response=str(raw or ""),
+                    schema_hash=canonical_hash(request.response_schema),
+                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    model_id=str(self._config.get("model", "")),
+                    finish_reason=str(getattr(raw, "done_reason", "")),
+                    usage=getattr(raw, "usage", {}),
+                ) from initial_error
             repaired = True
             try:
                 repaired_raw = self._complete(

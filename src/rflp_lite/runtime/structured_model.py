@@ -265,6 +265,25 @@ class StructuredModelRuntime:
             proposal = parse_task_proposal(request, proposal_payload)
             patch = compile_task_proposal(request, proposal_payload)
         except ContractViolation as first_error:
+            if _is_wide_requirement_batch(payload):
+                raise ProposalCompileFailure(
+                    str(first_error),
+                    raw_response=json.dumps(
+                        response.payload,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    initial_raw_response=json.dumps(
+                        response.payload,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    schema_hash=canonical_hash(contract),
+                    provider_id=response.provider_id,
+                    model_id=response.model_id,
+                    finish_reason=response.finish_reason,
+                    usage=response.usage,
+                ) from first_error
             repair_payload = {
                 **payload,
                 "compiler_feedback": {
@@ -958,6 +977,12 @@ def _split_requirement_batch(
             split_payload["requirement_batch"] = split_metadata
         result.append(_scope_batch_payload(request, split_payload, [item]))
     return tuple(result)
+
+
+def _is_wide_requirement_batch(payload: Mapping[str, object]) -> bool:
+    batch = payload.get("requirement_batch")
+    worklist = payload.get("requirement_worklist")
+    return isinstance(batch, Mapping) and isinstance(worklist, (list, tuple)) and len(worklist) > 1
 
 
 def _batch_token_budget(
