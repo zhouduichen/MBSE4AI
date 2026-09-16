@@ -149,7 +149,7 @@ RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-live-20260917 \
 
 Expected: one completed or reviewable remote run; no local model process; for multi-requirement stages the artifact includes `batch_count` and the provider observes no more than two in-flight requests.
 
-- [ ] **Step 2: Audit the vertical result against product evidence**
+- [x] **Step 2: Audit the vertical result against product evidence**
 
 Run a read-only audit over `run_summary.json`, `model.json`, and
 `run_ledger.json` and assert:
@@ -213,7 +213,7 @@ Confirm both paths write the same typed ModelGraph contract and that the five-st
 
 Expected: compileall, pytest, architecture metrics, Ruff, import-linter, and `git diff --check` all pass; the command must not contact or start a model server.
 
-- [ ] **Step 2: Review the final diff and repository state**
+- [x] **Step 2: Review the final diff and repository state**
 
 ```bash
 git diff --check
@@ -250,8 +250,14 @@ Report separately: local deterministic gates, parallel regression evidence, real
   reclaimed by the GPU scheduler when its ComfyUI evaluation lane became active. The saved
   artifact is therefore `completed_with_warnings` with `offline:vertical-runtime` bridge
   provenance, not proof of five successful LLM-generated stages.
-- The saved ModelGraph nevertheless contains 5 complete R→F→L→P→V&V paths, 70 entities, 156
-  relations, a non-empty SysML projection, and a snapshot hash. SysML round-trip/editability and
-  the real 23-task remote lifecycle run remain pending until the remote GPU lane can be reserved.
+- A third run on the isolated GPU1 lane completed in 909 seconds. vLLM returned provider output
+  for Requirements and Functional (including three parallel functional batches), while Logical,
+  Physical, and V&V encountered transport failures and were bridged. This proves the remote
+  parallel request path is live, but the full five-stage LLM acceptance is still not met.
+- The saved third-run ModelGraph nevertheless contains 5 complete R→F→L→P→V&V paths, 84
+  entities, 204 relations, a non-empty SysML projection, and a snapshot hash. SysML
+  round-trip/editability passed against all entity/relation IDs, and a temporary import followed
+  by Review/Edit created a new CAS revision. The real 23-task remote lifecycle run remains pending
+  until the remote GPU lane can be reserved for the remaining stages.
 - A failed or incomplete LLM proposal remains reviewable; offline bridge provenance is not misreported as provider success.
 - The plan has no placeholder requirements; every implementation/test step names concrete files, commands, and expected evidence.
