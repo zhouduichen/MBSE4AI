@@ -451,45 +451,10 @@ class VerticalRuleRuntime:
                 "outcome": f"{domain}任务完成并反馈结果",
             }
         )
-        use_case = _context_first(builder.context, EntityKind.USE_CASE) or builder.add(
-            EntityKind.USE_CASE, f"执行一次{domain}任务", {
-                "primary_actor": stakeholder.meta.name,
-                "goal": f"完成可追踪{domain}",
-                "success": "接收结果并可人工接管",
-            }
+        _close_operational_context(
+            builder, requirements, domain, system, stakeholder, concern,
+            scenario, lifecycle, transitions, hypothesis,
         )
-        activity = _context_first(builder.context, EntityKind.ACTIVITY) or builder.add(
-            EntityKind.ACTIVITY, f"受理并完成{domain}活动", {
-                "steps": [f"受理{domain}任务", "规划执行", f"完成{domain}", "反馈结果"],
-                "branches": ["人工接管", "任务失败后重试"],
-            }
-        )
-        builder.relate(stakeholder, RelationPredicate.HAS_CONCERN, concern)
-        builder.relate(system, RelationPredicate.DECOMPOSES, stakeholder)
-        builder.relate(stakeholder, RelationPredicate.PARTICIPATES_IN, scenario)
-        builder.relate(stakeholder, RelationPredicate.DERIVED_FROM, hypothesis)
-        builder.relate(use_case, RelationPredicate.DERIVED_FROM, hypothesis)
-        builder.relate(scenario, RelationPredicate.DERIVED_FROM, use_case)
-        builder.relate(activity, RelationPredicate.OCCURS_IN, lifecycle)
-        for transition in transitions:
-            builder.relate(transition, RelationPredicate.DERIVED_FROM, lifecycle)
-        for requirement in requirements:
-            requirement_payload = dict(requirement.payload)
-            # Imported or LLM-proposed Requirements can be structurally valid
-            # while omitting the minimum semantic contract.  The vertical
-            # completion bridge may fill these neutral defaults without
-            # rewriting the user's statement or adding an engineering claim.
-            requirement_payload.setdefault("level", "system")
-            requirement_payload.setdefault("type", "functional")
-            requirement_payload.setdefault("obligation", "系统应")
-            requirement_payload.setdefault("verification_method", "review")
-            requirement_payload.setdefault(
-                "derived_by", "system_requirement_derivation"
-            )
-            if requirement.id in builder.index:
-                builder.update(requirement, payload=requirement_payload)
-            builder.relate(requirement, RelationPredicate.DERIVED_FROM, concern)
-            builder.relate(requirement, RelationPredicate.DERIVED_FROM, activity)
         return builder.response()
 
     def _functional(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
@@ -696,6 +661,11 @@ class VerticalRuleRuntime:
         for logical in logical_components:
             builder.relate(logical, RelationPredicate.CONNECTED_TO, interface)
             builder.relate(logical, RelationPredicate.DECOMPOSES, state)
+        for existing_state in _context_entities(request.context_bundle, EntityKind.STATE):
+            if existing_state.id == state.id:
+                continue
+            for owner in _state_owner_candidates(existing_state, logical_components):
+                builder.relate(owner, RelationPredicate.DECOMPOSES, existing_state)
         for group, logical in zip(groups, logical_components):
             for function in group:
                 builder.relate(function, RelationPredicate.ALLOCATED_TO, logical)
@@ -1642,6 +1612,181 @@ def _existing_lifecycle_transition(builder, source: str, target: str):
         ) or transition.meta.name in names:
             return transition
     return None
+
+
+def _close_operational_context(
+    builder,
+    requirements,
+    domain: str,
+    system,
+    stakeholder,
+    concern,
+    scenario,
+    lifecycle,
+    transitions,
+    hypothesis,
+) -> None:
+    """Close the typed R-layer behavior trace around generated requirements."""
+
+    branch_types = ("normal", "failure", "alternative", "boundary", "exception")
+    requirement_ids = [item.id for item in requirements]
+    activity_name = f"受理并完成{domain}活动"
+    existing_activity = _context_first(builder.context, EntityKind.ACTIVITY)
+    activity_id = (
+        existing_activity.id
+        if existing_activity is not None
+        else make_entity(EntityKind.ACTIVITY, activity_name).id
+    )
+    use_case = _context_first(builder.context, EntityKind.USE_CASE) or builder.add(
+        EntityKind.USE_CASE, f"执行一次{domain}任务", {
+            "primary_actor": stakeholder.meta.name,
+            "goal": f"完成可追踪{domain}",
+            "success": "接收结果并可人工接管",
+            "activity_ids": [activity_id],
+            "requirement_ids": requirement_ids,
+        }
+    )
+    activity = existing_activity or builder.add(
+        EntityKind.ACTIVITY, activity_name, {
+            "steps": [f"受理{domain}任务", "规划执行", f"完成{domain}", "反馈结果"],
+            "branches": _canonical_activity_branches(()),
+            "branch_types": list(branch_types),
+            "branch_map": _default_activity_branch_map(),
+            "use_case_ids": [use_case.id],
+            "requirement_ids": requirement_ids,
+        }
+    )
+    activity_payload = dict(activity.payload)
+    activity_payload.update({
+        "branches": _canonical_activity_branches(activity_payload.get("branches")),
+        "branch_types": list(branch_types),
+        "branch_map": _default_activity_branch_map(),
+        "use_case_ids": [use_case.id],
+        "requirement_ids": requirement_ids,
+    })
+    if activity.id in builder.index:
+        builder.update(activity, payload=activity_payload)
+    use_case_payload = dict(use_case.payload)
+    use_case_payload.update({
+        "activity_ids": [activity.id],
+        "requirement_ids": requirement_ids,
+    })
+    if use_case.id in builder.index:
+        builder.update(use_case, payload=use_case_payload)
+    builder.relate(stakeholder, RelationPredicate.HAS_CONCERN, concern)
+    builder.relate(system, RelationPredicate.DECOMPOSES, stakeholder)
+    builder.relate(stakeholder, RelationPredicate.PARTICIPATES_IN, scenario)
+    builder.relate(stakeholder, RelationPredicate.DERIVED_FROM, hypothesis)
+    builder.relate(use_case, RelationPredicate.DERIVED_FROM, hypothesis)
+    builder.relate(use_case, RelationPredicate.DECOMPOSES, activity)
+    builder.relate(activity, RelationPredicate.DERIVED_FROM, use_case)
+    builder.relate(scenario, RelationPredicate.DERIVED_FROM, use_case)
+    builder.relate(activity, RelationPredicate.OCCURS_IN, lifecycle)
+    for transition in transitions:
+        builder.relate(transition, RelationPredicate.DERIVED_FROM, lifecycle)
+    _anchor_lifecycle_transitions(builder, lifecycle)
+    for requirement in requirements:
+        requirement_payload = dict(requirement.payload)
+        requirement_payload.setdefault("level", "system")
+        requirement_payload.setdefault("type", "functional")
+        requirement_payload.setdefault("obligation", "系统应")
+        requirement_payload.setdefault("verification_method", "review")
+        requirement_payload.setdefault("derived_by", "system_requirement_derivation")
+        if requirement.id in builder.index:
+            builder.update(requirement, payload=requirement_payload)
+        builder.relate(requirement, RelationPredicate.DERIVED_FROM, concern)
+        builder.relate(requirement, RelationPredicate.DERIVED_FROM, activity)
+        builder.relate(requirement, RelationPredicate.DERIVED_FROM, use_case)
+
+
+def _anchor_lifecycle_transitions(builder, fallback_stage) -> None:
+    stages = _context_entities(builder.context, EntityKind.LIFECYCLE_STAGE)
+    for transition in _context_entities(
+        builder.context, EntityKind.LIFECYCLE_TRANSITION
+    ):
+        transition_text = " ".join((transition.meta.name, *(
+            str(value) for value in transition.payload.values()
+        )))
+        matching_stages = tuple(
+            stage for stage in stages
+            if stage.meta.name and stage.meta.name in transition_text
+        )
+        for stage in matching_stages or ((fallback_stage,) if fallback_stage else ()):
+            builder.relate(transition, RelationPredicate.DERIVED_FROM, stage)
+
+
+def _canonical_activity_branches(value: object) -> list[str]:
+    """Preserve model branches while adding typed planning branches."""
+
+    raw_values = (
+        value
+        if isinstance(value, (list, tuple, set))
+        else (value,) if value else ()
+    )
+    existing = [str(item).strip() for item in raw_values if str(item).strip()]
+    defaults = (
+        "normal:正常执行路径",
+        "failure:任务失败后重试",
+        "alternative:人工接管",
+        "boundary:需求、资源或环境边界达到时暂停并评审",
+        "exception:异常状态转入人工接管",
+    )
+    return list(dict.fromkeys((*existing, *defaults)))
+
+
+def _default_activity_branch_map() -> dict[str, str]:
+    return {
+        "normal": "正常执行路径",
+        "failure": "任务失败后重试",
+        "alternative": "人工接管",
+        "boundary": "需求、资源或环境边界达到时暂停并评审",
+        "exception": "异常状态转入人工接管",
+    }
+
+
+def _state_owner_candidates(state, logical_components):
+    """Resolve LLM state nodes to the closest logical owner when possible."""
+
+    if not logical_components:
+        return ()
+    owner_ids = {
+        str(value).strip()
+        for field in ("owner_id", "owner_ids")
+        for value in (
+            state.payload.get(field, ())
+            if isinstance(state.payload.get(field, ()), (list, tuple, set))
+            else (state.payload.get(field),)
+        )
+        if str(value).strip()
+    }
+    by_id = tuple(item for item in logical_components if item.id in owner_ids)
+    if by_id:
+        return by_id
+    terms = (
+        "载荷", "配置", "集成", "重量", "飞行", "持续", "时间", "电池",
+        "返航", "通信", "链路", "安全", "运行", "任务",
+    )
+    state_text = " ".join((state.meta.name, *(str(value) for value in state.payload.values())))
+    scores = tuple(
+        (
+            component,
+            sum(
+            term in state_text and term in " ".join((
+                component.meta.name,
+                str(component.payload.get("responsibility", "")),
+                str(component.payload.get("shared_state", "")),
+            ))
+            for term in terms
+            ),
+        )
+        for component in logical_components
+    )
+    best = max((score for _, score in scores), default=0)
+    if best:
+        return tuple(component for component, score in scores if score == best)
+    if "系统" in state_text or "任务" in state_text:
+        return tuple(logical_components)
+    return (logical_components[0],)
 
 
 def _existing_logical_for_group(context, group):

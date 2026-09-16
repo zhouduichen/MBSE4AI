@@ -4,6 +4,6 @@
 
 这是对当前 ModelGraph 的增量闭合，不是重新抄写输入。先检查上下文中每种 R 层类型已有的 active canonical entity：已有的 system、stakeholder、lifecycle_stage、scenario_hypothesis 和 requirement 不得再次放入 entities；已有 requirement 应使用 updates 按 canonical id 补齐 statement、obligation、level、type、verification_method、derived_by 和 rationale，并用 relations 把它们连接到新生成的 concern。只生成真正缺失的 R 层类型和必要关系；每种缺失类型保持一个或少量代表性实体，生命周期阶段已有时只补充必要的相邻 transition，不要为同一阶段重复建模。保持 Proposal 紧凑，优先让所有缺口和关系在一次完整 JSON 中闭合。
 
-至少覆盖以下 operational reasoning steps，并用关系表达结论：stakeholder_analysis、lifecycle_analysis、scenario_exploration、use_case_analysis、operational_scenario、activity_analysis、system_requirement_derivation。Concern、Lifecycle stage、Lifecycle transition、scenario hypothesis、use case、operational scenario、activity 和 requirement 不能只放在 payload 数组中，必须生成对应类型实体和可验证的 canonical 引用关系。
+至少覆盖以下 operational reasoning steps，并用关系表达结论：stakeholder_analysis、lifecycle_analysis、scenario_exploration、use_case_analysis、operational_scenario、activity_analysis、system_requirement_derivation。Concern、Lifecycle stage、Lifecycle transition、scenario hypothesis、use case、operational scenario、activity 和 requirement 不能只放在 payload 数组中，必须生成对应类型实体和可验证的 canonical 引用关系。对每个正式 Requirement，至少用 `derivedFrom` 从 Requirement 指向其 Use Case 和 Activity；用 `decomposes` 从 Use Case 指向 Activity。Activity payload 必须明确包含 normal、failure、alternative、boundary、exception 五类分支；无法从资料确认的分支要标注为假设并写入 open_questions，不得把假设当成已执行证据。
 
 只返回 TaskProposal JSON。entities 只能使用本阶段契约允许的 R 层类型，relations 只能使用本阶段允许的谓词。不要返回 operations、Patch、revision 或解释。无法从材料确定的内容放入 assumptions 或 open_questions，不要用“待确认”“候选”作为实体名称。

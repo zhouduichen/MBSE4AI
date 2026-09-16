@@ -71,6 +71,47 @@ def test_requirements_stage_derives_from_existing_function_context():
     assert requirement.payload["statement"] == "系统应监测仓储温度并在超限时告警"
 
 
+def test_requirements_stage_closes_use_case_activity_requirement_trace():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应支持人工接管",
+        {
+            "statement": "系统应支持人工接管",
+            "level": "system",
+            "type": "functional",
+            "obligation": "系统应",
+            "verification_method": "test",
+        },
+    )
+
+    response = VerticalRuleRuntime().execute(_requirements_request((requirement,)))
+    graph = apply_patch(ModelGraph("warehouse", (requirement,)), response.patch)
+    use_case = next(item for item in graph.entities if item.kind is EntityKind.USE_CASE)
+    activity = next(item for item in graph.entities if item.kind is EntityKind.ACTIVITY)
+
+    assert set(activity.payload["branch_types"]) == {
+        "normal", "failure", "alternative", "boundary", "exception",
+    }
+    assert any(
+        relation.source_id == requirement.id
+        and relation.predicate is RelationPredicate.DERIVED_FROM
+        and relation.target_id == use_case.id
+        for relation in graph.relations
+    )
+    assert any(
+        relation.source_id == use_case.id
+        and relation.predicate is RelationPredicate.DECOMPOSES
+        and relation.target_id == activity.id
+        for relation in graph.relations
+    )
+    assert any(
+        relation.source_id == activity.id
+        and relation.predicate is RelationPredicate.DERIVED_FROM
+        and relation.target_id == use_case.id
+        for relation in graph.relations
+    )
+
+
 def test_requirements_stage_reuses_semantically_matching_lifecycle_transition():
     stage = make_entity(
         EntityKind.LIFECYCLE_STAGE,
@@ -91,6 +132,27 @@ def test_requirements_stage_reuses_semantically_matching_lifecycle_transition():
         and operation.entity.payload.get("from_stage") == "部署"
         and operation.entity.payload.get("to_stage") == "运行"
         for operation in response.patch.operations
+    )
+
+
+def test_requirements_stage_anchors_existing_lifecycle_transitions():
+    stage = make_entity(EntityKind.LIFECYCLE_STAGE, "维护", {})
+    transition = make_entity(
+        EntityKind.LIFECYCLE_TRANSITION,
+        "运行至维护",
+        {"description": "运行阶段结束后进入维护阶段"},
+    )
+
+    response = VerticalRuleRuntime().execute(
+        _requirements_request((stage, transition))
+    )
+    graph = apply_patch(ModelGraph("warehouse", (stage, transition)), response.patch)
+
+    assert any(
+        relation.source_id == transition.id
+        and relation.predicate is RelationPredicate.DERIVED_FROM
+        and relation.target_id == stage.id
+        for relation in graph.relations
     )
 
 
@@ -162,6 +224,28 @@ def test_logical_component_records_dependency_evidence():
     assert logical.payload["dependency_evidence"] == [first.id]
     assert "显式功能依赖" in logical.payload["partition_basis"]
     assert "dependency_cluster_search" in logical.payload["alternative_partitions"]
+
+
+def test_logical_stage_anchors_existing_state_nodes_to_components():
+    function = make_entity(
+        EntityKind.FUNCTION,
+        "监测电池状态",
+        {"behavior": "监测电池状态并触发返航"},
+    )
+    state = make_entity(
+        EntityKind.STATE,
+        "电池监控状态机",
+        {"transitions": []},
+    )
+
+    response = VerticalRuleRuntime().execute(_logical_request((function, state)))
+    graph = apply_patch(ModelGraph("robot", (function, state), revision=3), response.patch)
+
+    assert any(
+        relation.target_id == state.id
+        and relation.predicate is RelationPredicate.DECOMPOSES
+        for relation in graph.relations
+    )
 
 
 def test_shared_state_partition_is_reviewable_for_high_coupling():
