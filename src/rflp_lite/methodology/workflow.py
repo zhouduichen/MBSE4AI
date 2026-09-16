@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+from concurrent.futures import ThreadPoolExecutor
 import time
 from uuid import uuid4
 
@@ -15,7 +16,7 @@ from rflp_lite.domain.errors import (
     WorkflowInvariantError,
 )
 from rflp_lite.domain.entities import EntityStatus, Producer
-from rflp_lite.domain.model import AddEntity, Patch, UpdateEntity
+from rflp_lite.domain.model import AddEntity, Deprecate, Patch, Relate, UpdateEntity
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.completion import evaluate_completion
 from rflp_lite.methodology.contracts import ContextBundle, FailureStage, Phase, RunStatus, StepStatus, TaskExecutionResponse, TaskRuntime
@@ -29,6 +30,7 @@ from rflp_lite.methodology.repair_context import build_repair_context
 from rflp_lite.methodology.repair_planner import plan as plan_repair_task
 from rflp_lite.methodology.repair_strategies import LLMRepairStrategy, RuleFallbackRepairStrategy
 from rflp_lite.methodology.tasks import task_catalog, task_spec_hash, tasks_for_phase
+from rflp_lite.runtime.lifecycle_rule import LIFECYCLE_TASKS, LifecycleTaskRuleRuntime
 from rflp_lite.repository.port import Run, RunRepository, Step
 from rflp_lite.retrieval.evidence import RetrievalEngine
 
@@ -40,6 +42,46 @@ _NON_SEMANTIC_FAILURE_STAGES = frozenset({
     FailureStage.CONCURRENCY,
     FailureStage.INTERNAL,
 })
+
+
+# These are dependency-safe only after the preceding group has committed its
+# snapshot.  The order inside a group is the deterministic merge order; the
+# provider calls themselves may run concurrently.
+_PARALLEL_PHASE_GROUPS = {
+    Phase.OPERATIONAL: (
+        ("system_definition",),
+        ("stakeholder_analysis", "lifecycle_analysis"),
+        ("stakeholder_requirements", "scenario_exploration"),
+        ("use_case_analysis",),
+        ("operational_scenario",),
+        ("activity_analysis",),
+        ("system_requirement_derivation",),
+    ),
+    Phase.FUNCTIONAL: (
+        ("function_identification",),
+        (
+            "functional_decomposition",
+            "functional_interaction",
+            "functional_scenario",
+            "functional_requirement",
+        ),
+    ),
+    Phase.LOGICAL_PHYSICAL: (
+        ("logical_analysis",),
+        ("physical_candidates",),
+        ("allocation_tradeoff",),
+        ("technical_requirement",),
+    ),
+    Phase.ASSURANCE: (
+        (
+            "interface_sequence_state",
+            "fmea_stpa_hazard",
+            "verification_validation",
+        ),
+        ("reverse_feasibility",),
+        ("global_cross_analysis",),
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +97,23 @@ class RunSummary:
     phase_results: tuple[dict[str, object], ...] = ()
     gate_results: tuple[dict[str, object], ...] = ()
     closure: dict[str, object] | None = None
+    failure_stage: FailureStage | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedParallelTask:
+    current: object
+    context: ContextBundle
+    request: object
+    prior_attempt: int
+    started: float
+    future: object
+
+
+@dataclass(frozen=True, slots=True)
+class _TaskRunResult:
+    completed: bool
+    diagnostics: tuple[str, ...] = ()
     failure_stage: FailureStage | None = None
 
 
@@ -191,6 +250,13 @@ class WorkflowRunner:
         self.closure = ClosureService(model_repository)
         self.orchestrator = LifecycleOrchestrator(self)
         self._leases: dict[str, str] = {}
+        self._parallel_executor: ThreadPoolExecutor | None = None
+        self._lifecycle_fallback_executor = TaskExecutor(
+            LifecycleTaskRuleRuntime(),
+            prompt_registry=self.executor.prompts,
+            schema_registry=self.executor.schemas,
+            validator_registry=self.executor.validators,
+        )
 
     def run(
         self,
@@ -225,10 +291,405 @@ class WorkflowRunner:
         }
         completed = set(completed_before)
         diagnostics: list[str] = []
-        for task in tasks:
+        prefetched: dict[str, _PreparedParallelTask] = {}
+        task_schedule = _execution_schedule(
+            phase,
+            tasks,
+            parallel_enabled=self._parallel_tasks_enabled(),
+        )
+        parallel_groups = _parallel_groups_by_first_task(phase, task_schedule)
+        for task in task_schedule:
+            group = parallel_groups.get(task.id)
+            if group and not prefetched and self._parallel_tasks_enabled():
+                prefetched.update(
+                    self._prepare_parallel_tasks(
+                        project_id,
+                        identity.run_id,
+                        group,
+                        completed_before,
+                        rerun_task_ids,
+                        existing,
+                    )
+                )
             if task.id in completed_before and (rerun_task_ids is None or task.id not in rerun_task_ids):
                 continue
+            result = self._run_phase_task(
+                project_id,
+                phase,
+                identity,
+                task,
+                existing,
+                prefetched.pop(task.id, None),
+                completed,
+                diagnostics,
+            )
+            diagnostics.extend(result.diagnostics)
+            if result.completed:
+                completed.add(task.id)
+            if result.failure_stage is not None:
+                return RunSummary(
+                    identity.run_id,
+                    project_id,
+                    phase,
+                    RunStatus.DEGRADED,
+                    tuple(sorted(completed)),
+                    tuple(diagnostics),
+                    failure_stage=result.failure_stage,
+                )
+        status = RunStatus.COMPLETED if len(completed) == len(tasks) else RunStatus.DEGRADED
+        self._update_run_status(identity.run_id, status, tuple(diagnostics))
+        return RunSummary(identity.run_id, project_id, phase, status, tuple(sorted(completed)), tuple(diagnostics))
+
+    def _run_phase_task(
+        self,
+        project_id: str,
+        phase: Phase,
+        identity: RunIdentity,
+        task,
+        existing,
+        prepared: _PreparedParallelTask | None,
+        completed: set[str],
+        diagnostics: list[str],
+    ) -> _TaskRunResult:
+        if prepared is None:
+            current, context, request, prior_attempt, started = self._prepare_task(
+                project_id, identity.run_id, task, existing
+            )
+        else:
             current = self.model_repository.load_graph(project_id)
+            context = prepared.context
+            request = prepared.request
+            prior_attempt = prepared.prior_attempt
+            started = prepared.started
+        context_hash = canonical_hash(context)
+        try:
+            response = (
+                prepared.future.result()
+                if prepared is not None
+                else self.executor.execute(
+                    task,
+                    context,
+                    self.methodology_version,
+                    token_budget=self._output_budget(),
+                    )
+                )
+            if prepared is not None and response.patch is not None:
+                rebased = _rebase_parallel_patch(
+                    project_id, task.id, response.patch, current
+                )
+                response = replace(
+                    response,
+                    patch=rebased,
+                    output_hash=canonical_hash(rebased),
+                )
+            return self._accept_task_response(
+                project_id,
+                identity.run_id,
+                task,
+                current,
+                context,
+                request,
+                prior_attempt,
+                started,
+                response,
+                diagnostics,
+            )
+        except MethodologyValidationError as exc:
+            message = f"{task.id}: semantic validation: {exc}"
+            recovered = self._recover_lifecycle_task(
+                project_id,
+                identity.run_id,
+                task,
+                current,
+                context,
+                request,
+                prior_attempt,
+                started,
+                message,
+            )
+            if recovered is not None:
+                return _TaskRunResult(*recovered)
+            self.run_repository.update_step(
+                self._step_record(
+                    identity.run_id,
+                    task,
+                    StepStatus.DEGRADED,
+                    prior_attempt,
+                    context_hash,
+                    None,
+                    (message,),
+                    "",
+                    request,
+                    started,
+                )
+            )
+            return _TaskRunResult(False, (message,))
+        except ConcurrentModificationError as exc:
+            return self._fail_closed_task(
+                project_id, phase, identity, task, request, context_hash,
+                prior_attempt, started, completed, diagnostics, FailureStage.CONCURRENCY,
+                "concurrency_conflict", exc,
+            )
+        except WorkflowInvariantError as exc:
+            return self._fail_closed_task(
+                project_id, phase, identity, task, request, context_hash,
+                prior_attempt, started, completed, diagnostics, FailureStage.INTERNAL,
+                "workflow_invariant", exc,
+            )
+        except ContractViolation as exc:
+            return self._fail_closed_task(
+                project_id, phase, identity, task, request, context_hash,
+                prior_attempt, started, completed, diagnostics, FailureStage.INTERNAL,
+                "contract_violation", exc,
+            )
+        except Exception as exc:
+            return self._fail_closed_task(
+                project_id, phase, identity, task, request, context_hash,
+                prior_attempt, started, completed, diagnostics, FailureStage.INTERNAL,
+                "internal_error", exc,
+            )
+
+    def _accept_task_response(
+        self,
+        project_id: str,
+        run_id: str,
+        task,
+        current,
+        context,
+        request,
+        prior_attempt: int,
+        started: float,
+        response,
+        diagnostics: list[str],
+    ) -> _TaskRunResult:
+        if response.patch is not None:
+            response = replace(
+                response,
+                patch=enrich_architecture_patch(current, response.patch),
+            )
+        if response.patch is not None and response.status is not StepStatus.COMPLETED:
+            raise WorkflowInvariantError(
+                "non-completed response cannot carry a committable patch"
+            )
+        if response.status is StepStatus.COMPLETED:
+            self.executor.validate_response(project_id, task, current, context, response)
+        patch_id = None
+        revision = current
+        if response.patch is not None:
+            revision = self.model_repository.append_patch(
+                project_id,
+                response.patch,
+                current.revision,
+                run_id=run_id,
+            )
+            patch_id = response.patch.id
+            patch_trace = getattr(self.model_repository, "update_patch_trace", None)
+            if patch_trace is not None:
+                patch_trace(
+                    patch_id,
+                    provider_id=response.provider_id or self._provider_id(),
+                    model_id=response.model_id or self._model_id(),
+                )
+            self._record_audit(
+                project_id,
+                "task.patch",
+                {
+                    "run_id": run_id,
+                    "task_id": task.id,
+                    "patch_id": patch_id,
+                    "revision": revision.sequence,
+                    "input_hash": response.input_hash,
+                    "output_hash": response.output_hash,
+                },
+            )
+        if response.failure_stage in _NON_SEMANTIC_FAILURE_STAGES:
+            recovered = self._recover_lifecycle_task(
+                project_id,
+                run_id,
+                task,
+                current,
+                context,
+                request,
+                prior_attempt,
+                started,
+                f"{task.id}: {response.failure_stage.value} failure",
+            )
+            if recovered is not None:
+                return _TaskRunResult(*recovered)
+            self.run_repository.update_step(
+                self._step_record(
+                    run_id,
+                    task,
+                    StepStatus.FAILED,
+                    prior_attempt,
+                    response.input_hash or canonical_hash(context),
+                    patch_id,
+                    response.diagnostics,
+                    response.output_hash,
+                    request,
+                    started,
+                )
+            )
+            self._block_pending_steps(
+                project_id,
+                run_id,
+                f"blocked by {task.id} {response.failure_stage.value} failure",
+                after_task_id=task.id,
+            )
+            return _TaskRunResult(False, response.diagnostics, response.failure_stage)
+        completion = evaluate_completion(
+            task, self.model_repository.load_graph(project_id), response
+        )
+        if completion.passed and response.patch is not None:
+            self._promote_completed_output(
+                project_id,
+                run_id,
+                response.patch,
+                revision.sequence,
+            )
+        if not completion.passed:
+            response = replace(
+                response,
+                status=StepStatus.DEGRADED,
+                diagnostics=tuple(response.diagnostics) + completion.issue_codes,
+            )
+        self.run_repository.update_step(
+            self._step_record(
+                run_id,
+                task,
+                response.status,
+                prior_attempt,
+                response.input_hash or canonical_hash(context),
+                patch_id,
+                response.diagnostics,
+                response.output_hash,
+                request,
+                started,
+            )
+        )
+        return _TaskRunResult(response.status is StepStatus.COMPLETED, response.diagnostics)
+
+    def _step_record(
+        self,
+        run_id: str,
+        task,
+        status: StepStatus,
+        prior_attempt: int,
+        input_hash: str,
+        patch_id: str | None,
+        diagnostics,
+        output_hash: str,
+        request,
+        started: float,
+        *,
+        provider_id: str | None = None,
+        model_id: str | None = None,
+        repair_strategy: str = "none",
+    ) -> Step:
+        return Step(
+            run_id,
+            task.id,
+            status.value,
+            prior_attempt + 1,
+            input_hash,
+            patch_id,
+            tuple(diagnostics),
+            output_hash,
+            provider_id or self._provider_id(),
+            model_id or self._model_id(),
+            task.prompt_template_id,
+            input_hash,
+            started,
+            time.time(),
+            request.prompt_version,
+            request.prompt_hash,
+            task_spec_hash(task),
+            repair_strategy,
+            0,
+        )
+
+    def _prepare_task(self, project_id: str, run_id: str, task, existing):
+        current = self.model_repository.load_graph(project_id)
+        context = self.context_builder.build(
+            current,
+            task,
+            token_budget=self._context_budget(),
+            output_reserve=self._output_budget() if self._configured_output_budget() else None,
+            prompt_reserve=256,
+        )
+        request = self.executor.request(
+            task,
+            context,
+            self.methodology_version,
+            token_budget=self._output_budget(),
+        )
+        prior_attempt = next(
+            (
+                step.attempt
+                for step in (existing.steps if existing else ())
+                if step.task_id == task.id
+            ),
+            0,
+        )
+        started = time.time()
+        context_hash = canonical_hash(context)
+        self.run_repository.update_step(
+            Step(
+                run_id,
+                task.id,
+                StepStatus.RUNNING.value,
+                prior_attempt + 1,
+                context_hash,
+                None,
+                (),
+                "",
+                self._provider_id(),
+                self._model_id(),
+                task.prompt_template_id,
+                context_hash,
+                started,
+                0.0,
+                request.prompt_version,
+                request.prompt_hash,
+                task_spec_hash(task),
+                "none",
+                0,
+            )
+        )
+        return current, context, request, prior_attempt, started
+
+    def _parallel_tasks_enabled(self) -> bool:
+        """Use task-level concurrency only for a configured capable provider."""
+
+        if self._mode() != "configured":
+            return False
+        model = getattr(self.runtime, "model", None)
+        return bool(
+            getattr(self.runtime, "supports_parallel_tasks", False)
+            or getattr(model, "supports_parallel_requirement_batching", False)
+        )
+
+    def _prepare_parallel_tasks(
+        self,
+        project_id: str,
+        run_id: str,
+        tasks,
+        completed_before: set[str],
+        rerun_task_ids: set[str] | None,
+        existing,
+    ) -> dict[str, _PreparedParallelTask]:
+        """Prepare one dependency-safe snapshot and dispatch its LLM calls."""
+
+        pending = tuple(
+            task for task in tasks
+            if task.id not in completed_before
+            or (rerun_task_ids is not None and task.id in rerun_task_ids)
+        )
+        if len(pending) < 2:
+            return {}
+        current = self.model_repository.load_graph(project_id)
+        prepared: dict[str, _PreparedParallelTask] = {}
+        for task in pending:
             context = self.context_builder.build(
                 current,
                 task,
@@ -242,99 +703,181 @@ class WorkflowRunner:
                 self.methodology_version,
                 token_budget=self._output_budget(),
             )
-            prior_attempt = next((step.attempt for step in (existing.steps if existing else ()) if step.task_id == task.id), 0)
+            prior_attempt = next(
+                (
+                    step.attempt
+                    for step in (existing.steps if existing else ())
+                    if step.task_id == task.id
+                ),
+                0,
+            )
             started = time.time()
             context_hash = canonical_hash(context)
-            self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.RUNNING.value, prior_attempt + 1, context_hash, None, (), "", self._provider_id(), self._model_id(), task.prompt_template_id, context_hash, started, 0.0, request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
-            try:
-                response = self.executor.execute(
-                    task,
-                    context,
-                    self.methodology_version,
-                    token_budget=self._output_budget(),
+            self.run_repository.update_step(
+                Step(
+                    run_id,
+                    task.id,
+                    StepStatus.RUNNING.value,
+                    prior_attempt + 1,
+                    context_hash,
+                    None,
+                    (),
+                    "",
+                    self._provider_id(),
+                    self._model_id(),
+                    task.prompt_template_id,
+                    context_hash,
+                    started,
+                    0.0,
+                    request.prompt_version,
+                    request.prompt_hash,
+                    task_spec_hash(task),
+                    "none",
+                    0,
                 )
-                if response.patch is not None:
-                    response = replace(
-                        response,
-                        patch=enrich_architecture_patch(current, response.patch),
+            )
+            if self._parallel_executor is None:
+                self._parallel_executor = ThreadPoolExecutor(
+                    max_workers=4,
+                    thread_name_prefix="rflp-llm-task",
+                )
+            future = self._parallel_executor.submit(
+                self.executor.execute,
+                task,
+                context,
+                self.methodology_version,
+                token_budget=self._output_budget(),
+            )
+            prepared[task.id] = _PreparedParallelTask(
+                current,
+                context,
+                request,
+                prior_attempt,
+                started,
+                future,
+            )
+        return prepared
+
+    def _recover_lifecycle_task(
+        self,
+        project_id: str,
+        run_id: str,
+        task,
+        current,
+        context,
+        request,
+        prior_attempt: int,
+        started: float,
+        original_diagnostic: str,
+    ) -> tuple[bool, tuple[str, ...]] | None:
+        """Keep a lifecycle run moving after an LLM task crosses no semantic boundary.
+
+        The fallback is intentionally limited to the typed lifecycle task
+        catalog. It does not overwrite the failed LLM proposal; the original
+        failure remains in the step diagnostics and the rule patch is marked
+        as offline provenance. This makes the graph useful for downstream
+        stages while keeping the review trail honest.
+        """
+
+        if task.id not in LIFECYCLE_TASKS or self._mode() != "configured":
+            return None
+        try:
+            response = self._lifecycle_fallback_executor.execute(
+                task,
+                context,
+                self.methodology_version,
+                evidence_bundle=context.evidence,
+                token_budget=self._output_budget(),
+            )
+            if response.status is not StepStatus.COMPLETED:
+                return None
+            if response.patch is not None:
+                response = replace(
+                    response,
+                    patch=enrich_architecture_patch(current, response.patch),
+                    provider_id="offline",
+                    model_id="lifecycle-rule-runtime",
+                    input_hash=canonical_hash(context),
+                    output_hash=canonical_hash(response.patch),
+                )
+                self.executor.validate_response(project_id, task, current, context, response)
+            patch_id = response.patch.id if response.patch is not None else None
+            if response.patch is not None:
+                revision = self.model_repository.append_patch(
+                    project_id,
+                    response.patch,
+                    current.revision,
+                    run_id=run_id,
+                )
+                patch_trace = getattr(self.model_repository, "update_patch_trace", None)
+                if patch_trace is not None:
+                    patch_trace(
+                        patch_id,
+                        provider_id="offline",
+                        model_id="lifecycle-rule-runtime",
                     )
-                patch_id = None
-                if response.patch is not None and response.status is not StepStatus.COMPLETED:
-                    raise WorkflowInvariantError(
-                        "non-completed response cannot carry a committable patch"
-                    )
-                if response.status is StepStatus.COMPLETED:
-                    self.executor.validate_response(project_id, task, current, context, response)
-                if response.patch is not None:
-                    revision = self.model_repository.append_patch(project_id, response.patch, current.revision, run_id=identity.run_id)
-                    patch_id = response.patch.id
-                    patch_trace = getattr(self.model_repository, "update_patch_trace", None)
-                    if patch_trace is not None:
-                        patch_trace(patch_id, provider_id=response.provider_id or self._provider_id(), model_id=response.model_id or self._model_id())
-                    self._record_audit(project_id, "task.patch", {"run_id": identity.run_id, "task_id": task.id, "patch_id": patch_id, "revision": revision.sequence, "input_hash": response.input_hash, "output_hash": response.output_hash})
-                if response.failure_stage in _NON_SEMANTIC_FAILURE_STAGES:
-                    diagnostics.extend(response.diagnostics)
-                    self.run_repository.update_step(Step(identity.run_id, task.id, StepStatus.FAILED.value, prior_attempt + 1, response.input_hash or context_hash, patch_id, response.diagnostics, response.output_hash, response.provider_id or self._provider_id(), response.model_id or self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
-                    self._block_pending_steps(
-                        project_id,
-                        identity.run_id,
-                        f"blocked by {task.id} {response.failure_stage.value} failure",
-                        after_task_id=task.id,
-                    )
-                    self._update_run_status(identity.run_id, RunStatus.DEGRADED, tuple(diagnostics))
-                    return RunSummary(identity.run_id, project_id, phase, RunStatus.DEGRADED, tuple(sorted(completed)), tuple(diagnostics), failure_stage=response.failure_stage)
-                completion = evaluate_completion(task, self.model_repository.load_graph(project_id), response)
-                if completion.passed and response.patch is not None:
-                    revision = self._promote_completed_output(
-                        project_id,
-                        identity.run_id,
-                        response.patch,
-                        revision.sequence,
-                    )
-                if not completion.passed:
-                    response = replace(response, status=StepStatus.DEGRADED, diagnostics=tuple(response.diagnostics) + completion.issue_codes)
-                if response.status is StepStatus.COMPLETED:
-                    completed.add(task.id)
-                else:
-                    diagnostics.extend(response.diagnostics)
-                self.run_repository.update_step(Step(identity.run_id, task.id, response.status.value, prior_attempt + 1, response.input_hash or context_hash, patch_id, response.diagnostics, response.output_hash, response.provider_id or self._provider_id(), response.model_id or self._model_id(), task.prompt_template_id, context_hash, started, time.time(), request.prompt_version, request.prompt_hash, task_spec_hash(task), "none", 0))
-            except MethodologyValidationError as exc:
-                message = f"{task.id}: semantic validation: {exc}"
-                diagnostics.append(message)
-                self.run_repository.update_step(Step(
-                    identity.run_id, task.id, StepStatus.DEGRADED.value,
-                    prior_attempt + 1, context_hash, None, (message,), "",
-                    self._provider_id(), self._model_id(), task.prompt_template_id,
-                    context_hash, started, time.time(), request.prompt_version,
-                    request.prompt_hash, task_spec_hash(task), "none", 0,
-                ))
-            except ConcurrentModificationError as exc:
-                return self._fail_closed_task(
-                    project_id, phase, identity, task, request, context_hash,
-                    prior_attempt, started, completed, diagnostics, FailureStage.CONCURRENCY,
-                    "concurrency_conflict", exc,
+                self._record_audit(
+                    project_id,
+                    "task.patch",
+                    {
+                        "run_id": run_id,
+                        "task_id": task.id,
+                        "patch_id": patch_id,
+                        "revision": revision.sequence,
+                        "provider_id": "offline",
+                        "model_id": "lifecycle-rule-runtime",
+                        "recovery": True,
+                    },
                 )
-            except WorkflowInvariantError as exc:
-                return self._fail_closed_task(
-                    project_id, phase, identity, task, request, context_hash,
-                    prior_attempt, started, completed, diagnostics, FailureStage.INTERNAL,
-                    "workflow_invariant", exc,
+            else:
+                revision = current
+            graph = self.model_repository.load_graph(project_id)
+            completion = evaluate_completion(task, graph, response)
+            diagnostics = tuple(dict.fromkeys(
+                (
+                    original_diagnostic,
+                    "lifecycle:recovered_by_rule_runtime",
+                    *response.diagnostics,
+                    *completion.issue_codes,
                 )
-            except ContractViolation as exc:
-                return self._fail_closed_task(
-                    project_id, phase, identity, task, request, context_hash,
-                    prior_attempt, started, completed, diagnostics, FailureStage.INTERNAL,
-                    "contract_violation", exc,
+            ))
+            status = StepStatus.COMPLETED if completion.passed else StepStatus.DEGRADED
+            self.run_repository.update_step(
+                Step(
+                    run_id,
+                    task.id,
+                    status.value,
+                    prior_attempt + 1,
+                    response.input_hash or canonical_hash(context),
+                    patch_id,
+                    diagnostics,
+                    response.output_hash,
+                    "offline",
+                    "lifecycle-rule-runtime",
+                    task.prompt_template_id,
+                    canonical_hash(context),
+                    started,
+                    time.time(),
+                    request.prompt_version,
+                    request.prompt_hash,
+                    task_spec_hash(task),
+                    "rule_runtime_fallback",
+                    0,
                 )
-            except Exception as exc:
-                return self._fail_closed_task(
-                    project_id, phase, identity, task, request, context_hash,
-                    prior_attempt, started, completed, diagnostics, FailureStage.INTERNAL,
-                    "internal_error", exc,
-                )
-        status = RunStatus.COMPLETED if len(completed) == len(tasks) else RunStatus.DEGRADED
-        self._update_run_status(identity.run_id, status, tuple(diagnostics))
-        return RunSummary(identity.run_id, project_id, phase, status, tuple(sorted(completed)), tuple(diagnostics))
+            )
+            return completion.passed, diagnostics
+        except Exception as exc:
+            self._record_audit(
+                project_id,
+                "task.recovery_failed",
+                {
+                    "run_id": run_id,
+                    "task_id": task.id,
+                    "original_diagnostic": original_diagnostic,
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+            )
+            return None
 
     def _promote_completed_output(
         self,
@@ -379,7 +922,7 @@ class WorkflowRunner:
     def _fail_closed_task(
         self, project_id, phase, identity, task, request, context_hash,
         prior_attempt, started, completed, diagnostics, failure_stage, code, exc,
-    ) -> RunSummary:
+    ) -> _TaskRunResult:
         message = f"{task.id}: {code}: {type(exc).__name__}: {exc}"
         diagnostic = f"{failure_stage.value}:{code}: {message}"
         diagnostics.append(diagnostic)
@@ -398,15 +941,7 @@ class WorkflowRunner:
             after_task_id=task.id,
         )
         self._update_run_status(identity.run_id, RunStatus.DEGRADED, tuple(diagnostics))
-        return RunSummary(
-            identity.run_id,
-            project_id,
-            phase,
-            RunStatus.DEGRADED,
-            tuple(sorted(completed)),
-            tuple(diagnostics),
-            failure_stage=failure_stage,
-        )
+        return _TaskRunResult(False, (diagnostic,), failure_stage)
 
     def _ensure_run(self, project_id: str, *, run_id: str | None = None, force_new: bool = False, phase: Phase | None = None, tasks=None) -> RunIdentity:
         graph = self.model_repository.load_graph(project_id)
@@ -607,6 +1142,66 @@ class NoopRuntime:
     def execute(self, request):
         del request
         return TaskExecutionResponse(StepStatus.COMPLETED)
+
+
+def _execution_schedule(phase: Phase, tasks, *, parallel_enabled: bool) -> tuple:
+    """Return catalog tasks in dependency groups, preserving catalog members."""
+
+    if not parallel_enabled:
+        return tuple(tasks)
+    by_id = {task.id: task for task in tasks}
+    scheduled = []
+    for group in _PARALLEL_PHASE_GROUPS.get(phase, ()):
+        scheduled.extend(by_id[task_id] for task_id in group if task_id in by_id)
+    scheduled_ids = {task.id for task in scheduled}
+    scheduled.extend(task for task in tasks if task.id not in scheduled_ids)
+    return tuple(scheduled)
+
+
+def _parallel_groups_by_first_task(phase: Phase, tasks) -> dict[str, tuple]:
+    by_id = {task.id: task for task in tasks}
+    task_ids = {task.id for task in tasks}
+    return {
+        group[0]: tuple(by_id[task_id] for task_id in group if task_id in task_ids)
+        for group in _PARALLEL_PHASE_GROUPS.get(phase, ())
+        if len(group) > 1 and group[0] in task_ids
+    }
+
+
+def _rebase_parallel_patch(project_id: str, task_id: str, patch: Patch, graph) -> Patch | None:
+    """Rebase a snapshot patch while keeping independent batch outputs mergeable."""
+
+    entity_ids = set(graph.entity_index)
+    relation_keys = {
+        (item.source_id, item.predicate, item.target_id)
+        for item in graph.relations
+    }
+    operations = []
+    for operation in patch.operations:
+        if isinstance(operation, AddEntity):
+            if operation.entity.id in entity_ids:
+                continue
+            entity_ids.add(operation.entity.id)
+            operations.append(operation)
+        elif isinstance(operation, Relate):
+            key = (operation.source_id, operation.predicate, operation.target_id)
+            if key in relation_keys:
+                continue
+            relation_keys.add(key)
+            operations.append(operation)
+        elif isinstance(operation, (UpdateEntity, Deprecate)):
+            entity_id = operation.entity_id
+            if entity_id in entity_ids:
+                operations.append(operation)
+    if not operations:
+        return None
+    return Patch.create(
+        project_id,
+        task_id,
+        tuple(operations),
+        patch.reason,
+        graph.revision,
+    )
 
 
 def _phase_for_repair_task(task_id: str) -> Phase:

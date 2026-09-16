@@ -1,9 +1,14 @@
+import threading
+import time
+from types import SimpleNamespace
+
 import pytest
 
 from rflp_lite.application.requirement_input import RequirementInputService
 from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation
-from rflp_lite.domain.model import AddEntity, Patch
+from rflp_lite.domain.model import AddEntity, Patch, Relate
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import FailureStage, Phase, RunStatus, StepStatus, TaskExecutionResponse
 from rflp_lite.methodology.workflow import WorkflowRunner
 from rflp_lite.repository.port import Step
@@ -78,6 +83,56 @@ class DegradedSemanticRuntime:
         return self.delegate.execute(request)
 
 
+class InvalidLifecycleRelationRuntime:
+    def __init__(self):
+        self.delegate = RuleRuntime()
+
+    def execute(self, request):
+        if request.task_id == "use_case_analysis":
+            stakeholder = next(
+                item for item in request.context_bundle.entities
+                if item.kind is EntityKind.STAKEHOLDER
+            )
+            use_case = make_entity(EntityKind.USE_CASE, "非法关系仍应保留的用例")
+            patch = Patch.create(
+                request.context_bundle.project_id,
+                request.task_id,
+                (
+                    AddEntity(use_case),
+                    Relate(
+                        stakeholder.id,
+                        RelationPredicate.PARTICIPATES_IN,
+                        use_case.id,
+                    ),
+                ),
+                "invalid lifecycle relation",
+                request.context_bundle.revision,
+            )
+            return TaskExecutionResponse(StepStatus.COMPLETED, patch=patch)
+        return self.delegate.execute(request)
+
+
+class ParallelTrackingRuntime:
+    supports_parallel_tasks = True
+
+    def __init__(self):
+        self.delegate = RuleRuntime()
+        self._lock = threading.Lock()
+        self.active = 0
+        self.max_active = 0
+
+    def execute(self, request):
+        with self._lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        try:
+            time.sleep(0.03)
+            return self.delegate.execute(request)
+        finally:
+            with self._lock:
+                self.active -= 1
+
+
 def test_runner_persists_steps_and_completes_offline(tmp_path):
     repository = SQLiteModelRepository(tmp_path / "model.db")
     repository.ensure_project("p1")
@@ -147,6 +202,45 @@ def test_degraded_phase_cannot_be_reported_as_completed_lifecycle(tmp_path):
     assert summary.phase is Phase.FUNCTIONAL
     assert summary.closure is not None
     assert summary.closure["status"] == "blocked"
+
+
+def test_semantic_lifecycle_failure_recovers_with_typed_rule_patch(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    RequirementInputService(repository, "p1").ensure_text_requirements("系统应支持人工接管")
+    runner = WorkflowRunner(repository, repository, InvalidLifecycleRelationRuntime())
+    runner.runtime_selection = SimpleNamespace(
+        mode="configured", profile_id="test-llm", provider_id="test", model_id="test"
+    )
+
+    summary = runner.run("p1", Phase.OPERATIONAL, force_run=True)
+
+    graph = repository.load_graph("p1")
+    stored = repository.load_run("p1", summary.run_id)
+    assert summary.status is RunStatus.COMPLETED
+    assert "use_case_analysis" in summary.completed_tasks
+    assert "lifecycle:recovered_by_rule_runtime" in " ".join(summary.diagnostics)
+    assert any(item.kind is EntityKind.USE_CASE for item in graph.entities)
+    assert stored is not None
+    use_case_step = next(step for step in stored.steps if step.task_id == "use_case_analysis")
+    assert use_case_step.status == StepStatus.COMPLETED.value
+    assert use_case_step.repair_strategy == "rule_runtime_fallback"
+
+
+def test_configured_runtime_parallelizes_dependency_safe_task_group(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    RequirementInputService(repository, "p1").ensure_text_requirements("系统应支持人工接管")
+    runtime = ParallelTrackingRuntime()
+    runner = WorkflowRunner(repository, repository, runtime)
+    runner.runtime_selection = SimpleNamespace(
+        mode="configured", profile_id="test-llm", provider_id="test", model_id="test"
+    )
+
+    summary = runner.run("p1", Phase.FUNCTIONAL, force_run=True)
+
+    assert summary.status is RunStatus.COMPLETED
+    assert runtime.max_active >= 2
 
 
 def test_non_completed_patch_is_rejected_before_repository_append(tmp_path):
