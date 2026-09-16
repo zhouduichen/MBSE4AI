@@ -293,6 +293,10 @@ class OpenAICompatibleModel:
     # still compiles and validates the merged patch only after every batch has
     # returned, preserving the single CAS boundary.
     supports_parallel_requirement_batching = True
+    # The product vertical path should keep moving after a review-worthy first
+    # pass.  Targeted Review/Controller re-analysis remains available, while
+    # automatically replaying an entire stage doubles remote provider cost.
+    automatic_vertical_stage_feedback = False
     supports_controller_proposals = True
 
     def __init__(

@@ -44,9 +44,11 @@ _VERTICAL_BATCH_THRESHOLD = 3
 _VERTICAL_BATCH_SIZE = 2
 # A two-requirement F/L/P/V&V slice still carries typed payloads, references,
 # and trace relations.  Keep the batch boundary for context control, but let a
-# legitimate slice use the configured provider budget instead of truncating
-# its JSON envelope at the old 2048-token cap.
-_VERTICAL_BATCH_OUTPUT_TOKEN_BUDGET = 4096
+# legitimate slice use a bounded provider budget instead of truncating its
+# JSON envelope at the old 2048-token cap. Singleton recovery is smaller
+# because it has only one requirement to cover.
+_VERTICAL_BATCH_OUTPUT_TOKEN_BUDGET = 3072
+_VERTICAL_SINGLETON_OUTPUT_TOKEN_BUDGET = 2048
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,7 +244,11 @@ class StructuredModelRuntime:
         *,
         batch_fallback: bool = False,
     ) -> _CompiledProposal:
-        token_budget = _batch_token_budget(request, payload)
+        token_budget = _batch_token_budget(
+            request,
+            payload,
+            singleton_fallback=batch_fallback,
+        )
         batch_instruction = _batch_instruction(
             request.task_id,
             payload.get("requirement_batch"),
@@ -988,12 +994,16 @@ def _is_wide_requirement_batch(payload: Mapping[str, object]) -> bool:
 def _batch_token_budget(
     request: TaskExecutionRequest,
     payload: Mapping[str, object],
+    *,
+    singleton_fallback: bool = False,
 ) -> int:
     """Keep multi-requirement provider calls bounded without shrinking R output."""
 
     batch = payload.get("requirement_batch")
     if request.task_id not in _VERTICAL_BATCH_TASKS or not isinstance(batch, Mapping):
         return request.token_budget
+    if singleton_fallback:
+        return min(request.token_budget, _VERTICAL_SINGLETON_OUTPUT_TOKEN_BUDGET)
     return min(request.token_budget, _VERTICAL_BATCH_OUTPUT_TOKEN_BUDGET)
 
 

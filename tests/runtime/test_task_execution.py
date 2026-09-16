@@ -733,7 +733,7 @@ def test_structured_runtime_caps_only_multi_requirement_batch_output_budget():
 
     StructuredModelRuntime(model).execute(request)
 
-    assert [call.max_tokens for call in model.calls] == [4096, 4096, 4096]
+    assert [call.max_tokens for call in model.calls] == [3072, 3072, 3072]
 
 
 @pytest.mark.parametrize("stage", ("functional", "logical", "physical"))
@@ -846,6 +846,7 @@ def test_structured_runtime_retries_failed_batch_as_single_requirements():
 
     assert result.patch is not None
     assert len(model.calls) == 7
+    assert [call.max_tokens for call in model.calls] == [3072, 3072, 3072, 2048, 2048, 2048, 2048]
     assert "batch_fallback=single_requirement" in result.diagnostics
     assert sum(
         operation.entity.kind is EntityKind.VERIFICATION_CASE

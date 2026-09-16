@@ -1348,7 +1348,17 @@ class ModelGenerationService:
     def _feedback_enabled(self) -> bool:
         """Enable one same-stage retry only for structured model runtimes."""
 
-        return self._mode() in {"configured", "injected"} and hasattr(self.runtime, "model")
+        return (
+            self._mode() in {"configured", "injected"}
+            and hasattr(self.runtime, "model")
+            and bool(
+                getattr(
+                    self.runtime.model,
+                    "automatic_vertical_stage_feedback",
+                    True,
+                )
+            )
+        )
 
     def _audit(self, project_id: str, kind: str, payload: Mapping[str, object]) -> None:
         recorder = getattr(self.repository, "record_audit", None)
