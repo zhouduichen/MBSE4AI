@@ -42,7 +42,7 @@
 | F/L/P 阶段方法论契约 | 每次 vertical LLM 请求显式收到 stage contract（输入/输出/必需类型、允许关系和 reasoning tasks）；ContextBuilder 以完整 ModelGraph 为源，按当前预算只投影 context 可见的逐需求 requirement_worklist，并携带已有 canonical 目标、当前路径、精确缺口和 omitted_requirement_ids；Functional 完成度校验功能流端点/场景覆盖，Logical/Physical 校验可复核架构与可行性推理证据 |
 | LLM Controller 决策提案 | 配置的 OpenAI-compatible Profile 可基于有界 ModelGraph/方法论上下文给出只读建议；建议必须引用确定性 Controller 已有动作并通过用户确认后才执行；离线模式保持确定性，真实 Provider 验证仅使用远程 SSH/Tailscale 模型 |
 | Controller 工作台按需建议 | Assurance 首屏先渲染确定性下一步动作；LLM 建议通过 `include_llm=true` 按需请求，远程节点不可达时不阻塞工作台，也不调用本机模型 |
-| LLM 阶段反馈闭环 | 结构化 LLM 阶段在首轮写入并完成确定性检查后，若当前阶段仍有缺口则用最新 ModelGraph 和 methodology guidance 再尝试一次；同一 Step/audit 保留最终 attempt，最多两次；离线 RuleRuntime 保持每阶段单次 |
+| LLM 阶段反馈闭环 | 结构化 LLM 阶段默认保持远程单次 Proposal pass + typed completion bridge；本地或显式 Profile 可在确定性检查发现缺口后再用最新 ModelGraph/guidance 尝试一次；同一 Step/audit 保留最终 attempt；离线 RuleRuntime 保持每阶段单次 |
 | SysML v2 子集往返 | 导出实际 `part/requirement/action/interface/state/verification/validation` 声明及关系元数据；Concern、Hazard、FailureMode 使用可编辑的通用 part 声明并保留类型元数据；可重新读入新项目并继续编辑 |
 | 产品验收指标 | 以 R→F→L→P→V&V 完整追溯、SysML 往返和 ModelGraph 编辑为主，不再以 23-task 重复运行次数作为主进度指标 |
 | 语义质量口径 | `semantic_invalid` 输出只保存为 candidate、创建 review Issue，不再通过移除 semantic validator 的方式写成 validated |
@@ -69,10 +69,10 @@
 | 垂直阶段完成质量 | 五阶段结果逐项报告其内部 23-task 检查；关键关系、架构评价、约束传播、可行性权衡和 V&V 交叉分析缺失时标记 `needs_review`，并保留结构化候选供 Review/Controller 继续处理 |
 | 完整结构化五阶段验收 | 确定性结构化模型夹具已通过生产 Runtime→Compiler→Validator→CAS 路径一次性形成 R→F→L→P→V&V；覆盖 payload local_ref canonicalization、完整 V&V scope、SysML round-trip 和可继续编辑 revision |
 | 多需求结构化五阶段验收 | 三条独立自然语言 Requirement 已通过生产结构化 Runtime→Compiler→Validator→CAS 路径分别形成 Function，并沿共享或独立的 Logical/Physical 架构保持逐需求 V&V scope、三条完整端到端追溯、SysML round-trip 和继续编辑；该证据仍是离线结构化模型验收，不等同于真实 Provider 稳定性 |
-| 大输入 V&V 批处理 | 配置的 OpenAI-compatible Runtime 在超过 3 条需求时按 2 条一批生成并合并一次结构化 Patch；5 条需求形成 10 个 V&V Case、完整追溯、SysML 往返和可编辑 revision；任一批失败不提交部分结果；仍不等同于真实远程 Provider 稳定性 |
-| 大输入 RFLP 批处理 | 配置的 OpenAI-compatible Runtime 对 Functional、Logical、Physical 与 V&V 统一支持逐需求批次；每批仍携带 canonical Requirement 工作项，并在全部批次合并后才进入既有 Validator/CAS 边界，避免大输入只处理上下文前缀 |
+| 大输入 V&V 批处理 | 配置的 OpenAI-compatible Runtime 对 V&V 按配置批大小生成并合并结构化 Patch；独立批次可并行请求，5 条需求形成 10 个 V&V Case、完整追溯、SysML 往返和可编辑 revision；任一批失败不提交部分结果；仍不等同于真实远程 Provider 稳定性 |
+| 大输入 RFLP 批处理 | 配置的 OpenAI-compatible Runtime 对 Functional、Logical、Physical 与 V&V 统一支持按 Requirement 分批；同阶段独立批次可并行，批次只携带当前 Requirement、typed targets、System 和一跳关系邻居，全部 Proposal 合并后才进入既有 Validator/CAS 边界，避免大输入只处理上下文前缀或触发 Provider 超窗 |
 | 完整纵向 Requirement worklist | 纵向结构化 Runtime 不再静默截断超过 24 条的 Requirement；支持批处理的 Provider 按完整 worklist 分批，所有需求在进入 Compiler/CAS 前均保留逐条覆盖 |
-| 逐需求纵向覆盖反馈 | Functional、Logical、Physical、Verification/Validation 阶段逐条解析活动 Requirement 的覆盖链，输出精确缺失 ID；结构化反馈轮只修复当前阶段缺口，并在 Analysis 工作台显示逐条覆盖结论 |
+| 逐需求纵向覆盖反馈 | Functional、Logical、Physical、Verification/Validation 阶段逐条解析活动 Requirement 的覆盖链，输出精确缺失 ID；反馈轮只修复当前阶段缺口，并在 Analysis 工作台显示逐条覆盖结论；远程默认不重复调用每个批次 |
 | 上下文可见性追溯 | worklist 保留完整图上的 `current` 追溯，同时标注 `available_current` 与 `unavailable_current`；结构化 LLM 只能引用当前 Context 可见的 canonical ID，延后目标进入后续继续分析 |
 | 阶段化方法论决策包 | Methodology guidance 按 Requirements、Functional、Logical、Physical、Assurance 筛选对应决策记录，并以 `decision_package` 同时提供给 LLM、Controller 和工作台，避免跨阶段决策污染当前推理 |
 | Requirements 质量推理 | Requirements 阶段检查声明、义务、验证方法和工程约束来源，输出逐条质量指标与可执行 finding；只提供推理依据，不自动改写用户需求 |

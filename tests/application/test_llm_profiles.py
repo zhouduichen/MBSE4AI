@@ -171,3 +171,33 @@ def test_remote_profile_allows_long_running_generation_timeout() -> None:
     })
 
     assert profile["timeout_seconds"] == 900
+
+
+def test_remote_profile_defaults_to_single_vertical_pass_but_allows_feedback() -> None:
+    remote = normalize_profile({
+        **_payload(),
+        "id": "jiayuinter-vllm",
+        "kind": "local",
+        "model_location": "remote",
+        "base_url": "http://127.0.0.1:18000/v1",
+        "model": "qwen3.5-controller",
+    })
+    local = normalize_profile({
+        "id": "local-model",
+        "kind": "local",
+        "model_location": "local",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "model": "local-model",
+    })
+    opted_in = normalize_profile({
+        **remote,
+        "vertical_feedback": True,
+    })
+
+    assert remote["vertical_feedback"] is False
+    assert remote["vertical_batch_size"] == 1
+    assert remote["vertical_batch_output_tokens"] == 2048
+    assert local["vertical_feedback"] is True
+    assert local["vertical_batch_size"] == 2
+    assert local["vertical_batch_output_tokens"] == 3072
+    assert opted_in["vertical_feedback"] is True

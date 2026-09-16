@@ -240,6 +240,32 @@ def normalize_profile(payload: object) -> dict[str, object]:
     reasoning_effort = payload.get("reasoning_effort")
     if reasoning_effort is not None and not isinstance(reasoning_effort, str):
         raise InvariantViolation("LLM reasoning_effort 必须是字符串")
+    vertical_feedback = payload.get("vertical_feedback")
+    if vertical_feedback is None:
+        # Remote providers pay a real latency cost for repeating every batch.
+        # The configured vertical completion bridge still closes typed gaps;
+        # users can opt back into the second model pass explicitly.
+        vertical_feedback = model_location != "remote"
+    if not isinstance(vertical_feedback, bool):
+        raise InvariantViolation("LLM vertical_feedback 必须是布尔值")
+    vertical_batch_size = _optional_int(
+        payload,
+        ("vertical_batch_size",),
+        minimum=1,
+        maximum=32,
+        label="LLM vertical batch size",
+    )
+    if vertical_batch_size is None:
+        vertical_batch_size = 1 if model_location == "remote" else 2
+    vertical_batch_output_tokens = _optional_int(
+        payload,
+        ("vertical_batch_output_tokens",),
+        minimum=256,
+        maximum=1_000_000,
+        label="LLM vertical batch output tokens",
+    )
+    if vertical_batch_output_tokens is None:
+        vertical_batch_output_tokens = 2048 if model_location == "remote" else 3072
     think = payload.get("think")
     if think is not None and not isinstance(think, bool):
         raise InvariantViolation("LLM think 必须是布尔值")
@@ -266,6 +292,9 @@ def normalize_profile(payload: object) -> dict[str, object]:
         "seed": seed,
         "structured_output_mode": structured_output_mode,
         "reasoning_effort": reasoning_effort.strip() if isinstance(reasoning_effort, str) else None,
+        "vertical_feedback": vertical_feedback,
+        "vertical_batch_size": vertical_batch_size,
+        "vertical_batch_output_tokens": vertical_batch_output_tokens,
         "think": think,
         "chat_template_kwargs": (
             {str(key): value for key, value in chat_template_kwargs.items()}

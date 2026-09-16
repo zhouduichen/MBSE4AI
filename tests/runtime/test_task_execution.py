@@ -618,6 +618,49 @@ def test_vertical_runtime_drops_updates_for_unknown_entities_without_losing_vv_e
     assert sanitized["updates"] == []
 
 
+def test_vertical_runtime_drops_unknown_typed_payload_ids_without_discarding_entity():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应保持续航",
+        {"statement": "系统应保持续航"},
+    )
+    function = make_entity(EntityKind.FUNCTION, "维持续航")
+    request = TaskExecutor(RuleRuntime()).request(
+        stage_task("logical"),
+        ContextBundle("p1", "vertical.logical", 3, (requirement, function)),
+        "v2.1",
+    )
+    logical = {
+        "local_ref": "logical-1",
+        "kind": EntityKind.LOGICAL_COMPONENT.value,
+        "name": "续航管理逻辑组件",
+        "payload": {
+            "responsibility": "管理续航",
+            "function_id": function.id,
+            "functional_flow_ids": ["flow-that-was-never-declared"],
+            "dependencies": ["component-that-was-never-declared"],
+        },
+    }
+
+    sanitized = _sanitize_vertical_proposal(
+        request,
+        {
+            "entities": [logical],
+            "relations": [],
+            "updates": [],
+            "deprecations": [],
+            "reason": "建立续航逻辑组件",
+        },
+    )
+
+    assert sanitized["entities"][0]["payload"] == {
+        "responsibility": "管理续航",
+        "function_id": function.id,
+        "functional_flow_ids": [],
+        "dependencies": [],
+    }
+
+
 def test_vertical_runtime_preserves_context_scoped_traceability_metadata():
     model = FakeModel()
     requirement = make_entity(
@@ -872,6 +915,35 @@ def test_structured_runtime_batches_large_rflp_worklist(stage):
         for call in model.calls
     )
     assert "batch_count=3" in result.diagnostics
+
+
+def test_structured_runtime_accepts_provider_batch_budget_overrides():
+    model = BatchedVerticalModel()
+    model.vertical_batch_size = 4
+    model.vertical_batch_output_token_budget = 1536
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求 {index}",
+            {"statement": f"系统应满足需求 {index}"},
+        )
+        for index in range(5)
+    )
+    context = ContextBundle("p1", "vertical.functional", 3, requirements)
+    request = TaskExecutor(model).request(
+        stage_task("functional"), context, "v2.1", token_budget=4096
+    )
+
+    StructuredModelRuntime(model).execute(request)
+
+    assert [
+        [item["requirement_id"] for item in call.user_payload["requirement_worklist"]]
+        for call in model.calls
+    ] == [
+        [item.id for item in sorted(requirements, key=lambda item: item.id)[:4]],
+        [item.id for item in sorted(requirements, key=lambda item: item.id)[4:]],
+    ]
+    assert [call.max_tokens for call in model.calls] == [1536, 1536]
 
 
 def test_structured_runtime_scopes_each_batch_to_current_requirements():

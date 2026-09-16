@@ -83,6 +83,17 @@ class ContextBuilder:
         )
         effective_root_entity_ids = root_entity_ids
         if not effective_root_entity_ids:
+            # Product-level vertical calls are later scoped to one
+            # requirement batch at the wire boundary. Keep the complete
+            # upstream/downstream roots available to that scoping step when
+            # the context budget is genuinely large enough; otherwise the
+            # planner may omit requirements before batching can begin.
+            effective_root_entity_ids = _vertical_root_context_ids(
+                graph,
+                task.id,
+                available_context,
+            )
+        if not effective_root_entity_ids:
             effective_root_entity_ids = {
             "functional_requirement": _functional_requirement_context_roots(graph),
             "physical_candidates": _physical_candidate_context_roots(graph),
@@ -560,6 +571,45 @@ def _technical_context_roots(graph: ModelGraph) -> tuple[str, ...]:
         )
     }
     return tuple(sorted((*requirement_ids, *physical_ids)))
+
+
+def _vertical_root_context_ids(
+    graph: ModelGraph,
+    task_id: str,
+    available_context: int,
+) -> tuple[str, ...]:
+    """Keep all vertical worklist roots before per-batch wire scoping.
+
+    Tiny unit/test budgets intentionally exercise omission behavior. Real
+    provider calls use a much larger context budget, where losing a
+    Requirement during planning would make the later batch executor unable to
+    repair that Requirement at all.
+    """
+
+    if available_context < 2048 or task_id not in {
+        "vertical.functional",
+        "vertical.logical",
+        "vertical.physical",
+    }:
+        return ()
+    requirement_ids = {
+        item.id
+        for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and item.meta.status not in _INACTIVE_STATUSES
+    }
+    if task_id == "vertical.functional":
+        return tuple(sorted((*requirement_ids, *(
+            item.id for item in graph.entities if item.kind is EntityKind.FUNCTION
+        ))))
+    return tuple(sorted((*requirement_ids, *(
+        item.id
+        for item in graph.entities
+        if item.kind in {
+            EntityKind.FUNCTION,
+            EntityKind.LOGICAL_COMPONENT,
+        }
+    ))))
 
 
 def _functional_requirement_context_roots(graph: ModelGraph) -> tuple[str, ...]:

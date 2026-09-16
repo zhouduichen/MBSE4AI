@@ -78,6 +78,34 @@ def test_vertical_worklist_reports_requirements_omitted_by_context_budget():
     } - selected_ids
 
 
+def test_vertical_physical_context_keeps_all_worklist_requirements_before_batch_scoping():
+    requirements = tuple(
+        make_entity(EntityKind.REQUIREMENT, f"需求-{index}")
+        for index in range(5)
+    )
+    functions = tuple(
+        make_entity(EntityKind.FUNCTION, f"功能-{index}")
+        for index in range(5)
+    )
+    logicals = tuple(
+        make_entity(EntityKind.LOGICAL_COMPONENT, f"逻辑-{index}")
+        for index in range(5)
+    )
+    graph = ModelGraph("p1", (*requirements, *functions, *logicals))
+
+    context = ContextBuilder().build(
+        graph,
+        stage_task(VerticalStage.PHYSICAL),
+        token_budget=16384,
+        output_reserve=4096,
+        prompt_reserve=256,
+    )
+
+    worklist = context.methodology_guidance["requirement_worklist"]
+    assert len(worklist["items"]) == len(requirements)
+    assert worklist["truncated"] is False
+
+
 def test_vertical_worklist_marks_current_targets_outside_context():
     requirement = make_entity(
         EntityKind.REQUIREMENT,

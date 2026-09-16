@@ -18,6 +18,7 @@ from rflp_lite.domain.model import AddEntity, Deprecate, Patch, Relate, UpdateEn
 from rflp_lite.domain.relations import RelationPredicate, validate_endpoint_kinds
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
 from rflp_lite.methodology.proposal_compiler import (
+    _GRAPH_REFERENCE_FIELDS,
     TaskProposal,
     compile_task_proposal,
     parse_task_proposal,
@@ -49,6 +50,14 @@ _VERTICAL_BATCH_SIZE = 2
 # because it has only one requirement to cover.
 _VERTICAL_BATCH_OUTPUT_TOKEN_BUDGET = 3072
 _VERTICAL_SINGLETON_OUTPUT_TOKEN_BUDGET = 2048
+_VERTICAL_CURRENT_FIELDS = (
+    "function_ids",
+    "logical_component_ids",
+    "physical_ids",
+    "verification_case_ids",
+    "validation_case_ids",
+)
+_MISSING_VERTICAL_VALUE = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +72,30 @@ class _CompiledProposal:
 class StructuredModelRuntime:
     def __init__(self, model: GenerativeModel):
         self.model = model
+        self.vertical_batch_size = max(
+            1,
+            min(32, int(getattr(model, "vertical_batch_size", _VERTICAL_BATCH_SIZE))),
+        )
+        self.vertical_batch_output_token_budget = max(
+            256,
+            int(
+                getattr(
+                    model,
+                    "vertical_batch_output_token_budget",
+                    _VERTICAL_BATCH_OUTPUT_TOKEN_BUDGET,
+                )
+            ),
+        )
+        self.vertical_singleton_output_token_budget = max(
+            256,
+            int(
+                getattr(
+                    model,
+                    "vertical_singleton_output_token_budget",
+                    _VERTICAL_SINGLETON_OUTPUT_TOKEN_BUDGET,
+                )
+            ),
+        )
 
     def execute(self, request: TaskExecutionRequest) -> TaskExecutionResponse:
         payload: dict[str, object] = {
@@ -103,6 +136,7 @@ class StructuredModelRuntime:
             request,
             payload.get("requirement_worklist", []),
             self.model,
+            batch_size=self.vertical_batch_size,
         )
         batch_payloads = tuple(
             _scope_batch_payload(
@@ -248,6 +282,8 @@ class StructuredModelRuntime:
             request,
             payload,
             singleton_fallback=batch_fallback,
+            batch_output_token_budget=self.vertical_batch_output_token_budget,
+            singleton_output_token_budget=self.vertical_singleton_output_token_budget,
         )
         batch_instruction = _batch_instruction(
             request.task_id,
@@ -394,6 +430,15 @@ def _sanitize_vertical_proposal(
     result = dict(payload)
     if len(valid_relations) != len(raw_relations):
         result["relations"] = valid_relations
+    sanitized_entities = _sanitize_vertical_entity_references(
+        request,
+        raw_entities,
+        context_kinds,
+        set(local_kinds),
+    )
+    if sanitized_entities is not None:
+        result["entities"] = sanitized_entities
+        raw_entities = sanitized_entities
     inferred_relations = _infer_vertical_relations(
         request.task_id,
         raw_entities,
@@ -407,6 +452,72 @@ def _sanitize_vertical_proposal(
     if sanitized_updates is not None:
         result["updates"] = sanitized_updates
     return result
+
+
+def _sanitize_vertical_entity_references(
+    request: TaskExecutionRequest,
+    raw_entities: list[object] | tuple[object, ...],
+    context_kinds: Mapping[str, EntityKind],
+    local_refs: set[str],
+) -> list[object] | None:
+    """Drop unresolvable typed IDs before the proposal compiler rejects a batch.
+
+    Models sometimes turn a free-form flow description into an ID-looking
+    value (for example ``flow-...-1``) even though that entity was not
+    declared in the current Proposal or context. Graph-reference fields are
+    the only fields affected; prose and engineering evidence remain intact.
+    Removing an unresolvable edge leaves the typed object available for
+    compiler validation and makes the missing link visible to downstream
+    coverage instead of discarding the entire parallel batch.
+    """
+
+    if not request.task_id.startswith("vertical."):
+        return None
+    known_ids = set(context_kinds) | set(local_refs)
+    changed = False
+
+    def clean(value: object, field: str = "") -> object:
+        nonlocal changed
+        if field in _GRAPH_REFERENCE_FIELDS:
+            if isinstance(value, (list, tuple)):
+                filtered = [
+                    item for item in value
+                    if not isinstance(item, str) or item.strip() in known_ids
+                ]
+                if len(filtered) != len(value):
+                    changed = True
+                return list(dict.fromkeys(filtered))
+            if isinstance(value, str) and value.strip() not in known_ids:
+                changed = True
+                return _MISSING_VERTICAL_VALUE
+            return value
+        if isinstance(value, Mapping):
+            result = {}
+            for key, item in value.items():
+                cleaned = clean(item, str(key))
+                if cleaned is _MISSING_VERTICAL_VALUE:
+                    continue
+                result[key] = cleaned
+            return result
+        if isinstance(value, list):
+            return [clean(item, field) for item in value]
+        return value
+
+    sanitized: list[object] = []
+    for raw_entity in raw_entities:
+        if not isinstance(raw_entity, Mapping):
+            sanitized.append(raw_entity)
+            continue
+        payload = raw_entity.get("payload")
+        if not isinstance(payload, Mapping):
+            sanitized.append(raw_entity)
+            continue
+        cleaned_payload = clean(payload)
+        if cleaned_payload is payload:
+            sanitized.append(raw_entity)
+            continue
+        sanitized.append({**raw_entity, "payload": cleaned_payload})
+    return sanitized if changed else None
 
 
 def _infer_vertical_relations(
@@ -898,6 +1009,8 @@ def _requirement_batches(
     request: TaskExecutionRequest,
     worklist: object,
     model: GenerativeModel,
+    *,
+    batch_size: int = _VERTICAL_BATCH_SIZE,
 ) -> tuple[tuple[Mapping[str, object], ...], ...]:
     if not isinstance(worklist, (list, tuple)):
         return ((),)
@@ -909,8 +1022,8 @@ def _requirement_batches(
     ):
         return (entries,)
     return tuple(
-        entries[start : start + _VERTICAL_BATCH_SIZE]
-        for start in range(0, len(entries), _VERTICAL_BATCH_SIZE)
+        entries[start : start + max(1, int(batch_size))]
+        for start in range(0, len(entries), max(1, int(batch_size)))
     )
 
 
@@ -940,12 +1053,23 @@ def _scope_batch_payload(
     entities = context.get("entities")
     if not isinstance(entities, (list, tuple)):
         return result
+    context_entity_ids = {
+        str(entity.get("id", ""))
+        for entity in entities
+        if isinstance(entity, Mapping) and str(entity.get("id", ""))
+    }
+    visible_ids = _batch_context_ids(
+        request,
+        batch,
+        entities,
+        context.get("relations"),
+        requirement_ids,
+    ) & context_entity_ids
     scoped_entities = [
         entity
         for entity in entities
         if not isinstance(entity, Mapping)
-        or entity.get("kind") != EntityKind.REQUIREMENT.value
-        or str(entity.get("id", "")) in requirement_ids
+        or str(entity.get("id", "")) in visible_ids
     ]
     visible_ids = {
         str(entity.get("id", ""))
@@ -970,6 +1094,68 @@ def _scope_batch_payload(
     result["context"] = scoped_context
     result["context_hash"] = canonical_hash(scoped_context)
     return result
+
+
+def _batch_context_ids(
+    request: TaskExecutionRequest,
+    batch: tuple[Mapping[str, object], ...] | list[Mapping[str, object]],
+    entities: tuple[object, ...] | list[object],
+    relations: object,
+    requirement_ids: set[str],
+) -> set[str]:
+    """Select the canonical trace slice needed by one parallel batch.
+
+    A vertical batch already carries its exact Requirement worklist. Keeping
+    every non-Requirement entity in every batch makes later L/P/V&V prompts
+    grow with the whole project and can cross a provider context window. Start
+    from the batch's current typed targets, retain the shared System, then add
+    one-hop graph neighbors so each provider call still has enough upstream
+    and downstream grounding to create typed links.
+    """
+
+    entity_by_id = {
+        str(entity.get("id", "")): entity
+        for entity in entities
+        if isinstance(entity, Mapping) and str(entity.get("id", ""))
+    }
+    visible_ids = set(requirement_ids)
+    for item in batch:
+        current = item.get("current") if isinstance(item, Mapping) else None
+        if not isinstance(current, Mapping):
+            continue
+        for field in _VERTICAL_CURRENT_FIELDS:
+            values = current.get(field, ())
+            if isinstance(values, (list, tuple)):
+                visible_ids.update(
+                    str(value)
+                    for value in values
+                    if str(value).strip() in entity_by_id
+                )
+
+    # The system definition is shared context, not batch-owned work. Retain
+    # it explicitly even when the current slice has no direct relation to it.
+    # Keep the batch roots separate so adding the shared System does not pull
+    # every other Requirement back in through a reverse relation.
+    seed_ids = set(visible_ids)
+    visible_ids.update(
+        entity_id
+        for entity_id, entity in entity_by_id.items()
+        if entity.get("kind") == EntityKind.SYSTEM.value
+    )
+
+    if isinstance(relations, (list, tuple)):
+        neighbor_ids = set(visible_ids)
+        for relation in relations:
+            if not isinstance(relation, Mapping):
+                continue
+            source_id = str(relation.get("source_id", ""))
+            target_id = str(relation.get("target_id", ""))
+            if source_id in seed_ids and target_id in entity_by_id:
+                neighbor_ids.add(target_id)
+            if target_id in seed_ids and source_id in entity_by_id:
+                neighbor_ids.add(source_id)
+        visible_ids.update(neighbor_ids)
+    return visible_ids
 
 
 def _split_requirement_batch(
@@ -1007,6 +1193,8 @@ def _batch_token_budget(
     payload: Mapping[str, object],
     *,
     singleton_fallback: bool = False,
+    batch_output_token_budget: int = _VERTICAL_BATCH_OUTPUT_TOKEN_BUDGET,
+    singleton_output_token_budget: int = _VERTICAL_SINGLETON_OUTPUT_TOKEN_BUDGET,
 ) -> int:
     """Keep multi-requirement provider calls bounded without shrinking R output."""
 
@@ -1014,8 +1202,8 @@ def _batch_token_budget(
     if request.task_id not in _VERTICAL_BATCH_TASKS or not isinstance(batch, Mapping):
         return request.token_budget
     if singleton_fallback:
-        return min(request.token_budget, _VERTICAL_SINGLETON_OUTPUT_TOKEN_BUDGET)
-    return min(request.token_budget, _VERTICAL_BATCH_OUTPUT_TOKEN_BUDGET)
+        return min(request.token_budget, singleton_output_token_budget)
+    return min(request.token_budget, batch_output_token_budget)
 
 
 def _merge_compiled(

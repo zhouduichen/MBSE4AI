@@ -52,6 +52,30 @@ def test_openai_compatible_model_enables_requirement_batching():
     assert OpenAICompatibleModel({"model": "remote"}).supports_parallel_requirement_batching is True
 
 
+def test_openai_compatible_remote_model_uses_single_vertical_pass_by_default():
+    remote = OpenAICompatibleModel({
+        "model": "remote",
+        "model_location": "remote",
+    })
+    local = OpenAICompatibleModel({
+        "model": "local",
+        "model_location": "local",
+    })
+    opted_in = OpenAICompatibleModel({
+        "model": "remote",
+        "model_location": "remote",
+        "vertical_feedback": True,
+    })
+
+    assert remote.automatic_vertical_stage_feedback is False
+    assert remote.vertical_batch_size == 1
+    assert remote.vertical_batch_output_token_budget == 2048
+    assert local.automatic_vertical_stage_feedback is True
+    assert local.vertical_batch_size == 2
+    assert local.vertical_batch_output_token_budget == 3072
+    assert opted_in.automatic_vertical_stage_feedback is True
+
+
 def test_adapter_parses_json_and_records_hashes():
     calls = []
 
@@ -197,6 +221,35 @@ def test_requirements_schema_accepts_operational_scenario_description():
     }
 
     OpenAICompatibleModel._parse_and_validate(json.dumps(payload, ensure_ascii=False), schema)
+
+
+def test_physical_schema_coerces_structured_scalar_measurements():
+    schema = output_contract(stage_task("physical"))
+    payload = {
+        "entities": [{
+            "local_ref": "physical-1",
+            "kind": "physical_block",
+            "name": "续航控制器",
+            "payload": {
+                "candidate_type": "embedded_controller",
+                "selection_rationale": "满足当前逻辑职责",
+                "compute": {"cpu_mhz": 168, "cores": 1, "fpu": True},
+                "thermal": {"dissipation_w": 2.5, "cooling": "passive"},
+            },
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "选择物理候选",
+    }
+
+    normalized = OpenAICompatibleModel._parse_and_validate(
+        json.dumps(payload, ensure_ascii=False), schema, normalize_vertical=True
+    )
+
+    physical_payload = normalized["entities"][0]["payload"]
+    assert isinstance(physical_payload["compute"], str)
+    assert isinstance(physical_payload["thermal"], str)
 
 
 def test_requirements_repair_keeps_context_without_redundant_guidance():

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, MutableMapping
 
 from rflp_lite.adapters.llm_client import (
     _bounded_max_tokens,
@@ -529,6 +529,7 @@ def _normalize_vertical_entity_payload(
         ):
             if field in source:
                 source[field] = _wire_string_list(source[field])
+        _normalize_physical_scalar_fields(source)
     elif kind in {"verification_case", "validation_case"}:
         for field in (
             "method", "verification_objective", "precondition", "test_condition",
@@ -575,6 +576,18 @@ def _wire_string_list(value: object) -> list[str]:
     return result
 
 
+def _normalize_physical_scalar_fields(source: MutableMapping[str, object]) -> None:
+    """Fit structured measurements into the physical payload scalar subset."""
+
+    for field in (
+        "mass_kg", "power_w", "compute", "memory_mb", "latency_ms",
+        "bandwidth_mbps", "cost", "thermal", "reliability",
+        "availability", "endurance_h",
+    ):
+        if field in source:
+            source[field] = _wire_scalar_text(source[field])
+
+
 def _wire_text(value: Mapping[str, object]) -> str:
     """Keep a structured provider value in a scalar schema slot."""
 
@@ -592,6 +605,8 @@ def _wire_scalar_text(value: object) -> object:
         return _wire_text(value)
     if isinstance(value, (list, tuple)):
         return "；".join(_wire_string_list(value))
+    if isinstance(value, bool):
+        return str(value).lower()
     return value
 
 
@@ -727,6 +742,47 @@ class OpenAICompatibleModel:
     ) -> None:
         self._config = dict(config)
         self._complete = complete
+        configured_feedback = self._config.get("vertical_feedback")
+        if not isinstance(configured_feedback, bool):
+            configured_feedback = str(
+                self._config.get("model_location", "local")
+            ).casefold() != "remote"
+        # A remote profile normally uses the typed completion bridge after one
+        # proposal pass.  Keep the feedback pass opt-in for slower providers.
+        self.automatic_vertical_stage_feedback = configured_feedback
+        self.automatic_vertical_stage_completion_bridge = True
+        model_location = str(
+            self._config.get("model_location", "local")
+        ).casefold()
+        try:
+            self.vertical_batch_size = max(
+                1,
+                min(
+                    32,
+                    int(
+                        self._config.get(
+                            "vertical_batch_size",
+                            1 if model_location == "remote" else 2,
+                        )
+                    ),
+                ),
+            )
+        except (TypeError, ValueError):
+            self.vertical_batch_size = 1 if model_location == "remote" else 2
+        try:
+            self.vertical_batch_output_token_budget = max(
+                256,
+                int(
+                    self._config.get(
+                        "vertical_batch_output_tokens",
+                        2048 if model_location == "remote" else 3072,
+                    )
+                ),
+            )
+        except (TypeError, ValueError):
+            self.vertical_batch_output_token_budget = (
+                2048 if model_location == "remote" else 3072
+            )
 
     @staticmethod
     def _parse_json(raw: object) -> object:

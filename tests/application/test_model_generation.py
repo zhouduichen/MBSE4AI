@@ -226,6 +226,16 @@ class SemanticInvalidModel(ScriptedModel):
         return response
 
 
+class MissingRequirementObligationModel(ScriptedModel):
+    def complete_json(self, request):
+        response = super().complete_json(request)
+        if request.lens_id == "vertical.requirements":
+            for entity in response.payload.get("entities", []):
+                if entity.get("kind") == EntityKind.REQUIREMENT.value:
+                    entity.setdefault("payload", {}).pop("obligation", None)
+        return response
+
+
 class FeedbackFunctionalModel(ScriptedModel):
     def __init__(self):
         super().__init__()
@@ -2069,6 +2079,81 @@ def test_configured_vertical_generation_bridges_remaining_completion_gaps(tmp_pa
         event["kind"] == "model_generation.completion_bridge"
         for event in services.repository("robot").list_audit_events("robot")
     ) == 5
+
+
+def test_configured_vertical_generation_can_skip_remote_feedback_and_still_bridge(tmp_path: Path):
+    model = ScriptedModel()
+    model.automatic_vertical_stage_feedback = False
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+        runtime_config={
+            "id": "remote-fast-path",
+            "provider": "openai-compatible",
+            "kind": "local",
+            "model_location": "remote",
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+            "vertical_feedback": False,
+            "context_window": 8192,
+            "max_output_tokens": 2048,
+        },
+    )
+    services.projects.create("robot")
+
+    result = services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+
+    assert result.traceability.complete_count == 1
+    assert all(item.status == "completed" for item in result.stage_results)
+    assert all(item.attempts == 1 for item in result.stage_results)
+    assert all(
+        "completion_bridge=vertical-rule" in item.diagnostics
+        for item in result.stage_results
+    )
+    assert model.calls == [
+        "vertical.requirements",
+        "vertical.functional",
+        "vertical.logical",
+        "vertical.physical",
+        "vertical.verification_validation",
+    ]
+
+
+def test_completion_bridge_repairs_missing_requirement_semantics(tmp_path: Path):
+    model = MissingRequirementObligationModel()
+    model.automatic_vertical_stage_feedback = False
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+        runtime_config={
+            "id": "remote-semantic-bridge",
+            "provider": "openai-compatible",
+            "kind": "local",
+            "model_location": "remote",
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+            "vertical_feedback": False,
+            "context_window": 8192,
+            "max_output_tokens": 2048,
+        },
+    )
+    services.projects.create("robot")
+
+    result = services.generation("robot").generate(
+        "robot", requirement_text="系统应支持人工接管"
+    )
+
+    requirement = next(
+        item
+        for item in services.model("robot").graph("robot").entities
+        if item.kind is EntityKind.REQUIREMENT
+    )
+    assert result.traceability.complete_count == 1
+    assert result.stage_results[0].status == "completed"
+    assert requirement.payload["obligation"] == "系统应"
+    assert "completion_bridge=vertical-rule" in result.stage_results[0].diagnostics
 
 
 def test_generation_attaches_read_only_controller_proposal(tmp_path: Path):

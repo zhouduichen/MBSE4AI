@@ -475,6 +475,14 @@ class VerticalRuleRuntime:
             builder.relate(transition, RelationPredicate.DERIVED_FROM, lifecycle)
         for requirement in requirements:
             requirement_payload = dict(requirement.payload)
+            # Imported or LLM-proposed Requirements can be structurally valid
+            # while omitting the minimum semantic contract.  The vertical
+            # completion bridge may fill these neutral defaults without
+            # rewriting the user's statement or adding an engineering claim.
+            requirement_payload.setdefault("level", "system")
+            requirement_payload.setdefault("type", "functional")
+            requirement_payload.setdefault("obligation", "系统应")
+            requirement_payload.setdefault("verification_method", "review")
             requirement_payload.setdefault(
                 "derived_by", "system_requirement_derivation"
             )

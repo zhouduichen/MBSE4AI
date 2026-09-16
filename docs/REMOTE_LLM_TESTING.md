@@ -56,10 +56,17 @@ actual model remains remote.
   "context_window": 32768,
   "max_output_tokens": 4096,
   "temperature": 0.0,
+  "vertical_feedback": false,
   "structured_output_mode": "json_schema",
   "active": false
 }
 ```
+
+For a remote profile, `vertical_feedback` defaults to `false` so a multi-
+requirement run does not repeat every provider batch. The product still runs
+the typed vertical completion bridge after the single LLM proposal pass; set
+it to `true` only when the remote model's additional same-stage feedback pass
+is worth the latency.
 
 Save it with the CLI in an isolated configuration directory, then use the
 profile explicitly. This keeps the user's normal profile directory and

@@ -1504,7 +1504,7 @@ class ModelGenerationService:
             and bool(
                 getattr(
                     self.runtime.model,
-                    "automatic_vertical_stage_feedback",
+                    "automatic_vertical_stage_completion_bridge",
                     True,
                 )
             )
