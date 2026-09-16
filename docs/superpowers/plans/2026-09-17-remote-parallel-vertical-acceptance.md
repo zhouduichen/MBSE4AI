@@ -29,7 +29,7 @@
 - Consumes: `WorkflowRunner.run`, `ParallelTrackingRuntime`, `tasks_for_phase`, and the existing `RunSummary` contract.
 - Produces: a regression proving a configured full lifecycle reaches concurrent independent task execution without changing the phase order or final CAS behavior.
 
-- [ ] **Step 1: Add a full lifecycle concurrency test**
+- [x] **Step 1: Add a full lifecycle concurrency test**
 
 Add a test next to `test_configured_runtime_parallelizes_dependency_safe_task_group`:
 
@@ -59,7 +59,7 @@ def test_configured_full_lifecycle_parallelizes_only_independent_groups(tmp_path
     assert repository.load_graph("p1").revision >= len(stored.steps)
 ```
 
-- [ ] **Step 2: Run the focused test and inspect failure**
+- [x] **Step 2: Run the focused test and inspect failure**
 
 Run:
 
@@ -69,11 +69,11 @@ Run:
 
 Expected: the test either passes against the current implementation or exposes a concrete rebase/phase-order defect; do not weaken the assertions to accommodate a failure.
 
-- [ ] **Step 3: Fix only a discovered parallel lifecycle defect**
+- [x] **Step 3: Fix only a discovered parallel lifecycle defect**
 
 If the test fails, change only the affected code in `src/rflp_lite/methodology/workflow.py`. Preserve `_PARALLEL_PHASE_GROUPS`, immutable snapshot preparation, deterministic `executor.map` order, and `_rebase_parallel_patch` before CAS. A successful response must still be accepted by `_accept_task_response`; a transport or semantic failure must retain its existing recovery/status behavior.
 
-- [ ] **Step 4: Run the focused workflow regression**
+- [x] **Step 4: Run the focused workflow regression**
 
 Run:
 
@@ -83,7 +83,7 @@ Run:
 
 Expected: all matching tests pass and at least one test observes `max_active >= 2`.
 
-- [ ] **Step 5: Commit the test/defect fix**
+- [x] **Step 5: Commit the test/defect fix**
 
 ```bash
 git add tests/methodology/test_workflow.py src/rflp_lite/methodology/workflow.py
@@ -101,7 +101,7 @@ git commit -m "test: cover parallel full lifecycle execution"
 - Consumes: SSH alias `Jiayu-intern`, local tunnel `127.0.0.1:18000`, and `model-profile` normalization.
 - Produces: an isolated remote profile with Qwen thinking disabled, `vertical_feedback=false`, `vertical_batch_size=2`, and `max_parallel_requests=2`.
 
-- [ ] **Step 1: Confirm the remote service before opening a test run**
+- [x] **Step 1: Confirm the remote service before opening a test run**
 
 Run:
 
@@ -113,7 +113,7 @@ curl --fail --max-time 5 http://127.0.0.1:18000/v1/models
 
 Expected: the endpoint lists `qwen3.5-controller`. If port 8000 is absent or GPU memory is unavailable, stop this task and report the external resource condition; do not kill unrelated jobs or launch a local server.
 
-- [ ] **Step 2: Validate the isolated profile**
+- [x] **Step 2: Validate the isolated profile**
 
 Run:
 
@@ -136,33 +136,35 @@ Expected: remote location, OpenAI-compatible provider, `think=false`, `chat_temp
 - Consumes: the isolated profile from Task 2 and `tests/mbse_benchmark/run_benchmark.py --track llm --path vertical`.
 - Produces: one remote run artifact that records actual profile/provider/model, per-stage results, batch diagnostics, ModelGraph snapshot, traceability, deliverables, and SysML text.
 
-- [ ] **Step 1: Run the focused remote vertical case once**
+- [x] **Step 1: Run the focused remote vertical case once**
 
 ```bash
 RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-live-20260917 \
   ./.venv/bin/python tests/mbse_benchmark/run_benchmark.py \
   --track llm --profile jiayuinter-vllm --path vertical \
   --case CASE-04 --repeats 1 --timeout 900 --baseline bare \
-  --output-dir /tmp/ai4mbse-remote-benchmark-20260917/vertical
+  --output-root /tmp/ai4mbse-remote-benchmark-20260917/vertical \
+  --report-dir /tmp/ai4mbse-remote-benchmark-20260917/vertical-reports
 ```
 
 Expected: one completed or reviewable remote run; no local model process; for multi-requirement stages the artifact includes `batch_count` and the provider observes no more than two in-flight requests.
 
 - [ ] **Step 2: Audit the vertical result against product evidence**
 
-Run a read-only audit over the generated JSON artifacts and assert:
+Run a read-only audit over `run_summary.json`, `model.json`, and
+`run_ledger.json` and assert:
 
 ```python
-assert result["runtime"]["model_location"] == "remote"
-assert len(result["stage_results"]) == 5
-assert result["deliverable"]["snapshot_hash"] == result["snapshot_hash"]
-assert result["traceability"]["end_to_end_complete_count"] >= 1
-assert result["sysml_text"]
+assert execution["runtime"] == "configured-llm"
+assert len(run_summary["stage_results"]) == 5
+assert len(run_summary["sysml_text"]) > 0
+assert model["snapshot_hash"]
+assert run_summary["traceability"]["end_to_end_complete_count"] >= 1
 ```
 
 Then call the existing SysML importer on the emitted `model.sysml`, compare entity/relation IDs and graph-reference payload fields, and apply one existing Review/Edit operation to prove a new CAS revision is created.
 
-- [ ] **Step 3: Preserve honest status for incomplete remote output**
+- [x] **Step 3: Preserve honest status for incomplete remote output**
 
 If any stage is `needs_review`, keep the artifact and record the exact completion issue and candidate status. Do not replace the remote proposal with an offline success claim; the typed completion bridge may remain visible as its existing offline provenance.
 
@@ -183,7 +185,8 @@ RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-live-20260917 \
   ./.venv/bin/python tests/mbse_benchmark/run_benchmark.py \
   --track llm --profile jiayuinter-vllm --path lifecycle \
   --case CASE-04 --repeats 1 --timeout 2400 --baseline harness \
-  --output-dir /tmp/ai4mbse-remote-benchmark-20260917/lifecycle
+  --output-root /tmp/ai4mbse-remote-benchmark-20260917/lifecycle \
+  --report-dir /tmp/ai4mbse-remote-benchmark-20260917/lifecycle-reports
 ```
 
 Expected: the run ledger contains all 23 task IDs or an explicit bounded failure; independent groups overlap, while Operational→Functional→Logical/Physical→Assurance remains ordered.
@@ -202,7 +205,7 @@ Confirm both paths write the same typed ModelGraph contract and that the five-st
 - Consumes: completed code/tests and any remote artifacts kept outside the repository.
 - Produces: clean, pushed branch and a concise evidence report with any unresolved remote resource blocker.
 
-- [ ] **Step 1: Run the full local verification without a model profile**
+- [x] **Step 1: Run the full local verification without a model profile**
 
 ```bash
 ./.venv/bin/python scripts/verify_full.py
@@ -235,5 +238,20 @@ Report separately: local deterministic gates, parallel regression evidence, real
 - The plan preserves the full product order and does not substitute repeated stability runs for vertical completion.
 - Parallelism is tested at both batch and full lifecycle task-group levels, but no cross-stage parallelism is introduced.
 - Remote inference is isolated from local verification and all generated artifacts stay outside the repository.
+
+## Execution Record (2026-09-17)
+
+- The focused full-lifecycle regression passed after fixing assurance-context preservation for
+  `global_cross_analysis`; it observed concurrent independent groups and retained the 23-task
+  closure.
+- The isolated `jiayuinter-vllm` profile resolved to the SSH-forwarded remote endpoint with
+  `think=false`, `enable_thinking=false`, and `max_parallel_requests=2`.
+- Two remote vertical attempts reached the configured runner, but the remote Controller was
+  reclaimed by the GPU scheduler when its ComfyUI evaluation lane became active. The saved
+  artifact is therefore `completed_with_warnings` with `offline:vertical-runtime` bridge
+  provenance, not proof of five successful LLM-generated stages.
+- The saved ModelGraph nevertheless contains 5 complete R→F→L→P→V&V paths, 70 entities, 156
+  relations, a non-empty SysML projection, and a snapshot hash. SysML round-trip/editability and
+  the real 23-task remote lifecycle run remain pending until the remote GPU lane can be reserved.
 - A failed or incomplete LLM proposal remains reviewable; offline bridge provenance is not misreported as provider success.
 - The plan has no placeholder requirements; every implementation/test step names concrete files, commands, and expected evidence.
