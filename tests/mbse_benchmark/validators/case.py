@@ -59,7 +59,7 @@ def validate_case(
         "unsupported_hard_assumption_rate": requirements.get("unsupported_hard_assumption_rate", 0.0),
         "upstream_traceability": traceability.get("upstream_traceability", 0.0),
         "use_case_activity_consistency": traceability.get("use_case_activity_consistency", 0.0),
-        "derived_requirement_precision": None,
+        "derived_requirement_precision": requirements.get("derived_requirement_precision", 1.0),
         "architecture_traceability": traceability.get("architecture_traceability", 0.0),
         "verification_coverage": traceability.get("verification_coverage", 0.0),
         "end_to_end_traceability": traceability.get("end_to_end_traceability", 0.0),

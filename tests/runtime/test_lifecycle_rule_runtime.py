@@ -150,3 +150,31 @@ def test_remaining_tasks_create_logical_physical_and_assurance_objects(tmp_path:
     assert set(physical_reasoning["missing_fields"]) >= {
         "power_w", "endurance_h", "thermal"
     }
+
+
+def test_technical_requirement_is_not_invented_without_explicit_fixture_scope(tmp_path: Path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    RequirementInputService(repository, "p1").ensure_text_requirements(
+        "系统应支持自主配送并允许人工接管"
+    )
+
+    _run_tasks(repository, tuple(task.id for task in task_catalog()))
+
+    graph = repository.load_graph("p1")
+    technical = [
+        item for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and item.payload.get("level") == "technical"
+    ]
+    physicals = [
+        item for item in graph.entities
+        if item.kind is EntityKind.PHYSICAL_BLOCK
+    ]
+
+    assert technical == []
+    assert physicals
+    assert all(
+        item.payload.get("technical_requirement_status") == "no_explicit_constraints"
+        for item in physicals
+    )

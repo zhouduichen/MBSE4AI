@@ -654,7 +654,22 @@ class LifecycleTaskRuleRuntime:
             level="technical",
             statement="物理候选应满足校园系统的技术实现要求",
         )
-        builder.relate(fixture_requirement, RelationPredicate.SATISFIED_BY, builder.first(EntityKind.FUNCTION))
+        if fixture_requirement is not None and physicals:
+            builder.update_payload(fixture_requirement, {
+                "source_physical_ids": [item.id for item in physicals],
+                "feasibility_review": {
+                    "status": "needs_measurement",
+                    "measured_values": None,
+                    "required_constraints": {},
+                    "physical_candidate_ids": [item.id for item in physicals],
+                },
+            })
+            for physical in physicals:
+                builder.relate(
+                    fixture_requirement,
+                    RelationPredicate.SATISFIED_BY,
+                    physical,
+                )
         return builder.response("生命周期任务生成技术需求")
 
     def _interface_sequence_state(self, builder: TaskGraphBuilder) -> TaskExecutionResponse:

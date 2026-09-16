@@ -36,6 +36,39 @@ def test_requirement_quality_counts_numeric_verification_and_source() -> None:
     assert result["requirement_verifiability"] == 1.0
 
 
+def test_derived_requirement_precision_requires_typed_parent_and_physical_edges() -> None:
+    graph = {
+        "project_id": "p1",
+        "entities": [
+            {"id": "req-1", "kind": "requirement", "name": "系统需求", "status": "accepted", "payload": {}},
+            {"id": "req-tech", "kind": "requirement", "name": "技术约束", "status": "accepted", "payload": {"level": "technical", "source_requirement_ids": ["req-1"], "source_physical_ids": ["phy-1"], "constraint_fields": ["max_power_w"]}},
+            {"id": "phy-1", "kind": "physical_block", "name": "候选实现", "status": "accepted", "payload": {}},
+        ],
+        "relations": [
+            {"id": "r1", "source_id": "req-tech", "predicate": "derivedFrom", "target_id": "req-1"},
+            {"id": "r2", "source_id": "req-tech", "predicate": "satisfiedBy", "target_id": "phy-1"},
+        ],
+    }
+
+    result = validate_requirements(graph)
+
+    assert result["derived_requirement_count"] == 1
+    assert result["derived_requirement_precision"] == 1.0
+    assert result["derived_requirement_valid_ids"] == ["req-tech"]
+
+
+def test_derived_requirement_precision_is_neutral_when_no_technical_requirement_exists() -> None:
+    result = validate_requirements({
+        "project_id": "p1",
+        "entities": [{"id": "req-1", "kind": "requirement", "name": "系统需求", "payload": {}}],
+        "relations": [],
+    })
+
+    assert result["derived_requirement_count"] == 0
+    assert result["derived_requirement_precision"] == 1.0
+    assert next(item for item in result["findings"] if item["test_id"] == "T8")["status"] == "PASS"
+
+
 def test_case05_validator_computes_both_known_conflicts_and_requires_signal() -> None:
     case = next(case for case in load_cases(__import__("pathlib").Path(__file__).parent / "cases") if case["case_id"] == "CASE-05")
     expectations = load_expectations(__import__("pathlib").Path(__file__).parent / "expected")
