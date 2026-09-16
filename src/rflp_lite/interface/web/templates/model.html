@@ -50,8 +50,10 @@
           {% if item.status in ['candidate', 'validated'] %}<button class="button compact workbench-command" type="button" data-review-action="accept" data-entity-id="{{ item.id }}">接受</button><button class="button compact danger workbench-command" type="button" data-review-action="reject" data-entity-id="{{ item.id }}">拒绝</button>{% elif item.status == 'accepted' %}<button class="button compact workbench-command" type="button" data-review-action="lock" data-entity-id="{{ item.id }}">锁定</button>{% elif item.status == 'locked' %}<button class="button compact workbench-command" type="button" data-review-action="unlock" data-entity-id="{{ item.id }}">解锁</button>{% endif %}
           {% if item.can_continue %}<button class="button compact primary workbench-command" type="button" data-review-action="continue" data-entity-id="{{ item.id }}">{{ item.continue_label }}</button>{% endif %}
           {% if item.status != 'locked' %}<button class="button compact" type="button" data-action="edit" data-edit-toggle="{{ item.id }}">编辑</button>{% endif %}
+          <button class="button compact workbench-impact" type="button" data-entity-id="{{ item.id }}">查看影响分析</button>
           <button class="button compact" type="button" data-review-action="reanalyze" data-entity-id="{{ item.id }}">重新分析</button>
         </div>
+        <div class="entity-impact-panel callout info" data-impact-panel="{{ item.id }}" hidden aria-live="polite"></div>
         {% if item.status != 'locked' %}<form class="entity-edit-form" data-edit-form="{{ item.id }}" hidden><label class="field">名称<input name="name" value="{{ item.name }}" required></label><label class="field">模型属性（JSON）<textarea name="payload" rows="8" required>{{ item.payload|tojson(indent=2) }}</textarea></label><div class="workbench-actions"><button class="button compact primary" type="submit">保存编辑</button><button class="button compact" type="button" data-edit-toggle="{{ item.id }}">取消</button></div></form>{% endif %}
       </article>
       {% endfor %}
@@ -160,6 +162,49 @@
       window.location.reload();
     } catch (error) {
       showFeedback(error.message);
+      button.disabled = false;
+    }
+  }));
+  const stageLabels = {
+    requirements: "需求分析",
+    functional: "功能分析",
+    logical: "逻辑架构",
+    physical: "物理架构",
+    verification_validation: "验证与确认",
+  };
+  const displayList = (values, fallback = "无") => {
+    if (!Array.isArray(values) || values.length === 0) return fallback;
+    return values.join("、");
+  };
+  document.querySelectorAll(".workbench-impact").forEach((button) => button.addEventListener("click", async () => {
+    const entityId = button.dataset.entityId;
+    const panel = document.querySelector(`[data-impact-panel="${CSS.escape(entityId)}"]`);
+    if (!panel) return;
+    button.disabled = true;
+    panel.hidden = false;
+    panel.classList.remove("warning");
+    panel.textContent = "正在计算 typed ModelGraph 影响链…";
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/entities/${encodeURIComponent(entityId)}/impact`);
+      const data = await readPayload(response);
+      if (!response.ok || data.status !== "ok") throw new Error(data.message || data.error || "读取影响分析失败");
+      const impact = data.impact || {};
+      const stages = (impact.impacted_stages || []).map((stage) => stageLabels[stage] || stage);
+      const tasks = impact.recommended_tasks || [];
+      const pathCount = Array.isArray(impact.impact_paths) ? impact.impact_paths.length : 0;
+      panel.textContent = [
+        `基于模型版本 ${impact.revision ?? "—"} 的影响分析`,
+        `受影响阶段：${displayList(stages)}`,
+        `受影响实体：${Array.isArray(impact.impacted_entity_ids) ? impact.impacted_entity_ids.length : 0} 个`,
+        `验证案例：${Array.isArray(impact.verification_case_ids) ? impact.verification_case_ids.length : 0} 个 · 确认案例：${Array.isArray(impact.validation_case_ids) ? impact.validation_case_ids.length : 0} 个`,
+        `建议下一步：${displayList(tasks)}`,
+        `可解释追溯路径：${pathCount} 条`,
+        impact.reason || "",
+      ].filter(Boolean).join("\n");
+    } catch (error) {
+      panel.textContent = "影响分析失败：" + error.message;
+      panel.classList.add("warning");
+    } finally {
       button.disabled = false;
     }
   }));

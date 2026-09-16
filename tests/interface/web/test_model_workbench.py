@@ -13,6 +13,8 @@ def test_model_page_exposes_layered_entities_and_review_controls(tmp_path):
     assert "物理" in page.text
     assert "验证与确认" in page.text
     assert 'data-action="edit"' in page.text
+    assert "查看影响分析" in page.text
+    assert "/entities/" in page.text and "/impact" in page.text
     assert "Manage energy" in page.text
     assert "Battery pack" in page.text
 
