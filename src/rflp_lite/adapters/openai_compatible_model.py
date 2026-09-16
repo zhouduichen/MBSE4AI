@@ -751,9 +751,6 @@ class OpenAICompatibleModel:
         # proposal pass.  Keep the feedback pass opt-in for slower providers.
         self.automatic_vertical_stage_feedback = configured_feedback
         self.automatic_vertical_stage_completion_bridge = True
-        model_location = str(
-            self._config.get("model_location", "local")
-        ).casefold()
         try:
             self.vertical_batch_size = max(
                 1,
@@ -762,27 +759,25 @@ class OpenAICompatibleModel:
                     int(
                         self._config.get(
                             "vertical_batch_size",
-                            1 if model_location == "remote" else 2,
+                            2,
                         )
                     ),
                 ),
             )
         except (TypeError, ValueError):
-            self.vertical_batch_size = 1 if model_location == "remote" else 2
+            self.vertical_batch_size = 2
         try:
             self.vertical_batch_output_token_budget = max(
                 256,
                 int(
                     self._config.get(
                         "vertical_batch_output_tokens",
-                        2048 if model_location == "remote" else 3072,
+                        3072,
                     )
                 ),
             )
         except (TypeError, ValueError):
-            self.vertical_batch_output_token_budget = (
-                2048 if model_location == "remote" else 3072
-            )
+            self.vertical_batch_output_token_budget = 3072
 
     @staticmethod
     def _parse_json(raw: object) -> object:

@@ -52,11 +52,13 @@ actual model remains remote.
   "provider": "openai-compatible",
   "base_url": "http://127.0.0.1:18000/v1",
   "model": "qwen3.5-controller",
-  "timeout_seconds": 300,
+  "timeout_seconds": 1800,
   "context_window": 32768,
   "max_output_tokens": 4096,
   "temperature": 0.0,
   "vertical_feedback": false,
+  "vertical_batch_size": 2,
+  "vertical_batch_output_tokens": 3072,
   "structured_output_mode": "json_schema",
   "active": false
 }

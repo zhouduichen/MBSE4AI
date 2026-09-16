@@ -256,7 +256,9 @@ def normalize_profile(payload: object) -> dict[str, object]:
         label="LLM vertical batch size",
     )
     if vertical_batch_size is None:
-        vertical_batch_size = 1 if model_location == "remote" else 2
+        # Two requirements keep the remote vertical path within a practical
+        # request count while the runtime still bounds each provider call.
+        vertical_batch_size = 2
     vertical_batch_output_tokens = _optional_int(
         payload,
         ("vertical_batch_output_tokens",),
@@ -265,7 +267,7 @@ def normalize_profile(payload: object) -> dict[str, object]:
         label="LLM vertical batch output tokens",
     )
     if vertical_batch_output_tokens is None:
-        vertical_batch_output_tokens = 2048 if model_location == "remote" else 3072
+        vertical_batch_output_tokens = 3072
     think = payload.get("think")
     if think is not None and not isinstance(think, bool):
         raise InvariantViolation("LLM think 必须是布尔值")

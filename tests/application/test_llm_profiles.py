@@ -195,8 +195,8 @@ def test_remote_profile_defaults_to_single_vertical_pass_but_allows_feedback() -
     })
 
     assert remote["vertical_feedback"] is False
-    assert remote["vertical_batch_size"] == 1
-    assert remote["vertical_batch_output_tokens"] == 2048
+    assert remote["vertical_batch_size"] == 2
+    assert remote["vertical_batch_output_tokens"] == 3072
     assert local["vertical_feedback"] is True
     assert local["vertical_batch_size"] == 2
     assert local["vertical_batch_output_tokens"] == 3072
