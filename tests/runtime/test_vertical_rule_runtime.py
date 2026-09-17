@@ -506,6 +506,9 @@ def test_physical_stage_completes_all_existing_allocated_candidates():
         assert payload["trade_study"]
         assert payload["source_requirement_ids"] == [requirement.id]
         assert payload["feasibility_reasoning"]["physical_id"] == physical_id
+    assert graph.entity_index[requirement.id].payload["feasibility_review"][
+        "physical_candidate_ids"
+    ] == [first.id, second.id]
 
 
 def test_locked_physical_candidate_gets_unmeasured_alternative():

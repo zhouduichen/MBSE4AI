@@ -789,7 +789,9 @@ class VerticalRuleRuntime:
                 requirement_payload["feasibility_review"] = {
                     "status": "needs_measurement",
                     "measured_values": None,
-                    "physical_candidate_ids": [physical.id],
+                    "physical_candidate_ids": _physical_candidate_ids(
+                        linked_physical_candidates, physical
+                    ),
                 }
                 builder.update(requirement, payload=requirement_payload)
             for requirement in requirements:
@@ -1952,6 +1954,10 @@ def _linked_physical_candidates(context, logical):
             for relation in context.relations
         ) or candidate.id in _source_context_ids(logical)
     )
+
+
+def _physical_candidate_ids(candidates, physical):
+    return list(dict.fromkeys((*[item.id for item in candidates], physical.id)))
 
 
 def _enrich_additional_physical_candidates(
