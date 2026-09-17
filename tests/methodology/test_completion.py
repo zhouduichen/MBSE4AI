@@ -44,6 +44,35 @@ def test_vertical_stage_reports_each_internal_task_and_failed_checks():
     assert "completion_semantic:functional_interaction" in result.issue_codes
 
 
+def test_requirement_derivation_accepts_explicit_activity_trace():
+    activity = make_entity(EntityKind.ACTIVITY, "运行活动", {"steps": ["执行"]})
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "运行时间要求",
+        {"derived_by": activity.id, "level": "system"},
+    )
+    graph = ModelGraph(
+        "p1",
+        (activity, requirement),
+        (
+            Relation(
+                "requirement-activity",
+                requirement.id,
+                RelationPredicate.DERIVED_FROM,
+                activity.id,
+            ),
+        ),
+    )
+
+    result = evaluate_vertical_stage(VerticalStage.REQUIREMENTS, graph)
+
+    check = next(
+        item for item in result.checks if item["id"] == "system_requirement_derivation"
+    )
+    assert check["passed"] is True
+    assert "completion_semantic:system_requirement_derivation" not in result.issue_codes
+
+
 def test_vertical_stage_checks_logical_and_physical_evidence_fields():
     function = make_entity(EntityKind.FUNCTION, "配送", {"decomposition": ["执行"]})
     logical = make_entity(

@@ -131,6 +131,13 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
         "system_requirement_derivation": any(
             item.payload.get("derived_by") == "system_requirement_derivation"
             for item in requirements
+        ) or any(
+            relation.source_id == requirement.id
+            and relation.predicate is RelationPredicate.DERIVED_FROM
+            and index.get(relation.target_id) is not None
+            and index[relation.target_id].kind is EntityKind.ACTIVITY
+            for requirement in requirements
+            for relation in graph.relations
         ),
         "function_identification": bool(functions)
         and _linked(graph, index, EntityKind.REQUIREMENT, RelationPredicate.SATISFIED_BY, EntityKind.FUNCTION),
