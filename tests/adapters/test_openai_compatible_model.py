@@ -483,6 +483,72 @@ def test_vertical_payload_maps_function_purpose_to_required_decomposition():
     )
 
 
+def test_vertical_payload_infers_functional_references_from_provider_relations():
+    schema = output_contract(stage_task("functional"))
+    payload = {
+        "entities": [
+            {
+                "local_ref": "function-1",
+                "kind": "function",
+                "name": "采集数据",
+                "payload": {"purpose": "采集数据"},
+            },
+            {
+                "local_ref": "function-2",
+                "kind": "function",
+                "name": "处理数据",
+                "payload": {"purpose": "处理数据"},
+            },
+            {
+                "local_ref": "flow-1",
+                "kind": "functional_flow",
+                "name": "数据流",
+                "payload": {"description": "采集结果传递给处理功能"},
+            },
+            {
+                "local_ref": "scenario-1",
+                "kind": "functional_scenario",
+                "name": "处理场景",
+                "payload": {"description": "完整处理场景"},
+            },
+        ],
+        "relations": [
+            {
+                "source_ref": "function-1",
+                "predicate": "exchangesWith",
+                "target_ref": "flow-1",
+                "evidence_ids": [],
+            },
+            {
+                "source_ref": "flow-1",
+                "predicate": "exchangesWith",
+                "target_ref": "function-2",
+                "evidence_ids": [],
+            },
+            {
+                "source_ref": "function-1",
+                "predicate": "derivedFrom",
+                "target_ref": "scenario-1",
+                "evidence_ids": [],
+            },
+        ],
+        "updates": [],
+        "deprecations": [],
+        "reason": "建立功能链",
+    }
+
+    normalized = OpenAICompatibleModel._parse_and_validate(
+        json.dumps(payload, ensure_ascii=False),
+        schema,
+        normalize_vertical=True,
+    )
+
+    by_ref = {item["local_ref"]: item["payload"] for item in normalized["entities"]}
+    assert by_ref["flow-1"]["source_function_ids"] == ["function-1"]
+    assert by_ref["flow-1"]["target_function_ids"] == ["function-2"]
+    assert by_ref["scenario-1"]["function_ids"] == ["function-1"]
+
+
 def test_vertical_payload_normalizes_physical_constraint_shape_and_rationale():
     schema = output_contract(stage_task("physical"))
     payload = {

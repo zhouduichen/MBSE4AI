@@ -338,6 +338,7 @@ def _normalize_vertical_payload(
                     normalized.get("name"),
                 )
             normalized_entities.append(normalized)
+        _infer_functional_reference_payloads(normalized_entities, payload.get("relations"))
         result["entities"] = normalized_entities
 
     relation_schema = properties.get("relations")
@@ -361,6 +362,57 @@ def _normalize_vertical_payload(
             normalized_relations.append(normalized)
         result["relations"] = normalized_relations
     return result
+
+
+def _infer_functional_reference_payloads(
+    entities: list[MutableMapping[str, object]],
+    raw_relations: object,
+) -> None:
+    """Complete unambiguous F-layer references from the Provider's relations."""
+
+    function_refs = {
+        str(entity.get("local_ref"))
+        for entity in entities
+        if entity.get("kind") == "function" and entity.get("local_ref")
+    }
+    relations = [
+        relation for relation in raw_relations
+        if isinstance(relation, Mapping)
+    ]
+    for entity in entities:
+        kind = entity.get("kind")
+        payload = entity.get("payload")
+        local_ref = str(entity.get("local_ref") or "").strip()
+        if not isinstance(payload, MutableMapping) or not local_ref:
+            continue
+        if kind == "functional_flow":
+            incoming = []
+            outgoing = []
+            for relation in relations:
+                if relation.get("predicate") != "exchangesWith":
+                    continue
+                source = str(relation.get("source_ref") or "").strip()
+                target = str(relation.get("target_ref") or "").strip()
+                if target == local_ref and source in function_refs:
+                    incoming.append(source)
+                if source == local_ref and target in function_refs:
+                    outgoing.append(target)
+            if not payload.get("source_function_ids") and incoming:
+                payload["source_function_ids"] = list(dict.fromkeys(incoming))
+            if not payload.get("target_function_ids") and outgoing:
+                payload["target_function_ids"] = list(dict.fromkeys(outgoing))
+        elif kind == "functional_scenario" and not payload.get("function_ids"):
+            derived_functions = [
+                str(relation.get("source_ref"))
+                for relation in relations
+                if relation.get("predicate") == "derivedFrom"
+                and relation.get("target_ref") == local_ref
+                and str(relation.get("source_ref")) in function_refs
+            ]
+            if derived_functions:
+                payload["function_ids"] = list(dict.fromkeys(derived_functions))
+            elif len(function_refs) == 1:
+                payload["function_ids"] = list(function_refs)
 
 
 def _array_item_schema(schema: object) -> Mapping[str, object] | None:
