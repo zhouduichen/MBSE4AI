@@ -81,14 +81,18 @@ making a full vertical run exceed its timeout. These are transport controls;
 they do not replace the Methodology Engine or the post-response validators.
 
 For a remote profile, `vertical_feedback` defaults to `false` so a multi-
-requirement run does not repeat every provider batch. The product still runs
-the typed vertical completion bridge after the single LLM proposal pass; set
-it to `true` only when the remote model's additional same-stage feedback pass
-is worth the latency.
+requirement run does not repeat every F/L/P provider batch. The product path
+still gives Requirements a bounded, targeted completion loop (up to four
+passes) for missing operational kinds such as Activity; this is completion of
+the R-layer prerequisite, not a repeatability experiment. The typed vertical
+completion bridge remains an explicit deterministic fallback; set
+`vertical_completion_bridge` to `true` only when that fallback is desired.
 
-V&V defaults to one requirement per batch for remote profiles because a
-verification and validation case carries substantially more structured fields
-than an F/L/P proposal. These singleton V&V batches still run in parallel up to
+V&V defaults to one requirement per batch for remote profiles and then splits
+that requirement into one VerificationCase request and one ValidationCase
+request. Each request has a narrowed contract requiring the canonical
+`requirement_ids`, so post-response scope enrichment can align the Case to the
+same R→F→L→P trace. These singleton Case requests still run in parallel up to
 `max_parallel_requests`; set `vertical_vv_batch_size` explicitly only when the
 remote model has enough output budget for larger assurance batches.
 

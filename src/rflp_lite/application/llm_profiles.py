@@ -243,8 +243,8 @@ def normalize_profile(payload: object) -> dict[str, object]:
     vertical_feedback = payload.get("vertical_feedback")
     if vertical_feedback is None:
         # Remote providers pay a real latency cost for repeating every batch.
-        # The configured vertical completion bridge still closes typed gaps;
-        # users can opt back into the second model pass explicitly.
+        # Ordinary stage feedback remains opt-in; Requirements use the
+        # runtime's separate bounded operational-completion path.
         vertical_feedback = model_location != "remote"
     if not isinstance(vertical_feedback, bool):
         raise InvariantViolation("LLM vertical_feedback 必须是布尔值")

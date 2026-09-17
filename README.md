@@ -148,6 +148,10 @@ Controller 还提供有界的“自动推进安全动作”入口：它可以连
 - [v2.0 实施计划](docs/superpowers/plans/2026-09-07-ai4mbse-harness-v2-implementation.md)
 - [施工要求索引](docs/superpowers/README.md)
 
+## 远程 GPU LLM 当前行为
+
+远程 Profile 的普通 F/L/P 反馈回合默认关闭，但 Requirements 会按当前方法论缺口自动执行最多 4 轮有界补全；V&V 会为每条 Requirement 分别生成一个 VerificationCase 和一个 ValidationCase，并强制保留 canonical `requirement_ids` 以闭合 R→F→L→P→V&V 追溯。单需求 Case 请求可按 `max_parallel_requests` 并行。typed completion bridge 仍需显式开启，远程模型的实质建模不会被离线规则静默替代。
+
 ## 边界
 
 Core 不包含旧版智能发现、Concept/MDO、Project Bridge、测试执行沙箱、仿真、旧 Baseline/TaskContract/Job 体系或 MLflow 适配器。它们不再作为隐式依赖存在；如未来需要，应以独立插件或独立研究包接入。

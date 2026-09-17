@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import Mapping
@@ -165,6 +166,7 @@ class StructuredModelRuntime:
                 else self.vertical_batch_size
             ),
         )
+        batch_descriptors = _batch_descriptors(request, batches, self.model)
         batch_payloads = tuple(
             _scope_batch_payload(
                 request,
@@ -179,17 +181,28 @@ class StructuredModelRuntime:
                         {
                             "requirement_batch": {
                                 "index": index,
-                                "count": len(batches),
+                                "count": len(batch_descriptors),
                                 "is_first": index == 1,
+                                "requirement_ids": [
+                                    str(item.get("requirement_id", ""))
+                                    for item in batch
+                                    if isinstance(item, Mapping)
+                                    and str(item.get("requirement_id", ""))
+                                ],
+                                **(
+                                    {"case_kind": case_kind}
+                                    if case_kind
+                                    else {}
+                                ),
                             }
                         }
-                        if len(batches) > 1
+                        if len(batch_descriptors) > 1
                         else {}
                     ),
                 },
                 batch,
             )
-            for index, batch in enumerate(batches, start=1)
+            for index, (batch, case_kind) in enumerate(batch_descriptors, start=1)
         )
         compiled = self._complete_batches(request, contract, batch_payloads)
         response, proposal, patch, compiler_repaired = _merge_compiled(
@@ -305,6 +318,17 @@ class StructuredModelRuntime:
         *,
         batch_fallback: bool = False,
     ) -> _CompiledProposal:
+        effective_request = request
+        case_kind = _vv_case_kind(payload)
+        if case_kind:
+            full_contract = _vv_case_contract(request.output_contract, case_kind)
+            effective_contract = _output_schema(full_contract)
+            effective_request = replace(
+                request,
+                output_contract=full_contract,
+            )
+        else:
+            effective_contract = contract
         token_budget = _batch_token_budget(
             request,
             payload,
@@ -324,15 +348,15 @@ class StructuredModelRuntime:
                     batch_instruction + _requirements_instruction(request, payload),
                 ),
                 payload,
-                contract,
+                effective_contract,
                 token_budget,
             )
         )
         compiler_repaired = False
-        proposal_payload = _sanitize_vertical_proposal(request, response.payload)
+        proposal_payload = _sanitize_vertical_proposal(effective_request, response.payload)
         try:
-            proposal = parse_task_proposal(request, proposal_payload)
-            patch = compile_task_proposal(request, proposal_payload)
+            proposal = parse_task_proposal(effective_request, proposal_payload)
+            patch = compile_task_proposal(effective_request, proposal_payload)
         except ContractViolation as first_error:
             if _is_wide_requirement_batch(payload):
                 raise ProposalCompileFailure(
@@ -347,7 +371,7 @@ class StructuredModelRuntime:
                         ensure_ascii=False,
                         sort_keys=True,
                     ),
-                    schema_hash=canonical_hash(contract),
+                    schema_hash=canonical_hash(effective_contract),
                     provider_id=response.provider_id,
                     model_id=response.model_id,
                     finish_reason=response.finish_reason,
@@ -367,14 +391,17 @@ class StructuredModelRuntime:
                         request.prompt_text + batch_instruction, first_error
                         ),
                         repair_payload,
-                        contract,
+                        effective_contract,
                         token_budget,
                     )
                 )
-            repair_payload = _sanitize_vertical_proposal(request, repair_response.payload)
+            repair_payload = _sanitize_vertical_proposal(
+                effective_request,
+                repair_response.payload,
+            )
             try:
-                proposal = parse_task_proposal(request, repair_payload)
-                patch = compile_task_proposal(request, repair_payload)
+                proposal = parse_task_proposal(effective_request, repair_payload)
+                patch = compile_task_proposal(effective_request, repair_payload)
             except ContractViolation as second_error:
                 raise ProposalCompileFailure(
                     str(second_error),
@@ -388,7 +415,7 @@ class StructuredModelRuntime:
                         ensure_ascii=False,
                         sort_keys=True,
                     ),
-                    schema_hash=canonical_hash(contract),
+                    schema_hash=canonical_hash(effective_contract),
                     retry_count=1,
                     provider_id=repair_response.provider_id or response.provider_id,
                     model_id=repair_response.model_id or response.model_id,
@@ -1060,12 +1087,47 @@ def _requirements_instruction(
         "operational_scenario", "activity", "requirement",
     )
     missing = tuple(kind for kind in required if kind not in present)
+    guidance = payload.get("methodology_guidance")
+    failed_checks: list[str] = []
+    if isinstance(guidance, Mapping):
+        completion = guidance.get("stage_completion")
+        checks = completion.get("checks") if isinstance(completion, Mapping) else None
+        if isinstance(checks, (list, tuple)):
+            failed_checks = [
+                str(check.get("id", ""))
+                for check in checks
+                if isinstance(check, Mapping) and check.get("passed") is False
+            ]
+    check_hint = (
+        "方法论检查未通过：" + ", ".join(item for item in failed_checks if item) +
+        "。本轮必须优先修复这些检查指出的缺口。"
+        if failed_checks else ""
+    )
     if not missing:
-        return "已有 R 层类型都已存在；只用最小 updates/relations 修复语义，不要新增实体。"
+        return (
+            "已有 R 层类型都已存在；只用最小 updates/relations 修复语义，不要新增实体。"
+            + check_hint
+        )
+    single_kind_hint = (
+        f"当前唯一缺失类型是 {missing[0]}；本轮至少生成一个且最多生成一个该类型实体，"
+        "不要生成其它新类型。"
+        if len(missing) == 1 else ""
+    )
+    activity_hint = (
+        "Activity 是当前唯一的闭合缺口；必须从已有 Requirement 和 Operational Scenario"
+        "抽取一个最小可执行行为，直接生成 kind=activity 实体。payload 至少包含 steps 和"
+        "branches，并在 branches 中明确 normal、failure、alternative、boundary、exception"
+        "五类分支；即使细节不完整也使用当前上下文可证实的短句，不要把 Activity 缺口改写成"
+        "open_questions 或声称信息不足。"
+        if missing == ("activity",) else ""
+    )
     return (
         "这是增量闭合。当前 Proposal 必须为每个缺失类型各生成至少一个且至多一个实体，"
         "并优先覆盖以下缺失类型：" + ", ".join(missing) + "。"
-        "已有类型禁止新增；不要用多个 concern 或 use_case 消耗实体名额。"
+        + single_kind_hint
+        + activity_hint
+        + check_hint
+        + "已有类型禁止新增；不要用多个 concern 或 use_case 消耗实体名额。"
         "R关系只允许四种端点模板：hasConcern=stakeholder/system→concern，"
         "participatesIn=stakeholder→operational_scenario，"
         "occursIn=activity/operational_scenario→lifecycle_stage，"
@@ -1115,6 +1177,27 @@ def _batch_instruction(task_id: str, meta: object) -> str:
             "不得为其它批次需求新增实体或更新，也不要把本批缺口合并成无法追溯的对象。"
         )
     is_first = bool(meta.get("is_first"))
+    case_kind = str(meta.get("case_kind", "")).strip()
+    if case_kind in {"verification_case", "validation_case"}:
+        label = "VerificationCase" if case_kind == "verification_case" else "ValidationCase"
+        requirement_ids = meta.get("requirement_ids")
+        target_hint = (
+            "payload.requirement_ids 必须恰好为 ["
+            + ", ".join(str(item) for item in requirement_ids)
+            + "]."
+            if isinstance(requirement_ids, (list, tuple)) and requirement_ids
+            else ""
+        )
+        return (
+            f"当前是 V&V 第 {index}/{count} 个需求 Case 批次，只生成一个 {label}。"
+            "只处理 requirement_worklist 中的一个 canonical Requirement；"
+            f"Proposal 的 entities 只能包含一个 kind={case_kind} 的实体，"
+            "不得生成另一种 V&V Case、Hazard 或 FailureMode。"
+            + target_hint
+            + "不要遗漏 requirement_ids；其余 function_ids、logical_component_ids、"
+            "physical_ids 只填写当前上下文中与该 Requirement 对应的 canonical ID。"
+            "计划字段必须是短句，procedure 只保留 3 步以内，不要输出解释性长文或重复上下文。"
+        )
     risk_instruction = (
         "本批可以生成一个代表当前上下文异常分支的 hazard 和 failure_mode；"
         if is_first
@@ -1131,6 +1214,104 @@ def _batch_instruction(task_id: str, meta: object) -> str:
             "每个字段尽量不超过 120 个中文字符，procedure 只保留 3 步以内；不要输出解释性长文或重复上下文。"
         )
     )
+
+
+def _batch_descriptors(
+    request: TaskExecutionRequest,
+    batches: tuple[tuple[Mapping[str, object], ...], ...],
+    model: GenerativeModel,
+) -> tuple[tuple[tuple[Mapping[str, object], ...], str], ...]:
+    """Expand remote assurance batches into one typed case per request.
+
+    Verification and validation plans are both wide structured payloads.  A
+    remote provider can reliably emit one plan, but may truncate a response
+    containing both plans even when the requirement batch itself is a
+    singleton.  Keep each requirement's two case types independently
+    parallelizable and merge their typed patches at the existing boundary.
+    """
+
+    if (
+        request.task_id != _VV_BATCH_TASK
+        or getattr(model, "supports_vv_case_splitting", False) is not True
+        or not any(batches)
+    ):
+        return tuple((batch, "") for batch in batches)
+    return tuple(
+        ((item,), case_kind)
+        for batch in batches
+        for item in batch
+        for case_kind in ("verification_case", "validation_case")
+    )
+
+
+def _vv_case_kind(payload: Mapping[str, object]) -> str:
+    metadata = payload.get("requirement_batch")
+    if not isinstance(metadata, Mapping):
+        return ""
+    value = str(metadata.get("case_kind", "")).strip()
+    return value if value in {"verification_case", "validation_case"} else ""
+
+
+def _vv_case_contract(
+    contract: Mapping[str, object],
+    case_kind: str,
+) -> Mapping[str, object]:
+    """Narrow the provider schema to the one assurance case being generated."""
+
+    allowed_kind = case_kind
+    result = deepcopy(dict(contract))
+    result["output_kinds"] = [allowed_kind]
+    schemas = result.get("x-payload-schemas")
+    if isinstance(schemas, Mapping):
+        result["x-payload-schemas"] = {
+            allowed_kind: deepcopy(schemas[allowed_kind])
+        } if allowed_kind in schemas else {}
+    properties = result.get("properties")
+    if not isinstance(properties, Mapping):
+        return result
+    entities = properties.get("entities")
+    if not isinstance(entities, Mapping):
+        return result
+    entity_items = entities.get("items")
+    if not isinstance(entity_items, Mapping):
+        return result
+    payload_schema = (
+        result.get("x-payload-schemas", {}).get(allowed_kind)
+        if isinstance(result.get("x-payload-schemas"), Mapping)
+        else None
+    )
+    if isinstance(payload_schema, Mapping):
+        payload_schema = deepcopy(dict(payload_schema))
+        required = payload_schema.get("required")
+        required_fields = {
+            str(item) for item in required
+        } if isinstance(required, (list, tuple)) else set()
+        required_fields.add("requirement_ids")
+        payload_schema["required"] = sorted(required_fields)
+        payload_properties = payload_schema.get("properties")
+        if isinstance(payload_properties, Mapping):
+            payload_properties = deepcopy(dict(payload_properties))
+            payload_properties["requirement_ids"] = {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "string", "minLength": 1},
+            }
+            payload_schema["properties"] = payload_properties
+        result["x-payload-schemas"] = {allowed_kind: payload_schema}
+    narrowed_entity = deepcopy(dict(entity_items))
+    narrowed_entity.pop("oneOf", None)
+    narrowed_properties = dict(narrowed_entity.get("properties", {}))
+    narrowed_properties["kind"] = {"const": allowed_kind}
+    if isinstance(payload_schema, Mapping):
+        narrowed_properties["payload"] = deepcopy(dict(payload_schema))
+    narrowed_entity["properties"] = narrowed_properties
+    narrowed_entity["required"] = ["local_ref", "kind", "name", "payload"]
+    narrowed_entities = deepcopy(dict(entities))
+    narrowed_entities["items"] = narrowed_entity
+    narrowed_properties_root = dict(properties)
+    narrowed_properties_root["entities"] = narrowed_entities
+    result["properties"] = narrowed_properties_root
+    return result
 
 
 def _requirement_batches(

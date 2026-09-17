@@ -1,7 +1,10 @@
+from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.model import ModelGraph
+from rflp_lite.methodology.contracts import ContextBundle
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.tasks import task_catalog
+from rflp_lite.methodology.vertical_generation import stage_task
 from rflp_lite.ports.generative_model import GenerationResponse
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 
@@ -39,3 +42,32 @@ def test_structured_runtime_sends_task_specific_prompt_to_model():
     guidance = model.requests[0].user_payload["methodology_guidance"]
     assert guidance["version"] == "methodology-guidance.v1"
     assert guidance["task_id"] == task.id
+
+
+def test_requirements_prompt_closes_a_single_missing_activity():
+    model = CapturingModel()
+    entities = tuple(
+        make_entity(EntityKind(kind), kind)
+        for kind in (
+            "system", "stakeholder", "concern", "lifecycle_stage",
+            "lifecycle_transition", "scenario_hypothesis", "use_case",
+            "operational_scenario", "requirement",
+        )
+    )
+    context = ContextBundle(
+        "p1",
+        "vertical.requirements",
+        3,
+        entities,
+        methodology_guidance={
+            "stage_completion": {
+                "checks": [{"id": "activity_analysis", "passed": False}],
+            },
+        },
+    )
+    request = TaskExecutor(model).request(stage_task("requirements"), context, "v2.1")
+
+    StructuredModelRuntime(model).execute(request)
+
+    assert "Activity 是当前唯一的闭合缺口" in model.requests[0].system_prompt
+    assert "normal、failure、alternative、boundary、exception" in model.requests[0].system_prompt

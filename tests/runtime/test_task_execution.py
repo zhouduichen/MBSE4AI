@@ -211,6 +211,38 @@ class SingletonVvBatchedModel(BatchedVvModel):
     vertical_vv_batch_size = 1
 
 
+class CaseSplitVvModel(BatchedVvModel):
+    supports_vv_case_splitting = True
+
+    def complete_json(self, request):
+        response = super().complete_json(request)
+        case_kind = request.user_payload["requirement_batch"]["case_kind"]
+        entities = [
+            entity
+            for entity in response.payload["entities"]
+            if entity["kind"] == case_kind
+        ]
+        refs = {entity["local_ref"] for entity in entities}
+        relations = [
+            relation
+            for relation in response.payload["relations"]
+            if relation["target_ref"] in refs
+        ]
+        return GenerationResponse(
+            response.lens_id,
+            {
+                **response.payload,
+                "entities": entities,
+                "relations": relations,
+            },
+            response.input_hash,
+            response.output_hash,
+            response.repaired,
+            response.provider_id,
+            response.model_id,
+        )
+
+
 def test_runtime_adapts_task_context_to_generation_request():
     model = FakeModel()
     runtime = StructuredModelRuntime(model)
@@ -938,8 +970,16 @@ def test_structured_runtime_batches_large_vv_worklist_and_merges_patch():
         )
     ]
     assert [request.user_payload["requirement_batch"] for request in model.calls] == [
-        {"index": index, "count": 3, "is_first": index == 1}
-        for index in range(1, 4)
+        {
+            "index": index,
+            "count": 3,
+            "is_first": index == 1,
+            "requirement_ids": [item.id for item in batch],
+        }
+        for index, batch in enumerate(
+            (ordered_requirements[:2], ordered_requirements[2:4], ordered_requirements[4:]),
+            start=1,
+        )
     ]
     added = [
         operation.entity
@@ -987,6 +1027,66 @@ def test_structured_runtime_can_use_singleton_vv_batches_for_large_outputs():
         for call in model.calls
     ] == [1, 1, 1, 1, 1]
     assert "batch_count=5" in result.diagnostics
+
+
+def test_structured_runtime_splits_remote_vv_by_case_kind():
+    model = CaseSplitVvModel()
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求 {index}",
+            {
+                "statement": f"系统应满足需求 {index}",
+                "obligation": "shall",
+                "level": "system",
+                "type": "functional",
+                "verification_method": "test",
+            },
+        )
+        for index in range(3)
+    )
+    context = ContextBundle("p1", "vertical.verification_validation", 3, requirements)
+    request = TaskExecutor(model).request(
+        stage_task("verification_validation"), context, "v2.1", token_budget=4096
+    )
+
+    result = StructuredModelRuntime(model).execute(request)
+
+    assert result.patch is not None
+    assert len(model.calls) == 6
+    assert all(len(call.user_payload["requirement_worklist"]) == 1 for call in model.calls)
+    assert {
+        call.user_payload["requirement_batch"]["case_kind"]
+        for call in model.calls
+    } == {"verification_case", "validation_case"}
+    assert all(
+        call.response_schema["properties"]["entities"]["items"]["properties"]["kind"]["const"] == (
+            call.user_payload["requirement_batch"]["case_kind"]
+        )
+        for call in model.calls
+    )
+    assert all(
+        "requirement_ids"
+        in call.response_schema["properties"]["entities"]["items"]["properties"][
+            "payload"
+        ]["required"]
+        for call in model.calls
+    )
+    assert all(
+        call.user_payload["requirement_batch"]["requirement_ids"]
+        == [call.user_payload["requirement_worklist"][0]["requirement_id"]]
+        for call in model.calls
+    )
+    assert sum(
+        operation.entity.kind is EntityKind.VERIFICATION_CASE
+        for operation in result.patch.operations
+        if isinstance(operation, AddEntity)
+    ) == 3
+    assert sum(
+        operation.entity.kind is EntityKind.VALIDATION_CASE
+        for operation in result.patch.operations
+        if isinstance(operation, AddEntity)
+    ) == 3
 
 
 def test_structured_runtime_caps_only_multi_requirement_batch_output_budget():
@@ -1041,8 +1141,16 @@ def test_structured_runtime_batches_large_rflp_worklist(stage):
         )
     ]
     assert [call.user_payload["requirement_batch"] for call in model.calls] == [
-        {"index": index, "count": 3, "is_first": index == 1}
-        for index in range(1, 4)
+        {
+            "index": index,
+            "count": 3,
+            "is_first": index == 1,
+            "requirement_ids": [item.id for item in batch],
+        }
+        for index, batch in enumerate(
+            (ordered_requirements[:2], ordered_requirements[2:4], ordered_requirements[4:]),
+            start=1,
+        )
     ]
     assert all(
         f"当前是 vertical.{stage} 第" in call.system_prompt

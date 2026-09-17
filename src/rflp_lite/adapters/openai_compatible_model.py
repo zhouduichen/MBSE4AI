@@ -813,8 +813,8 @@ class OpenAICompatibleModel:
             configured_feedback = str(
                 self._config.get("model_location", "local")
             ).casefold() != "remote"
-        # A remote profile normally uses the typed completion bridge after one
-        # proposal pass.  Keep the feedback pass opt-in for slower providers.
+        # Keep ordinary same-stage feedback opt-in for slower remote providers.
+        # Requirements have a separate bounded operational-completion path.
         self.automatic_vertical_stage_feedback = configured_feedback
         configured_bridge = self._config.get("vertical_completion_bridge")
         if configured_bridge is None:
@@ -823,6 +823,12 @@ class OpenAICompatibleModel:
             ).casefold() != "remote"
         self.automatic_vertical_stage_completion_bridge = (
             configured_bridge if isinstance(configured_bridge, bool) else True
+        )
+        self.supports_vv_case_splitting = (
+            str(self._config.get("model_location", "local")).casefold() == "remote"
+        )
+        self.automatic_operational_completion = (
+            str(self._config.get("model_location", "local")).casefold() == "remote"
         )
         try:
             self.vertical_batch_size = max(

@@ -882,7 +882,7 @@ class ModelGenerationService:
         controller_decision: Mapping[str, object] | None = None,
     ) -> _StageExecution:
         task = stage_task(stage.stage)
-        max_attempts = 2 if self._feedback_enabled() else 1
+        max_attempts = self._stage_attempt_limit(task)
         warnings: list[str] = []
         previous_execution: _StageAttemptResult | None = None
         for attempt in range(1, max_attempts + 1):
@@ -1575,10 +1575,30 @@ class ModelGenerationService:
     def _mode(self) -> str:
         return str(getattr(self.runtime_selection, "mode", "offline"))
 
-    def _feedback_enabled(self) -> bool:
-        """Enable one same-stage retry only for structured model runtimes."""
+    def _stage_attempt_limit(self, task) -> int:
+        if not self._feedback_enabled(task):
+            return 1
+        if (
+            task.id == "vertical.requirements"
+            and hasattr(self.runtime, "model")
+            and bool(
+                getattr(
+                    self.runtime.model,
+                    "automatic_operational_completion",
+                    False,
+                )
+            )
+        ):
+            # Operational context is a prerequisite for the rest of the
+            # vertical chain.  Bounded extra passes are reserved for exact
+            # missing R-layer kinds; they are not a repeatability experiment.
+            return 4
+        return 2
 
-        return (
+    def _feedback_enabled(self, task=None) -> bool:
+        """Enable bounded same-stage completion for structured runtimes."""
+
+        regular_feedback = (
             self._mode() in {"configured", "injected"}
             and hasattr(self.runtime, "model")
             and bool(
@@ -1589,6 +1609,20 @@ class ModelGenerationService:
                 )
             )
         )
+        operational_completion = (
+            task is not None
+            and task.id == "vertical.requirements"
+            and self._mode() == "configured"
+            and hasattr(self.runtime, "model")
+            and bool(
+                getattr(
+                    self.runtime.model,
+                    "automatic_operational_completion",
+                    False,
+                )
+            )
+        )
+        return regular_feedback or operational_completion
 
     def _completion_bridge_enabled(self) -> bool:
         """Use the deterministic bridge only for a configured model run."""
