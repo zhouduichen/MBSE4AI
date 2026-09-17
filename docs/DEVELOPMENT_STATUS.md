@@ -1,6 +1,6 @@
 # 开发状态
 
-**更新时间：** 2026-09-15
+**更新时间：** 2026-09-17
 **产品版本：** rflp-lite 0.2.0
 **方法论协议：** v2.1
 
@@ -43,7 +43,7 @@
 | F/L/P 阶段方法论契约 | 每次 vertical LLM 请求显式收到 stage contract（输入/输出/必需类型、允许关系和 reasoning tasks）；ContextBuilder 以完整 ModelGraph 为源，按当前预算只投影 context 可见的逐需求 requirement_worklist，并携带已有 canonical 目标、当前路径、精确缺口和 omitted_requirement_ids；Functional 完成度校验功能流端点/场景覆盖，Logical/Physical 校验可复核架构与可行性推理证据 |
 | LLM Controller 决策提案 | 配置的 OpenAI-compatible Profile 可基于有界 ModelGraph/方法论上下文给出只读建议；建议必须引用确定性 Controller 已有动作并通过用户确认后才执行；离线模式保持确定性，真实 Provider 验证仅使用远程 SSH/Tailscale 模型 |
 | Controller 工作台按需建议 | Assurance 首屏先渲染确定性下一步动作；LLM 建议通过 `include_llm=true` 按需请求，远程节点不可达时不阻塞工作台，也不调用本机模型 |
-| LLM 阶段反馈闭环 | 结构化 LLM 阶段默认保持远程单次 Proposal pass + typed completion bridge；本地或显式 Profile 可在确定性检查发现缺口后再用最新 ModelGraph/guidance 尝试一次；同一 Step/audit 保留最终 attempt；离线 RuleRuntime 保持每阶段单次 |
+| LLM 阶段反馈闭环 | 结构化 LLM 阶段默认保持远程单次 Proposal pass；远程 Requirements 对缺失 Operational 类型做最多四次有界补全，V&V 按每条需求拆分 Verification/Validation Case 并行请求；typed completion bridge 只有显式开启才使用；同一 Step/audit 保留最终 attempt，离线 RuleRuntime 保持每阶段单次 |
 | SysML v2 子集往返 | 导出实际 `part/requirement/action/interface/state/verification/validation` 声明及关系元数据；Concern、Hazard、FailureMode 使用可编辑的通用 part 声明并保留类型元数据；可重新读入新项目并继续编辑 |
 | 产品验收指标 | 以 R→F→L→P→V&V 完整追溯、SysML 往返和 ModelGraph 编辑为主，不再以 23-task 重复运行次数作为主进度指标 |
 | 语义质量口径 | `semantic_invalid` 输出只保存为 candidate、创建 review Issue，不再通过移除 semantic validator 的方式写成 validated |

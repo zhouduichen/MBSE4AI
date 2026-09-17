@@ -1167,7 +1167,7 @@ def _structured_prompt(prompt: str, batch_instruction: str = "") -> str:
 
 def _batch_instruction(task_id: str, meta: object) -> str:
     if not isinstance(meta, Mapping):
-        return ""
+        return _logical_stage_instruction(task_id)
     index = meta.get("index")
     count = meta.get("count")
     if task_id != _VV_BATCH_TASK:
@@ -1175,6 +1175,7 @@ def _batch_instruction(task_id: str, meta: object) -> str:
             f"当前是 {task_id} 第 {index}/{count} 个需求批次。"
             "只处理 requirement_worklist 中的 canonical Requirement；"
             "不得为其它批次需求新增实体或更新，也不要把本批缺口合并成无法追溯的对象。"
+            + _logical_stage_instruction(task_id)
         )
     is_first = bool(meta.get("is_first"))
     case_kind = str(meta.get("case_kind", "")).strip()
@@ -1213,6 +1214,17 @@ def _batch_instruction(task_id: str, meta: object) -> str:
             "为保证结构化输出完整且可落库，每个 VerificationCase 和 ValidationCase 的计划字段都用短句，"
             "每个字段尽量不超过 120 个中文字符，procedure 只保留 3 步以内；不要输出解释性长文或重复上下文。"
         )
+    )
+
+
+def _logical_stage_instruction(task_id: str) -> str:
+    if task_id != "vertical.logical":
+        return ""
+    return (
+        "Logical 阶段新增 State 时必须在 payload.owner_id 填写其所属的 canonical "
+        "LogicalComponent ID（或本 Proposal 的 local_ref），并让该归属形成 decomposes 关系；"
+        "新增 Interface 时必须在 payload.connected_component_ids 填写实际连接的 canonical "
+        "LogicalComponent ID（或本 Proposal 的 local_ref），不得只写自由文本。"
     )
 
 

@@ -71,3 +71,24 @@ def test_requirements_prompt_closes_a_single_missing_activity():
 
     assert "Activity 是当前唯一的闭合缺口" in model.requests[0].system_prompt
     assert "normal、failure、alternative、boundary、exception" in model.requests[0].system_prompt
+
+
+def test_logical_prompt_requires_typed_interface_and_state_ownership():
+    model = CapturingModel()
+    context = ContextBundle(
+        "p1",
+        "vertical.logical",
+        3,
+        (
+            make_entity(EntityKind.REQUIREMENT, "系统应完成任务"),
+            make_entity(EntityKind.FUNCTION, "执行任务"),
+            make_entity(EntityKind.LOGICAL_COMPONENT, "任务控制"),
+        ),
+    )
+    request = TaskExecutor(model).request(stage_task("logical"), context, "v2.1")
+
+    StructuredModelRuntime(model).execute(request)
+
+    prompt = model.requests[0].system_prompt
+    assert "payload.owner_id" in prompt
+    assert "payload.connected_component_ids" in prompt

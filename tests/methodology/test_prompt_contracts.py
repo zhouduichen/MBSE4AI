@@ -2,7 +2,7 @@ from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.methodology.context import ContextBuilder
 from rflp_lite.methodology.executor import TaskExecutor
-from rflp_lite.methodology.tasks import task_catalog
+from rflp_lite.methodology.tasks import output_contract, task_catalog
 from rflp_lite.methodology.vertical_generation import stage_task
 
 
@@ -144,3 +144,10 @@ def test_vertical_requirements_contract_only_allows_missing_r_kinds():
     }
     assert properties["entities"]["maxItems"] == 5
     assert properties["deprecations"]["maxItems"] == 0
+
+
+def test_vertical_logical_contract_requires_state_owner():
+    task = stage_task("logical")
+    schemas = output_contract(task)["x-payload-schemas"]
+
+    assert schemas[EntityKind.STATE.value]["required"] == ["owner_id"]

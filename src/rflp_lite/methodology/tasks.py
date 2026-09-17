@@ -325,10 +325,10 @@ def _payload_schemas(
             },
         })
     if strict_logical:
-        schemas[EntityKind.LOGICAL_COMPONENT.value] = {
-            **schemas[EntityKind.LOGICAL_COMPONENT.value],
-            "required": ["responsibility", "architecture_rationale"],
-        }
+        schemas[EntityKind.LOGICAL_COMPONENT.value]["required"] = [
+            "responsibility", "architecture_rationale"
+        ]
+        schemas[EntityKind.STATE.value]["required"] = ["owner_id"]
     if strict_physical:
         schemas[EntityKind.PHYSICAL_BLOCK.value] = {
             **schemas[EntityKind.PHYSICAL_BLOCK.value],
