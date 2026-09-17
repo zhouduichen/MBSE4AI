@@ -374,7 +374,7 @@ def _infer_functional_reference_payloads(
 ) -> None:
     """Complete unambiguous F-layer references from the Provider's relations."""
 
-    function_refs = {
+    proposal_function_refs = {
         str(entity.get("local_ref"))
         for entity in entities
         if entity.get("kind") == "function" and entity.get("local_ref")
@@ -397,9 +397,9 @@ def _infer_functional_reference_payloads(
                     continue
                 source = str(relation.get("source_ref") or "").strip()
                 target = str(relation.get("target_ref") or "").strip()
-                if target == local_ref and source in function_refs:
+                if target == local_ref and source:
                     incoming.append(source)
-                if source == local_ref and target in function_refs:
+                if source == local_ref and target:
                     outgoing.append(target)
             if not payload.get("source_function_ids") and incoming:
                 payload["source_function_ids"] = list(dict.fromkeys(incoming))
@@ -411,12 +411,12 @@ def _infer_functional_reference_payloads(
                 for relation in relations
                 if relation.get("predicate") == "derivedFrom"
                 and relation.get("target_ref") == local_ref
-                and str(relation.get("source_ref")) in function_refs
+                and str(relation.get("source_ref") or "").strip()
             ]
             if derived_functions:
                 payload["function_ids"] = list(dict.fromkeys(derived_functions))
-            elif len(function_refs) == 1:
-                payload["function_ids"] = list(function_refs)
+            elif len(proposal_function_refs) == 1:
+                payload["function_ids"] = list(proposal_function_refs)
 
 
 def _array_item_schema(schema: object) -> Mapping[str, object] | None:

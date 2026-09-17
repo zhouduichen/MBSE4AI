@@ -611,6 +611,52 @@ def test_vertical_payload_infers_functional_references_from_provider_relations()
     assert by_ref["scenario-1"]["function_ids"] == ["function-1"]
 
 
+def test_vertical_payload_infers_references_to_existing_canonical_function():
+    payload = {
+        "entities": [
+            {
+                "local_ref": "flow-1",
+                "kind": "functional_flow",
+                "name": "已有功能输出流",
+                "payload": {"description": "输出"},
+            },
+            {
+                "local_ref": "scenario-1",
+                "kind": "functional_scenario",
+                "name": "已有功能场景",
+                "payload": {"description": "场景"},
+            },
+        ],
+        "relations": [
+            {
+                "source_ref": "function-existing",
+                "predicate": "exchangesWith",
+                "target_ref": "flow-1",
+            },
+            {
+                "source_ref": "flow-1",
+                "predicate": "exchangesWith",
+                "target_ref": "function-existing",
+            },
+            {
+                "source_ref": "function-existing",
+                "predicate": "derivedFrom",
+                "target_ref": "scenario-1",
+            },
+        ],
+    }
+
+    normalized = OpenAICompatibleModel._parse_and_validate(
+        json.dumps(payload, ensure_ascii=False),
+        output_contract(stage_task("functional")),
+        normalize_vertical=True,
+    )
+    by_ref = {item["local_ref"]: item["payload"] for item in normalized["entities"]}
+
+    assert by_ref["flow-1"]["source_function_ids"] == ["function-existing"]
+    assert by_ref["scenario-1"]["function_ids"] == ["function-existing"]
+
+
 def test_vertical_payload_normalizes_physical_constraint_shape_and_rationale():
     schema = output_contract(stage_task("physical"))
     payload = {
