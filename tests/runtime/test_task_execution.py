@@ -725,6 +725,41 @@ def test_vertical_runtime_drops_unknown_typed_payload_ids_without_discarding_ent
     }
 
 
+def test_vertical_runtime_drops_import_only_entity_metadata_before_compilation():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应保持续航",
+        {"statement": "系统应保持续航", "metric": {"value": 12}},
+    )
+    request = TaskExecutor(RuleRuntime()).request(
+        stage_task("requirements"),
+        ContextBundle("p1", "vertical.requirements", 3, (requirement,)),
+        "v2.1",
+    )
+    proposal = {
+        "entities": [{
+            "local_ref": "requirement-derived",
+            "kind": EntityKind.REQUIREMENT.value,
+            "name": "派生续航需求",
+            "payload": {
+                "statement": "系统应保持续航",
+                "metric": {"name": "runtime", "value": 12},
+                "fault_injection_id": "REQ-RUNTIME",
+            },
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "保留需求语义",
+    }
+
+    sanitized = _sanitize_vertical_proposal(request, proposal)
+
+    assert sanitized["entities"][0]["payload"] == {
+        "statement": "系统应保持续航",
+    }
+
+
 def test_vertical_runtime_preserves_context_scoped_traceability_metadata():
     model = FakeModel()
     requirement = make_entity(

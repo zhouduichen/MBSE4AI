@@ -498,9 +498,7 @@ def _normalize_vertical_entity_payload(
             if field in source:
                 source[field] = _wire_string_list(source[field])
     elif kind == "function":
-        decomposition = source.get("decomposition")
-        if isinstance(decomposition, Mapping):
-            source["decomposition"] = _wire_text(decomposition)
+        _normalize_function_payload(source)
     elif kind in {"functional_flow", "functional_scenario"}:
         for field in ("source_function_ids", "target_function_ids", "function_ids"):
             if field in source:
@@ -551,6 +549,18 @@ def _normalize_vertical_entity_payload(
             if field in source:
                 source[field] = _wire_string_list(source[field])
     return source
+
+
+def _normalize_function_payload(source: MutableMapping[str, object]) -> None:
+    """Map common provider function wording to the typed required field."""
+
+    decomposition = source.get("decomposition")
+    if decomposition is None:
+        decomposition = source.get("purpose") or source.get("behavior")
+        if decomposition is not None:
+            source["decomposition"] = decomposition
+    if isinstance(decomposition, Mapping):
+        source["decomposition"] = _wire_text(decomposition)
 
 
 def _wire_string_list(value: object) -> list[str]:

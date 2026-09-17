@@ -457,6 +457,10 @@ def _sanitize_vertical_proposal(
     result = dict(payload)
     if discarded_local_refs:
         result["entities"] = list(raw_entities)
+    sanitized_payloads = _sanitize_vertical_entity_payloads(request, raw_entities)
+    if sanitized_payloads is not None:
+        result["entities"] = sanitized_payloads
+        raw_entities = sanitized_payloads
     if len(valid_relations) != len(raw_relations):
         result["relations"] = valid_relations
     sanitized_entities = _sanitize_vertical_entity_references(
@@ -481,6 +485,54 @@ def _sanitize_vertical_proposal(
     if sanitized_updates is not None:
         result["updates"] = sanitized_updates
     return result
+
+
+def _sanitize_vertical_entity_payloads(
+    request: TaskExecutionRequest,
+    raw_entities: list[object] | tuple[object, ...],
+) -> list[object] | None:
+    """Remove only closed-schema fields that are not part of ModelGraph.
+
+    The provider adapter performs the same normalization before JSON-schema
+    validation.  Keep this second, context-aware guard at the compiler
+    boundary because some OpenAI-compatible endpoints return a weakened
+    transport schema and because benchmark fixtures intentionally contain
+    import-only metadata.  Values are not coerced or invented here; semantic
+    validation remains authoritative after the harmless metadata is removed.
+    """
+
+    schemas = request.output_contract.get("x-payload-schemas", {})
+    if not isinstance(schemas, Mapping):
+        return None
+    changed = False
+    entities: list[object] = []
+    for raw_entity in raw_entities:
+        if not isinstance(raw_entity, Mapping):
+            entities.append(raw_entity)
+            continue
+        kind = str(raw_entity.get("kind", "")).strip()
+        schema = schemas.get(kind)
+        payload = raw_entity.get("payload")
+        properties = schema.get("properties") if isinstance(schema, Mapping) else None
+        if (
+            not isinstance(payload, Mapping)
+            or not isinstance(schema, Mapping)
+            or schema.get("additionalProperties") is not False
+            or not isinstance(properties, Mapping)
+        ):
+            entities.append(raw_entity)
+            continue
+        filtered = {
+            str(key): value
+            for key, value in payload.items()
+            if key in properties
+        }
+        if len(filtered) == len(payload):
+            entities.append(raw_entity)
+            continue
+        changed = True
+        entities.append({**raw_entity, "payload": filtered})
+    return entities if changed else None
 
 
 def _sanitize_vertical_entity_references(

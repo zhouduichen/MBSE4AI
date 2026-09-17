@@ -457,6 +457,32 @@ def test_vertical_payload_normalizes_structured_logical_reasoning():
     assert logical_payload["architecture_reasoning"] == {"basis": "控制权转移需要隔离"}
 
 
+def test_vertical_payload_maps_function_purpose_to_required_decomposition():
+    schema = output_contract(stage_task("functional"))
+    payload = {
+        "entities": [{
+            "local_ref": "function-1",
+            "kind": "function",
+            "name": "执行安全接管",
+            "payload": {"purpose": "在异常情况下完成安全接管"},
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "识别功能",
+    }
+
+    normalized = OpenAICompatibleModel._parse_and_validate(
+        json.dumps(payload, ensure_ascii=False),
+        schema,
+        normalize_vertical=True,
+    )
+
+    assert normalized["entities"][0]["payload"]["decomposition"] == (
+        "在异常情况下完成安全接管"
+    )
+
+
 def test_vertical_payload_normalizes_physical_constraint_shape_and_rationale():
     schema = output_contract(stage_task("physical"))
     payload = {
