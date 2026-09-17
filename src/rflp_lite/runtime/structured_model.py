@@ -86,6 +86,22 @@ class StructuredModelRuntime:
                 )
             ),
         )
+        try:
+            self.vertical_vv_batch_size = max(
+                1,
+                min(
+                    32,
+                    int(
+                        getattr(
+                            model,
+                            "vertical_vv_batch_size",
+                            self.vertical_batch_size,
+                        )
+                    ),
+                ),
+            )
+        except (TypeError, ValueError):
+            self.vertical_vv_batch_size = self.vertical_batch_size
         self.vertical_singleton_output_token_budget = max(
             256,
             int(
@@ -143,7 +159,11 @@ class StructuredModelRuntime:
             request,
             payload.get("requirement_worklist", []),
             self.model,
-            batch_size=self.vertical_batch_size,
+            batch_size=(
+                self.vertical_vv_batch_size
+                if request.task_id == _VV_BATCH_TASK
+                else self.vertical_batch_size
+            ),
         )
         batch_payloads = tuple(
             _scope_batch_payload(
@@ -1104,6 +1124,12 @@ def _batch_instruction(task_id: str, meta: object) -> str:
         f"当前是 V&V 第 {index}/{count} 个需求批次。"
         "只处理 requirement_worklist 中的 canonical Requirement；不得为其它批次需求重复生成 V&V Case。"
         + risk_instruction
+        + (
+            "本批每个 Requirement 必须且只能生成 1 个 VerificationCase 和 1 个 ValidationCase；"
+            "不要为同一 Requirement 生成第二个边界/异常 Case。"
+            "为保证结构化输出完整且可落库，每个 VerificationCase 和 ValidationCase 的计划字段都用短句，"
+            "每个字段尽量不超过 120 个中文字符，procedure 只保留 3 步以内；不要输出解释性长文或重复上下文。"
+        )
     )
 
 
@@ -1123,9 +1149,10 @@ def _requirement_batches(
         and getattr(model, "supports_requirement_batching", False) is True
     ):
         return (entries,)
+    effective_batch_size = int(batch_size)
     return tuple(
-        entries[start : start + max(1, int(batch_size))]
-        for start in range(0, len(entries), max(1, int(batch_size)))
+        entries[start : start + max(1, effective_batch_size)]
+        for start in range(0, len(entries), max(1, effective_batch_size))
     )
 
 

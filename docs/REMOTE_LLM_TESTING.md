@@ -61,6 +61,7 @@ actual model remains remote.
   "chat_template_kwargs": {"enable_thinking": false},
   "vertical_feedback": false,
   "vertical_batch_size": 2,
+  "vertical_vv_batch_size": 1,
   "vertical_batch_output_tokens": 3072,
   "max_parallel_requests": 2,
   "structured_output_mode": "json_schema",
@@ -84,6 +85,12 @@ requirement run does not repeat every provider batch. The product still runs
 the typed vertical completion bridge after the single LLM proposal pass; set
 it to `true` only when the remote model's additional same-stage feedback pass
 is worth the latency.
+
+V&V defaults to one requirement per batch for remote profiles because a
+verification and validation case carries substantially more structured fields
+than an F/L/P proposal. These singleton V&V batches still run in parallel up to
+`max_parallel_requests`; set `vertical_vv_batch_size` explicitly only when the
+remote model has enough output budget for larger assurance batches.
 
 Save it with the CLI in an isolated configuration directory, then use the
 profile explicitly. This keeps the user's normal profile directory and

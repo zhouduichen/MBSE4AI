@@ -207,6 +207,10 @@ class SplitBatchedVvModel(BatchedVvModel):
         return super().complete_json(request)
 
 
+class SingletonVvBatchedModel(BatchedVvModel):
+    vertical_vv_batch_size = 1
+
+
 def test_runtime_adapts_task_context_to_generation_request():
     model = FakeModel()
     runtime = StructuredModelRuntime(model)
@@ -952,6 +956,37 @@ def test_structured_runtime_batches_large_vv_worklist_and_merges_patch():
     assert len(relation_keys) == 10
     assert len(relation_keys) == len(set(relation_keys))
     assert "batch_count=3" in result.diagnostics
+
+
+def test_structured_runtime_can_use_singleton_vv_batches_for_large_outputs():
+    model = SingletonVvBatchedModel()
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求 {index}",
+            {
+                "statement": f"系统应满足需求 {index}",
+                "obligation": "shall",
+                "level": "system",
+                "type": "functional",
+                "verification_method": "test",
+            },
+        )
+        for index in range(5)
+    )
+    context = ContextBundle("p1", "vertical.verification_validation", 3, requirements)
+    request = TaskExecutor(model).request(
+        stage_task("verification_validation"), context, "v2.1", token_budget=4096
+    )
+
+    result = StructuredModelRuntime(model).execute(request)
+
+    assert result.patch is not None
+    assert [
+        len(call.user_payload["requirement_worklist"])
+        for call in model.calls
+    ] == [1, 1, 1, 1, 1]
+    assert "batch_count=5" in result.diagnostics
 
 
 def test_structured_runtime_caps_only_multi_requirement_batch_output_budget():

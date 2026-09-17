@@ -839,6 +839,21 @@ class OpenAICompatibleModel:
             )
         except (TypeError, ValueError):
             self.vertical_batch_size = 2
+        default_vv_batch_size = (
+            1
+            if str(self._config.get("model_location", "local")).casefold() == "remote"
+            else self.vertical_batch_size
+        )
+        try:
+            self.vertical_vv_batch_size = max(
+                1,
+                min(
+                    32,
+                    int(self._config.get("vertical_vv_batch_size", default_vv_batch_size)),
+                ),
+            )
+        except (TypeError, ValueError):
+            self.vertical_vv_batch_size = default_vv_batch_size
         try:
             self.vertical_batch_output_token_budget = max(
                 256,
