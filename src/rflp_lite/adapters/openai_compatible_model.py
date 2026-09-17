@@ -816,7 +816,11 @@ class OpenAICompatibleModel:
         # A remote profile normally uses the typed completion bridge after one
         # proposal pass.  Keep the feedback pass opt-in for slower providers.
         self.automatic_vertical_stage_feedback = configured_feedback
-        configured_bridge = self._config.get("vertical_completion_bridge", True)
+        configured_bridge = self._config.get("vertical_completion_bridge")
+        if configured_bridge is None:
+            configured_bridge = str(
+                self._config.get("model_location", "local")
+            ).casefold() != "remote"
         self.automatic_vertical_stage_completion_bridge = (
             configured_bridge if isinstance(configured_bridge, bool) else True
         )

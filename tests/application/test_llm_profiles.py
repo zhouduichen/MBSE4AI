@@ -226,7 +226,8 @@ def test_remote_profile_defaults_to_single_vertical_pass_but_allows_feedback() -
     assert local["vertical_batch_size"] == 2
     assert local["vertical_batch_output_tokens"] == 3072
     assert opted_in["vertical_feedback"] is True
-    assert remote["vertical_completion_bridge"] is True
+    assert remote["vertical_completion_bridge"] is False
+    assert local["vertical_completion_bridge"] is True
 
 
 def test_llm_profile_can_disable_vertical_completion_bridge() -> None:

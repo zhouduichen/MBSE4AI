@@ -248,7 +248,12 @@ def normalize_profile(payload: object) -> dict[str, object]:
         vertical_feedback = model_location != "remote"
     if not isinstance(vertical_feedback, bool):
         raise InvariantViolation("LLM vertical_feedback 必须是布尔值")
-    vertical_completion_bridge = payload.get("vertical_completion_bridge", True)
+    vertical_completion_bridge = payload.get("vertical_completion_bridge")
+    if vertical_completion_bridge is None:
+        # A remote Provider must earn completion through the typed vertical
+        # contract.  The deterministic bridge remains available as an
+        # explicit best-effort option and stays the default for local runtimes.
+        vertical_completion_bridge = model_location != "remote"
     if not isinstance(vertical_completion_bridge, bool):
         raise InvariantViolation("LLM vertical_completion_bridge 必须是布尔值")
     vertical_batch_size = _optional_int(

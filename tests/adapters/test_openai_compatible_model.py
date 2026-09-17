@@ -68,9 +68,11 @@ def test_openai_compatible_remote_model_uses_single_vertical_pass_by_default():
     })
 
     assert remote.automatic_vertical_stage_feedback is False
+    assert remote.automatic_vertical_stage_completion_bridge is False
     assert remote.vertical_batch_size == 2
     assert remote.vertical_batch_output_token_budget == 3072
     assert local.automatic_vertical_stage_feedback is True
+    assert local.automatic_vertical_stage_completion_bridge is True
     assert local.vertical_batch_size == 2
     assert local.vertical_batch_output_token_budget == 3072
     assert opted_in.automatic_vertical_stage_feedback is True
