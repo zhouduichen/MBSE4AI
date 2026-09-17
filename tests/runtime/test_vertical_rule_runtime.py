@@ -468,6 +468,46 @@ def test_physical_budget_trade_does_not_fabricate_measurements():
     assert update.field_patch["payload"]["architecture_decision"]["option_id"] == "o5"
 
 
+def test_physical_stage_completes_all_existing_allocated_candidates():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "运行约束",
+        {"constraints": {"max_power_w": 100}},
+    )
+    function = make_entity(EntityKind.FUNCTION, "执行任务")
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "任务控制器")
+    first = make_entity(EntityKind.PHYSICAL_BLOCK, "计算平台", {"mass": 2})
+    second = make_entity(EntityKind.PHYSICAL_BLOCK, "电池", {"mass": 5})
+    relations = (
+        Relation("r-f", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+        Relation("f-l", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+        Relation("l-p1", logical.id, RelationPredicate.ALLOCATED_TO, first.id),
+        Relation("l-p2", logical.id, RelationPredicate.ALLOCATED_TO, second.id),
+    )
+
+    response = VerticalRuleRuntime().execute(
+        _physical_request(
+            (requirement, function, logical, first, second),
+            relations,
+        )
+    )
+    graph = apply_patch(
+        ModelGraph(
+            "robot",
+            (requirement, function, logical, first, second),
+            relations,
+            revision=3,
+        ),
+        response.patch,
+    )
+
+    for physical_id in (first.id, second.id):
+        payload = graph.entity_index[physical_id].payload
+        assert payload["trade_study"]
+        assert payload["source_requirement_ids"] == [requirement.id]
+        assert payload["feasibility_reasoning"]["physical_id"] == physical_id
+
+
 def test_locked_physical_candidate_gets_unmeasured_alternative():
     logical = make_entity(EntityKind.LOGICAL_COMPONENT, "任务控制器")
     physical = make_entity(

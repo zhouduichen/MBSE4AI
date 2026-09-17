@@ -693,20 +693,11 @@ class VerticalRuleRuntime:
                 )
             )
             requirements = _requirements_for_functions(request.context_bundle, functions)
-            linked_physical = next(
-                (
-                    candidate for candidate in _context_entities(
-                        request.context_bundle, EntityKind.PHYSICAL_BLOCK
-                    )
-                    if any(
-                        relation.source_id == logical.id
-                        and relation.predicate is RelationPredicate.ALLOCATED_TO
-                        and relation.target_id == candidate.id
-                        for relation in request.context_bundle.relations
-                    ) or candidate.id in _source_context_ids(logical)
-                ),
-                None,
+            linked_physical_candidates = _linked_physical_candidates(
+                request.context_bundle,
+                logical,
             )
+            linked_physical = linked_physical_candidates[0] if linked_physical_candidates else None
             name = (
                 linked_physical.meta.name
                 if linked_physical is not None and not physical_variant
@@ -785,6 +776,14 @@ class VerticalRuleRuntime:
                             alternative_payload,
                         )
             _record_physical_entity(builder, physical_entities, logical, physical)
+            _enrich_additional_physical_candidates(
+                builder,
+                physical_entities,
+                logical,
+                functions,
+                requirements,
+                linked_physical_candidates[1:],
+            )
             for requirement in requirements:
                 requirement_payload = dict(requirement.payload)
                 requirement_payload["feasibility_review"] = {
@@ -1938,6 +1937,58 @@ def _physical_payload_with_reasoning(logical, requirements, linked_physical):
 def _record_physical_entity(builder, physical_entities, logical, physical):
     physical_entities.append(physical)
     builder.relate(logical, RelationPredicate.ALLOCATED_TO, physical)
+
+
+def _linked_physical_candidates(context, logical):
+    """Return every existing physical candidate allocated to one logical node."""
+
+    return tuple(
+        candidate
+        for candidate in _context_entities(context, EntityKind.PHYSICAL_BLOCK)
+        if any(
+            relation.source_id == logical.id
+            and relation.predicate is RelationPredicate.ALLOCATED_TO
+            and relation.target_id == candidate.id
+            for relation in context.relations
+        ) or candidate.id in _source_context_ids(logical)
+    )
+
+
+def _enrich_additional_physical_candidates(
+    builder, physical_entities, logical, functions, requirements, candidates
+):
+    for physical in candidates:
+        if (
+            physical.meta.status is EntityStatus.LOCKED
+            or bool(physical.payload.get("user_modified"))
+        ):
+            continue
+        payload = _physical_payload_with_reasoning(logical, requirements, physical)
+        payload.update({
+            field: physical.payload[field]
+            for field in _PHYSICAL_MEASUREMENT_FIELDS
+            if field in physical.payload
+            and physical.payload[field] not in (None, "", [], {})
+        })
+        conflicts = _physical_constraint_conflicts(payload, requirements)
+        if conflicts:
+            payload["feasibility"] = {
+                **dict(payload.get("feasibility", {})),
+                "status": "infeasible",
+                "conflicts": conflicts,
+            }
+        if not any(_explicit_constraint_map(item) for item in requirements):
+            payload["technical_requirement_status"] = "no_explicit_constraints"
+        _set_physical_reasoning_scope(
+            payload,
+            logical,
+            functions,
+            requirements,
+            physical.id,
+            conflicts,
+        )
+        builder.update(physical, payload=payload)
+        _record_physical_entity(builder, physical_entities, logical, physical)
 
 
 _PHYSICAL_MEASUREMENT_FIELDS = (
