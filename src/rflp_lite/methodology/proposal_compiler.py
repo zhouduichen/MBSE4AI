@@ -604,7 +604,7 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
             merged_payload = {**dict(entity.payload), **payload_patch}
             _validate_entity_payload(
                 entity.kind,
-                _payload_for_update_validation(entity.kind, merged_payload),
+                _payload_for_update_validation(entity.kind, merged_payload, request),
                 request,
             )
             field_patch["payload"] = payload_patch
@@ -630,15 +630,22 @@ def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, o
 def _payload_for_update_validation(
     kind: EntityKind,
     payload: Mapping[str, object],
+    request: TaskExecutionRequest,
 ) -> Mapping[str, object]:
-    """Ignore known fixture bookkeeping while validating an edited payload.
+    """Validate the typed projection while preserving legacy graph metadata.
 
-    Imported benchmark entities may retain ``fixture_id`` for provenance even
-    though it is intentionally outside the typed Requirement payload schema.
-    Preserve that field in the graph, but do not let it block a valid semantic
-    update to the same Requirement.
+    Imported entities may retain provenance or benchmark fields outside the
+    current typed payload schema. They remain in ModelGraph, but must not block
+    a valid semantic update to the typed projection of that entity.
     """
 
-    if kind is not EntityKind.REQUIREMENT or "fixture_id" not in payload:
+    schemas = request.output_contract.get("x-payload-schemas", {})
+    schema = schemas.get(kind.value) if isinstance(schemas, Mapping) else None
+    properties = schema.get("properties") if isinstance(schema, Mapping) else None
+    if (
+        not isinstance(schema, Mapping)
+        or schema.get("additionalProperties") is not False
+        or not isinstance(properties, Mapping)
+    ):
         return payload
-    return {key: value for key, value in payload.items() if key != "fixture_id"}
+    return {key: value for key, value in payload.items() if key in properties}

@@ -816,3 +816,45 @@ def test_partial_payload_update_rejects_invalid_final_payload():
 
     with pytest.raises(ContractViolation, match="invalid requirement payload"):
         compile_task_proposal(request, payload)
+
+
+def test_partial_payload_update_ignores_legacy_import_metadata():
+    task = stage_task("functional")
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "原始需求",
+        {
+            "statement": "系统应完成投递",
+            "metric": {"name": "runtime", "value": 12},
+            "fault_injection_id": "REQ-RUNTIME",
+        },
+    )
+    contract = output_contract(task)
+    request = TaskExecutionRequest(
+        task.id,
+        "v2.1",
+        ContextBundle("p1", task.id, 3, (requirement,)),
+        (),
+        contract,
+        100,
+        patch_policy=task.patch_policy,
+    )
+    payload = _proposal(
+        entities=[{
+            "local_ref": "function-1",
+            "kind": "function",
+            "name": "完成投递",
+            "payload": {"decomposition": "执行投递"},
+        }],
+        updates=[{
+            "entity_id": requirement.id,
+            "field_patch": {
+                "payload": {"functional_behavior_ids": ["function-1"]},
+            },
+        }],
+    )
+
+    patch = compile_task_proposal(request, payload)
+
+    assert patch is not None
+    assert isinstance(patch.operations[-1], UpdateEntity)
