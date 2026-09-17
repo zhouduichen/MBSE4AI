@@ -146,3 +146,7 @@ Operational, Functional, Logical/Physical, and Assurance phase boundaries
 remain ordered; patches are merged deterministically through the normal
 Validator/CAS path. If the remote port is unavailable, wait for the GPU
 launcher and do not start a local model or stop unrelated remote jobs.
+
+Transient SSH-forward or provider restarts are retried once by default for a
+remote profile. HTTP errors, invalid JSON, and schema/semantic failures are not
+retried; those remain visible as reviewable LLM-stage issues.

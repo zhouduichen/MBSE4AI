@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from urllib import error, request
 from urllib.parse import urlparse
 from typing import Mapping
@@ -14,6 +15,8 @@ from rflp_lite.ports.token_budget import estimate_messages
 # margin so a request that appears to fit locally does not cross the provider
 # context limit by a handful of tokens.
 _CONTEXT_TOKEN_SAFETY_MARGIN = 256
+_DEFAULT_REMOTE_NETWORK_RETRIES = 1
+_NETWORK_RETRY_BACKOFF_SECONDS = 2.0
 
 
 class _CompletionText(str):
@@ -209,6 +212,23 @@ def _seed_value(config: dict[str, object]) -> int | None:
         return None
 
 
+def _network_retry_count(config: Mapping[str, object]) -> int:
+    """Bound transient transport retries without retrying model-level errors."""
+
+    configured = config.get("network_retries")
+    if configured is None or configured == "":
+        configured = (
+            _DEFAULT_REMOTE_NETWORK_RETRIES
+            if str(config.get("model_location", "")).casefold() == "remote"
+            or str(config.get("kind", "")).casefold() == "remote"
+            else 0
+        )
+    try:
+        return max(0, min(3, int(configured)))
+    except (TypeError, ValueError):
+        return 0
+
+
 def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *, max_tokens: int | None = None) -> str:
     max_tokens = _bounded_max_tokens(config, max_tokens)
     native_ollama = _is_native_ollama(config)
@@ -275,34 +295,40 @@ def chat_completion(config: dict[str, object], messages: list[dict[str, str]], *
         headers=headers,
         method="POST",
     )
-    try:
-        with request.urlopen(call, timeout=int(config.get("timeout_seconds", 300))) as response:
-            envelope = json.loads(response.read().decode("utf-8"))
-    except error.HTTPError as exc:
-        detail = ""
+    retry_limit = _network_retry_count(config)
+    for attempt in range(retry_limit + 1):
         try:
-            raw_detail = exc.read().decode("utf-8", "replace")
-            payload = json.loads(raw_detail)
-            error_payload = payload.get("error") if isinstance(payload, dict) else payload
-            detail = _provider_error_message(error_payload)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            with request.urlopen(call, timeout=int(config.get("timeout_seconds", 300))) as response:
+                envelope = json.loads(response.read().decode("utf-8"))
+            break
+        except error.HTTPError as exc:
             detail = ""
-        suffix = f": {detail}" if detail else ""
-        raise TransportFailure(
-            f"LLM 请求失败: HTTP {exc.code}{suffix}",
-            code="http_error",
-            provider_id=str(config.get("provider", "")),
-            model_id=str(config.get("model", "")),
-        ) from exc
-    except (error.URLError, TimeoutError, OSError) as exc:
-        raise TransportFailure(
-            f"LLM 请求失败: {type(exc).__name__}",
-            code="network_error",
-            provider_id=str(config.get("provider", "")),
-            model_id=str(config.get("model", "")),
-        ) from exc
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise AdapterFailure("LLM 返回不是有效 JSON") from exc
+            try:
+                raw_detail = exc.read().decode("utf-8", "replace")
+                payload = json.loads(raw_detail)
+                error_payload = payload.get("error") if isinstance(payload, dict) else payload
+                detail = _provider_error_message(error_payload)
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                detail = ""
+            suffix = f": {detail}" if detail else ""
+            raise TransportFailure(
+                f"LLM 请求失败: HTTP {exc.code}{suffix}",
+                code="http_error",
+                provider_id=str(config.get("provider", "")),
+                model_id=str(config.get("model", "")),
+            ) from exc
+        except (error.URLError, TimeoutError, OSError) as exc:
+            if attempt < retry_limit:
+                time.sleep(_NETWORK_RETRY_BACKOFF_SECONDS * (attempt + 1))
+                continue
+            raise TransportFailure(
+                f"LLM 请求失败: {type(exc).__name__}",
+                code="network_error",
+                provider_id=str(config.get("provider", "")),
+                model_id=str(config.get("model", "")),
+            ) from exc
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise AdapterFailure("LLM 返回不是有效 JSON") from exc
     return _CompletionText(
         _message_content(envelope),
         _done_reason(envelope),

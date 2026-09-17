@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from io import BytesIO
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -49,6 +49,64 @@ def test_chat_completion_uses_openai_compatible_endpoint(monkeypatch):
     assert captured["url"] == "http://127.0.0.1:11434/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer local-key"
     assert captured["timeout"] == 7
+
+
+def test_chat_completion_retries_one_transient_remote_network_failure(monkeypatch):
+    calls = {"count": 0}
+
+    def fake_urlopen(_call, timeout):
+        assert timeout == 7
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise URLError("vLLM is restarting")
+        return _Response()
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        llm_client.time,
+        "sleep",
+        lambda seconds: calls.setdefault("sleep", seconds),
+    )
+    content = llm_client.chat_completion(
+        {
+            "model_location": "remote",
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+            "timeout_seconds": 7,
+        },
+        [{"role": "user", "content": "ping"}],
+    )
+
+    assert content == "OK"
+    assert calls["count"] == 2
+    assert calls["sleep"] == 2.0
+
+
+def test_chat_completion_does_not_retry_http_errors(monkeypatch):
+    calls = {"count": 0}
+
+    def fake_urlopen(_call, timeout):
+        assert timeout == 300
+        calls["count"] += 1
+        raise HTTPError(
+            "https://example.test/chat/completions",
+            400,
+            "bad request",
+            {},
+            BytesIO(b'{"error":{"message":"invalid schema"}}'),
+        )
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    with pytest.raises(AdapterFailure, match="invalid schema"):
+        llm_client.chat_completion(
+            {
+                "model_location": "remote",
+                "base_url": "https://example.test/v1",
+                "model": "model",
+            },
+            [{"role": "user", "content": "json"}],
+        )
+    assert calls["count"] == 1
 
 
 def test_chat_completion_sends_schema_to_openai_compatible_ssh_endpoint(monkeypatch):
