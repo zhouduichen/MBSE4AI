@@ -24,7 +24,10 @@ from rflp_lite.methodology.engine import MethodologyEngine, MethodologyReport
 from rflp_lite.methodology.controller import ControllerPlan, ControllerProposal, SystemsEngineeringController
 from rflp_lite.methodology.llm_controller import LLMController
 from rflp_lite.methodology.impact import ImpactPlan, TypedImpactPlanner
-from rflp_lite.methodology.architecture_persistence import enrich_architecture_patch
+from rflp_lite.methodology.architecture_persistence import (
+    enrich_architecture_patch,
+    enrich_vertical_patch,
+)
 from rflp_lite.methodology.tasks import task_spec_hash
 from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
 from rflp_lite.methodology.vertical_generation import (
@@ -1240,7 +1243,11 @@ class ModelGenerationService:
                 )
             revision = graph.revision
         else:
-            enriched_patch = enrich_architecture_patch(graph, response.patch)
+            enriched_patch = (
+                enrich_vertical_patch(graph, response.patch)
+                if self._mode() == "configured" and not self._completion_bridge_enabled()
+                else enrich_architecture_patch(graph, response.patch)
+            )
             if enriched_patch != response.patch:
                 response = replace(response, patch=enriched_patch)
             semantic_invalid = self._validate_response_for_commit(

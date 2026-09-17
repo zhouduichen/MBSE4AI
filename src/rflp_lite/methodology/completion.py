@@ -142,7 +142,7 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
         "function_identification": bool(functions)
         and _linked(graph, index, EntityKind.REQUIREMENT, RelationPredicate.SATISFIED_BY, EntityKind.FUNCTION),
         "functional_decomposition": bool(functions)
-        and all(str(item.payload.get("decomposition", "")).strip() for item in functions),
+        and all(bool(str(item.payload.get("decomposition", "")).strip()) for item in functions),
         "functional_interaction": _has_kind(kinds, EntityKind.FUNCTIONAL_FLOW)
         and _linked(graph, index, EntityKind.FUNCTION, RelationPredicate.EXCHANGES_WITH, EntityKind.FUNCTIONAL_FLOW)
         and all(

@@ -687,6 +687,16 @@ def _infer_vertical_relations(
                         add(logical_ref, RelationPredicate.CONNECTED_TO, local_ref)
             elif entity_kind is EntityKind.STATE:
                 logical_ref = payload.get("owner_id")
+                if kind(logical_ref) is not EntityKind.LOGICAL_COMPONENT:
+                    logical_refs = [
+                        ref
+                        for ref, ref_kind in (*local_kinds.items(), *context_kinds.items())
+                        if ref_kind is EntityKind.LOGICAL_COMPONENT
+                    ]
+                    if len(set(logical_refs)) == 1:
+                        logical_ref = logical_refs[0]
+                        if isinstance(payload, dict):
+                            payload["owner_id"] = logical_ref
                 if kind(logical_ref) is EntityKind.LOGICAL_COMPONENT:
                     add(logical_ref, RelationPredicate.DECOMPOSES, local_ref)
         elif task_id == "vertical.physical":
@@ -711,6 +721,17 @@ def _infer_vertical_relations(
             # directly; fan-out into one derivedFrom relation per requirement
             # would duplicate the same risk across V&V batches and consume the
             # aggregate Patch operation budget without improving coverage.
+    if task_id == "vertical.logical":
+        for relation in list(result):
+            if relation.get("predicate") != RelationPredicate.EXCHANGES_WITH.value:
+                continue
+            source_ref = relation.get("source_ref")
+            target_ref = relation.get("target_ref")
+            if (
+                kind(source_ref) is EntityKind.LOGICAL_COMPONENT
+                and kind(target_ref) is EntityKind.INTERFACE
+            ):
+                add(source_ref, RelationPredicate.CONNECTED_TO, target_ref)
     return result
 
 
