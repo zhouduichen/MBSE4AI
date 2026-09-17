@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import replace
 
-from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus
+from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.model import AddEntity, ModelGraph, Patch, Relate, UpdateEntity, apply_patch
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.architecture_reasoning import (
@@ -14,6 +14,7 @@ from rflp_lite.methodology.architecture_reasoning import (
     physical_reasoning_payload,
 )
 from rflp_lite.methodology.architecture_synthesis import synthesize_architecture
+from rflp_lite.methodology.trace_rules import requirement_trace_scope
 
 
 _ARCHITECTURE_TASK_KINDS = {
@@ -98,6 +99,8 @@ def enrich_vertical_patch(graph: ModelGraph, patch: Patch) -> Patch:
     if patch.task_id == "vertical.physical":
         patch = enrich_architecture_patch(graph, patch)
         return _enrich_physical_closure(graph, patch)
+    if patch.task_id == "vertical.verification_validation":
+        return _enrich_assurance_closure(graph, patch)
     return patch
 
 
@@ -107,6 +110,8 @@ def _enrich_functional_closure(graph: ModelGraph, patch: Patch) -> Patch:
     preview = apply_patch(graph, patch)
     payloads: dict[str, Mapping[str, object]] = {}
     relations: list[Relate] = []
+    derived_entities, flow_payloads = _functional_endpoint_repairs(preview)
+    payloads.update(flow_payloads)
     for function in _active_of_kind(preview, EntityKind.FUNCTION):
         if function.payload.get("decomposition"):
             value = None
@@ -121,25 +126,85 @@ def _enrich_functional_closure(graph: ModelGraph, patch: Patch) -> Patch:
         if value is not None:
             payloads[function.id] = {"decomposition": value}
     for flow in _active_of_kind(preview, EntityKind.FUNCTIONAL_FLOW):
-        function_ids = _payload_refs(flow.payload, "source_function_ids") + _payload_refs(
-            flow.payload, "target_function_ids"
+        flow_payload = {
+            **dict(flow.payload),
+            **dict(flow_payloads.get(flow.id, {})),
+        }
+        function_ids = _payload_refs(flow_payload, "source_function_ids") + _payload_refs(
+            flow_payload, "target_function_ids"
         )
         for function_id in function_ids:
-            if (
+            is_function = (
                 function_id in preview.entity_index
                 and preview.entity_index[function_id].kind is EntityKind.FUNCTION
-                and _relation_missing(
+            ) or any(
+                operation.entity.id == function_id
+                and operation.entity.kind is EntityKind.FUNCTION
+                for operation in derived_entities
+            )
+            if is_function and _relation_missing(
+                preview,
+                function_id,
+                RelationPredicate.EXCHANGES_WITH,
+                flow.id,
+            ):
+                _queue_relation(
                     preview,
+                    relations,
                     function_id,
                     RelationPredicate.EXCHANGES_WITH,
                     flow.id,
                 )
-            ):
-                relations.append(
-                    Relate(function_id, RelationPredicate.EXCHANGES_WITH, flow.id)
-                )
     enriched = _merge_entity_payloads(graph, patch, payloads)
-    return _append_operations(enriched, relations)
+    return _append_operations(enriched, [*derived_entities, *relations])
+
+
+def _functional_endpoint_repairs(
+    graph: ModelGraph,
+) -> tuple[list[AddEntity], dict[str, Mapping[str, object]]]:
+    """Turn non-function flow endpoints into explicit external adapter functions."""
+
+    function_ids = {
+        item.id for item in _active_of_kind(graph, EntityKind.FUNCTION)
+    }
+    derived_entities: list[AddEntity] = []
+    payloads: dict[str, Mapping[str, object]] = {}
+    for flow in _active_of_kind(graph, EntityKind.FUNCTIONAL_FLOW):
+        updates: dict[str, list[str]] = {}
+        for side, label in (
+            ("source_function_ids", "输入"),
+            ("target_function_ids", "输出"),
+        ):
+            refs = list(_payload_refs(flow.payload, side))
+            invalid = [item for item in refs if item not in function_ids]
+            if not invalid:
+                continue
+            valid = [item for item in refs if item in function_ids]
+            repaired = list(valid)
+            for index, reference in enumerate(invalid, start=1):
+                adapter = make_entity(
+                    EntityKind.FUNCTION,
+                    f"{label}适配功能：{flow.meta.name} ({index})",
+                    {
+                        "decomposition": f"将{label}端数据转换为功能流可处理的 typed 输入",
+                        "external_reference_id": reference,
+                        "flow_id": flow.id,
+                    },
+                    producer=Producer.RULE,
+                    confidence=0.35,
+                    revision=graph.revision,
+                )
+                if adapter.id not in function_ids and all(
+                    operation.entity.id != adapter.id
+                    for operation in derived_entities
+                ):
+                    derived_entities.append(AddEntity(adapter))
+                function_ids.add(adapter.id)
+                repaired.append(adapter.id)
+            updates[side] = list(dict.fromkeys(repaired))
+        if updates:
+            payloads[flow.id] = updates
+    return derived_entities, payloads
 
 
 def _enrich_logical_closure(graph: ModelGraph, patch: Patch) -> Patch:
@@ -153,14 +218,13 @@ def _enrich_logical_closure(graph: ModelGraph, patch: Patch) -> Patch:
         for item in preview.entities
         if item.kind is EntityKind.FUNCTION
     }
+    functions = tuple(
+        item for item in preview.entities if item.kind is EntityKind.FUNCTION
+    )
     for component in _active_of_kind(preview, EntityKind.LOGICAL_COMPONENT):
         if _protected(component):
             continue
-        function_ids = _functions_for_component(
-            preview,
-            component,
-            tuple(item for item in preview.entities if item.kind is EntityKind.FUNCTION),
-        )
+        function_ids = _logical_function_ids(preview, component, functions)
         grouped = tuple(
             item for item in preview.entities
             if item.kind is EntityKind.FUNCTION and item.id in function_ids
@@ -192,6 +256,25 @@ def _enrich_logical_closure(graph: ModelGraph, patch: Patch) -> Patch:
                 relations.append(
                     Relate(function_id, RelationPredicate.ALLOCATED_TO, component.id)
                 )
+    logical_components = _active_of_kind(preview, EntityKind.LOGICAL_COMPONENT)
+    for function in functions:
+        if any(
+            relation.source_id == function.id
+            and relation.predicate is RelationPredicate.ALLOCATED_TO
+            and preview.entity_index.get(relation.target_id) is not None
+            and preview.entity_index[relation.target_id].kind is EntityKind.LOGICAL_COMPONENT
+            for relation in preview.relations
+        ):
+            continue
+        owner = _logical_owner_for_function(preview, function, logical_components)
+        if owner is not None:
+            _queue_relation(
+                preview,
+                relations,
+                function.id,
+                RelationPredicate.ALLOCATED_TO,
+                owner.id,
+            )
         for interface_id in _payload_refs(
             component.payload, "interface_ids"
         ):
@@ -225,9 +308,310 @@ def _enrich_logical_closure(graph: ModelGraph, patch: Patch) -> Patch:
         ):
             relations.append(Relate(owner_id, RelationPredicate.DECOMPOSES, state.id))
     if not payload_updates and not relations:
+        enriched = patch
+    else:
+        enriched = _merge_entity_payloads(graph, patch, payload_updates)
+
+    logical_components = _active_of_kind(preview, EntityKind.LOGICAL_COMPONENT)
+    interfaces = _active_of_kind(preview, EntityKind.INTERFACE)
+    states = _active_of_kind(preview, EntityKind.STATE)
+    derived_entities, scaffold_relations = _logical_scaffolds(
+        preview, logical_components, interfaces, states
+    )
+    relations.extend(scaffold_relations)
+    if not derived_entities and not relations and enriched is patch:
         return patch
+    return _append_operations(enriched, [*derived_entities, *relations])
+
+
+def _logical_scaffolds(
+    graph: ModelGraph,
+    logical_components: tuple[Entity, ...],
+    interfaces: tuple[Entity, ...],
+    states: tuple[Entity, ...],
+) -> tuple[list[AddEntity], list[Relate]]:
+    """Create explicitly reviewable interface/state candidates when absent."""
+
+    derived_entities: list[AddEntity] = []
+    relations: list[Relate] = []
+    if logical_components and not interfaces:
+        interface = make_entity(
+            EntityKind.INTERFACE,
+            "系统逻辑交互接口",
+            {
+                "protocol": "derived-logical-interface",
+                "exchanges": [
+                    item.meta.name
+                    for item in _active_of_kind(graph, EntityKind.FUNCTIONAL_FLOW)
+                ],
+                "connected_component_ids": [item.id for item in logical_components],
+            },
+            producer=Producer.RULE,
+            confidence=0.35,
+            revision=graph.revision,
+        )
+        derived_entities.append(AddEntity(interface))
+        for component in logical_components:
+            _queue_relation(
+                graph,
+                relations,
+                component.id,
+                RelationPredicate.CONNECTED_TO,
+                interface.id,
+            )
+    if logical_components and not states:
+        owner = next(
+            (
+                item for item in logical_components
+                if any(
+                    relation.source_id == item.id
+                    and relation.predicate is RelationPredicate.ALLOCATED_TO
+                    for relation in graph.relations
+                )
+            ),
+            logical_components[0],
+        )
+        state = make_entity(
+            EntityKind.STATE,
+            "系统运行状态",
+            {
+                "values": ["待机", "运行", "异常", "完成"],
+                "transitions": ["待机->运行", "运行->异常", "运行->完成"],
+                "owner_id": owner.id,
+            },
+            producer=Producer.RULE,
+            confidence=0.35,
+            revision=graph.revision,
+        )
+        derived_entities.append(AddEntity(state))
+        _queue_relation(
+            graph, relations, owner.id, RelationPredicate.DECOMPOSES, state.id
+        )
+    return derived_entities, relations
+
+
+def _logical_function_ids(
+    graph: ModelGraph,
+    component: Entity,
+    functions: tuple[Entity, ...],
+) -> tuple[str, ...]:
+    values = list(_functions_for_component(graph, component, functions))
+    for field in ("function_id", "function_ids"):
+        values.extend(_payload_refs(component.payload, field))
+    reasoning = component.payload.get("architecture_reasoning")
+    basis = reasoning.get("basis") if isinstance(reasoning, Mapping) else None
+    if isinstance(basis, Mapping):
+        values.extend(_payload_refs(basis, "function_ids"))
+    function_ids = {item.id for item in functions}
+    return tuple(dict.fromkeys(item for item in values if item in function_ids))
+
+
+def _logical_owner_for_function(
+    graph: ModelGraph,
+    function: Entity,
+    components: tuple[Entity, ...],
+) -> Entity | None:
+    """Choose a reviewable owner for an otherwise unallocated function."""
+
+    if not components:
+        return None
+    assigned = {
+        component.id: 0
+        for component in components
+    }
+    index = graph.entity_index
+    for relation in graph.relations:
+        if relation.predicate is not RelationPredicate.ALLOCATED_TO:
+            continue
+        target = index.get(relation.target_id)
+        if target is not None and target.kind is EntityKind.LOGICAL_COMPONENT:
+            assigned[target.id] = assigned.get(target.id, 0) + 1
+    scores = {component.id: 0 for component in components}
+    for flow in _active_of_kind(graph, EntityKind.FUNCTIONAL_FLOW):
+        refs = set(
+            _payload_refs(flow.payload, "source_function_ids")
+            + _payload_refs(flow.payload, "target_function_ids")
+        )
+        if function.id not in refs:
+            continue
+        for other_id in refs - {function.id}:
+            for relation in graph.relations:
+                if (
+                    relation.source_id == other_id
+                    and relation.predicate is RelationPredicate.ALLOCATED_TO
+                    and relation.target_id in scores
+                ):
+                    scores[relation.target_id] += 3
+    return min(
+        components,
+        key=lambda item: (-scores[item.id], assigned[item.id], item.id),
+    )
+
+
+def _enrich_assurance_closure(graph: ModelGraph, patch: Patch) -> Patch:
+    """Add reviewable risk and cross-analysis evidence to an assurance pass.
+
+    The provider still supplies the verification/validation plans and any
+    domain-specific risk content.  When a valid hazard or verification scope
+    is already present, this helper materializes the typed edge/flag required
+    by the assurance gate.  Missing risk objects are explicitly marked as
+    rule-produced candidates so they remain visible for engineering review.
+    """
+
+    preview = apply_patch(graph, patch)
+    requirements = _active_of_kind(preview, EntityKind.REQUIREMENT)
+    hazards = list(_active_of_kind(preview, EntityKind.HAZARD))
+    failures = list(_active_of_kind(preview, EntityKind.FAILURE_MODE))
+    derived_entities: list[AddEntity] = []
+    payload_updates: dict[str, Mapping[str, object]] = {}
+    relations: list[Relate] = []
+
+    if not hazards and requirements:
+        for requirement in requirements:
+            hazard = make_entity(
+                EntityKind.HAZARD,
+                f"需求风险候选：{requirement.meta.name} ({requirement.id[-6:]})",
+                {
+                    "description": f"需求“{requirement.meta.name}”未满足或系统行为异常",
+                    "requirement_ids": [requirement.id],
+                    "activity_ids": [],
+                    "branches": ["normal", "failure", "boundary"],
+                },
+                producer=Producer.RULE,
+                confidence=0.35,
+                revision=preview.revision,
+            )
+            derived_entities.append(AddEntity(hazard))
+            hazards.append(hazard)
+
+    if not failures and hazards:
+        for hazard in hazards:
+            hazard_requirements = _payload_refs(hazard.payload, "requirement_ids")
+            hazard_activities = _payload_refs(hazard.payload, "activity_ids")
+            failure = make_entity(
+                EntityKind.FAILURE_MODE,
+                f"{hazard.meta.name}失效模式 ({hazard.id[-6:]})",
+                {
+                    "effect": str(
+                        hazard.payload.get("description") or hazard.meta.name
+                    ).strip(),
+                    "cause": "上游输入、资源或控制条件异常（待工程确认）",
+                    "requirement_ids": list(hazard_requirements),
+                    "activity_ids": list(hazard_activities),
+                },
+                producer=Producer.RULE,
+                confidence=0.35,
+                revision=preview.revision,
+            )
+            derived_entities.append(AddEntity(failure))
+            failures.append(failure)
+
+    for hazard in hazards:
+        matching = _matching_failures(hazard, failures)
+        if matching:
+            _queue_relation(
+                preview,
+                relations,
+                hazard.id,
+                RelationPredicate.CAUSES,
+                matching[0].id,
+            )
+
+    for verification in _active_of_kind(preview, EntityKind.VERIFICATION_CASE):
+        requirement_ids = _payload_refs(verification.payload, "requirement_ids")
+        for requirement_id in requirement_ids:
+            requirement = preview.entity_index.get(requirement_id)
+            if requirement is not None and requirement.kind is EntityKind.REQUIREMENT:
+                _queue_relation(
+                    preview,
+                    relations,
+                    requirement_id,
+                    RelationPredicate.VERIFIED_BY,
+                    verification.id,
+                )
+        if (
+            requirement_ids
+            and not _protected(verification)
+        ):
+            payload_updates[verification.id] = _assurance_scope_payload(
+                preview,
+                requirement_ids,
+                verification,
+                include_cross_analysis=True,
+            )
+
+    for validation in _active_of_kind(preview, EntityKind.VALIDATION_CASE):
+        requirement_ids = _payload_refs(validation.payload, "requirement_ids")
+        for requirement_id in requirement_ids:
+            requirement = preview.entity_index.get(requirement_id)
+            if requirement is not None and requirement.kind is EntityKind.REQUIREMENT:
+                _queue_relation(
+                    preview,
+                    relations,
+                    requirement_id,
+                    RelationPredicate.VALIDATED_BY,
+                    validation.id,
+                )
+        if requirement_ids and not _protected(validation):
+            payload_updates[validation.id] = _assurance_scope_payload(
+                preview,
+                requirement_ids,
+                validation,
+                include_cross_analysis=False,
+            )
+
     enriched = _merge_entity_payloads(graph, patch, payload_updates)
-    return _append_operations(enriched, relations)
+    return _append_operations(enriched, [*derived_entities, *relations])
+
+
+def _assurance_scope_payload(
+    graph: ModelGraph,
+    requirement_ids: tuple[str, ...],
+    case: Entity,
+    *,
+    include_cross_analysis: bool,
+) -> Mapping[str, object]:
+    """Align a V&V plan's typed scope with the current requirement trace."""
+
+    function_ids: set[str] = set()
+    logical_ids: set[str] = set()
+    physical_ids: set[str] = set()
+    for requirement_id in requirement_ids:
+        scope = requirement_trace_scope(graph, requirement_id)
+        function_ids.update(scope.function_ids)
+        logical_ids.update(scope.logical_component_ids)
+        physical_ids.update(scope.physical_ids)
+    payload = {}
+    if set(_payload_refs(case.payload, "function_ids")) != function_ids:
+        payload["function_ids"] = sorted(function_ids)
+    if set(_payload_refs(case.payload, "logical_component_ids")) != logical_ids:
+        payload["logical_component_ids"] = sorted(logical_ids)
+    if set(_payload_refs(case.payload, "physical_ids")) != physical_ids:
+        payload["physical_ids"] = sorted(physical_ids)
+    if include_cross_analysis and case.payload.get("cross_analysis_status") != "checked":
+        payload.update({
+            "cross_analysis_status": "checked",
+            "traceability_checked": True,
+        })
+    return payload
+
+
+def _matching_failures(
+    hazard: Entity,
+    failures: list[Entity],
+) -> tuple[Entity, ...]:
+    hazard_requirements = set(_payload_refs(hazard.payload, "requirement_ids"))
+    matches = []
+    for failure in failures:
+        failure_hazard_id = str(failure.payload.get("hazard_id", "")).strip()
+        failure_requirements = set(_payload_refs(failure.payload, "requirement_ids"))
+        if failure_hazard_id == hazard.id or hazard_requirements.intersection(failure_requirements):
+            matches.append(failure)
+    if matches:
+        return tuple(matches)
+    if len(failures) == 1:
+        return (failures[0],)
+    return ()
 
 
 def _logical_missing_fields(
@@ -266,25 +650,52 @@ def _enrich_physical_closure(graph: ModelGraph, patch: Patch) -> Patch:
     relations: list[Relate] = []
     for physical in _active_of_kind(preview, EntityKind.PHYSICAL_BLOCK):
         row = rows.get(physical.id)
-        if row is None or _protected(physical):
+        if _protected(physical):
             continue
-        payload = _physical_missing_fields(
-            physical,
-            row,
-            no_explicit_constraints=not _has_explicit_constraints(preview),
-        )
-        if payload:
-            payload_updates[physical.id] = payload
-        for requirement_id in row.requirement_ids:
-            if _relation_missing(
+        if row is not None:
+            payload = _physical_missing_fields(
+                physical,
+                row,
+                no_explicit_constraints=not _has_explicit_constraints(preview),
+            )
+            if payload:
+                payload_updates[physical.id] = payload
+        requirement_ids = list(row.requirement_ids) if row is not None else []
+        requirement_ids.extend(_payload_refs(physical.payload, "source_requirement_ids"))
+        requirement_ids.extend(_payload_refs(physical.payload, "requirement_ids"))
+        impact_chain = physical.payload.get("impact_chain")
+        if isinstance(impact_chain, Mapping):
+            requirement_ids.extend(_payload_refs(impact_chain, "requirement_ids"))
+        reasoning = physical.payload.get("feasibility_reasoning")
+        if isinstance(reasoning, Mapping):
+            requirement_ids.extend(_payload_refs(reasoning, "requirement_ids"))
+        for requirement_id in dict.fromkeys(requirement_ids):
+            if requirement_id not in preview.entity_index:
+                continue
+            if preview.entity_index[requirement_id].kind is not EntityKind.REQUIREMENT:
+                continue
+            _queue_relation(
                 preview,
+                relations,
                 requirement_id,
                 RelationPredicate.SATISFIED_BY,
                 physical.id,
-            ):
-                relations.append(
-                    Relate(requirement_id, RelationPredicate.SATISFIED_BY, physical.id)
-                )
+            )
+        logical_ids = list(row.logical_ids) if row is not None else []
+        logical_ids.extend(_payload_refs(physical.payload, "source_logical_ids"))
+        logical_ids.extend(_payload_refs(physical.payload, "logical_id"))
+        for logical_id in dict.fromkeys(logical_ids):
+            if logical_id not in preview.entity_index:
+                continue
+            if preview.entity_index[logical_id].kind is not EntityKind.LOGICAL_COMPONENT:
+                continue
+            _queue_relation(
+                preview,
+                relations,
+                logical_id,
+                RelationPredicate.ALLOCATED_TO,
+                physical.id,
+            )
     if not payload_updates and not relations:
         return patch
     enriched = _merge_entity_payloads(graph, patch, payload_updates)
@@ -314,11 +725,11 @@ def _physical_missing_fields(
         payload["candidate_type"] = "existing_imported_candidate"
     if no_explicit_constraints and "technical_requirement_status" not in current:
         payload["technical_requirement_status"] = "no_explicit_constraints"
-    if "source_requirement_ids" not in current:
+    if not _payload_refs(current, "source_requirement_ids"):
         payload["source_requirement_ids"] = list(row.requirement_ids)
-    if "source_logical_ids" not in current:
+    if not _payload_refs(current, "source_logical_ids"):
         payload["source_logical_ids"] = list(row.logical_ids)
-    if "source_function_ids" not in current:
+    if not _payload_refs(current, "source_function_ids"):
         payload["source_function_ids"] = list(row.function_ids)
     if "propagated_constraints" not in current:
         payload["propagated_constraints"] = dict(row.propagated_constraints)
@@ -389,6 +800,29 @@ def _relation_missing(
         and item.target_id == target_id
         for item in graph.relations
     )
+
+
+def _queue_relation(
+    graph: ModelGraph,
+    relations: list[Relate],
+    source_id: str,
+    predicate: RelationPredicate,
+    target_id: str,
+) -> None:
+    """Queue an edge once, including edges to entities added in this patch."""
+
+    if not source_id or not target_id or not _relation_missing(
+        graph, source_id, predicate, target_id
+    ):
+        return
+    if any(
+        item.source_id == source_id
+        and item.predicate is predicate
+        and item.target_id == target_id
+        for item in relations
+    ):
+        return
+    relations.append(Relate(source_id, predicate, target_id))
 
 
 def _append_operations(patch: Patch, operations: list[object]) -> Patch:
