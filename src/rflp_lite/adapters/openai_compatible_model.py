@@ -242,6 +242,10 @@ def _vertical_repair_instruction(task_id: str) -> str:
         "vertical.functional": (
             "entities 只能使用 function、functional_flow、functional_scenario、requirement；"
             "不得把 context.entities 中的 Requirement 复制到 entities。"
+            "function.payload 必须包含 decomposition；functional_flow.payload 必须同时包含"
+            " source_function_ids 和 target_function_ids；functional_scenario.payload 必须包含"
+            " function_ids。字段值只能引用当前上下文或本次 Proposal 的 local_ref；缺少这些字段"
+            "的实体不要输出。"
         ),
         "vertical.logical": (
             "entities 只能使用 logical_component、interface、state；"
@@ -378,7 +382,7 @@ def _infer_functional_reference_payloads(
     relations = [
         relation for relation in raw_relations
         if isinstance(relation, Mapping)
-    ]
+    ] if isinstance(raw_relations, (list, tuple)) else []
     for entity in entities:
         kind = entity.get("kind")
         payload = entity.get("payload")
@@ -812,7 +816,10 @@ class OpenAICompatibleModel:
         # A remote profile normally uses the typed completion bridge after one
         # proposal pass.  Keep the feedback pass opt-in for slower providers.
         self.automatic_vertical_stage_feedback = configured_feedback
-        self.automatic_vertical_stage_completion_bridge = True
+        configured_bridge = self._config.get("vertical_completion_bridge", True)
+        self.automatic_vertical_stage_completion_bridge = (
+            configured_bridge if isinstance(configured_bridge, bool) else True
+        )
         try:
             self.vertical_batch_size = max(
                 1,
@@ -939,7 +946,11 @@ class OpenAICompatibleModel:
 
     @staticmethod
     def _repair_messages(
-        request: GenerationRequest, raw: object, *, include_schema: bool = True
+        request: GenerationRequest,
+        raw: object,
+        *,
+        include_schema: bool = True,
+        validation_issue: str = "",
     ) -> list[dict[str, str]]:
         max_items = request.user_payload.get("max_items")
         if not isinstance(max_items, int) or max_items < 1:
@@ -950,6 +961,12 @@ class OpenAICompatibleModel:
         }
         if include_schema:
             envelope["response_schema"] = request.response_schema
+        issue_hint = (
+            "上一次输出被应用校验拒绝，必须针对这个具体问题修复："
+            + str(validation_issue)[:1200]
+            if validation_issue
+            else ""
+        )
         return [
             {
                 "role": "system",
@@ -959,6 +976,7 @@ class OpenAICompatibleModel:
                     "使用最小数量的 entities、updates 和 relations 完成闭合；"
                     + _vertical_batch_repair_instruction(request)
                     + _vertical_repair_instruction(request.lens_id)
+                    + issue_hint
                     + "不要解释，也不要用空数组规避任务。"
                 ),
             },
@@ -1027,6 +1045,7 @@ class OpenAICompatibleModel:
                     repair_messages := self._repair_messages(
                         request,
                         raw,
+                        validation_issue=str(initial_error),
                         include_schema=(
                             not native_ollama
                             and structured_output_mode in {"json_object", "json", "none"}

@@ -76,6 +76,66 @@ def test_openai_compatible_remote_model_uses_single_vertical_pass_by_default():
     assert opted_in.automatic_vertical_stage_feedback is True
 
 
+def test_openai_compatible_model_can_disable_deterministic_completion_bridge():
+    model = OpenAICompatibleModel({
+        "model": "remote",
+        "model_location": "remote",
+        "vertical_completion_bridge": False,
+    })
+
+    assert model.automatic_vertical_stage_completion_bridge is False
+
+
+def test_vertical_structural_repair_includes_typed_gap_and_validation_issue():
+    calls = []
+
+    def complete(_config, messages, *, max_tokens=None):
+        calls.append(messages)
+        if len(calls) == 1:
+            return '{"entities":[{"local_ref":"function-1","kind":"function","name":"功能","payload":{}}]}'
+        return '{"entities":[],"relations":[],"updates":[],"deprecations":[],"reason":"修复"}'
+
+    model = OpenAICompatibleModel({"model": "remote"}, complete=complete)
+    request_value = GenerationRequest(
+        lens_id="vertical.functional",
+        system_prompt="只返回 JSON",
+        user_payload={"max_items": 2},
+        response_schema={
+            "type": "object",
+            "required": ["entities", "relations", "updates", "deprecations", "reason"],
+            "properties": {
+                "entities": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["kind", "payload"],
+                        "properties": {
+                            "local_ref": {"type": "string"},
+                            "kind": {"const": "function"},
+                            "name": {"type": "string"},
+                            "payload": {
+                                "type": "object",
+                                "required": ["decomposition"],
+                            },
+                        },
+                    },
+                },
+                "relations": {"type": "array"},
+                "updates": {"type": "array"},
+                "deprecations": {"type": "array"},
+                "reason": {"type": "string"},
+            },
+        },
+        max_tokens=1200,
+    )
+
+    model.complete_json(request_value)
+
+    repair_system = calls[-1][0]["content"]
+    assert "source_function_ids" in repair_system
+    assert "具体问题修复" in repair_system
+
+
 def test_openai_compatible_model_exposes_bounded_parallelism():
     remote = OpenAICompatibleModel({
         "model": "remote",

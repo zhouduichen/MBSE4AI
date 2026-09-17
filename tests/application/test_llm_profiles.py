@@ -226,6 +226,18 @@ def test_remote_profile_defaults_to_single_vertical_pass_but_allows_feedback() -
     assert local["vertical_batch_size"] == 2
     assert local["vertical_batch_output_tokens"] == 3072
     assert opted_in["vertical_feedback"] is True
+    assert remote["vertical_completion_bridge"] is True
+
+
+def test_llm_profile_can_disable_vertical_completion_bridge() -> None:
+    profile = normalize_profile({
+        **_payload(),
+        "id": "strict-remote",
+        "model_location": "remote",
+        "vertical_completion_bridge": False,
+    })
+
+    assert profile["vertical_completion_bridge"] is False
 
 
 def test_llm_profile_defaults_remote_parallelism_lower_than_local() -> None:
