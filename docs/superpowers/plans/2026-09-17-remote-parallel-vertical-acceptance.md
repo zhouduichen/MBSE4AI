@@ -261,3 +261,17 @@ Report separately: local deterministic gates, parallel regression evidence, real
   until the remote GPU lane can be reserved for the remaining stages.
 - A failed or incomplete LLM proposal remains reviewable; offline bridge provenance is not misreported as provider success.
 - The plan has no placeholder requirements; every implementation/test step names concrete files, commands, and expected evidence.
+- A follow-up run synchronized the isolated Profile to the endpoint-advertised
+  `max_model_len=16384` (the previous temporary Profile used 32768). The next
+  run held a live SSH tunnel and vLLM observed concurrent requests, but the
+  scheduler reclaimed the Controller after logging `campaign holds Controller
+  lane for worker handoff`; the remaining stages consequently recorded
+  `RemoteDisconnected`/`ConnectionResetError` and used the typed bridge.
+- A second follow-up attempted `max_parallel_requests=4` and
+  `vertical_batch_size=3` against the four-card service to reduce request
+  rounds. The scheduler stopped that vLLM child before the run could start;
+  this is an external GPU-lease condition, not a valid full-chain acceptance.
+- The product path now keeps `llm_execution_unavailable` in the affected
+  stage's completion issue codes and reports that stage as `needs_review` even
+  when the typed bridge closes its graph structure. A real provider proposal
+  that only needs typed completion remains eligible for `completed`.

@@ -2159,7 +2159,8 @@ def test_configured_vertical_generation_bridges_transport_gap_after_rflp(tmp_pat
 
     assert result.status == "completed_with_warnings"
     assert result.traceability.complete_count == 1
-    assert result.stage_results[-1].status == "completed"
+    assert result.stage_results[-1].status == "needs_review"
+    assert "llm_execution_unavailable" in result.stage_results[-1].completion_issue_codes
     assert "LLM execution unavailable" in result.warnings[-1]
     assert "completion_bridge=vertical-rule" in result.stage_results[-1].diagnostics
 

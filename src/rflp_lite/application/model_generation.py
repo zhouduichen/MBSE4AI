@@ -1056,22 +1056,14 @@ class ModelGenerationService:
         current = self.repository.load_graph(project_id)
         missing_kinds = self._missing_stage_kinds(current, stage.stage)
         completion = evaluate_vertical_stage(stage.stage, current)
-        source_result = execution.result
-        if source_result is None:
-            source_result = StageResult(
-                stage.stage.value,
-                "needs_review",
-                graph.revision,
-                sum(
-                    1
-                    for entity in graph.entities
-                    if entity.kind in stage.output_kinds
-                    and entity.meta.status is not EntityStatus.DEPRECATED
-                ),
-                len(graph.relations),
-                diagnostics=tuple(execution.diagnostics),
-                completion_issue_codes=("llm_execution_unavailable",),
-            )
+        source_result, llm_execution_unavailable = _bridge_source_result(
+            execution, stage, graph
+        )
+        completion_issue_codes = _bridge_completion_issue_codes(
+            source_result,
+            completion.issue_codes,
+            llm_execution_unavailable,
+        )
         source_semantic_warnings = tuple(
             item for item in execution.warnings if "semantic_invalid" in item
         )
@@ -1087,10 +1079,11 @@ class ModelGenerationService:
             status=(
                 "needs_review"
                 if (
-                    source_semantic_warnings
+                    llm_execution_unavailable
+                    or source_semantic_warnings
                     or bridge_semantic_invalid
                     or missing_kinds
-                    or completion.issue_codes
+                    or completion_issue_codes
                 )
                 else "completed"
             ),
@@ -1104,7 +1097,7 @@ class ModelGenerationService:
             relation_count=len(current.relations),
             diagnostics=diagnostics,
             completion_checks=completion.checks,
-            completion_issue_codes=completion.issue_codes,
+            completion_issue_codes=completion_issue_codes,
         )
         warning = (
             f"{stage.stage.value}: completion bridge applied after LLM feedback; "
@@ -1124,7 +1117,7 @@ class ModelGenerationService:
             "source_issue_codes": list(source_result.completion_issue_codes),
             "bridge_patch_id": patch.id,
             "revision": revision,
-            "completion_issue_codes": list(completion.issue_codes),
+            "completion_issue_codes": list(completion_issue_codes),
         })
         if execution.result is None:
             warning = (
@@ -1832,6 +1825,43 @@ def _merge_missing_payload(
 
 def _payload_value_empty(value: object) -> bool:
     return value is None or value == "" or value == [] or value == {}
+
+
+def _bridge_source_result(execution, stage, graph) -> tuple[StageResult, bool]:
+    source_result = execution.result
+    if source_result is not None:
+        return source_result, False
+    return (
+        StageResult(
+            stage.stage.value,
+            "needs_review",
+            graph.revision,
+            sum(
+                1
+                for entity in graph.entities
+                if entity.kind in stage.output_kinds
+                and entity.meta.status is not EntityStatus.DEPRECATED
+            ),
+            len(graph.relations),
+            diagnostics=tuple(execution.diagnostics),
+            completion_issue_codes=("llm_execution_unavailable",),
+        ),
+        True,
+    )
+
+
+def _bridge_completion_issue_codes(
+    source_result: StageResult,
+    completion_issue_codes: Sequence[str],
+    llm_execution_unavailable: bool,
+) -> tuple[str, ...]:
+    source_codes = (
+        source_result.completion_issue_codes
+        if llm_execution_unavailable
+        else ()
+    )
+    unavailable = ("llm_execution_unavailable",) if llm_execution_unavailable else ()
+    return tuple(dict.fromkeys((*source_codes, *completion_issue_codes, *unavailable)))
 
 
 def build_traceability_summary(graph) -> TraceabilitySummary:

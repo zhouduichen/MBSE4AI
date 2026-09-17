@@ -53,7 +53,7 @@ actual model remains remote.
   "base_url": "http://127.0.0.1:18000/v1",
   "model": "qwen3.5-controller",
   "timeout_seconds": 900,
-  "context_window": 32768,
+  "context_window": 16384,
   "max_output_tokens": 4096,
   "temperature": 0.0,
   "reasoning_effort": "none",
@@ -67,6 +67,11 @@ actual model remains remote.
   "active": false
 }
 ```
+
+The current Jiayu-intern Controller endpoint advertises
+`max_model_len=16384`; keep the client Profile at or below that value. If the
+endpoint reports a different limit, use the advertised value for the isolated
+Profile instead of assuming a larger local context window.
 
 For Qwen3.5 served by vLLM, keep thinking disabled for this structured
 endpoint. Otherwise the model can spend the output budget on a visible
