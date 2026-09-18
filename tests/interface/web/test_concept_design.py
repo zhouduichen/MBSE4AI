@@ -32,6 +32,11 @@ def test_concept_design_api_generates_evaluates_and_applies(tmp_path):
     assert run["formal_status"] == "development"
     assert run["evaluation_summary"]["complete_candidate_count"] == len(run["candidates"])
     assert run["evaluation_summary"]["optimization_evidence_status"] == "development"
+    assert run["evaluation_summary"]["schema_version"] == "concept-evaluation-summary.v2"
+    assert run["evaluation_summary"]["objective_definitions"]
+    ranking = run["evaluation_summary"]["ranking"]
+    assert {row["candidate_id"] for row in ranking} == {item["id"] for item in run["candidates"]}
+    assert all("rank" in row and "objectives" in row and "front" in row for row in ranking)
     assert run["envelope"]["source_requirement_ids"] == [requirement["id"]]
 
     applied = client.post(
@@ -47,6 +52,8 @@ def test_concept_design_api_generates_evaluates_and_applies(tmp_path):
     assert "适用域" in page.text
     assert "优化反馈" in page.text
     assert "Pareto" in page.text
+    assert "排序" in page.text
+    assert "目标向量" in page.text
     assert '"parameters": {}' in page.text
     assert '"mass_kg": 560' not in page.text
 

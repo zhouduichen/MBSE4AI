@@ -37,7 +37,7 @@
     {% endfor %}
   {% endif %}
   </div>
-  {% if run %}<div class="callout info"><strong>优化反馈：</strong>状态 {{ run.optimization.status }} · 停止原因 {{ run.optimization.stop_reason }} · Pareto 候选 {{ run.optimization.front_candidate_ids|join('、') or '—' }} · 迭代 {{ run.optimization.iteration_records|length }} 轮 · 证据状态 {{ run.optimization.evidence_status }}<br><small>评估摘要：{{ run.evaluation_summary.complete_candidate_count or 0 }}/{{ run.evaluation_summary.candidate_count or 0 }} 套候选完成，{{ run.evaluation_summary.failed_evaluation_count or 0 }} 条评估失败；详细适用域、验证数据集和批准诊断见候选展开结果与 concept-design.json。</small></div>{% endif %}
+  {% if run %}<div class="callout info"><strong>优化反馈：</strong>状态 {{ run.optimization.status }} · 停止原因 {{ run.optimization.stop_reason }} · Pareto 候选 {{ run.optimization.front_candidate_ids|join('、') or '—' }} · 迭代 {{ run.optimization.iteration_records|length }} 轮 · 证据状态 {{ run.optimization.evidence_status }}<br><small>评估摘要：{{ run.evaluation_summary.complete_candidate_count or 0 }}/{{ run.evaluation_summary.candidate_count or 0 }} 套候选完成，{{ run.evaluation_summary.failed_evaluation_count or 0 }} 条评估失败；详细适用域、验证数据集和批准诊断见候选展开结果与 concept-design.json。</small></div>{% if run.evaluation_summary.ranking %}<div class="table-wrap"><table><thead><tr><th>候选</th><th>排序</th><th>Pareto</th><th>目标向量</th></tr></thead><tbody>{% for row in run.evaluation_summary.ranking %}<tr><td><code>{{ row.candidate_id }}</code></td><td>{{ row.rank }}</td><td>{{ '是' if row.front else '否' }}</td><td><code>{{ row.objectives|join(' / ') }}</code></td></tr>{% endfor %}</tbody></table></div>{% endif %}{% endif %}
 </section>
 
 <script>
@@ -60,7 +60,9 @@
   const renderOptimization = (run) => {
     const optimization = run.optimization || {};
     const summary = run.evaluation_summary || {};
-    return `<div class="callout info"><strong>优化反馈：</strong>状态 ${optimization.status || '—'} · 停止原因 ${optimization.stop_reason || '—'} · Pareto 候选 ${(optimization.front_candidate_ids || []).join('、') || '—'} · 迭代 ${(optimization.iteration_records || []).length} 轮 · 证据状态 ${optimization.evidence_status || '—'}<br><small>评估摘要：${summary.complete_candidate_count || 0}/${summary.candidate_count || 0} 套候选完成，${summary.failed_evaluation_count || 0} 条评估失败；每条评估保留适用域、数据集和批准诊断。</small></div>`;
+    const ranking = (summary.ranking || []).map(row => `<tr><td><code>${row.candidate_id}</code></td><td>${row.rank ?? '—'}</td><td>${row.front ? '是' : '否'}</td><td><code>${(row.objectives || []).join(' / ') || '—'}</code></td></tr>`).join('');
+    const table = ranking ? `<div class="table-wrap"><table><thead><tr><th>候选</th><th>排序</th><th>Pareto</th><th>目标向量</th></tr></thead><tbody>${ranking}</tbody></table></div>` : '';
+    return `<div class="callout info"><strong>优化反馈：</strong>状态 ${optimization.status || '—'} · 停止原因 ${optimization.stop_reason || '—'} · Pareto 候选 ${(optimization.front_candidate_ids || []).join('、') || '—'} · 迭代 ${(optimization.iteration_records || []).length} 轮 · 证据状态 ${optimization.evidence_status || '—'}<br><small>评估摘要：${summary.complete_candidate_count || 0}/${summary.candidate_count || 0} 套候选完成，${summary.failed_evaluation_count || 0} 条评估失败；每条评估保留适用域、数据集和批准诊断。</small></div>${table}`;
   };
   const render = (run) => {
     summary.textContent = `${run.candidates.length} 套候选，${run.evaluations.length} 条学科评估，正式状态：${run.formal_status}`;

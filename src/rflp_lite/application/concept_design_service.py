@@ -341,6 +341,8 @@ def _evaluation_summary(
     by_candidate: dict[str, list[DisciplineEvaluation]] = {}
     for evaluation in evaluations:
         by_candidate.setdefault(evaluation.candidate_id, []).append(evaluation)
+    ranked = rank_evaluated_candidates(candidates, evaluations, pack.get("objectives", ()))
+    ranking_by_candidate = {str(item["candidate_id"]): item for item in ranked}
     candidate_rows: list[dict[str, object]] = []
     complete_count = 0
     formal_count = 0
@@ -361,6 +363,7 @@ def _evaluation_summary(
         )
         complete_count += int(complete)
         formal_count += int(formal)
+        ranking = ranking_by_candidate.get(candidate.id, {})
         candidate_rows.append(
             {
                 "candidate_id": candidate.id,
@@ -370,10 +373,12 @@ def _evaluation_summary(
                 "failed_disciplines": failed,
                 "evaluation_ids": [item.id for item in rows],
                 "front": candidate.id in optimization.front_candidate_ids,
+                "rank": ranking.get("rank"),
+                "objectives": list(ranking.get("objectives", ())),
             }
         )
     return {
-        "schema_version": "concept-evaluation-summary.v1",
+        "schema_version": "concept-evaluation-summary.v2",
         "candidate_count": len(candidates),
         "evaluation_count": len(evaluations),
         "complete_candidate_count": complete_count,
@@ -385,6 +390,22 @@ def _evaluation_summary(
         "front_candidate_ids": list(optimization.front_candidate_ids),
         "stop_reason": optimization.stop_reason,
         "optimization_evidence_status": optimization.evidence_status,
+        "objective_definitions": [
+            {
+                "discipline": str(item.get("discipline", "")),
+                "metric": str(item.get("metric", "")),
+                "direction": str(item.get("direction", "")),
+            }
+            for item in pack.get("objectives", ())
+            if isinstance(item, Mapping)
+        ],
+        "ranking": [
+            {
+                **dict(item),
+                "objectives": list(item.get("objectives", ())),
+            }
+            for item in ranked
+        ],
         "iterations": [
             {"index": index, "record": record}
             for index, record in optimization.iteration_records
