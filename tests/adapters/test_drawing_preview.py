@@ -42,3 +42,25 @@ def test_preview_drawing_keeps_invalid_geometry_as_diagnostic():
 
     assert any("broken" in item for item in result.diagnostics)
     assert result.artifacts["drawing_svg"].startswith("<svg")
+
+
+def test_preview_drawing_annotates_profile_features():
+    result = PreviewDrawingAdapter().generate_annotations({
+        "parts": [{
+            "id": "housing",
+            "bbox_mm": [120, 80, 60],
+            "features": [{
+                "id": "shell",
+                "kind": "create_shell",
+                "parameters": {"wall_thickness_mm": 2},
+            }, {
+                "id": "gear",
+                "kind": "create_gear",
+                "parameters": {"module": 2, "teeth": 20, "bore_diameter_mm": 8},
+            }],
+        }],
+    })
+
+    kinds = {item.annotation_kind for item in result.annotations}
+    assert {"wall_thickness", "gear_bore_diameter", "gear_profile"} <= kinds
+    assert all(item.views == ("top", "isometric") for item in result.annotations)

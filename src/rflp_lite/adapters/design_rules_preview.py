@@ -125,6 +125,23 @@ class PreviewDesignRuleAdapter:
                         "检测到刀具/装配工具不可达。", {"tool_access": False},
                         "调整特征方向、装配顺序或增加工具访问空间。", location,
                     ))
+                if feature.get("kind") == "create_gear":
+                    bore = params.get("bore_diameter_mm")
+                    if not isinstance(bore, (int, float)) or float(bore) <= 0:
+                        findings.append(_finding(
+                            "dfm.gear_bore", "dfm", "high", part_id, feature_id,
+                            "齿轮缺少有效中心孔参数，轴系装配接口尚未定义。",
+                            {"bore_diameter_mm": bore}, "补充中心孔和轴系配合，并重新评审。", location,
+                        ))
+                if feature.get("kind") == "add_shaft_step":
+                    step = params.get("diameter_mm")
+                    base = params.get("base_diameter_mm")
+                    if isinstance(step, (int, float)) and isinstance(base, (int, float)) and float(step) >= float(base):
+                        findings.append(_finding(
+                            "dfm.shaft_step", "dfm", "high", part_id, feature_id,
+                            "阶梯轴段直径不小于基体直径，无法形成有效轴肩。",
+                            {"diameter_mm": step, "base_diameter_mm": base}, "重新定义阶梯直径并确认轴肩过渡。", location,
+                        ))
         final = tuple(findings)
         return RuleReviewResult(
             final,

@@ -122,3 +122,32 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
     archive_bytes, _ = services.deliverables("acceptance").export_zip("acceptance")
     with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
         assert {"model.sysml", "behavior.json", "concept-design.json", "detail-design.json"} <= set(archive.namelist())
+
+
+def test_local_cad_profiles_reach_modelgraph_and_review(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("profiles", "通用 CAD profile 验收")
+    cad = services.cad_design("profiles")
+
+    requests = (
+        ("壳体", "生成铝合金壳体，长120毫米，宽80毫米，高60毫米，壁厚2毫米", "create_shell"),
+        ("阶梯轴", "生成阶梯轴，直径20毫米，长度100毫米，阶梯直径14毫米，阶梯长度30毫米", "add_shaft_step"),
+        ("齿轮", "生成钢制齿轮，模数2，齿数20，齿宽12毫米，孔径8毫米", "create_gear"),
+    )
+    applied_ids = []
+    for name, statement, expected_operation in requests:
+        draft = cad.create_intent(statement)
+        plan = cad.create_plan(draft.draft_id)
+        assert plan["status"] == "ready", name
+        assert expected_operation in {item["operation"] for item in plan["operations"]}
+        cad.approve_plan(plan["id"])
+        model = cad.execute_plan(plan["id"])
+        review = services.design_review("profiles").review(model["id"], model["model_payload"])
+        assert review["annotations"]
+        applied = cad.apply_model(model["id"])
+        applied_ids.append(applied["entity"]["id"])
+        assert applied["entity"]["payload"]["cad_model_payload"]["parts"]
+
+    graph = services.model("profiles").graph("profiles")
+    assert set(applied_ids) <= set(graph.entity_index)
+    assert len([item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK]) >= 3

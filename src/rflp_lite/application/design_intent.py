@@ -23,10 +23,19 @@ _PROMPT_PATH = Path(__file__).resolve().parents[1] / "resources" / "prompts" / "
 _NUMBER = r"([0-9]+(?:\.[0-9]+)?)\s*(mm|毫米|cm|厘米|m|米)"
 _DIMENSIONS = {
     "length_mm": (r"(?:长度|长)\s*" + _NUMBER, "length"),
-    "width_mm": (r"(?:宽度|宽)\s*" + _NUMBER, "width"),
+    "width_mm": (r"(?:宽度|(?<!齿)宽)\s*" + _NUMBER, "width"),
     "height_mm": (r"(?:高度|高|厚度|厚)\s*" + _NUMBER, "height"),
-    "diameter_mm": (r"(?:直径|孔径)\s*" + _NUMBER, "diameter"),
+    "diameter_mm": (r"直径\s*" + _NUMBER, "diameter"),
     "radius_mm": (r"半径\s*" + _NUMBER, "radius"),
+    "wall_thickness_mm": (r"(?:壁厚|壁厚度)\s*" + _NUMBER, "wall thickness"),
+    "step_diameter_mm": (r"(?:阶梯直径|轴肩直径)\s*" + _NUMBER, "step diameter"),
+    "step_length_mm": (r"(?:阶梯长度|轴肩长度)\s*" + _NUMBER, "step length"),
+    "face_width_mm": (r"(?:齿宽|齿面宽度)\s*" + _NUMBER, "face width"),
+    "bore_diameter_mm": (r"(?:孔径|中心孔直径|内孔直径)\s*" + _NUMBER, "bore diameter"),
+}
+_DIMENSIONLESS = {
+    "module": (r"(?:模数|module)\s*([0-9]+(?:\.[0-9]+)?)", "module"),
+    "teeth": (r"(?:齿数|teeth)\s*([0-9]+(?:\.[0-9]+)?)", "teeth"),
 }
 
 
@@ -48,6 +57,10 @@ def _parameter_matches(text: str) -> list[dict[str, Any]]:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
             result.append({"name": name, "value": _to_mm(float(match.group(1)), match.group(2)), "unit": "mm", "source": "explicit"})
+    for name, (pattern, _label) in _DIMENSIONLESS.items():
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            result.append({"name": name, "value": float(match.group(1)), "unit": "1", "source": "explicit"})
     return result
 
 
@@ -183,9 +196,17 @@ def _fallback(text: str) -> dict[str, Any]:
     names = {item["name"] for item in parameters}
     if target_name == "待确认零件":
         questions.append({"question": "请确认需要生成的目标零部件。", "ambiguity": "目标零件未唯一确定", "options": ["支架", "底座", "壳体", "其他"], "recommendation": "支架", "rationale": "自然语言中未发现明确零件名。", "severity": "high"})
-    if not {"length_mm", "width_mm", "height_mm"} <= names:
+    if target_kind in {"bracket", "base", "connector", "housing"} and not {"length_mm", "width_mm", "height_mm"} <= names:
         questions.append({"question": "请补充零件的长、宽和高度/厚度，或确认由设计规则推荐。", "ambiguity": "基础包络尺寸不完整", "options": ["补充尺寸", "采用推荐尺寸"], "recommendation": "补充尺寸", "rationale": "没有完整尺寸不能安全生成参数化实体。", "severity": "high"})
-    if "孔" in text and "diameter_mm" not in names:
+    if target_kind == "housing" and "wall_thickness_mm" not in names:
+        questions.append({"question": "请补充壳体壁厚，或确认采用适用的制造规则推荐值。", "ambiguity": "壳体壁厚未定义", "options": ["补充壁厚", "采用推荐壁厚"], "recommendation": "补充壁厚", "rationale": "壁厚影响强度、质量和可制造性，不能静默猜测。", "severity": "high"})
+    if target_kind == "shaft" and not {"diameter_mm", "length_mm"} <= names:
+        questions.append({"question": "请补充轴的直径和总长度。", "ambiguity": "轴的基础包络不完整", "options": ["补充轴尺寸", "暂不生成轴"], "recommendation": "补充轴尺寸", "rationale": "轴的直径和长度决定基本参数化实体。", "severity": "high"})
+    if target_kind == "shaft" and "阶梯" in text and not {"step_diameter_mm", "step_length_mm"} <= names:
+        questions.append({"question": "请补充阶梯直径和阶梯长度，或改为等径轴。", "ambiguity": "阶梯轴的局部参数不完整", "options": ["补充阶梯参数", "采用等径轴"], "recommendation": "补充阶梯参数", "rationale": "缺少局部参数时无法安全确定轴肩位置。", "severity": "high"})
+    if target_kind == "gear" and not {"module", "teeth", "face_width_mm"} <= names:
+        questions.append({"question": "请补充齿轮模数、齿数和齿宽。", "ambiguity": "齿轮基本啮合参数不完整", "options": ["补充齿轮参数", "暂不生成齿轮"], "recommendation": "补充齿轮参数", "rationale": "这些参数决定齿轮坯的外径和宽度，不能从零件名称猜测。", "severity": "high"})
+    if "孔" in text and "diameter_mm" not in names and "bore_diameter_mm" not in names:
         questions.append({"question": "请确认孔径和孔的位置基准。", "ambiguity": "孔特征缺少尺寸或定位基准", "options": ["补充孔信息", "暂不生成孔"], "recommendation": "补充孔信息", "rationale": "孔特征会影响加工和装配。", "severity": "high"})
     recommendations = []
     if not material:

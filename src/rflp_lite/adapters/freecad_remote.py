@@ -28,7 +28,10 @@ _OPERATIONS = (
     "create_part",
     "create_box",
     "create_cylinder",
+    "create_shell",
+    "create_gear",
     "add_rib",
+    "add_shaft_step",
     "add_hole",
     "add_fillet",
     "set_material",
@@ -107,9 +110,30 @@ def _validate_plan(plan: CadExecutionPlan) -> None:
         if operation.operation == "create_cylinder":
             _positive(parameters, "diameter_mm")
             _positive(parameters, "height_mm")
+        if operation.operation == "create_shell":
+            length = _positive(parameters, "length_mm")
+            width = _positive(parameters, "width_mm")
+            height = _positive(parameters, "height_mm")
+            wall = _positive(parameters, "wall_thickness_mm")
+            if wall * 2 >= min(length, width, height):
+                raise ContractViolation("shell wall thickness must leave a positive inner cavity")
+        if operation.operation == "create_gear":
+            _positive(parameters, "module")
+            teeth = _positive(parameters, "teeth")
+            _positive(parameters, "face_width_mm")
+            _positive(parameters, "outside_diameter_mm")
+            if teeth < 6 or abs(teeth - round(teeth)) > 1e-6:
+                raise ContractViolation("gear teeth must be an integer of at least 6")
         if operation.operation == "add_rib":
             for name in ("length_mm", "width_mm", "height_mm", "x_mm", "y_mm", "z_mm"):
                 _positive(parameters, name)
+        if operation.operation == "add_shaft_step":
+            _positive(parameters, "diameter_mm")
+            _positive(parameters, "length_mm")
+            _positive(parameters, "offset_mm")
+            base_diameter = _positive(parameters, "base_diameter_mm")
+            if float(parameters["diameter_mm"]) >= base_diameter:
+                raise ContractViolation("shaft step diameter must be smaller than base diameter")
         if operation.operation == "add_hole":
             _positive(parameters, "diameter_mm")
             _positive(parameters, "depth_mm")
@@ -174,6 +198,23 @@ for operation in plan:
             shapes[part_id] = Part.makeBox(float(params["length_mm"]), float(params["width_mm"]), float(params["height_mm"]))
         elif name == "create_cylinder":
             shapes[part_id] = Part.makeCylinder(float(params["diameter_mm"]) / 2.0, float(params["height_mm"]))
+        elif name == "create_shell":
+            outer = Part.makeBox(float(params["length_mm"]), float(params["width_mm"]), float(params["height_mm"]))
+            wall = float(params["wall_thickness_mm"])
+            inner = Part.makeBox(
+                float(params["length_mm"]) - 2.0 * wall,
+                float(params["width_mm"]) - 2.0 * wall,
+                float(params["height_mm"]) - 2.0 * wall,
+                App.Vector(wall, wall, wall),
+            )
+            shapes[part_id] = outer.cut(inner)
+        elif name == "create_gear":
+            shapes[part_id] = Part.makeCylinder(float(params["outside_diameter_mm"]) / 2.0, float(params["face_width_mm"]))
+            bore = float(params.get("bore_diameter_mm", 0.0))
+            if bore > 0:
+                shapes[part_id] = shapes[part_id].cut(
+                    Part.makeCylinder(bore / 2.0, float(params["face_width_mm"]))
+                )
         elif name == "add_rib":
             rib = Part.makeBox(
                 float(params["length_mm"]),
@@ -182,6 +223,13 @@ for operation in plan:
                 App.Vector(float(params["x_mm"]), float(params["y_mm"]), float(params["z_mm"])),
             )
             shapes[part_id] = shapes[part_id].fuse(rib)
+        elif name == "add_shaft_step":
+            step = Part.makeCylinder(
+                float(params["diameter_mm"]) / 2.0,
+                float(params["length_mm"]),
+                App.Vector(0.0, 0.0, float(params["offset_mm"])),
+            )
+            shapes[part_id] = shapes[part_id].fuse(step)
         elif name == "add_hole":
             current = shapes[part_id]
             box = current.BoundBox

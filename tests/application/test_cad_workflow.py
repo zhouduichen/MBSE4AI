@@ -107,6 +107,37 @@ def test_structure_option_changes_parameterized_cad_operations(tmp_path: Path):
     assert ribbed["preview_hash"] != block["preview_hash"]
 
 
+def test_profile_intents_compile_to_shell_shaft_and_gear_operations(tmp_path: Path):
+    services = build_v2_services(tmp_path)
+    services.projects.create("p")
+    cad = services.cad_design("p")
+
+    housing = cad.create_intent(
+        "生成铝合金壳体，长120毫米，宽80毫米，高60毫米，壁厚2毫米"
+    )
+    shaft = cad.create_intent(
+        "生成阶梯轴，直径20毫米，长度100毫米，阶梯直径14毫米，阶梯长度30毫米"
+    )
+    gear = cad.create_intent(
+        "生成钢制齿轮，模数2，齿数20，齿宽12毫米，孔径8毫米"
+    )
+
+    housing_plan = cad.create_plan(housing.draft_id)
+    shaft_plan = cad.create_plan(shaft.draft_id)
+    gear_plan = cad.create_plan(gear.draft_id)
+
+    assert housing_plan["status"] == "ready"
+    assert [item["operation"] for item in housing_plan["operations"]] == [
+        "create_part", "create_shell", "set_material",
+    ]
+    assert [item["operation"] for item in shaft_plan["operations"]] == [
+        "create_part", "create_cylinder", "add_shaft_step",
+    ]
+    assert [item["operation"] for item in gear_plan["operations"]] == [
+        "create_part", "create_gear", "set_material",
+    ]
+
+
 def test_design_rule_review_reports_feature_location_and_version(tmp_path: Path):
     services = build_v2_services(tmp_path)
     services.projects.create("p")
@@ -129,3 +160,26 @@ def test_design_rule_review_reports_feature_location_and_version(tmp_path: Path)
     assert review["rule_version"] == "dfm-dfa-preview-1.0"
     assert {item["rule_id"] for item in review["findings"]} >= {"dfm.hole_edge_distance", "dfa.tool_access"}
     assert all(item["location"] for item in review["findings"])
+
+
+def test_design_rule_review_reports_profile_findings(tmp_path: Path):
+    services = build_v2_services(tmp_path)
+    services.projects.create("p")
+    review = services.design_review("p").review(
+        "profile-defect",
+        {
+            "parts": [{
+                "id": "gear",
+                "material": "钢",
+                "bbox_mm": [44, 44, 12],
+                "features": [{
+                    "id": "gear-feature",
+                    "kind": "create_gear",
+                    "parameters": {"module": 2, "teeth": 20, "face_width_mm": 12, "bore_diameter_mm": 0},
+                }],
+            }],
+        },
+    )
+
+    assert review["status"] == "needs_review"
+    assert any(item["rule_id"] == "dfm.gear_bore" for item in review["findings"])

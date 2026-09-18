@@ -20,7 +20,10 @@ _OPERATIONS = (
     "create_part",
     "create_box",
     "create_cylinder",
+    "create_shell",
+    "create_gear",
     "add_rib",
+    "add_shaft_step",
     "add_hole",
     "add_fillet",
     "set_material",
@@ -38,6 +41,13 @@ def _numbers(raw: object, names: tuple[str, ...]) -> tuple[float, ...]:
             raise ContractViolation(f"CAD parameter {name} must be a positive number")
         values.append(float(value))
     return tuple(values)
+
+
+def _positive(raw: Mapping[str, Any], name: str) -> float:
+    value = raw.get(name)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or float(value) <= 0:
+        raise ContractViolation(f"CAD parameter {name} must be a positive number")
+    return float(value)
 
 
 def _part(parts: list[dict[str, Any]], operation, parameters: Mapping[str, Any]) -> dict[str, Any]:
@@ -71,6 +81,40 @@ def _apply_operation(parts, assemblies, operation) -> None:
             target["solids"] = [{"kind": "box", "size": list(dimensions), "origin": [0.0, 0.0, 0.0]}]
         target["features"].append({"id": operation.id, "kind": operation.operation, "parameters": parameters})
         return
+    if operation.operation == "create_shell":
+        length, width, height = _numbers(parameters, ("length_mm", "width_mm", "height_mm"))
+        wall = _positive(parameters, "wall_thickness_mm")
+        if wall * 2 >= min(length, width, height):
+            raise ContractViolation("shell wall thickness must leave a positive inner cavity")
+        target["bbox_mm"] = [length, width, height]
+        target["solids"] = [{
+            "kind": "shell",
+            "outer": [length, width, height],
+            "wall_thickness_mm": wall,
+            "origin": [0.0, 0.0, 0.0],
+        }]
+        target["features"].append({"id": operation.id, "kind": operation.operation, "parameters": parameters})
+        return
+    if operation.operation == "create_gear":
+        module = _positive(parameters, "module")
+        teeth = _positive(parameters, "teeth")
+        face_width = _positive(parameters, "face_width_mm")
+        outside = _positive(parameters, "outside_diameter_mm")
+        if teeth < 6 or abs(teeth - round(teeth)) > 1e-6:
+            raise ContractViolation("gear teeth must be an integer of at least 6")
+        target["bbox_mm"] = [outside, outside, face_width]
+        target["solids"] = [{
+            "kind": "cylinder",
+            "diameter": outside,
+            "height": face_width,
+            "origin": [0.0, 0.0, 0.0],
+        }]
+        target["features"].append({
+            "id": operation.id,
+            "kind": operation.operation,
+            "parameters": {**parameters, "module": module, "teeth": int(teeth)},
+        })
+        return
     if operation.operation == "add_rib":
         length, width, height, x, y, z = _numbers(
             parameters,
@@ -79,6 +123,27 @@ def _apply_operation(parts, assemblies, operation) -> None:
         target["solids"].append({"kind": "box", "size": [length, width, height], "origin": [x, y, z]})
         bbox = target["bbox_mm"]
         target["bbox_mm"] = [max(float(bbox[0]), x + length), max(float(bbox[1]), y + width), max(float(bbox[2]), z + height)]
+        target["features"].append({"id": operation.id, "kind": operation.operation, "parameters": parameters})
+        return
+    if operation.operation == "add_shaft_step":
+        diameter = _positive(parameters, "diameter_mm")
+        length = _positive(parameters, "length_mm")
+        offset = _positive(parameters, "offset_mm")
+        base_diameter = _positive(parameters, "base_diameter_mm")
+        if diameter >= base_diameter:
+            raise ContractViolation("shaft step diameter must be smaller than base diameter")
+        target["solids"].append({
+            "kind": "cylinder",
+            "diameter": diameter,
+            "height": length,
+            "origin": [0.0, 0.0, offset],
+        })
+        bbox = target["bbox_mm"]
+        target["bbox_mm"] = [
+            max(float(bbox[0]), base_diameter),
+            max(float(bbox[1]), base_diameter),
+            max(float(bbox[2]), offset + length),
+        ]
         target["features"].append({"id": operation.id, "kind": operation.operation, "parameters": parameters})
         return
     if operation.operation in {"add_hole", "add_fillet"}:
@@ -106,6 +171,29 @@ def _obj_for_cuboid(size: tuple[float, float, float], origin: tuple[float, float
     return "\n".join([*(f"v {a:g} {b:g} {c:g}" for a, b, c in vertices), *("f " + " ".join(str(index + offset) for index in face) for face in faces)]), index_offset + 8
 
 
+def _obj_for_cylinder(diameter: float, height: float, origin: tuple[float, float, float], index_offset: int) -> tuple[str, int]:
+    if diameter <= 0 or height <= 0:
+        return "", index_offset
+    import math
+
+    ox, oy, oz = origin
+    radius = diameter / 2.0
+    sides = 16
+    vertices = [
+        (ox + radius * math.cos(2 * math.pi * index / sides), oy + radius * math.sin(2 * math.pi * index / sides), oz + z)
+        for z in (0.0, height)
+        for index in range(sides)
+    ]
+    faces = []
+    for index in range(sides):
+        nxt = (index + 1) % sides
+        faces.extend(((index, nxt, sides + nxt, sides + index),))
+    faces.append(tuple(range(sides - 1, -1, -1)))
+    faces.append(tuple(range(sides, sides * 2)))
+    offset = index_offset
+    return "\n".join([*(f"v {a:g} {b:g} {c:g}" for a, b, c in vertices), *("f " + " ".join(str(index + offset + 1) for index in face) for face in faces)]), index_offset + len(vertices)
+
+
 def _obj_for_part(part: Mapping[str, object]) -> str:
     solids = part.get("solids", ())
     if not isinstance(solids, (list, tuple)) or not solids:
@@ -114,11 +202,20 @@ def _obj_for_part(part: Mapping[str, object]) -> str:
     fragments: list[str] = []
     offset = 0
     for solid in solids:
-        if not isinstance(solid, Mapping) or solid.get("kind") != "box":
+        if not isinstance(solid, Mapping):
             continue
-        size = tuple(float(value) for value in solid.get("size", (0.0, 0.0, 0.0)))
+        kind = solid.get("kind")
         origin = tuple(float(value) for value in solid.get("origin", (0.0, 0.0, 0.0)))
-        fragment, offset = _obj_for_cuboid(size, origin, offset)
+        if kind == "box":
+            size = tuple(float(value) for value in solid.get("size", (0.0, 0.0, 0.0)))
+            fragment, offset = _obj_for_cuboid(size, origin, offset)
+        elif kind == "cylinder":
+            fragment, offset = _obj_for_cylinder(float(solid.get("diameter", 0.0)), float(solid.get("height", 0.0)), origin, offset)
+        elif kind == "shell":
+            size = tuple(float(value) for value in solid.get("outer", (0.0, 0.0, 0.0)))
+            fragment, offset = _obj_for_cuboid(size, origin, offset)
+        else:
+            continue
         if fragment:
             fragments.append(fragment)
     return "\n".join(fragments)
@@ -131,12 +228,29 @@ def _open_scad_for_part(part: Mapping[str, object]) -> str:
         solids = ({"kind": "box", "size": [x, y, z], "origin": [0.0, 0.0, 0.0]},)
     lines = [f"// {part['id']}"]
     for solid in solids:
-        if not isinstance(solid, Mapping) or solid.get("kind") != "box":
+        if not isinstance(solid, Mapping):
             continue
-        size = [float(value) for value in solid.get("size", (0.0, 0.0, 0.0))]
         origin = [float(value) for value in solid.get("origin", (0.0, 0.0, 0.0))]
-        if all(value > 0 for value in size):
+        kind = solid.get("kind")
+        if kind == "box":
+            size = [float(value) for value in solid.get("size", (0.0, 0.0, 0.0))]
             lines.append(f"translate([{origin[0]}, {origin[1]}, {origin[2]}]) cube([{size[0]}, {size[1]}, {size[2]}]);")
+        elif kind == "cylinder":
+            diameter = float(solid.get("diameter", 0.0))
+            height = float(solid.get("height", 0.0))
+            if diameter > 0 and height > 0:
+                lines.append(f"translate([{origin[0]}, {origin[1]}, {origin[2]}]) cylinder(d={diameter}, h={height}, $fn=48);")
+        elif kind == "shell":
+            outer = [float(value) for value in solid.get("outer", (0.0, 0.0, 0.0))]
+            wall = float(solid.get("wall_thickness_mm", 0.0))
+            inner = [value - 2 * wall for value in outer]
+            if all(value > 0 for value in inner):
+                lines.append(
+                    "difference() { "
+                    f"translate([{origin[0]}, {origin[1]}, {origin[2]}]) cube([{outer[0]}, {outer[1]}, {outer[2]}]); "
+                    f"translate([{origin[0] + wall}, {origin[1] + wall}, {origin[2] + wall}]) cube([{inner[0]}, {inner[1]}, {inner[2]}]); "
+                    "}"
+                )
     return "\n".join(lines)
 
 

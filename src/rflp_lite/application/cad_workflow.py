@@ -201,7 +201,10 @@ def _plan_operations(intent: DesignIntent, selected_structure_option_id: str = "
     length = _number(values, "length_mm")
     width = _number(values, "width_mm")
     height = _number(values, "height_mm")
-    if length and width and height:
+    profile_operations = _profile_operations(intent, values)
+    if profile_operations:
+        operations.extend(profile_operations)
+    elif length and width and height:
         operations.append(
             CadOperation(
                 "create-box",
@@ -217,8 +220,8 @@ def _plan_operations(intent: DesignIntent, selected_structure_option_id: str = "
             )
         )
         operations.extend(_structure_operations(intent, selected_structure_option_id, length, width, height))
-    diameter = _number(values, "diameter_mm")
-    if diameter and "孔" in intent.statement:
+    diameter = _number(values, "diameter_mm") or _number(values, "bore_diameter_mm")
+    if diameter and "孔" in intent.statement and intent.target_kind != "gear":
         dependency = operations[-1].id
         operations.append(
             CadOperation(
@@ -246,6 +249,81 @@ def _plan_operations(intent: DesignIntent, selected_structure_option_id: str = "
             )
         )
     return tuple(operations)
+
+
+def _profile_operations(intent: DesignIntent, values: Mapping[str, Any]) -> tuple[CadOperation, ...]:
+    part_id = intent.id
+    length = _number(values, "length_mm")
+    width = _number(values, "width_mm")
+    height = _number(values, "height_mm")
+    if intent.target_kind == "housing" and all(value is not None for value in (length, width, height)):
+        wall = _number(values, "wall_thickness_mm")
+        if wall is None or wall * 2 >= min(length, width, height):
+            return ()
+        return (
+            CadOperation(
+                "create-shell",
+                "create_shell",
+                (
+                    ("part_id", part_id),
+                    ("length_mm", length),
+                    ("width_mm", width),
+                    ("height_mm", height),
+                    ("wall_thickness_mm", wall),
+                ),
+                ("create-part",),
+                "创建带内腔和壁厚的参数化壳体",
+            ),
+        )
+    if intent.target_kind == "shaft" and length and _number(values, "diameter_mm"):
+        diameter = _number(values, "diameter_mm")
+        operations = [CadOperation(
+            "create-shaft",
+            "create_cylinder",
+            (("part_id", part_id), ("diameter_mm", diameter), ("height_mm", length), ("profile", "shaft")),
+            ("create-part",),
+            "创建参数化等径轴基体",
+        )]
+        step_diameter = _number(values, "step_diameter_mm")
+        step_length = _number(values, "step_length_mm")
+        if step_diameter and step_length and step_diameter < diameter and step_length < length:
+            operations.append(CadOperation(
+                "add-shaft-step",
+                "add_shaft_step",
+                (
+                    ("part_id", part_id),
+                    ("diameter_mm", step_diameter),
+                    ("length_mm", step_length),
+                    ("offset_mm", length - step_length),
+                    ("base_diameter_mm", diameter),
+                ),
+                ("create-shaft",),
+                "增加参数化阶梯轴段",
+            ))
+        return tuple(operations)
+    if intent.target_kind == "gear":
+        module = _number(values, "module")
+        teeth = _number(values, "teeth")
+        face_width = _number(values, "face_width_mm")
+        if module and teeth and face_width and teeth >= 6:
+            bore = _number(values, "bore_diameter_mm") or 0.0
+            return (
+                CadOperation(
+                    "create-gear",
+                    "create_gear",
+                    (
+                        ("part_id", part_id),
+                        ("module", module),
+                        ("teeth", teeth),
+                        ("face_width_mm", face_width),
+                        ("bore_diameter_mm", bore),
+                        ("outside_diameter_mm", module * (teeth + 2.0)),
+                    ),
+                    ("create-part",),
+                    "创建参数化齿轮坯和齿形候选特征",
+                ),
+            )
+    return ()
 
 
 class CadWorkflowService:

@@ -67,3 +67,46 @@ def test_preview_keeps_fillet_as_explicit_structure_feature():
         )
     )
     assert result.model_payload["parts"][0]["features"][-1]["kind"] == "add_fillet"
+
+
+def test_preview_supports_shell_shaft_step_and_gear_profile_features():
+    adapter = PreviewCadAdapter()
+    shell = adapter.preview_plan(_plan(
+        CadOperation("part", "create_part", (("part_id", "housing"),)),
+        CadOperation(
+            "shell", "create_shell",
+            (("part_id", "housing"), ("length_mm", 120), ("width_mm", 80),
+             ("height_mm", 60), ("wall_thickness_mm", 2)),
+            ("part",),
+        ),
+    ))
+    shaft = adapter.preview_plan(_plan(
+        CadOperation("part", "create_part", (("part_id", "shaft"),)),
+        CadOperation(
+            "base", "create_cylinder",
+            (("part_id", "shaft"), ("diameter_mm", 20), ("height_mm", 100)),
+            ("part",),
+        ),
+        CadOperation(
+            "step", "add_shaft_step",
+            (("part_id", "shaft"), ("diameter_mm", 14), ("length_mm", 30),
+             ("offset_mm", 70), ("base_diameter_mm", 20)),
+            ("base",),
+        ),
+    ))
+    gear = adapter.preview_plan(_plan(
+        CadOperation("part", "create_part", (("part_id", "gear"),)),
+        CadOperation(
+            "gear", "create_gear",
+            (("part_id", "gear"), ("module", 2), ("teeth", 20),
+             ("face_width_mm", 12), ("bore_diameter_mm", 8),
+             ("outside_diameter_mm", 44)),
+            ("part",),
+        ),
+    ))
+
+    assert shell.model_payload["parts"][0]["features"][-1]["kind"] == "create_shell"
+    assert "difference()" in shell.model_payload["open_scad_source"]
+    assert shaft.model_payload["parts"][0]["features"][-1]["kind"] == "add_shaft_step"
+    assert len(shaft.model_payload["obj"].splitlines()) > 10
+    assert gear.model_payload["parts"][0]["bbox_mm"] == [44.0, 44.0, 12.0]

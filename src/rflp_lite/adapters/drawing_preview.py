@@ -194,19 +194,45 @@ class PreviewDrawingAdapter:
             for feature in features if isinstance(features, (list, tuple)) else ():
                 if not isinstance(feature, Mapping):
                     continue
+                feature_id = str(feature.get("id", "feature"))
                 parameters = feature.get("parameters")
-                if not isinstance(parameters, Mapping) or "diameter_mm" not in parameters:
+                if not isinstance(parameters, Mapping):
                     continue
-                annotations.append(_annotation(
-                    part_id,
-                    str(feature.get("id", "hole")),
-                    "hole_diameter",
-                    f"⌀{float(parameters['diameter_mm']):g}",
-                    tolerance="±0.10",
-                    anchor=(dimensions[0] / 2 if dimensions else 0.0, dimensions[1] / 2 if len(dimensions) > 1 else 0.0),
-                    used=used,
-                    rationale="孔径与一般尺寸公差建议。",
-                ))
+                anchor = (
+                    dimensions[0] / 2 if dimensions else 0.0,
+                    dimensions[1] / 2 if len(dimensions) > 1 else 0.0,
+                )
+                if "diameter_mm" in parameters:
+                    annotations.append(_annotation(
+                        part_id, feature_id, "hole_diameter", f"⌀{float(parameters['diameter_mm']):g}",
+                        tolerance="±0.10", anchor=anchor, used=used,
+                        rationale="孔径与一般尺寸公差建议。",
+                    ))
+                if feature.get("kind") == "create_shell" and "wall_thickness_mm" in parameters:
+                    annotations.append(_annotation(
+                        part_id, feature_id, "wall_thickness", f"{float(parameters['wall_thickness_mm']):g}",
+                        tolerance="±0.10", anchor=anchor, used=used,
+                        rationale="壳体壁厚是强度、质量和制造审查的关键尺寸。",
+                    ))
+                if feature.get("kind") == "add_shaft_step" and "diameter_mm" in parameters:
+                    annotations.append(_annotation(
+                        part_id, feature_id, "shaft_step_diameter", f"⌀{float(parameters['diameter_mm']):g}",
+                        tolerance="±0.05", anchor=anchor, used=used,
+                        rationale="阶梯轴段直径用于装配定位与配合审查。",
+                    ))
+                if feature.get("kind") == "create_gear":
+                    if "bore_diameter_mm" in parameters and float(parameters["bore_diameter_mm"]) > 0:
+                        annotations.append(_annotation(
+                            part_id, feature_id, "gear_bore_diameter", f"⌀{float(parameters['bore_diameter_mm']):g}",
+                            tolerance="±0.05", anchor=anchor, used=used,
+                            rationale="齿轮中心孔用于轴系装配配合审查。",
+                        ))
+                    if "module" in parameters and "teeth" in parameters:
+                        annotations.append(_annotation(
+                            part_id, feature_id, "gear_profile", f"m{float(parameters['module']):g} z{int(float(parameters['teeth']))}",
+                            unit="1", anchor=anchor, used=used,
+                            rationale="齿轮模数与齿数作为齿形候选的共享语义参数。",
+                        ))
         if any(item.status == "needs_review" for item in annotations):
             diagnostics.append("annotation placement collision requires review")
         annotation_values = tuple(annotations)
