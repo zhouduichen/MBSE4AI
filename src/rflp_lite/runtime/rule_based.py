@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from itertools import combinations
 import re
 
+from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.model import AddEntity, Deprecate, ModelGraph, Patch, Relate, UpdateEntity, apply_patch
 from rflp_lite.domain.relations import RelationPredicate
@@ -857,7 +858,7 @@ class VerticalRuleRuntime:
             )
             verification_payload = _vertical_vv_plan_payload(
                 "verification", requirement, trace_scope, scenario_ids,
-                activity_ids, branch_names, verification,
+                activity_ids, branch_names, activities=activities, existing=verification,
             )
             if verification is None:
                 verification = builder.add(
@@ -879,7 +880,7 @@ class VerticalRuleRuntime:
             )
             validation_payload = _vertical_vv_plan_payload(
                 "validation", requirement, trace_scope, scenario_ids,
-                activity_ids, branch_names, validation,
+                activity_ids, branch_names, activities=activities, existing=validation,
             )
             if validation is None:
                 validation = builder.add(
@@ -951,9 +952,60 @@ class VerticalRuleRuntime:
         return builder.response()
 
 
+_VERTICAL_BRANCH_TYPES = ("normal", "failure", "alternative", "boundary", "exception")
+
+
+def _branch_type_and_label(value: object) -> tuple[str, str]:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return "unknown", "未命名分支"
+    prefix, separator, label = text.partition(":")
+    branch_type = prefix.strip().casefold() if separator else ""
+    if branch_type not in _VERTICAL_BRANCH_TYPES:
+        return "unknown", text
+    return branch_type, label.strip() or branch_type
+
+
+def _vertical_branch_scenarios(case_type, requirement, activities, existing=None):
+    previous = {}
+    if existing is not None:
+        raw_previous = existing.payload.get("branch_scenarios", ())
+        if isinstance(raw_previous, (list, tuple)):
+            previous = {
+                str(item.get("id", "")): dict(item)
+                for item in raw_previous
+                if isinstance(item, Mapping) and str(item.get("id", "")).strip()
+            }
+    scenarios = []
+    for activity in activities:
+        raw_branches = activity.payload.get("branches", ())
+        values = raw_branches if isinstance(raw_branches, (list, tuple)) else ()
+        for raw_branch in values:
+            branch_type, branch_label = _branch_type_and_label(raw_branch)
+            scenario_id = f"{case_type}-scenario-{canonical_hash((requirement.id, activity.id, branch_type, branch_label))[:16]}"
+            generated = {
+                "id": scenario_id,
+                "branch_type": branch_type,
+                "branch_label": branch_label,
+                "activity_id": activity.id,
+                "requirement_ids": [requirement.id],
+                "stimulus": f"触发{branch_label}",
+                "procedure": f"执行{branch_label}并记录状态转移与输出",
+                "expected_result": f"系统完成{branch_label}对应的行为并保留可追溯结果",
+                "pass_criteria": f"{branch_label}路径满足需求且结果可复核",
+                "status": "planned" if branch_type != "unknown" else "needs_review",
+            }
+            old = previous.get(scenario_id, {})
+            for field in ("status", "execution_evidence_ids", "last_execution"):
+                if field in old:
+                    generated[field] = old[field]
+            scenarios.append(generated)
+    return scenarios
+
+
 def _vertical_vv_plan_payload(
     case_type, requirement, trace_scope, scenario_ids, activity_ids,
-    branch_names, existing=None,
+    branch_names, *, activities=(), existing=None,
 ):
     evidence_ids = list(requirement.meta.evidence_ids)
     execution_evidence_ids = []
@@ -964,6 +1016,9 @@ def _vertical_vv_plan_payload(
         execution_evidence_ids = list(existing.payload.get("execution_evidence_ids", ()))
     text = _requirement_text(requirement)
     is_verification = case_type == "verification"
+    branch_scenarios = _vertical_branch_scenarios(
+        case_type, requirement, activities, existing=existing,
+    )
     payload = {
         "method": "test" if is_verification else "demonstration",
         "verification_objective": (
@@ -1001,6 +1056,12 @@ def _vertical_vv_plan_payload(
         "scenario_ids": scenario_ids,
         "activity_ids": activity_ids,
         "covered_branches": branch_names,
+        "covered_branch_types": sorted({
+            str(item.get("branch_type", ""))
+            for item in branch_scenarios
+            if str(item.get("branch_type", ""))
+        }),
+        "branch_scenarios": branch_scenarios,
         "function_ids": trace_scope["function_ids"],
         "logical_component_ids": trace_scope["logical_component_ids"],
         "physical_ids": trace_scope["physical_ids"],

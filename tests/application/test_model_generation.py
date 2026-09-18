@@ -1558,6 +1558,39 @@ def test_structured_runtime_generates_complete_editable_vertical_model(tmp_path:
     assert edited.entity_index[function.id].payload["review_note"] == "人工可继续编辑"
 
 
+def test_vertical_assurance_emits_five_structured_branch_scenarios(tmp_path: Path):
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=VerticalRuleRuntime(),
+    )
+    services.projects.create("branch-model")
+    result = services.generation("branch-model").generate(
+        "branch-model",
+        requirement_text="系统应支持人工接管",
+    )
+    graph = services.model("branch-model").graph("branch-model")
+    cases = [
+        entity for entity in graph.entities
+        if entity.kind in {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}
+    ]
+
+    assert result.status == "completed"
+    assert len(cases) == 2
+    expected = {"normal", "failure", "alternative", "boundary", "exception"}
+    for case in cases:
+        scenarios = case.payload["branch_scenarios"]
+        assert {item["branch_type"] for item in scenarios} == expected
+        assert all(
+            item["activity_id"]
+            and item["requirement_ids"]
+            and item["stimulus"]
+            and item["procedure"]
+            and item["expected_result"]
+            and item["pass_criteria"]
+            for item in scenarios
+        )
+        assert all(item["status"] == "planned" for item in scenarios)
+
 def test_intake_aware_structured_provider_generates_complete_document_model(tmp_path: Path):
     model = IntakeAwareCompleteVerticalModel()
     services = build_v2_services(
