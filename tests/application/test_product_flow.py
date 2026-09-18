@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from rflp_lite.bootstrap.v2 import build_v2_services
+from rflp_lite.methodology.contracts import StepStatus, TaskExecutionResponse
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 
@@ -91,3 +92,33 @@ def test_product_flow_carries_explicit_structure_selection_into_cad_plan(tmp_pat
     assert result.status == "needs_approval"
     assert plan["selected_structure_option_id"] == "bracket-gusseted-plate"
     assert [item["operation"] for item in plan["operations"]].count("add_rib") == 2
+
+
+def test_product_flow_stops_downstream_when_generation_fails(tmp_path: Path):
+    class FailedRequirementsRuntime(VerticalRuleRuntime):
+        def execute(self, request):
+            if request.task_id == "vertical.requirements":
+                return TaskExecutionResponse(
+                    StepStatus.FAILED,
+                    diagnostics=("injected generation failure",),
+                )
+            return super().execute(request)
+
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=FailedRequirementsRuntime(),
+    )
+    services.projects.create("p1")
+
+    result = services.product_flow("p1").run(
+        "p1",
+        requirement_text="系统应支持详细结构设计",
+        cad_intent_text="生成铝合金支架，长100毫米，宽50毫米，高10毫米",
+    )
+
+    assert result.status == "failed"
+    assert result.generation["status"] == "failed"
+    assert result.concept == {"status": "not_requested"}
+    assert result.cad == {"status": "not_requested"}
+    assert services.cad_design("p1").drafts() == ()
+    assert services.cad_design("p1").plans() == ()

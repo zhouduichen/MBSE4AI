@@ -71,7 +71,22 @@ class EngineeringProductFlowService:
         generation = _mapping(generation_result.as_dict())
         concept: Mapping[str, object] = {"status": "not_requested"}
         cad: Mapping[str, object] = {"status": "not_requested"}
-        status = "completed"
+        generation_status = str(generation.get("status", "failed"))
+        if generation_status not in {"completed", "completed_with_warnings"}:
+            deliverable = _mapping(self.deliverables.build(project_id))
+            revision = int(deliverable.get("revision", generation.get("revision", 0)) or 0)
+            snapshot_hash = str(deliverable.get("snapshot_hash", ""))
+            return ProductFlowResult(
+                generation_status,
+                str(project_id),
+                generation,
+                concept,
+                cad,
+                deliverable,
+                revision,
+                snapshot_hash,
+            )
+        status = generation_status
 
         if include_concept:
             try:
@@ -88,7 +103,7 @@ class EngineeringProductFlowService:
                     "run": to_primitive(concept_result),
                 }
 
-        if status == "completed" and cad_intent_text and str(cad_intent_text).strip():
+        if status in {"completed", "completed_with_warnings"} and cad_intent_text and str(cad_intent_text).strip():
             draft = self.cad.create_intent(
                 str(cad_intent_text).strip(),
                 source_requirement_ids=tuple(
