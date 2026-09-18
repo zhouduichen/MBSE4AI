@@ -30,6 +30,8 @@ def test_concept_design_api_generates_evaluates_and_applies(tmp_path):
     assert 3 <= len(run["candidates"]) <= 5
     assert len(run["evaluations"]) == len(run["candidates"]) * 3
     assert run["formal_status"] == "development"
+    assert run["evaluation_summary"]["complete_candidate_count"] == len(run["candidates"])
+    assert run["evaluation_summary"]["optimization_evidence_status"] == "development"
     assert run["envelope"]["source_requirement_ids"] == [requirement["id"]]
 
     applied = client.post(
@@ -42,6 +44,7 @@ def test_concept_design_api_generates_evaluates_and_applies(tmp_path):
     page = client.get("/ui/projects/p1/concept-design")
     assert page.status_code == 200
     assert "多学科评估" in page.text
+    assert "适用域" in page.text
     assert "优化反馈" in page.text
     assert "Pareto" in page.text
 

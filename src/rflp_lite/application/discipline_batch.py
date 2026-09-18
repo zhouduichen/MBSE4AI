@@ -171,6 +171,83 @@ def _approved(profile: Mapping[str, object], evaluation: DisciplineEvaluation) -
     return evaluation.evidence_status == "formal"
 
 
+def _mapping_pairs(value: object) -> tuple[tuple[str, object], ...]:
+    if not isinstance(value, Mapping):
+        return ()
+    return tuple(sorted((str(key), item) for key, item in value.items()))
+
+
+def _validity_bounds(value: object) -> tuple[tuple[str, float, float], ...]:
+    if not isinstance(value, Mapping):
+        return ()
+    bounds: list[tuple[str, float, float]] = []
+    for name, raw in value.items():
+        if not isinstance(raw, Mapping):
+            continue
+        minimum = raw.get("minimum")
+        maximum = raw.get("maximum")
+        if (
+            isinstance(minimum, bool)
+            or isinstance(maximum, bool)
+            or not isinstance(minimum, (int, float))
+            or not isinstance(maximum, (int, float))
+        ):
+            continue
+        bounds.append((str(name), float(minimum), float(maximum)))
+    return tuple(sorted(bounds))
+
+
+def _validity_status(
+    bounds: tuple[tuple[str, float, float], ...], parameters: Mapping[str, object]
+) -> str:
+    if not bounds:
+        return "not_declared"
+    for name, minimum, maximum in bounds:
+        value = parameters.get(name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return "outside_domain"
+        if float(value) < minimum or float(value) > maximum:
+            return "outside_domain"
+    return "within_domain"
+
+
+def _evaluation_evidence(
+    profile: Mapping[str, object],
+    selected: object,
+    discipline: Mapping[str, object],
+    parameters: Mapping[str, object],
+    decision: object,
+) -> tuple[tuple[str, object], ...]:
+    approvals = profile.get("approvals", {})
+    entry = (
+        approvals.get(str(getattr(selected, "id", "")), {})
+        if isinstance(approvals, Mapping)
+        else {}
+    )
+    entry = entry if isinstance(entry, Mapping) else {}
+    declared_domain = entry.get("validity_domain", discipline.get("validity_domain", {}))
+    bounds = _validity_bounds(declared_domain)
+    return (
+        ("input_parameters", tuple(sorted((str(key), value) for key, value in parameters.items()))),
+        ("validity_domain", bounds),
+        ("validity_status", _validity_status(bounds, parameters)),
+        ("approval_record", "present" if entry else "missing"),
+        ("validation_dataset_id", str(entry.get("validation_dataset_id", ""))),
+        ("validation_dataset_version", str(entry.get("validation_dataset_version", ""))),
+        ("validation_dataset_hash", str(entry.get("validation_dataset_hash", ""))),
+        ("error_metrics", _mapping_pairs(entry.get("error_metrics", {}))),
+        ("acceptance_limits", _mapping_pairs(entry.get("acceptance_limits", {}))),
+        (
+            "approval_status",
+            "formal" if bool(getattr(decision, "approved", False)) else "development",
+        ),
+        (
+            "approval_diagnostics",
+            tuple(str(item) for item in getattr(decision, "diagnostics", ())),
+        ),
+    )
+
+
 def evaluate_candidates(
     candidates: tuple[LayoutCandidate, ...],
     pack: Mapping[str, object],
@@ -204,7 +281,22 @@ def evaluate_candidates(
             if isinstance(fallback_id, str) and fallback_id in registry:
                 selected = registry[fallback_id]
             else:
-                return (candidate.id, str(discipline["id"])), _failed(candidate, discipline, adapter, "out_of_domain", "surrogate outside validity domain"), False
+                decision = formal_approval_for(adapter, discipline, profile, parameters)
+                failed = _failed(
+                    candidate,
+                    discipline,
+                    adapter,
+                    "out_of_domain",
+                    "surrogate outside validity domain",
+                )
+                return (candidate.id, str(discipline["id"])), replace(
+                    failed,
+                    validity=_evaluation_evidence(
+                        profile, adapter, discipline, parameters, decision
+                    ),
+                    approval_profile_hash=canonical_hash(profile),
+                    approval_diagnostics=decision.diagnostics,
+                ), False
         implementation_hash = adapter_implementation_hash(selected)
         approval_profile_hash = canonical_hash(profile)
         validity_hash = canonical_hash(
@@ -218,6 +310,7 @@ def evaluate_candidates(
                 cached,
                 status="cached",
                 evidence_status="formal" if decision.approved else "development",
+                validity=_evaluation_evidence(profile, selected, discipline, parameters, decision),
                 implementation_hash=implementation_hash,
                 approval_profile_hash=approval_profile_hash,
                 approval_diagnostics=decision.diagnostics,
@@ -248,6 +341,7 @@ def evaluate_candidates(
             input_hash=effective_input_hash,
             output_hash=effective_output_hash,
             evidence_status="formal" if decision.approved else "development",
+            validity=_evaluation_evidence(profile, selected, discipline, parameters, decision),
             implementation_hash=implementation_hash,
             approval_profile_hash=approval_profile_hash,
             approval_diagnostics=decision.diagnostics,
@@ -279,4 +373,3 @@ def evaluate_candidates(
 
 
 __all__ = ["EvaluationBatch", "evaluate_candidates", "surrogate_is_valid", "validate_evaluator_profile"]
-

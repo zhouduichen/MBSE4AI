@@ -308,7 +308,11 @@ def test_concept_and_detail_design_records_are_included_in_deliverables(tmp_path
 
     package = services.deliverables("p1").build("p1")
     assert {"concept_design", "detail_design"} <= set(package["artifacts"])
-    assert package["artifacts"]["concept_design"]["content"]["concept_runs"]
+    concept_content = package["artifacts"]["concept_design"]["content"]
+    assert concept_content["concept_runs"]
+    concept_run = concept_content["concept_runs"][-1]
+    assert concept_run["evaluation_summary"]["complete_candidate_count"] == concept_run["evaluation_summary"]["candidate_count"]
+    assert dict(concept_run["evaluations"][0]["validity"])["validity_status"] == "not_declared"
     assert package["artifacts"]["detail_design"]["content"]["cad_models"]
     archive_bytes, _ = services.deliverables("p1").export_zip("p1")
     with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:

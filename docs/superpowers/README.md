@@ -35,6 +35,7 @@
 - [逐需求纵向覆盖闭环实施计划](plans/2026-09-14-per-requirement-coverage-loop.md)
 - [Canonical Traceability Projection 设计](specs/2026-09-14-canonical-traceability-projection-design.md)
 - [Canonical Traceability Projection 实施计划](plans/2026-09-14-canonical-traceability-projection.md)
+- [多学科评估证据实施计划](plans/2026-09-19-multidisciplinary-evaluation-evidence.md)
 
 ## Superseded
 

@@ -10,7 +10,7 @@ by tests and integrations.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from rflp_lite.application.domain_packs import validate_domain_pack
 from rflp_lite.application.discipline_batch import evaluate_candidates
@@ -49,6 +49,7 @@ class ConceptRunResult:
     input_hash: str
     result_hash: str
     layout_manifests: tuple[dict[str, Any], ...] = ()
+    evaluation_summary: Mapping[str, object] = field(default_factory=dict)
 
 
 def _call(store: object, name: str, *args: object) -> object | None:
@@ -326,6 +327,72 @@ def _optimized_run(pack, profile, envelope, initial, evaluations, registry, stor
     return run_optimization(pack, profile, initial, evaluations, generate, evaluate, iterations=3, evaluation_budget=budget, base_seed=seed)
 
 
+def _evaluation_summary(
+    pack: Mapping[str, object],
+    candidates: tuple[LayoutCandidate, ...],
+    evaluations: tuple[DisciplineEvaluation, ...],
+    optimization: OptimizationRun,
+) -> dict[str, object]:
+    discipline_ids = tuple(
+        str(item["id"])
+        for item in pack.get("disciplines", ())
+        if isinstance(item, Mapping) and item.get("id")
+    )
+    by_candidate: dict[str, list[DisciplineEvaluation]] = {}
+    for evaluation in evaluations:
+        by_candidate.setdefault(evaluation.candidate_id, []).append(evaluation)
+    candidate_rows: list[dict[str, object]] = []
+    complete_count = 0
+    formal_count = 0
+    for candidate in candidates:
+        rows = by_candidate.get(candidate.id, [])
+        by_discipline = {item.discipline: item for item in rows}
+        missing = [name for name in discipline_ids if name not in by_discipline]
+        failed = [
+            item.discipline
+            for item in rows
+            if item.status not in {"succeeded", "cached"}
+        ]
+        complete = not missing and not failed
+        formal = complete and all(
+            by_discipline[name].evidence_status == "formal"
+            for name in discipline_ids
+            if name in by_discipline
+        )
+        complete_count += int(complete)
+        formal_count += int(formal)
+        candidate_rows.append(
+            {
+                "candidate_id": candidate.id,
+                "status": "complete" if complete else "partial",
+                "formal_status": "passed" if formal else "development",
+                "missing_disciplines": missing,
+                "failed_disciplines": failed,
+                "evaluation_ids": [item.id for item in rows],
+                "front": candidate.id in optimization.front_candidate_ids,
+            }
+        )
+    return {
+        "schema_version": "concept-evaluation-summary.v1",
+        "candidate_count": len(candidates),
+        "evaluation_count": len(evaluations),
+        "complete_candidate_count": complete_count,
+        "formal_candidate_count": formal_count,
+        "failed_evaluation_count": sum(
+            item.status not in {"succeeded", "cached"} for item in evaluations
+        ),
+        "cached_evaluation_count": sum(item.status == "cached" for item in evaluations),
+        "front_candidate_ids": list(optimization.front_candidate_ids),
+        "stop_reason": optimization.stop_reason,
+        "optimization_evidence_status": optimization.evidence_status,
+        "iterations": [
+            {"index": index, "record": record}
+            for index, record in optimization.iteration_records
+        ],
+        "candidates": candidate_rows,
+    }
+
+
 def _build_result(pack, envelope, matches, optimized, initial_hash):
     candidates = tuple(optimized.candidates)
     evaluations = tuple(optimized.evaluations)
@@ -336,13 +403,15 @@ def _build_result(pack, envelope, matches, optimized, initial_hash):
         for item in evaluations
     ) and optimization.evidence_status == "passed"
     trace_links = _trace_links(envelope, matches, candidates, evaluations, optimization)
-    result_hash = canonical_hash({"input_hash": initial_hash, "matches": matches, "candidates": candidates, "evaluations": evaluations, "optimization": optimization, "trace_links": trace_links, "layout_manifests": manifests})
+    evaluation_summary = _evaluation_summary(pack, candidates, evaluations, optimization)
+    result_hash = canonical_hash({"input_hash": initial_hash, "matches": matches, "candidates": candidates, "evaluations": evaluations, "optimization": optimization, "trace_links": trace_links, "layout_manifests": manifests, "evaluation_summary": evaluation_summary})
     return ConceptRunResult(
         id=f"{pack.get('id_prefix', 'CONCEPT')}-RUN-{result_hash[:12]}",
         envelope=envelope, matches=tuple(matches), candidates=candidates, evaluations=evaluations,
         optimization=optimization, trace_links=trace_links, status="completed",
         formal_status="passed" if formal else "development", input_hash=initial_hash,
         result_hash=result_hash, layout_manifests=manifests,
+        evaluation_summary=evaluation_summary,
     )
 
 
@@ -468,6 +537,11 @@ def concept_run_from_payload(value: Mapping[str, object]) -> ConceptRunResult:
         input_hash=str(value["input_hash"]), result_hash=str(value["result_hash"]),
         layout_manifests=tuple(
             dict(item) for item in value.get("layout_manifests", ()) if isinstance(item, Mapping)
+        ),
+        evaluation_summary=(
+            dict(value.get("evaluation_summary", {}))
+            if isinstance(value.get("evaluation_summary", {}), Mapping)
+            else {}
         ),
     )
 

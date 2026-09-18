@@ -19,6 +19,11 @@ def test_project_concept_service_generates_and_applies_layout_candidate(tmp_path
 
     assert 3 <= len(result.candidates) <= 5
     assert len(result.evaluations) == len(result.candidates) * 3
+    assert result.evaluation_summary["candidate_count"] == len(result.candidates)
+    assert result.evaluation_summary["evaluation_count"] == len(result.evaluations)
+    assert result.evaluation_summary["complete_candidate_count"] == len(result.candidates)
+    assert result.evaluation_summary["optimization_evidence_status"] == "development"
+    assert result.evaluation_summary["iterations"]
     applied = services.concept_design("mission").apply_candidate(result.candidates[0].id, result.id)
     assert applied["entity"]["kind"] == EntityKind.PHYSICAL_BLOCK.value
     repeated = services.concept_design("mission").apply_candidate(result.candidates[0].id, result.id)

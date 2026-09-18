@@ -63,6 +63,8 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
     concept = services.concept_design("acceptance").run(envelope, optimize=False)
     assert 3 <= len(concept.candidates) <= 5
     assert len(concept.evaluations) == len(concept.candidates) * 3
+    assert concept.evaluation_summary["complete_candidate_count"] == len(concept.candidates)
+    assert dict(concept.evaluations[0].validity)["approval_record"] == "missing"
     assert concept.envelope.source_requirement_ids == tuple(item.id for item in requirements)
 
     cad = services.cad_design("acceptance")

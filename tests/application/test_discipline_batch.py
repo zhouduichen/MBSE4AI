@@ -81,6 +81,10 @@ def test_unapproved_profile_cannot_be_formal_passed():
     pack, candidates = inputs()
     result = evaluate_candidates(tuple(candidates[:1]), pack, {"id": "dev", "version": 1}, discipline_registry(), Store())
     assert result.candidate_formal_status[candidates[0].id] == "development"
+    evidence = result.evaluations[0].validity
+    assert dict(evidence)["validity_status"] == "not_declared"
+    assert dict(evidence)["approval_record"] == "missing"
+    assert "no customer approval entry" in dict(evidence)["approval_diagnostics"]
 
 
 def test_surrogate_validity_and_profile_validation():
@@ -138,4 +142,8 @@ def test_complete_approved_profile_can_formal_pass():
     result = evaluate_candidates(tuple(candidates[:1]), pack, _complete_profile(), discipline_registry(), Store())
     assert result.candidate_formal_status[candidates[0].id] == "passed"
     assert all(item.evidence_status == "formal" for item in result.evaluations)
-
+    evidence = dict(result.evaluations[0].validity)
+    assert evidence["validity_status"] == "within_domain"
+    assert evidence["validation_dataset_id"] == "gold"
+    assert evidence["validation_dataset_hash"] == "dataset-hash"
+    assert evidence["approval_status"] == "formal"

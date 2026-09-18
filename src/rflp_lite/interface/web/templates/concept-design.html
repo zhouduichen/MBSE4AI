@@ -31,13 +31,13 @@
       <div class="list-card-header"><strong>{{ candidate.id }}</strong><span class="status-pill">{{ candidate.status }}</span></div>
       <p>可行：{{ candidate.feasible }} · 参考方案：{{ candidate.reference_ids|join(', ') }}</p>
       <details><summary>参数与草图</summary><pre>{{ candidate.parameters|tojson(indent=2) }}</pre><div class="svg-preview">{{ candidate.svg|safe }}</div></details>
-      <div class="compact-list"><strong>多学科评估</strong>{% for evaluation in candidate_evaluations %}<article><span>{{ evaluation.discipline }}<small>{{ evaluation.metrics|tojson }}</small></span><span class="status-pill">{{ evaluation.status }}</span></article>{% else %}<small>暂无评估结果</small>{% endfor %}</div>
+      <div class="compact-list"><strong>多学科评估</strong>{% for evaluation in candidate_evaluations %}<article><span>{{ evaluation.discipline }}<small>{{ evaluation.metrics|tojson }}</small><small>证据：{{ evaluation.evidence_status }} · 有效性：{{ evaluation.validity|tojson }}</small></span><span class="status-pill">{{ evaluation.status }}</span></article>{% else %}<small>暂无评估结果</small>{% endfor %}</div>
       <button class="button" data-apply="{{ candidate.id }}" data-run="{{ run.id }}">应用到 ModelGraph</button>
     </article>
     {% endfor %}
   {% endif %}
   </div>
-  {% if run %}<div class="callout info"><strong>优化反馈：</strong>状态 {{ run.optimization.status }} · 停止原因 {{ run.optimization.stop_reason }} · Pareto 候选 {{ run.optimization.front_candidate_ids|join('、') or '—' }} · 迭代 {{ run.optimization.iteration_records|length }} 轮 · 证据状态 {{ run.optimization.evidence_status }}</div>{% endif %}
+  {% if run %}<div class="callout info"><strong>优化反馈：</strong>状态 {{ run.optimization.status }} · 停止原因 {{ run.optimization.stop_reason }} · Pareto 候选 {{ run.optimization.front_candidate_ids|join('、') or '—' }} · 迭代 {{ run.optimization.iteration_records|length }} 轮 · 证据状态 {{ run.optimization.evidence_status }}<br><small>评估摘要：{{ run.evaluation_summary.complete_candidate_count or 0 }}/{{ run.evaluation_summary.candidate_count or 0 }} 套候选完成，{{ run.evaluation_summary.failed_evaluation_count or 0 }} 条评估失败；详细适用域、验证数据集和批准诊断见候选展开结果与 concept-design.json。</small></div>{% endif %}
 </section>
 
 <script>
@@ -51,13 +51,16 @@
     if (!evaluations.length) return '<div class="compact-list"><strong>多学科评估</strong><small>暂无评估结果</small></div>';
     const rows = evaluations.map(item => {
       const metrics = Object.fromEntries(item.metrics || []);
-      return `<article><span>${item.discipline}<small>${JSON.stringify(metrics)}</small></span><span class="status-pill">${item.status}</span></article>`;
+      const evidence = Object.fromEntries(item.validity || []);
+      const diagnostics = (item.approval_diagnostics || []).join('；');
+      return `<article><span>${item.discipline}<small>${JSON.stringify(metrics)}</small><small>证据：${item.evidence_status || '—'} · 适用域：${evidence.validity_status || '未声明'}${diagnostics ? ` · ${diagnostics}` : ''}</small></span><span class="status-pill">${item.status}</span></article>`;
     }).join('');
     return `<div class="compact-list"><strong>多学科评估</strong>${rows}</div>`;
   };
   const renderOptimization = (run) => {
     const optimization = run.optimization || {};
-    return `<div class="callout info"><strong>优化反馈：</strong>状态 ${optimization.status || '—'} · 停止原因 ${optimization.stop_reason || '—'} · Pareto 候选 ${(optimization.front_candidate_ids || []).join('、') || '—'} · 迭代 ${(optimization.iteration_records || []).length} 轮 · 证据状态 ${optimization.evidence_status || '—'}</div>`;
+    const summary = run.evaluation_summary || {};
+    return `<div class="callout info"><strong>优化反馈：</strong>状态 ${optimization.status || '—'} · 停止原因 ${optimization.stop_reason || '—'} · Pareto 候选 ${(optimization.front_candidate_ids || []).join('、') || '—'} · 迭代 ${(optimization.iteration_records || []).length} 轮 · 证据状态 ${optimization.evidence_status || '—'}<br><small>评估摘要：${summary.complete_candidate_count || 0}/${summary.candidate_count || 0} 套候选完成，${summary.failed_evaluation_count || 0} 条评估失败；每条评估保留适用域、数据集和批准诊断。</small></div>`;
   };
   const render = (run) => {
     summary.textContent = `${run.candidates.length} 套候选，${run.evaluations.length} 条学科评估，正式状态：${run.formal_status}`;
