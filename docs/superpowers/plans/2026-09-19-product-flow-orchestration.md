@@ -63,3 +63,9 @@
 - [x] Normalize OCR bounding boxes from the fixed PDF render scale back to PDF point coordinates before constructing `DocumentRegion`.
 - [x] Use the normalized box for duplicate suppression so sparse text PDFs do not create duplicate requirement evidence.
 - [x] Add an offline minimal-PDF/fake-OCR regression test and run the document adapter checks without a server or model.
+
+## Follow-up slice: prove the unified 1.1–3.3 offline handoff
+
+- [x] Add one local acceptance scenario using a document, complete RFLP generation, 3–5 concept candidates, an explicitly selected CAD structure profile, and a pending approval boundary.
+- [x] Continue that scenario through explicit CAD approval, preview execution, shared annotations, DFM/DFA review, PhysicalBlock application, and final detail-design delivery artifacts.
+- [x] Keep this as one product-chain acceptance case rather than repeated task-stability runs; run it with preview CAD and isolated configuration only.

@@ -190,6 +190,43 @@ def test_unified_product_flow_binds_document_model_sysml_and_deliverable(tmp_pat
         if entity.kind is EntityKind.REQUIREMENT
     )
 
+
+def test_unified_product_flow_carries_concept_and_cad_to_reviewed_delivery(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("full-flow", "统一设计链验收")
+    ingested = services.projects.ingest("full-flow", CONCEPT_SOURCE)
+
+    result = services.product_flow("full-flow").run(
+        "full-flow",
+        document_ids=(ingested["document_id"],),
+        include_concept=True,
+        optimize_concept=False,
+        cad_intent_text="生成铝合金支架，长100毫米，宽50毫米，高10毫米",
+        selected_structure_option_id="bracket-gusseted-plate",
+    )
+
+    assert result.status == "needs_approval"
+    assert result.concept["status"] == "completed"
+    assert 3 <= len(result.concept["run"]["candidates"]) <= 5
+    assert result.cad["status"] == "needs_approval"
+    assert result.cad["plan"]["selected_structure_option_id"] == "bracket-gusseted-plate"
+    assert [item["operation"] for item in result.cad["plan"]["operations"]].count("add_rib") == 2
+    assert {"concept_design", "detail_design"} <= set(result.deliverable["artifacts"])
+
+    cad = services.cad_design("full-flow")
+    cad.approve_plan(result.cad["plan"]["id"])
+    model = cad.execute_plan(result.cad["plan"]["id"])
+    review = services.design_review("full-flow").review(model["id"], model["model_payload"])
+    applied = cad.apply_model(model["id"])
+    final_package = services.deliverables("full-flow").build("full-flow")
+
+    assert review["annotations"]
+    assert review["artifacts"]["drawing_hash"]
+    assert applied["entity"]["kind"] == EntityKind.PHYSICAL_BLOCK.value
+    assert final_package["revision"] == services.model("full-flow").graph("full-flow").revision
+    assert final_package["artifacts"]["detail_design"]["content"]["design_reviews"][-1]["id"] == review["id"]
+
+
 def test_concept_layout_context_flows_into_cad_intent_and_modelgraph(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("handoff", "概念布局到详细设计上下文验收")
