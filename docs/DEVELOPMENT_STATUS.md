@@ -84,6 +84,7 @@
 | 统一需求输入边界 | 五阶段生成与 23-task pipeline 共享 `InputPreparationService`→`RequirementsUseCaseService`→CAS；文本/文档可组合输入，重复 statement 复用节点并通过 CAS 合并全部 Source Region/evidence provenance，多条需求保持独立下游追溯 |
 | Pipeline 文档直通验收 | `project ingest` 后直接执行 `analyze run` 或 Web `mode=pipeline` 会自动生成 Requirement、Use Case、Operational Scenario、Activity，再完成 23-task 生命周期与追溯；不需要手动应用 IntakeDraft |
 | 行为时序投影（1.2） | Behavior API/UI 从 ModelGraph 中的 Operational Scenario/Activity 确定性生成参与者、消息、守卫、分支和 Mermaid Sequence Diagram；保留 scenario/activity ID，编辑源实体后可重新读取，不新增同步图实体或模型调用 |
+| 指标包络建议与 MDO 展示（2.1/2.2） | `/concept-design/input` 从根 Requirement 的显式约束生成可编辑 envelope 草案和证据/缺口列表；总体设计页展示每个候选的气动、结构、重量/重心结果以及 Pareto/优化反馈，缺失工程输入保持 `needs_input` |
 | 统一追溯投影 | `resolve_requirement_trace` 成为 Generation Summary、Traceability/Coverage/RFLP、`/trace` 和 `traceability.json` 的共同逐需求语义来源；ready-only 目标、V&V scope、缺口、主路径和覆盖率在各入口保持一致，并保留 SysML/ModelGraph 编辑回读 |
 | 可执行 V&V 计划闭环 | V&V prompt、结构化 Schema、语义校核、离线/生命周期运行时、Methodology、Assurance 页面和 `vv-plan` 交付物共享九字段计划契约；来源 `evidence_ids` 与实际 `execution_evidence_ids` 分离，计划完整不宣称执行通过 |
 | 候选状态与完成度隔离 | 候选实体保留在 Review、架构候选和约束分析上下文中，但只有 validated/accepted/locked 实体参与 Methodology 完成度与覆盖统计；候选 Physical 仍可触发冲突检测和 Trade Study |

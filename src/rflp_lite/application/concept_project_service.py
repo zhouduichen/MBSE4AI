@@ -13,6 +13,7 @@ from rflp_lite.application.concept_design_service import (
     review_layout_candidate,
     run_concept_design,
 )
+from rflp_lite.application.concept_input_advisor import suggest_indicator_envelope
 from rflp_lite.application.concept_store import ConceptStore
 from rflp_lite.application.discipline_batch import validate_evaluator_profile
 from rflp_lite.application.domain_packs import load_domain_pack
@@ -90,6 +91,9 @@ class ConceptDesignProjectService:
         )
         self.store.save_scheme_records(scheme_records)
         return result
+
+    def suggest_input(self) -> Mapping[str, object]:
+        return suggest_indicator_envelope(self.repository.load_graph(self.project_id), _default_pack())
 
     def latest(self) -> ConceptRunResult | None:
         raw = self.store.concept_runs()

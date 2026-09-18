@@ -726,6 +726,15 @@ async def run_concept_design(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.get("/projects/{project_id}/concept-design/input")
+def get_concept_design_input(request: Request, project_id: str):
+    try:
+        suggestion = _services(request).concept_design(project_id).suggest_input()
+        return {"status": "ok", "input": to_primitive(suggestion)}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.get("/projects/{project_id}/concept-design")
 def get_concept_design(request: Request, project_id: str):
     try:
