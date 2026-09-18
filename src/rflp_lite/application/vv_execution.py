@@ -156,75 +156,17 @@ class VvExecutionService:
             "metadata": dict(metadata or {}),
             "recorded_revision": graph.revision + 1,
         }
-        records = case.payload.get("execution_records", ())
-        previous_records = list(records) if isinstance(records, (list, tuple)) else []
-        next_evidence_ids = list(dict.fromkeys([*existing_ids, evidence_id]))
-        execution_evidence_ids = list(dict.fromkeys([
-            *list(_execution_evidence_ids(case.payload)), evidence_id
-        ]))
-        next_branch_scenarios = list(branch_scenarios) if isinstance(branch_scenarios, (list, tuple)) else []
-        if clean_scenario_id:
-            next_branch_scenarios = [
-                {
-                    **dict(item),
-                    "status": normalized,
-                    "execution_evidence_ids": list(dict.fromkeys([
-                        *(
-                            list(item.get("execution_evidence_ids", ()))
-                            if isinstance(item, Mapping)
-                            and isinstance(item.get("execution_evidence_ids", ()), (list, tuple))
-                            else []
-                        ),
-                        evidence_id,
-                    ])),
-                    "last_execution": record,
-                }
-                if isinstance(item, Mapping) and str(item.get("id", "")) == clean_scenario_id
-                else item
-                for item in next_branch_scenarios
-            ]
-        patch = Patch.create(
-            project_id,
-            "vv.execute",
-            (
-                *(
-                    (
-                        AddEntity(
-                            make_evidence_entity(
-                                evidence,
-                                status=EntityStatus.ACCEPTED,
-                                producer=Producer.USER,
-                                revision=graph.revision,
-                            )
-                        ),
-                    )
-                    if evidence_id not in graph.entity_index
-                    else ()
-                ),
-                UpdateEntity(case_id, {
-                    "evidence_ids": next_evidence_ids,
-                    "payload": {
-                        "evidence_ids": next_evidence_ids,
-                        "execution_evidence_ids": execution_evidence_ids,
-                        "execution_status": normalized,
-                        "last_execution": record,
-                        "execution_records": [*previous_records, record],
-                        **({"branch_scenarios": next_branch_scenarios} if clean_scenario_id else {}),
-                    },
-                }),
-                *(
-                    (Relate(case_id, RelationPredicate.DESCRIBED_BY, evidence_id),)
-                    if evidence_id not in {
-                        relation.target_id
-                        for relation in graph.relations
-                        if relation.source_id == case_id
-                        and relation.predicate is RelationPredicate.DESCRIBED_BY
-                    }
-                    else ()
-                ),
-            ),
-            f"记录 {case.kind.value} 执行结果：{normalized}",
-            graph.revision,
+        patch = _build_execution_patch(
+            project_id=project_id,
+            graph=graph,
+            case=case,
+            case_id=case_id,
+            evidence=evidence,
+            record=record,
+            normalized=normalized,
+            evidence_id=evidence_id,
+            scenario_id=clean_scenario_id,
+            existing_evidence_ids=existing_ids,
         )
         next_revision = self.model_service.apply_patch(
             project_id, patch, graph.revision
@@ -300,6 +242,87 @@ class VvExecutionService:
             self.repository.save_issue(project_id, issue)
             return issue_id
         return ""
+
+
+def _build_execution_patch(
+    *,
+    project_id,
+    graph,
+    case,
+    case_id,
+    evidence,
+    record,
+    normalized,
+    evidence_id,
+    scenario_id,
+    existing_evidence_ids,
+):
+    records = case.payload.get("execution_records", ())
+    previous_records = list(records) if isinstance(records, (list, tuple)) else []
+    next_evidence_ids = list(dict.fromkeys([*existing_evidence_ids, evidence_id]))
+    execution_evidence_ids = list(dict.fromkeys([
+        *list(_execution_evidence_ids(case.payload)), evidence_id
+    ]))
+    branch_scenarios = case.payload.get("branch_scenarios", ())
+    next_branch_scenarios = list(branch_scenarios) if isinstance(branch_scenarios, (list, tuple)) else []
+    if scenario_id:
+        next_branch_scenarios = [
+            _updated_scenario(item, scenario_id, normalized, evidence_id, record)
+            for item in next_branch_scenarios
+        ]
+    operations = [
+        *(
+            [AddEntity(make_evidence_entity(
+                evidence,
+                status=EntityStatus.ACCEPTED,
+                producer=Producer.USER,
+                revision=graph.revision,
+            ))]
+            if evidence_id not in graph.entity_index
+            else []
+        ),
+        UpdateEntity(case_id, {
+            "evidence_ids": next_evidence_ids,
+            "payload": {
+                "evidence_ids": next_evidence_ids,
+                "execution_evidence_ids": execution_evidence_ids,
+                "execution_status": normalized,
+                "last_execution": record,
+                "execution_records": [*previous_records, record],
+                **({"branch_scenarios": next_branch_scenarios} if scenario_id else {}),
+            },
+        }),
+        *(
+            [Relate(case_id, RelationPredicate.DESCRIBED_BY, evidence_id)]
+            if evidence_id not in {
+                relation.target_id
+                for relation in graph.relations
+                if relation.source_id == case_id
+                and relation.predicate is RelationPredicate.DESCRIBED_BY
+            }
+            else []
+        ),
+    ]
+    return Patch.create(
+        project_id,
+        "vv.execute",
+        tuple(operations),
+        f"记录 {case.kind.value} 执行结果：{normalized}",
+        graph.revision,
+    )
+
+
+def _updated_scenario(item, scenario_id, normalized, evidence_id, record):
+    if not isinstance(item, Mapping) or str(item.get("id", "")) != scenario_id:
+        return item
+    previous_ids = item.get("execution_evidence_ids", ())
+    previous_ids = list(previous_ids) if isinstance(previous_ids, (list, tuple)) else []
+    return {
+        **dict(item),
+        "status": normalized,
+        "execution_evidence_ids": list(dict.fromkeys([*previous_ids, evidence_id])),
+        "last_execution": record,
+    }
 
 
 def _execution_impact(report, case_id: str):
