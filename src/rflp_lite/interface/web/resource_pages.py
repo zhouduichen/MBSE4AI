@@ -1425,6 +1425,44 @@ def analysis_page(request: Request, project_id: str):
     return templates.TemplateResponse(request=request, name="analysis.html", context={**view, "analysis": view, "active": "analysis"})
 
 
+@resource_pages.get("/ui/projects/{project_id}/engineering-flow", name="engineering_flow_page")
+def engineering_flow_page(request: Request, project_id: str):
+    services = _v2(request)
+    project = _mapping(services.projects.summary(project_id))
+    repository = services.repository(project_id)
+    region_counts: dict[str, int] = {}
+    for region in repository.list_source_regions(project_id):
+        document_id = str(region.get("document_id", "")).strip()
+        if document_id:
+            region_counts[document_id] = region_counts.get(document_id, 0) + 1
+    profile_snapshot = _mapping(services.settings.list_profiles())
+    model_profiles = [
+        {
+            key: profile.get(key)
+            for key in ("id", "label", "kind", "model_location", "provider", "model", "enabled")
+        }
+        for item in profile_snapshot.get("profiles", ())
+        if isinstance(item, Mapping)
+        for profile in (_mapping(item),)
+    ]
+    documents = [
+        {"id": document_id, "name": document_id, "region_count": count}
+        for document_id, count in sorted(region_counts.items())
+    ]
+    return templates.TemplateResponse(
+        request=request,
+        name="engineering-flow.html",
+        context={
+            "project": project,
+            "project_id": project_id,
+            "documents": documents,
+            "model_profiles": model_profiles,
+            "active_profile_id": str(profile_snapshot.get("active_id") or ""),
+            "active": "engineering-flow",
+        },
+    )
+
+
 @resource_pages.get("/ui/projects/{project_id}/documents", name="documents_page")
 def documents_page(request: Request, project_id: str):
     services = _v2(request)

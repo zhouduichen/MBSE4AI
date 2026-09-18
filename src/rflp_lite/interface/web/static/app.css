@@ -590,6 +590,13 @@ tr:last-child td { border-bottom: none; }
 .checkbox-control { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .checkbox-control input { accent-color: var(--acc); }
 .workflow-columns { margin-top: 12px; }
+.stacked-form { display: grid; gap: 12px; }
+.stacked-form fieldset { min-width: 0; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.stacked-form legend { padding: 0 5px; color: var(--muted); font: 10px var(--mono); }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 7px; }
+.check-grid .checkbox-control { min-height: 42px; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-tint); }
+.check-grid .checkbox-control span { display: grid; gap: 3px; }
+.check-grid .checkbox-control small { color: var(--faint); font-size: 9px; }
 .task-focus { display: grid; gap: 12px; }
 .task-focus-title { display: grid; gap: 3px; padding: 12px; border: 1px solid var(--acc-border); border-radius: var(--radius-lg); background: var(--acc-soft); }
 .task-focus-title strong { color: var(--ink); font-family: var(--mono); font-size: 14px; overflow-wrap: anywhere; }

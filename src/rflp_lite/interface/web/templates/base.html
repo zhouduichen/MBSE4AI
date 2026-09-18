@@ -21,6 +21,7 @@
         <a class="nav-item {% if active == 'projects' %}active{% endif %}" href="/ui/projects">项目</a>
         {% if project_id %}
         <a class="nav-item {% if active == 'documents' %}active{% endif %}" href="/ui/projects/{{ project_id }}/documents">文档输入</a>
+        <a class="nav-item {% if active == 'engineering-flow' %}active{% endif %}" href="/ui/projects/{{ project_id }}/engineering-flow">统一工程流</a>
         <a class="nav-item {% if active == 'analysis' %}active{% endif %}" href="/ui/projects/{{ project_id }}/analysis">分析工作台</a>
         <a class="nav-item {% if active == 'requirements' %}active{% endif %}" href="/ui/projects/{{ project_id }}/requirements">需求工作台</a>
         <a class="nav-item {% if active == 'requirements-use-case' %}active{% endif %}" href="/ui/projects/{{ project_id }}/requirements-use-case">需求与用例提取</a>
