@@ -107,6 +107,24 @@ def test_infer_requirement_constraints_ignores_unrelated_text():
     assert infer_requirement_constraints("系统应完成校园配送") == ()
 
 
+def test_infer_requirement_constraints_supports_common_english_engineering_phrases():
+    constraints = infer_requirement_constraints(
+        "The system shall support manual override, fail-safe behavior, fault tolerance, "
+        "continuous operation and an audit trail.",
+        ("region-english",),
+    )
+
+    assert {item["field"] for item in constraints} == {
+        "human_override",
+        "fail_safe_behavior",
+        "fault_tolerance",
+        "continuous_operation",
+        "audit_trail",
+    }
+    assert all(item["source_refs"] == ["region-english"] for item in constraints)
+    assert all(item["confidence"] == 0.35 for item in constraints)
+
+
 def test_infers_bounded_system_profile_and_reviewable_entities():
     text = "校园无人配送机器人由操作员使用，维护人员负责维护，系统应故障安全并支持持续运行"
 

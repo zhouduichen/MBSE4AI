@@ -73,27 +73,43 @@ _MAX_OPERATORS = {
 _IMPLICIT_RULES = (
     (
         "human_override",
-        ("人工接管", "人工干预", "人工接手", "手动接管"),
+        (
+            "人工接管", "人工干预", "人工接手", "手动接管",
+            "manual override", "human override", "manual intervention", "human intervention",
+        ),
         "出现人工接管语义，假设系统需要提供显式的人机接管路径。",
     ),
     (
         "fail_safe_behavior",
-        ("故障安全", "失效安全", "故障后安全", "安全降级"),
+        (
+            "故障安全", "失效安全", "故障后安全", "安全降级",
+            "fail-safe", "fail safe", "safe failure", "safe degradation",
+        ),
         "出现故障处置语义，假设系统需要定义故障状态下的安全处置路径。",
     ),
     (
         "fault_tolerance",
-        ("容错", "冗余", "故障隔离", "失效后继续"),
+        (
+            "容错", "冗余", "故障隔离", "失效后继续",
+            "fault tolerance", "fault-tolerant", "fault tolerant", "redundancy",
+            "fault isolation", "continue after failure",
+        ),
         "出现容错语义，假设系统需要具备冗余、隔离或降级机制。",
     ),
     (
         "continuous_operation",
-        ("持续运行", "连续运行", "全天候"),
+        (
+            "持续运行", "连续运行", "全天候",
+            "continuous operation", "continuous service", "24/7", "round-the-clock",
+        ),
         "出现连续运行语义，假设运行场景包含持续服务或连续任务约束。",
     ),
     (
         "audit_trail",
-        ("可追溯", "留痕", "审计"),
+        (
+            "可追溯", "留痕", "审计",
+            "audit trail", "audit log", "traceable",
+        ),
         "出现审计语义，假设系统需要保留可查询的操作或结果记录。",
     ),
 )
