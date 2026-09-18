@@ -28,11 +28,22 @@ def _place(
     y: float,
     width: float = 28.0,
     height: float = 8.0,
+    protected: tuple[float, float, float, float] | None = None,
 ) -> tuple[tuple[float, float], tuple[float, float, float, float], bool]:
     candidates = (
         (x, y), (x, y + 12), (x + 32, y), (x - 32, y),
         (x + 32, y + 12), (x - 32, y + 12), (x, y - 12),
     )
+    if protected is not None:
+        px, py, pw, ph = protected
+        candidates += (
+            (px - width - 4, y),
+            (px + pw + 4, y),
+            (x, py - height - 4),
+            (x, py + ph + 4),
+            (px - width - 4, py - height - 4),
+            (px + pw + 4, py + ph + 4),
+        )
     for candidate_x, candidate_y in candidates:
         bounds = (candidate_x, candidate_y, width, height)
         if all(not _rects_overlap(bounds, item) for item in used):
@@ -55,9 +66,13 @@ def _annotation(
     standard: str = _STANDARD,
     anchor: tuple[float, float] = (0.0, 0.0),
     used: list[tuple[float, float, float, float]],
+    protected: tuple[float, float, float, float] | None = None,
     rationale: str,
 ) -> DrawingAnnotation:
-    position, bounds, placed = _place(used, *anchor)
+    # A valid part reserves its footprint as the first entry in ``used``.
+    # Invalid geometry leaves the list empty and keeps the old fallback path.
+    protected_bounds = protected if protected is not None else (used[0] if used else None)
+    position, bounds, placed = _place(used, *anchor, protected=protected_bounds)
     return DrawingAnnotation(
         id=f"annotation-{canonical_hash((part_id, feature_id, kind, value))[:16]}",
         annotation_kind=kind,
@@ -161,13 +176,18 @@ class PreviewDrawingAdapter:
     ) -> AnnotationResult:
         annotations: list[DrawingAnnotation] = []
         diagnostics: list[str] = []
-        used: list[tuple[float, float, float, float]] = []
         parts = model.get("parts", ())
         for part in parts if isinstance(parts, (list, tuple)) else ():
             if not isinstance(part, Mapping):
                 continue
             part_id = str(part.get("id", "part"))
             dimensions = _bbox(part) or ()
+            # Keep each part's layout local.  The model footprint is reserved
+            # before placing callouts so semantic bounds cannot be silently
+            # placed over the geometry they describe.
+            used: list[tuple[float, float, float, float]] = []
+            if len(dimensions) == 3 and all(value > 0 for value in dimensions):
+                used.append((0.0, 0.0, dimensions[0], dimensions[1]))
             if len(dimensions) == 3 and all(value > 0 for value in dimensions):
                 for name, value, anchor in (
                     ("length", dimensions[0], (0.0, -14.0)),

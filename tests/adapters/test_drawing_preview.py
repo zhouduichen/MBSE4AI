@@ -3,6 +3,12 @@ from __future__ import annotations
 from rflp_lite.adapters.drawing_preview import PreviewDrawingAdapter
 
 
+def _overlap(left, right):
+    lx, ly, lw, lh = left
+    rx, ry, rw, rh = right
+    return lx < rx + rw and rx < lx + lw and ly < ry + rh and ry < ly + lh
+
+
 def test_preview_drawing_emits_shared_annotation_svg_and_stable_hash():
     model = {
         "parts": [
@@ -68,3 +74,22 @@ def test_preview_drawing_annotates_profile_features():
         "gear_bore_position", "gear_profile", "runout",
     } <= kinds
     assert all(item.views == ("top", "isometric") for item in result.annotations)
+
+
+def test_preview_drawing_places_callouts_outside_part_geometry():
+    result = PreviewDrawingAdapter().generate_annotations({
+        "parts": [{
+            "id": "bracket",
+            "bbox_mm": [100, 50, 10],
+            "features": [{
+                "id": "hole-1",
+                "kind": "add_hole",
+                "parameters": {"diameter_mm": 8},
+            }],
+        }],
+    })
+
+    footprint = (0.0, 0.0, 100.0, 50.0)
+    assert result.annotations
+    assert all(item.status == "candidate" for item in result.annotations)
+    assert all(not _overlap(item.bounds, footprint) for item in result.annotations)
