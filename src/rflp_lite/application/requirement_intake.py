@@ -29,7 +29,16 @@ _METRICS = (
     (
         "latency_ms",
         ("时延", "延迟", "响应时间", "latency", "response time"),
-        (("ms", 1.0), ("毫秒", 1.0), ("s", 1000.0), ("秒", 1000.0)),
+        (
+            ("ms", 1.0),
+            ("毫秒", 1.0),
+            ("millisecond", 1.0),
+            ("milliseconds", 1.0),
+            ("s", 1000.0),
+            ("秒", 1000.0),
+            ("second", 1000.0),
+            ("seconds", 1000.0),
+        ),
     ),
     (
         "bandwidth_mbps",

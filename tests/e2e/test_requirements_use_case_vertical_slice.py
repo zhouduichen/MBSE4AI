@@ -5,6 +5,38 @@ from fastapi.testclient import TestClient
 from rflp_lite.interface.web.app import create_app
 
 
+def _single_page_pdf(lines: tuple[str, ...]) -> bytes:
+    stream = b"BT\n/F1 11 Tf\n72 720 Td\n" + b"\n".join(
+        f"({escaped}) Tj\n0 -18 Td".encode("ascii")
+        for line in lines
+        for escaped in (line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)"),)
+    ) + b"\nET\n"
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"endstream",
+    ]
+    document = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for index, value in enumerate(objects, start=1):
+        offsets.append(len(document))
+        document.extend(f"{index} 0 obj\n".encode("ascii"))
+        document.extend(value)
+        document.extend(b"\nendobj\n")
+    xref_offset = len(document)
+    document.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    document.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        document.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    document.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(document)
+
+
 def test_document_to_requirements_behavior_and_traceability(tmp_path: Path):
     client = TestClient(create_app(tmp_path / "workspaces"))
     assert client.post("/projects", json={"id": "mission"}).status_code == 200
@@ -73,6 +105,60 @@ def test_document_to_requirements_behavior_and_traceability(tmp_path: Path):
     traceability = client.get("/projects/mission/traceability")
     assert traceability.status_code == 200
     assert traceability.json()["traceability"]["rows"]
+
+
+def test_pdf_document_reaches_structured_requirements_and_modelgraph(tmp_path: Path):
+    client = TestClient(create_app(tmp_path / "workspaces"))
+    assert client.post("/projects", json={"id": "pdf-mission"}).status_code == 200
+    content = _single_page_pdf(
+        (
+            "The system latency shall be no more than 2 seconds.",
+            "The operator shall receive an alarm.",
+            "The system shall keep an audit trail.",
+        )
+    )
+
+    uploaded = client.post(
+        "/projects/pdf-mission/documents",
+        files={"file": ("brief.pdf", content, "application/pdf")},
+    )
+    assert uploaded.status_code == 200
+    document = uploaded.json()["document"]
+    assert document["name"] == "brief.pdf"
+    assert document["region_count"] == 3
+    document_id = document["document_id"]
+
+    draft_response = client.post(
+        "/projects/pdf-mission/requirements-use-case/draft",
+        json={"document_ids": [document_id]},
+    )
+    assert draft_response.status_code == 200
+    draft = draft_response.json()["draft"]
+    assert len(draft["requirements"]) == 3
+    assert any(
+        constraint["field"] == "latency_ms"
+        and constraint["operator"] == "max"
+        and constraint["value"] == 2000.0
+        for requirement in draft["requirements"]
+        for constraint in requirement["constraints"]
+    )
+    assert any(item["name"] == "操作员" for item in draft["entities"])
+    assert all(item["source_refs"] for item in draft["requirements"])
+
+    applied = client.post(
+        "/projects/pdf-mission/requirements-use-case/apply",
+        json={"draft_id": draft["draft_id"]},
+    )
+    assert applied.status_code == 200
+    model = client.get("/projects/pdf-mission/model").json()
+    requirements = [item for item in model["entities"] if item["kind"] == "requirement"]
+    assert len(requirements) == 3
+    assert any(
+        item["payload"].get("constraints", {}).get("max_latency_ms") == 2000.0
+        for item in requirements
+    )
+    assert any(item["kind"] == "use_case" for item in model["entities"])
+    assert any(item["kind"] == "activity" for item in model["entities"])
 
 
 def test_text_intake_persists_bounded_concern_attributes(tmp_path: Path):
