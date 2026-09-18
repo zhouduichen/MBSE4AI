@@ -53,6 +53,14 @@ def test_cad_plan_execute_review_and_apply_are_idempotent(tmp_path: Path):
     assert review["artifacts"]["source_kind"] == "development"
     assert services.design_review("p").review(model["id"], model["model_payload"])["idempotent"] is True
 
+    annotation = services.design_review("p").annotate(model["id"], model["model_payload"])
+    repeated_annotation = services.design_review("p").annotate(model["id"], model["model_payload"])
+    assert annotation["id"].startswith("design-annotation-")
+    assert annotation["annotations"]
+    assert repeated_annotation["idempotent"] is True
+    annotation_package = services.deliverables("p").build("p")
+    assert annotation_package["artifacts"]["detail_design"]["content"]["design_annotations"][-1]["id"] == annotation["id"]
+
     applied = cad.apply_model(model["id"])
     assert applied["entity"]["kind"] == EntityKind.PHYSICAL_BLOCK.value
     assert cad.apply_model(model["id"])["idempotent"] is True

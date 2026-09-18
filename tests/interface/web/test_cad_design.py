@@ -42,6 +42,11 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     assert scad.status_code == 200
     assert "translate" in scad.text
     assert "cube" in scad.text
+    annotation = client.post(f"/projects/p1/cad/models/{model['id']}/annotations")
+    assert annotation.status_code == 200
+    annotation_record = annotation.json()["annotation"]
+    assert annotation_record["id"].startswith("design-annotation-")
+    assert annotation_record["annotations"]
     review = client.post(f"/projects/p1/cad/models/{model['id']}/review").json()["review"]
     assert review["annotations"]
     assert review["artifacts"]["drawing_svg"].startswith("<svg")
@@ -53,6 +58,8 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     applied = client.post(f"/projects/p1/cad/models/{model['id']}/apply").json()["apply"]
     assert applied["entity"]["kind"] == "physical_block"
     assert applied["entity"]["payload"]["design_review"]["id"] == review["id"]
+    detail = client.get("/projects/p1/deliverables").json()["deliverable"]
+    assert detail["artifacts"]["detail_design"]["content"]["design_annotations"][-1]["id"] == annotation_record["id"]
     page = client.get("/ui/projects/p1/cad-design")
     assert page.status_code == 200
     assert "结构选型推荐" in page.text

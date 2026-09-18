@@ -15,6 +15,7 @@ class DetailDesignStore:
         "design_intent_draft",
         "cad_execution_plan",
         "cad_model",
+        "design_annotation",
         "design_review",
         "finding_update",
     )

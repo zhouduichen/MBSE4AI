@@ -31,14 +31,34 @@ class DesignReviewService:
         self.store = DetailDesignStore(repository, project_id)
 
     def annotate(self, model_id: str, model_payload: Mapping[str, Any]) -> dict[str, Any]:
+        input_hash = canonical_hash({"model_id": model_id, "model": model_payload})
+        existing = next(
+            (
+                item for item in reversed(self.store.records("design_annotation"))
+                if str(item.get("model_id", "")) == model_id
+                and str(item.get("input_hash", "")) == input_hash
+            ),
+            None,
+        )
+        if existing is not None:
+            return {**existing, "idempotent": True}
         result = self.drawing.generate_annotations(model_payload)
-        return {
+        annotation_id = f"design-annotation-{canonical_hash((self.project_id, model_id, input_hash))[:16]}"
+        record = {
+            "id": annotation_id,
             "model_id": model_id,
             "annotations": [to_primitive(item) for item in result.annotations],
             "diagnostics": list(result.diagnostics),
             "artifacts": to_primitive(result.artifacts),
+            "input_hash": input_hash,
             "source_kind": _source_kind(model_payload),
         }
+        self.store.save("design_annotation", record)
+        self.store.record_audit(
+            "cad.annotations_created",
+            {"annotation_id": annotation_id, "model_id": model_id, "annotation_count": len(result.annotations)},
+        )
+        return record
 
     def review(self, model_id: str, model_payload: Mapping[str, Any]) -> dict[str, Any]:
         input_hash = canonical_hash({"model_id": model_id, "model": model_payload})

@@ -181,7 +181,14 @@ def _audit_records(repository, project_id: str, prefix: str) -> tuple[dict[str, 
 
 def _design_artifacts(repository, graph: ModelGraph) -> dict[str, Mapping[str, object]]:
     concept_keys = ("concept_runs", "layout_candidates", "discipline_evaluations", "optimization_runs")
-    detail_keys = ("design_intent_drafts", "cad_execution_plans", "cad_models", "design_reviews", "finding_updates")
+    detail_keys = (
+        "design_intent_drafts",
+        "cad_execution_plans",
+        "cad_models",
+        "design_annotations",
+        "design_reviews",
+        "finding_updates",
+    )
     concept = {
         key: list(_audit_records(repository, graph.project_id, f"concept.record.{key.removesuffix('s')}"))
         for key in concept_keys
