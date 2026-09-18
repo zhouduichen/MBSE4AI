@@ -37,8 +37,14 @@ def test_document_to_requirements_behavior_and_traceability(tmp_path: Path):
     )
     assert applied.status_code == 200
     assert applied.json()["apply"]["created_entity_count"] >= 6
+    model_after_apply = client.get("/projects/mission/model").json()
+    assert any(
+        item["payload"].get("inferred_constraints")
+        for item in model_after_apply["entities"]
+        if item["kind"] == "requirement"
+    )
 
-    model = client.get("/projects/mission/model").json()
+    model = model_after_apply
     candidates = [item for item in model["entities"] if item["kind"] == "requirement"]
     assert len(candidates) >= 3
     accepted = client.post(

@@ -21,6 +21,14 @@ def test_requirements_use_case_api_and_behavior_page_form_a_vertical_slice(tmp_p
     assert len(draft["requirements"]) == 2
     assert draft["use_cases"]
     assert draft["scenarios"]
+    inferred = [
+        constraint
+        for requirement in draft["requirements"]
+        for constraint in requirement["constraints"]
+        if constraint["source"] == "derived"
+    ]
+    assert any(item["field"] == "human_override" for item in inferred)
+    assert all(item["assumption"] and item["confidence"] < 0.5 for item in inferred)
 
     applied = client.post(
         "/projects/p1/requirements-use-case/apply",
@@ -55,6 +63,7 @@ def test_requirements_use_case_api_and_behavior_page_form_a_vertical_slice(tmp_p
     assert intake.status_code == 200
     assert "需求与用例提取" in intake.text
     assert draft["draft_id"] in intake.text
+    assert "需人工确认" in intake.text
 
 
 def test_requirements_use_case_drafts_are_listed_with_remote_safe_metadata(tmp_path: Path):

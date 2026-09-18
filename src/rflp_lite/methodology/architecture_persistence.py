@@ -14,6 +14,7 @@ from rflp_lite.methodology.architecture_reasoning import (
     physical_reasoning_payload,
 )
 from rflp_lite.methodology.architecture_synthesis import synthesize_architecture
+from rflp_lite.methodology.constraint_semantics import has_explicit_constraints
 from rflp_lite.methodology.trace_rules import requirement_trace_scope
 
 
@@ -781,8 +782,7 @@ def _active_of_kind(graph: ModelGraph, kind: EntityKind) -> tuple[Entity, ...]:
 
 def _has_explicit_constraints(graph: ModelGraph) -> bool:
     return any(
-        bool(item.payload.get("constraints"))
-        or any(str(key).startswith(("max_", "min_")) for key in item.payload)
+        has_explicit_constraints(item.payload)
         for item in _active_of_kind(graph, EntityKind.REQUIREMENT)
         if str(item.payload.get("level", "")).lower() != "technical"
     )

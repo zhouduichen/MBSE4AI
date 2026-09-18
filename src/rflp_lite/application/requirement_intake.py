@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 
 _SEPARATOR = re.compile(r"(?:\r?\n+|[；;。！？!?]+|(?<=[.!?])\s+(?=[A-Z]))")
@@ -60,6 +60,34 @@ _MAX_OPERATORS = {
     "不得超过", "不得大于", "不得高于", "不超过", "不大于", "不高于", "最多", "小于等于",
     "no more than", "at most", "<=", "≤", "<",
 }
+
+_IMPLICIT_RULES = (
+    (
+        "human_override",
+        ("人工接管", "人工干预", "人工接手", "手动接管"),
+        "出现人工接管语义，假设系统需要提供显式的人机接管路径。",
+    ),
+    (
+        "fail_safe_behavior",
+        ("故障安全", "失效安全", "故障后安全", "安全降级"),
+        "出现故障处置语义，假设系统需要定义故障状态下的安全处置路径。",
+    ),
+    (
+        "fault_tolerance",
+        ("容错", "冗余", "故障隔离", "失效后继续"),
+        "出现容错语义，假设系统需要具备冗余、隔离或降级机制。",
+    ),
+    (
+        "continuous_operation",
+        ("持续运行", "连续运行", "全天候"),
+        "出现连续运行语义，假设运行场景包含持续服务或连续任务约束。",
+    ),
+    (
+        "audit_trail",
+        ("可追溯", "留痕", "审计"),
+        "出现审计语义，假设系统需要保留可查询的操作或结果记录。",
+    ),
+)
 
 
 def split_requirement_statements(text: str) -> tuple[str, ...]:
@@ -148,3 +176,31 @@ def extract_requirement_constraints(statement: str) -> Mapping[str, object]:
             for item in ordered
         ],
     }
+
+
+def infer_requirement_constraints(
+    statement: str, source_refs: Sequence[str] = ()
+) -> tuple[Mapping[str, object], ...]:
+    """Infer only bounded semantic flags, preserving their review status.
+
+    This is deliberately not a numerical or open-domain NLP guesser.  The
+    returned boolean constraints express a semantic candidate derived from a
+    phrase family; callers must keep the low confidence and assumption.
+    """
+
+    text = str(statement or "").casefold()
+    refs = list(dict.fromkeys(str(item).strip() for item in source_refs if str(item).strip()))
+    result: list[Mapping[str, object]] = []
+    for field, phrases, assumption in _IMPLICIT_RULES:
+        if any(phrase.casefold() in text for phrase in phrases):
+            result.append({
+                "field": field,
+                "operator": "eq",
+                "value": 1.0,
+                "unit": "boolean",
+                "source": "derived",
+                "source_refs": refs,
+                "confidence": 0.35,
+                "assumption": assumption,
+            })
+    return tuple(result)

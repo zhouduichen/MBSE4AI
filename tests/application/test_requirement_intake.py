@@ -1,5 +1,6 @@
 from rflp_lite.application.requirement_intake import (
     extract_requirement_constraints,
+    infer_requirement_constraints,
     split_requirement_statements,
 )
 
@@ -80,3 +81,25 @@ def test_splitter_handles_english_sentence_boundaries_without_splitting_versions
 
 def test_splitter_ignores_blank_entries():
     assert split_requirement_statements("；\n  \n系统应可用！") == ("系统应可用",)
+
+
+def test_infer_requirement_constraints_returns_reviewable_derived_candidates():
+    constraints = infer_requirement_constraints(
+        "系统应支持人工接管并在故障后安全运行，且保留审计留痕",
+        ("region-1",),
+    )
+
+    assert {item["field"] for item in constraints} == {
+        "human_override",
+        "fail_safe_behavior",
+        "audit_trail",
+    }
+    assert all(item["operator"] == "eq" for item in constraints)
+    assert all(item["value"] == 1.0 and item["unit"] == "boolean" for item in constraints)
+    assert all(item["source"] == "derived" for item in constraints)
+    assert all(item["source_refs"] == ["region-1"] for item in constraints)
+    assert all(0 < item["confidence"] < 0.5 and item["assumption"] for item in constraints)
+
+
+def test_infer_requirement_constraints_ignores_unrelated_text():
+    assert infer_requirement_constraints("系统应完成校园配送") == ()

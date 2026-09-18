@@ -213,6 +213,31 @@ def test_rule_fallback_is_explicitly_degraded_but_produces_use_case_framework(tm
     )
 
 
+def test_rule_fallback_preserves_implicit_constraints_as_reviewable_candidates(tmp_path: Path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    service = RequirementsUseCaseService(repository, "p1")
+
+    draft = service.create_draft(text="系统功耗不得超过 50 W，并支持人工接管和故障后安全运行")
+    requirement = draft.payload["requirements"][0]
+
+    constraints = requirement["constraints"]
+    assert any(item["field"] == "power_w" and item["source"] == "explicit" for item in constraints)
+    inferred = [item for item in constraints if item["source"] == "derived"]
+    assert {item["field"] for item in inferred} >= {"human_override", "fail_safe_behavior"}
+    assert all(item["assumption"] and item["confidence"] < 0.5 for item in inferred)
+    assert requirement["type"] == "safety"
+
+    service.apply_draft(draft)
+    graph = repository.load_graph("p1")
+    stored = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
+    assert {item["field"] for item in stored.payload["inferred_constraints"]} >= {
+        "human_override",
+        "fail_safe_behavior",
+    }
+    assert stored.payload["requires_human_review"] is True
+
+
 def test_invalid_structured_model_output_degrades_without_writing_invalid_json(tmp_path: Path):
     repository = SQLiteModelRepository(tmp_path / "model.db")
     repository.ensure_project("p1")

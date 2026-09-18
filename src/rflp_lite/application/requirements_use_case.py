@@ -25,6 +25,7 @@ import jsonschema
 
 from rflp_lite.application.requirement_intake import (
     extract_requirement_constraints,
+    infer_requirement_constraints,
     split_requirement_statements,
 )
 from rflp_lite.application.resources import resource_path
@@ -897,8 +898,10 @@ def _fallback_payload(text: str, source_refs: Sequence[str], document_ids: Seque
         statements = (" ".join(text.split()).strip(),)
     refs = list(dict.fromkeys(str(item) for item in source_refs if str(item).strip()))
     requirements = []
+    diagnostics: list[str] = []
     for index, statement in enumerate(statements, start=1):
         explicit = extract_requirement_constraints(statement)
+        inferred = infer_requirement_constraints(statement, refs)
         constraints = []
         for item in explicit.get("constraint_provenance", ()):
             constraints.append({
@@ -911,11 +914,18 @@ def _fallback_payload(text: str, source_refs: Sequence[str], document_ids: Seque
                 "confidence": 1.0,
                 "assumption": "",
             })
+        constraints.extend(inferred)
+        if inferred:
+            diagnostics.extend(
+                f"rule:derived-constraint:{item['field']}"
+                for item in inferred
+            )
+        safety_fields = {"fail_safe_behavior", "fault_tolerance"}
         requirements.append({
             "local_ref": f"requirement_{index}",
             "statement": statement,
             "level": "system",
-            "type": "performance" if constraints else "functional",
+            "type": "safety" if any(item["field"] in safety_fields for item in inferred) else ("performance" if explicit.get("constraint_provenance") else "functional"),
             "obligation": "系统应",
             "verification_method": "test" if constraints else "review",
             "constraints": constraints,
@@ -981,7 +991,7 @@ def _fallback_payload(text: str, source_refs: Sequence[str], document_ids: Seque
             "related_refs": [item["local_ref"] for item in requirements],
             "severity": "medium",
         }],
-        "diagnostics": [],
+        "diagnostics": list(dict.fromkeys(diagnostics)),
     }
 
 

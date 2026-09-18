@@ -34,7 +34,7 @@
 | 统一完整生命周期结果投影 | Pipeline Report 从同一份 ModelGraph revision 只读计算 Traceability、Methodology findings/metrics 和 Controller actions；显式 pipeline API、Analysis 工作台和交付物共享 revision/snapshot hash，报告不创建 Run/Patch、不额外调用 LLM |
 | 多需求输入保真 | 自然语言句子/列表项和文档独立条目分别形成 Requirement；文档来源保留 Source Region，三条输入需求可形成三条 Function 和三条完整 RFLP/V&V 路径 |
 | 23-task 需求作用域 | 多条自然语言 Requirement 在 Function→Logical→Physical→Technical Requirement→V&V 之间保持局部追溯；物理约束不再跨候选污染，FMEA 风险按运行活动聚合以保持任务 Patch 有界 |
-| 自然语言工程约束抽取 | 显式功耗、质量、时延、带宽、成本和续航边界规范化为 canonical constraints，保留 constraint provenance，并随 R→F→L→P 进入物理可行性分析；未知值仍要求测量/评审 |
+| 自然语言工程约束抽取 | 显式功耗、质量、时延、带宽、成本和续航边界规范化为 canonical constraints；离线需求摄取还对人工接管、故障安全、容错/冗余、持续运行和审计留痕生成低置信度 `derived` 隐含约束，保留假设、来源和人工复核状态；所有约束均保留 constraint provenance，并随 R→F→L→P 进入物理可行性分析，未知值仍要求测量/评审 |
 | Physical Technical Requirement 闭环 | 对明确的 `max_*`/`min_*` 约束生成可审查的技术需求，回接来源需求和物理候选，进入独立 V&V、Traceability、SysML 和统一交付包；不伪造测量或可行性结论 |
 | Physical→V&V 推理回流证据 | 物理可行性行和 ModelGraph 候选共同保存 Requirement→Function→Logical→Physical 影响链；实测冲突时生成带回流阶段、冲突字段和受影响 ID 的四类 Trade Study 选项，V&V 计划复用同一作用域并显式区分未执行证据 |
 | 数据驱动架构综合 | Fallback 根据 Function 的显式依赖、功能流、分区键、共享状态和稳定 ID 形成可解释的 Logical 分区与跨组件交互证据；每个分区生成 Physical 候选，并沿 Requirement→Function→Logical→Physical 传播已有结构化约束 |

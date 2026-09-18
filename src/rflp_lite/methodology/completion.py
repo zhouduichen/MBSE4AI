@@ -9,6 +9,7 @@ from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import TaskExecutionResponse, TaskSpec
+from rflp_lite.methodology.constraint_semantics import has_explicit_constraints
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
 from rflp_lite.methodology.trace_rules import vv_scope_matches
 from rflp_lite.methodology.vertical_generation import VerticalStageSpec, stage_spec
@@ -110,8 +111,7 @@ def _lifecycle_semantics_passed(task_id: str, graph: ModelGraph) -> bool:
     physicals = tuple(item for item in active if item.kind is EntityKind.PHYSICAL_BLOCK)
     function_ids = {item.id for item in functions}
     explicit_constraints = any(
-        bool(item.payload.get("constraints"))
-        or any(str(key).startswith(("max_", "min_")) for key in item.payload)
+        has_explicit_constraints(item.payload)
         for item in requirements
         if str(item.payload.get("level", "")).lower() != "technical"
     )

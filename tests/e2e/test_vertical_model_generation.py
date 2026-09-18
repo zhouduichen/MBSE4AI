@@ -217,6 +217,28 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
     assert "人工可继续编辑" in graph_to_sysml(edited)
 
 
+def test_derived_intake_constraints_reach_physical_candidate(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("safety")
+
+    result = services.generation("safety").generate(
+        "safety",
+        requirement_text="系统应支持人工接管并在故障后安全运行",
+    )
+    graph = services.model("safety").graph("safety")
+    requirement = next(item for item in graph.entities if item.kind is EntityKind.REQUIREMENT)
+    physical = next(item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK)
+
+    assert result.traceability.complete_count == 1
+    assert {item["field"] for item in requirement.payload["inferred_constraints"]} >= {
+        "human_override",
+        "fail_safe_behavior",
+    }
+    assert physical.payload["propagated_constraints"]["eq_human_override"] == 1.0
+    assert physical.payload["propagated_constraints"]["eq_fail_safe_behavior"] == 1.0
+    assert physical.payload["propagated_constraint_provenance"]
+
+
 def test_automatic_structured_intake_precedes_vertical_generation(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("intake-first", "自动需求到模型")

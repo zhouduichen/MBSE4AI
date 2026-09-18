@@ -30,6 +30,13 @@
     <article class="card intake-draft-card" data-draft-id="{{ draft.draft_id }}">
       <div class="panel-head"><div><h3>{{ draft.draft_id }}</h3><small>{{ draft.status }} · {{ draft.provider_id }} / {{ draft.model_id }} · {{ draft.requirements|length }} 条需求 · {{ draft.use_cases|length }} 个用例</small></div><button class="button compact primary draft-apply" type="button" data-draft-id="{{ draft.draft_id }}">应用到 ModelGraph</button></div>
       {% if draft.diagnostics %}<div class="callout warning">{{ draft.diagnostics|join('；') }}</div>{% endif %}
+      {% set inferred_constraint_count = namespace(value=0) %}
+      {% for requirement in draft.requirements %}
+        {% for constraint in requirement.constraints %}
+          {% if constraint.source in ['derived', 'llm_inferred'] %}{% set inferred_constraint_count.value = inferred_constraint_count.value + 1 %}{% endif %}
+        {% endfor %}
+      {% endfor %}
+      {% if inferred_constraint_count.value %}<div class="callout info">发现 {{ inferred_constraint_count.value }} 条隐含约束候选；来源、假设和置信度已保留，需人工确认后才能作为工程事实。</div>{% endif %}
       <details><summary>查看结构化候选</summary><pre>{{ draft|tojson(indent=2) }}</pre></details>
     </article>
   {% else %}<div class="mini-empty">暂无提取批次。请先导入文档或粘贴文本。</div>{% endfor %}

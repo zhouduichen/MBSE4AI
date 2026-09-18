@@ -15,6 +15,7 @@ from rflp_lite.methodology.architecture_reasoning import (
 )
 from rflp_lite.methodology.architecture_synthesis import synthesize_architecture
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
+from rflp_lite.methodology.constraint_semantics import explicit_constraint_map
 from rflp_lite.methodology.naming import solution_neutral_function_name
 from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
 from rflp_lite.runtime.lifecycle_rule import (
@@ -1397,19 +1398,7 @@ def _requirements_for_functions(context, functions):
 
 
 def _explicit_constraint_map(requirement):
-    constraints = {}
-    for key, value in requirement.payload.items():
-        key = str(key)
-        if key.startswith(("max_", "min_")):
-            constraints[key] = value
-    for container_key in ("constraints", "limits"):
-        container = requirement.payload.get(container_key)
-        if isinstance(container, Mapping):
-            for key, value in container.items():
-                key = str(key)
-                if key.startswith(("max_", "min_")):
-                    constraints[key] = value
-    return dict(sorted(constraints.items()))
+    return explicit_constraint_map(requirement.payload)
 
 
 def _technical_requirement_payload(requirement, physical, constraints):

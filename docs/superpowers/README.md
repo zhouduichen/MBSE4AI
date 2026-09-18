@@ -41,6 +41,8 @@
 - [结构化结构选型推荐实施计划](plans/2026-09-19-structured-design-options.md)
 - [结构选型驱动参数化 CAD 设计](specs/2026-09-19-structure-profile-cad-generation-design.md)
 - [结构选型驱动参数化 CAD 实施计划](plans/2026-09-19-structure-profile-cad-generation.md)
+- [离线需求隐含约束候选设计](specs/2026-09-19-offline-implicit-constraints-design.md)
+- [离线需求隐含约束实施计划](plans/2026-09-19-offline-implicit-constraints.md)
 
 ## Superseded
 
