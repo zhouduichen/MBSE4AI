@@ -66,6 +66,7 @@
 
 ## Follow-up slice: prove the unified 1.1–3.3 offline handoff
 
-- [x] Add one local acceptance scenario using a document, complete RFLP generation, 3–5 concept candidates, an explicitly selected CAD structure profile, and a pending approval boundary.
+- [x] Add one local acceptance scenario using a document, complete RFLP generation, 3–5 initial concept candidates, an explicitly selected CAD structure profile, and a pending approval boundary.
+- [x] Run the same scenario with bounded multi-disciplinary optimization enabled and assert that the optimizer records a second generation, evaluation feedback, and a deterministic stop reason.
 - [x] Continue that scenario through explicit CAD approval, preview execution, shared annotations, DFM/DFA review, PhysicalBlock application, and final detail-design delivery artifacts.
 - [x] Keep this as one product-chain acceptance case rather than repeated task-stability runs; run it with preview CAD and isolated configuration only.

@@ -200,14 +200,20 @@ def test_unified_product_flow_carries_concept_and_cad_to_reviewed_delivery(tmp_p
         "full-flow",
         document_ids=(ingested["document_id"],),
         include_concept=True,
-        optimize_concept=False,
+        optimize_concept=True,
         cad_intent_text="生成铝合金支架，长100毫米，宽50毫米，高10毫米",
         selected_structure_option_id="bracket-gusseted-plate",
     )
 
     assert result.status == "needs_approval"
     assert result.concept["status"] == "completed"
-    assert 3 <= len(result.concept["run"]["candidates"]) <= 5
+    concept_run = result.concept["run"]
+    assert 3 <= len(concept_run["optimization"]["iteration_records"][0][1]["candidate_ids"]) <= 5
+    assert len(concept_run["candidates"]) > len(concept_run["optimization"]["iteration_records"][0][1]["candidate_ids"])
+    assert len(concept_run["evaluations"]) == 24
+    assert len(concept_run["optimization"]["iteration_records"]) == 2
+    assert concept_run["optimization"]["stop_reason"] == "evaluation_budget"
+    assert concept_run["evaluation_summary"]["optimization_evidence_status"] == "development"
     assert result.cad["status"] == "needs_approval"
     assert result.cad["plan"]["selected_structure_option_id"] == "bracket-gusseted-plate"
     assert [item["operation"] for item in result.cad["plan"]["operations"]].count("add_rib") == 2
