@@ -781,6 +781,26 @@ class MethodologyEngine:
             graph, index, requirements, verifications, validations, findings,
         )
         _record_vv_case_metrics(metrics, stats, requirements, branch_names)
+        branch_metrics, incomplete_case_ids = _branch_scenario_metrics(
+            (*_ready(index, EntityKind.VERIFICATION_CASE),
+             *_ready(index, EntityKind.VALIDATION_CASE)),
+            activities,
+        )
+        if branch_metrics["branch_scenario_total"]:
+            metrics.update(branch_metrics)
+        else:
+            metrics.update({
+                "branch_scenario_total": 0,
+                "branch_scenario_complete": 0,
+                "branch_execution_coverage": 0.0,
+            })
+        if incomplete_case_ids:
+            findings.append(MethodologyFinding(
+                "branch_scenario_incomplete", "warning", "assurance",
+                incomplete_case_ids,
+                "V&V 分支场景缺少可执行字段或使用了未知分支类型。",
+                ("verification_validation", "global_cross_analysis"),
+            ))
         if branch_names and set(branch_names) - stats.covered_branches:
             findings.append(MethodologyFinding(
                 "activity_branch_uncovered", "warning", "assurance",
@@ -1023,6 +1043,55 @@ def _record_vv_case_metrics(metrics, stats: _VvAnalysisStats, requirements, bran
             if branch_names else 1.0
         ),
     })
+
+
+def _branch_scenario_metrics(cases, activities):
+    required_types = {"normal", "failure", "alternative", "boundary", "exception"}
+    scenarios_by_case = {}
+    for case in cases:
+        raw_scenarios = case.payload.get("branch_scenarios", ())
+        if not isinstance(raw_scenarios, Sequence) or isinstance(raw_scenarios, (str, bytes)):
+            continue
+        scenarios_by_case[case.id] = tuple(
+            dict(item) for item in raw_scenarios if isinstance(item, Mapping)
+        )
+    scenarios = [item for values in scenarios_by_case.values() for item in values]
+    complete = [
+        item for item in scenarios
+        if str(item.get("branch_type", "")) in required_types
+        and all(
+            str(item.get(field, "")).strip()
+            for field in (
+                "activity_id", "stimulus", "procedure",
+                "expected_result", "pass_criteria",
+            )
+        )
+    ]
+    executable = [
+        item for item in scenarios
+        if str(item.get("status", "")) in {
+            "passed", "failed", "blocked", "inconclusive",
+        }
+        or item.get("execution_evidence_ids")
+    ]
+    incomplete_case_ids = tuple(
+        case_id for case_id, values in scenarios_by_case.items()
+        if any(item not in complete for item in values)
+    )
+    metrics = {
+        "branch_scenario_total": len(scenarios),
+        "branch_scenario_complete": len(complete),
+        "activity_branch_coverage": (
+            _ratio(
+                len({str(item.get("branch_type")) for item in complete} & required_types),
+                len(required_types),
+            )
+            if activities and scenarios
+            else 0.0
+        ),
+        "branch_execution_coverage": _ratio(len(executable), len(scenarios)),
+    }
+    return metrics, incomplete_case_ids
 
 
 def _record_vv_decisions(

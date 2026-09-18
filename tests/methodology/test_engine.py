@@ -109,6 +109,93 @@ def _graph(
     return ModelGraph("p1", entities, relations, revision=1)
 
 
+def _branch_graph() -> ModelGraph:
+    graph = _graph(complete_vv=True)
+    activity = make_entity(
+        EntityKind.ACTIVITY,
+        "任务活动",
+        {
+            "branches": [
+                "normal:正常执行",
+                "failure:任务失败后重试",
+                "alternative:人工接管",
+                "boundary:达到边界后暂停",
+                "exception:异常状态转移",
+            ],
+            "requirement_ids": [graph.entities[0].id],
+        },
+        status=EntityStatus.VALIDATED,
+    )
+    scenarios = [
+        {
+            "id": f"scenario-{branch_type}",
+            "branch_type": branch_type,
+            "branch_label": branch_type,
+            "activity_id": activity.id,
+            "requirement_ids": [graph.entities[0].id],
+            "stimulus": f"触发{branch_type}",
+            "procedure": f"执行{branch_type}步骤",
+            "expected_result": f"得到{branch_type}结果",
+            "pass_criteria": f"{branch_type}路径可复核",
+            "status": "planned",
+        }
+        for branch_type in ("normal", "failure", "alternative", "boundary", "exception")
+    ]
+    entities = tuple(
+        entity.__class__(
+            entity.meta,
+            {**entity.payload, "branch_scenarios": scenarios},
+        )
+        if entity.kind is EntityKind.VERIFICATION_CASE
+        else entity.__class__(
+            entity.meta,
+            {
+                **entity.payload,
+                "branch_scenarios": [
+                    {**item, "id": f"validation-{item['id']}"}
+                    for item in scenarios
+                ],
+            },
+        )
+        if entity.kind is EntityKind.VALIDATION_CASE
+        else entity
+        for entity in (*graph.entities, activity)
+    )
+    return ModelGraph(graph.project_id, entities, graph.relations, graph.revision)
+
+
+def _replace_branch_scenario(graph: ModelGraph, **updates) -> ModelGraph:
+    entities = []
+    for entity in graph.entities:
+        if entity.kind not in {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}:
+            entities.append(entity)
+            continue
+        scenarios = [
+            {**item, **updates}
+            for item in entity.payload.get("branch_scenarios", ())
+        ]
+        entities.append(entity.__class__(entity.meta, {**entity.payload, "branch_scenarios": scenarios}))
+    return ModelGraph(graph.project_id, tuple(entities), graph.relations, graph.revision)
+
+
+def test_methodology_counts_complete_branch_scenarios_and_execution_progress():
+    report = MethodologyEngine().analyze(_branch_graph())
+
+    assert report.metrics["branch_scenario_total"] == 10
+    assert report.metrics["branch_scenario_complete"] == 10
+    assert report.metrics["activity_branch_coverage"] == 1.0
+    assert report.metrics["branch_execution_coverage"] == 0.0
+
+
+def test_methodology_marks_incomplete_branch_scenario_for_review():
+    graph = _replace_branch_scenario(_branch_graph(), status="needs_review", stimulus="")
+    report = MethodologyEngine().analyze(graph)
+
+    assert report.metrics["branch_scenario_complete"] == 0
+    assert report.metrics["activity_branch_coverage"] < 1.0
+    assert any(item.code == "branch_scenario_incomplete" for item in report.findings)
+
+
 def _system_budget_graph() -> ModelGraph:
     requirement = make_entity(
         EntityKind.REQUIREMENT,
