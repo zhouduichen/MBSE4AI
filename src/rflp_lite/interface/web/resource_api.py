@@ -396,13 +396,31 @@ def _orchestrator_payload(analysis, project_id: str, result, *, force_run: bool)
     return payload
 
 
-def _invoke_pipeline(analysis, project_id: str, *, run_id: str | None, force_run: bool) -> Mapping[str, object]:
+def _invoke_pipeline(
+    analysis,
+    project_id: str,
+    *,
+    run_id: str | None,
+    force_run: bool,
+    requirement_text: str | None = None,
+    document_ids: tuple[str, ...] = (),
+) -> Mapping[str, object]:
     pipeline = getattr(analysis, "run_pipeline", None)
     if callable(pipeline):
         try:
-            result = pipeline(project_id, run_id=run_id, force_run=force_run)
+            result = pipeline(
+                project_id,
+                run_id=run_id,
+                force_run=force_run,
+                requirement_text=requirement_text,
+                document_ids=document_ids,
+            )
         except TypeError as exc:
-            if "force_run" not in str(exc) and "run_id" not in str(exc):
+            message = str(exc)
+            if not any(
+                name in message
+                for name in ("force_run", "run_id", "requirement_text", "document_ids")
+            ):
                 raise
             result = pipeline(project_id)
         payload = _run_payload(result)
@@ -928,12 +946,14 @@ async def run_analysis(request: Request, project_id: str):
         else:
             analysis = _analysis_service(request, project_id, profile_id=profile_id)
         if mode == "pipeline":
-            input_service = _services(request).requirements_input(project_id)
-            if requirement_text:
-                input_service.ensure_text_requirements(requirement_text)
-            elif document_ids:
-                input_service.ensure_document_requirements(document_ids)
-            run = _invoke_pipeline(analysis, project_id, run_id=requested_run_id, force_run=force_run)
+            run = _invoke_pipeline(
+                analysis,
+                project_id,
+                run_id=requested_run_id,
+                force_run=force_run,
+                requirement_text=requirement_text,
+                document_ids=document_ids,
+            )
         elif mode not in {"generate", "vertical"}:
             phase = Phase(str(payload.get("phase", Phase.OPERATIONAL.value)))
             run = _run_payload(_call_run(analysis, project_id, phase, requested_run_id, force_run=force_run))

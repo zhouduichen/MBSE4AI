@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
-from rflp_lite.domain.errors import ConflictError, ContractViolation, InputRequired, MethodologyValidationError
+from rflp_lite.domain.errors import ConflictError, ContractViolation, MethodologyValidationError
 from rflp_lite.domain.model import AddEntity, Patch, UpdateEntity
 from rflp_lite.methodology.contracts import (
     ContextBundle,
@@ -39,8 +39,7 @@ from rflp_lite.methodology.vertical_generation import (
     vertical_stage_specs,
 )
 from rflp_lite.application.tool_layer import EngineeringToolLayer
-from rflp_lite.application.requirement_input import RequirementInputService
-from rflp_lite.application.requirements_use_case import RequirementsUseCaseService
+from rflp_lite.application.input_preparation import InputPreparationService
 from rflp_lite.repository.port import ModelRepository, Run, Step
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
@@ -188,6 +187,7 @@ class ModelGenerationService:
         context_builder: ContextBuilder | None = None,
         methodology_version: str = "v2.1",
         output_budget: int | None = None,
+        input_preparation: InputPreparationService | None = None,
     ) -> None:
         self.repository = repository
         self.runtime = runtime
@@ -202,6 +202,13 @@ class ModelGenerationService:
         self.output_budget = max(
             256,
             int(output_budget or getattr(runtime_selection, "max_output_tokens", None) or 3000),
+        )
+        self.input_preparation = input_preparation or InputPreparationService(
+            repository,
+            runtime,
+            runtime_selection=runtime_selection,
+            audit_kind="model_generation.input_intake",
+            output_budget=self.output_budget,
         )
         self.executor = TaskExecutor(runtime)
 
@@ -1357,53 +1364,11 @@ class ModelGenerationService:
         })
 
     def _ensure_input(self, request: GenerateModelRequest) -> None:
-        graph = self.repository.load_graph(request.project_id)
-        explicit_text = str(request.requirement_text or "").strip()
-        if explicit_text or request.document_ids or self.repository.has_documents(request.project_id):
-            model = getattr(self.runtime, "model", None)
-            if model is not None and not getattr(model, "supports_requirements_intake", False):
-                # Keep stage-only test/demonstration models on the historical
-                # RequirementInputService path.  The production provider
-                # adapter opts into the richer intake contract explicitly.
-                RequirementInputService(self.repository, request.project_id).ensure(
-                    text=explicit_text or None,
-                    document_ids=request.document_ids,
-                )
-                return
-            intake = RequirementsUseCaseService(
-                self.repository,
-                request.project_id,
-                model=model,
-                profile_id=str(getattr(self.runtime_selection, "profile_id", "offline-rule")),
-                provider_id=str(getattr(self.runtime_selection, "provider_id", "offline")),
-                model_id=str(getattr(self.runtime_selection, "model_id", "rule-runtime")),
-                max_output_tokens=self.output_budget,
-            )
-            draft = intake.create_draft(
-                text=explicit_text or None,
-                document_ids=request.document_ids,
-            )
-            applied = intake.apply_draft(draft)
-            self._audit(
-                request.project_id,
-                "model_generation.input_intake",
-                {
-                    "draft_id": draft.draft_id,
-                    "status": draft.status,
-                    "input_hash": draft.input_hash,
-                    "profile_id": draft.profile_id,
-                    "provider_id": draft.provider_id,
-                    "model_id": draft.model_id,
-                    "revision": applied.get("revision"),
-                    "created_entity_count": applied.get("created_entity_count", 0),
-                    "created_relation_count": applied.get("created_relation_count", 0),
-                    "diagnostics": list(draft.diagnostics),
-                },
-            )
-            return
-        if graph.has_active_entities:
-            return
-        raise InputRequired("requirement_text or an existing requirement is required")
+        self.input_preparation.prepare(
+            request.project_id,
+            requirement_text=request.requirement_text,
+            document_ids=request.document_ids,
+        )
 
     def _context(
         self,

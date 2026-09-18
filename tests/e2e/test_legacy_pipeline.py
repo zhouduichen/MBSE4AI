@@ -10,6 +10,36 @@ from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 
 
+SOURCE = Path("tests/fixtures/requirements_use_case_acceptance.txt")
+
+
+def test_pipeline_auto_intakes_ingested_document_before_running(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces")
+    services.projects.create("document-pipeline")
+    services.projects.ingest("document-pipeline", SOURCE)
+
+    summary = services.analysis("document-pipeline").run(
+        "document-pipeline",
+        force_new=True,
+    )
+    graph = services.model("document-pipeline").graph("document-pipeline")
+    report = services.analysis("document-pipeline").pipeline_report("document-pipeline")
+
+    assert summary.status is RunStatus.COMPLETED
+    assert len(summary.completed_tasks) == 23
+    requirements = [item for item in graph.entities if item.kind is EntityKind.REQUIREMENT]
+    assert report["traceability"]["end_to_end_complete_count"] == len(requirements)
+    assert any(item.kind is EntityKind.USE_CASE for item in graph.entities)
+    assert any(item.kind is EntityKind.OPERATIONAL_SCENARIO for item in graph.entities)
+    assert any(item.kind is EntityKind.ACTIVITY for item in graph.entities)
+    assert any(
+        event.get("kind") == "requirements_use_case.draft_applied"
+        for event in services.repository("document-pipeline").list_audit_events(
+            "document-pipeline"
+        )
+    )
+
+
 def test_pipeline_from_natural_language_creates_operational_and_functional_layers(
     tmp_path: Path,
 ):

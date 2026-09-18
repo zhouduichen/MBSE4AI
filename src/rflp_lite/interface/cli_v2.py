@@ -131,12 +131,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             text = args.input.read_text(encoding="utf-8")
         if str(args.goal or "").strip():
             services.context(args.project_id).set_goal(args.goal)
-        if text.strip():
-            services.requirements_input(args.project_id).ensure_text_requirements(text)
         result = services.analysis(args.project_id).run(
             args.project_id,
             Phase(args.phase) if args.phase else None,
             force_new=args.force_new,
+            requirement_text=text or None,
         )
         print(canonical_json({"status": "ok", "run": {"run_id": result.run_id, "phase": result.phase.value, "status": result.status.value, "completed_tasks": result.completed_tasks, "diagnostics": result.diagnostics}}))
         return 0

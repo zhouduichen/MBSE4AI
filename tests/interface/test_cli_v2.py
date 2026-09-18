@@ -75,6 +75,44 @@ def test_cli_run_accepts_natural_language_input(tmp_path: Path, monkeypatch, cap
     assert any(item.payload.get("statement") == "系统应支持人工接管" for item in graph.entities)
 
 
+def test_cli_run_auto_intakes_ingested_document(tmp_path: Path, monkeypatch, capsys):
+    workspace_root = tmp_path / "workspaces"
+    source = Path(__file__).parents[1] / "fixtures" / "requirements_use_case_acceptance.txt"
+
+    def services_factory(root, *, config_dir=None):
+        return build_v2_services(root, runtime=RuleRuntime(), config_dir=config_dir)
+
+    monkeypatch.setattr(cli_v2, "build_v2_services", services_factory)
+    monkeypatch.setattr(cli_v2, "default_config_dir", lambda: tmp_path / "config")
+    root_args = ["--workspace-root", str(workspace_root)]
+
+    assert cli_v2.main([*root_args, "project", "create", "robot"]) == 0
+    capsys.readouterr()
+    assert cli_v2.main([
+        *root_args,
+        "project",
+        "ingest",
+        "robot",
+        str(source),
+    ]) == 0
+    capsys.readouterr()
+    assert cli_v2.main([
+        *root_args,
+        "analyze",
+        "run",
+        "robot",
+    ]) == 0
+    run = json.loads(capsys.readouterr().out)
+    assert run["run"]["status"] == "completed"
+    repository = build_v2_services(workspace_root, runtime=RuleRuntime()).repository("robot")
+    graph = repository.load_graph("robot")
+    assert any(item.kind.value == "use_case" for item in graph.entities)
+    assert any(
+        event.get("kind") == "requirements_use_case.draft_applied"
+        for event in repository.list_audit_events("robot")
+    )
+
+
 def test_cli_goal_is_available_as_system_and_requirement_input(tmp_path: Path, monkeypatch, capsys):
     workspace_root = tmp_path / "workspaces"
 

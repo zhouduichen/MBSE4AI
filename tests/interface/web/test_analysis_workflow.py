@@ -435,8 +435,39 @@ def test_pipeline_analysis_accepts_natural_language_input(tmp_path: Path) -> Non
     )
 
     assert response.status_code == 200
+    assert response.json()["run"]["traceability"]["end_to_end_complete_count"] == 4
     graph = app.state.container.v2.repository("p1").load_graph("p1")
     assert any(item.payload.get("statement") == "系统应支持人工接管" for item in graph.entities)
+
+
+def test_pipeline_analysis_auto_intakes_uploaded_document(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "workspaces")
+    app.state.container.v2.settings.profiles.config_dir = tmp_path / "config"
+    app.state.container.v2.settings.profiles.path = tmp_path / "config" / "llm-profiles.json"
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    source = Path(__file__).parents[2] / "fixtures" / "requirements_use_case_acceptance.txt"
+    uploaded = client.post(
+        "/projects/p1/documents",
+        files={"file": (source.name, source.read_bytes(), "text/plain")},
+    )
+    assert uploaded.status_code == 200
+    document_id = uploaded.json()["document"]["document_id"]
+
+    response = client.post(
+        "/projects/p1/analysis",
+        json={"mode": "pipeline", "document_ids": [document_id]},
+    )
+
+    assert response.status_code == 200
+    graph = app.state.container.v2.repository("p1").load_graph("p1")
+    assert any(item.kind.value == "use_case" for item in graph.entities)
+    assert any(item.kind.value == "operational_scenario" for item in graph.entities)
+    assert any(item.kind.value == "activity" for item in graph.entities)
+    assert any(
+        event.get("kind") == "requirements_use_case.draft_applied"
+        for event in app.state.container.v2.repository("p1").list_audit_events("p1")
+    )
 
 
 def test_single_phase_analysis_keeps_legacy_shape(tmp_path: Path) -> None:
