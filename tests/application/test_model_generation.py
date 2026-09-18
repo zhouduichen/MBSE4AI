@@ -694,6 +694,150 @@ class CompleteVerticalModel(ScriptedModel):
         return payload
 
 
+class IntakeAwareCompleteVerticalModel(CompleteVerticalModel):
+    """One provider double for both structured intake and vertical stages."""
+
+    supports_requirements_intake = True
+
+    def __init__(self):
+        super().__init__()
+        self.intake_requests = []
+        self.intake_source_ref = ""
+        self.intake_document_id = ""
+
+    def complete_json(self, request):
+        if request.lens_id == "requirements.use_case":
+            self.calls.append(request.lens_id)
+            self.intake_requests.append(request)
+            self.intake_source_ref = request.user_payload["source_refs"][0]
+            self.intake_document_id = request.user_payload["source_regions"][0]["document_id"]
+            source_ref = self.intake_source_ref
+            document_id = self.intake_document_id
+            return GenerationResponse(
+                request.lens_id,
+                {
+                    "schema_version": "requirements-use-case-draft.v1",
+                    "source_document_ids": [document_id],
+                    "system_context": {
+                        "name": "校园配送系统",
+                        "mission": "完成校园配送",
+                        "attributes": {
+                            "platform_type": "robot",
+                            "capture_source": "llm",
+                        },
+                        "source_refs": [source_ref],
+                    },
+                    "entities": [{
+                        "local_ref": "actor_operator",
+                        "kind": "stakeholder",
+                        "name": "配送运营人员",
+                        "attributes": {"role": "任务运营"},
+                        "source_refs": [source_ref],
+                        "confidence": 0.9,
+                    }],
+                    "requirements": [{
+                        "local_ref": "requirement_delivery",
+                        "statement": "系统应完成校园配送",
+                        "level": "system",
+                        "type": "functional",
+                        "obligation": "系统应",
+                        "verification_method": "test",
+                        "constraints": [],
+                        "source_refs": [source_ref],
+                        "confidence": 0.9,
+                        "related_refs": [],
+                    }],
+                    "use_cases": [{
+                        "local_ref": "use_case_delivery",
+                        "name": "执行配送",
+                        "goal": "完成校园配送",
+                        "primary_actor_refs": ["actor_operator"],
+                        "preconditions": [],
+                        "postconditions": [],
+                        "scenario_refs": ["scenario_delivery"],
+                        "requirement_refs": ["requirement_delivery"],
+                        "source_refs": [source_ref],
+                        "confidence": 0.9,
+                    }],
+                    "scenarios": [{
+                        "local_ref": "scenario_delivery",
+                        "kind": "operational_scenario",
+                        "name": "校园配送场景",
+                        "description": "运营人员提交任务并完成配送",
+                        "actor_refs": ["actor_operator"],
+                        "steps": [{
+                            "order": 1,
+                            "actor_ref": "actor_operator",
+                            "action": "提交配送任务",
+                            "guard": "",
+                        }],
+                        "branches": [],
+                        "requirement_refs": ["requirement_delivery"],
+                        "source_refs": [source_ref],
+                        "confidence": 0.9,
+                    }],
+                    "clarifications": [],
+                    "diagnostics": [],
+                },
+                "intake-input",
+                "intake-output",
+                False,
+                "fake-intake-provider",
+                "intake-aware-test-model",
+            )
+        if request.lens_id == "vertical.requirements":
+            response = super().complete_json(request)
+            context_entities = request.user_payload["context"]["entities"]
+            active_ids_by_kind = {}
+            for item in context_entities:
+                active_ids_by_kind.setdefault(item["kind"], []).append(item["id"])
+            local_to_existing = {}
+            filtered_entities = []
+            for item in response.payload["entities"]:
+                existing_ids = active_ids_by_kind.get(item["kind"], [])
+                if existing_ids:
+                    local_to_existing[item["local_ref"]] = existing_ids[0]
+                else:
+                    filtered_entities.append(item)
+            filtered_relations = []
+            for relation in response.payload["relations"]:
+                filtered_relations.append({
+                    **relation,
+                    "source_ref": local_to_existing.get(
+                        relation["source_ref"], relation["source_ref"]
+                    ),
+                    "target_ref": local_to_existing.get(
+                        relation["target_ref"], relation["target_ref"]
+                    ),
+                })
+            def rewrite_reference(value):
+                if isinstance(value, str):
+                    return local_to_existing.get(value, value)
+                if isinstance(value, list):
+                    return [rewrite_reference(item) for item in value]
+                if isinstance(value, dict):
+                    return {key: rewrite_reference(item) for key, item in value.items()}
+                return value
+
+            filtered_updates = [
+                {
+                    **update,
+                    "field_patch": rewrite_reference(update.get("field_patch", {})),
+                }
+                for update in response.payload["updates"]
+            ]
+            return replace(
+                response,
+                payload={
+                    **response.payload,
+                    "entities": filtered_entities,
+                    "relations": filtered_relations,
+                    "updates": filtered_updates,
+                },
+            )
+        return super().complete_json(request)
+
+
 class TwoRequirementFeedbackModel(CompleteVerticalModel):
     """Structured model double that repairs the second requirement on feedback."""
 
@@ -1412,6 +1556,79 @@ def test_structured_runtime_generates_complete_editable_vertical_model(tmp_path:
     edited = services.model("robot").graph("robot")
     assert edited.revision == graph.revision + 1
     assert edited.entity_index[function.id].payload["review_note"] == "人工可继续编辑"
+
+
+def test_intake_aware_structured_provider_generates_complete_document_model(tmp_path: Path):
+    model = IntakeAwareCompleteVerticalModel()
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=StructuredModelRuntime(model),
+    )
+    services.projects.create("robot", "校园配送机器人")
+    document = services.projects.ingest_uploaded(
+        "robot",
+        "requirements.txt",
+        "系统应完成校园配送。".encode("utf-8"),
+    )
+
+    result = services.generation("robot").generate(
+        "robot",
+        document_ids=(document["document_id"],),
+    )
+    graph = services.model("robot").graph("robot")
+
+    assert result.status == "completed"
+    assert result.traceability.end_to_end_complete_count == 1
+    assert model.calls[0] == "requirements.use_case"
+    assert {
+        "vertical.requirements",
+        "vertical.functional",
+        "vertical.logical",
+        "vertical.physical",
+        "vertical.verification_validation",
+    } <= set(model.calls[1:])
+    intake_request = model.intake_requests[0]
+    assert intake_request.response_schema["$id"] == "requirements-use-case-draft.v1"
+    assert intake_request.user_payload["source_refs"] == (model.intake_source_ref,)
+    assert intake_request.user_payload["source_regions"][0]["id"] == model.intake_source_ref
+    assert any(
+        event["kind"] == "model_generation.input_intake"
+        and event["payload"].get("mode") == "structured_intake"
+        for event in services.repository("robot").list_audit_events("robot")
+    )
+
+    required_kinds = {
+        EntityKind.SYSTEM,
+        EntityKind.STAKEHOLDER,
+        EntityKind.USE_CASE,
+        EntityKind.OPERATIONAL_SCENARIO,
+        EntityKind.ACTIVITY,
+        EntityKind.REQUIREMENT,
+        EntityKind.FUNCTION,
+        EntityKind.LOGICAL_COMPONENT,
+        EntityKind.PHYSICAL_BLOCK,
+        EntityKind.VERIFICATION_CASE,
+        EntityKind.VALIDATION_CASE,
+    }
+    assert required_kinds <= {item.kind for item in graph.entities}
+    requirement = next(
+        item for item in graph.entities
+        if item.kind is EntityKind.REQUIREMENT
+        and item.meta.name == "系统应完成校园配送"
+    )
+    assert model.intake_source_ref in requirement.meta.source_ids
+    assert model.intake_source_ref in requirement.meta.evidence_ids
+    assert resolve_requirement_trace(graph, requirement.id).complete
+
+    exported = graph_to_sysml(graph)
+    restored = sysml_to_graph(exported, "robot")
+    assert restored.entities == graph.entities
+    assert restored.relations == graph.relations
+    package = services.deliverables("robot").build("robot")
+    assert package["manifest"]["revision"] == graph.revision
+    assert package["manifest"]["snapshot_hash"] == graph.snapshot_hash
+    assert package["artifacts"]["behavior"]["content"]["use_cases"]
+    assert package["artifacts"]["sysml"]["content"] == exported
 
 
 def test_complete_structured_model_supports_controller_physical_trade_study(tmp_path: Path):

@@ -28,7 +28,7 @@
 
   The design defines a single provider fixture that supports both `requirements.use_case` and `vertical.*`, and explicitly excludes network/model execution.
 
-- [ ] **Step 2: Commit the design documents before implementation**
+- [x] **Step 2: Commit the design documents before implementation**
 
 ```bash
 git add docs/superpowers/specs/2026-09-19-intake-aware-vertical-acceptance-design.md docs/superpowers/plans/2026-09-19-intake-aware-vertical-acceptance.md docs/superpowers/README.md
@@ -47,21 +47,21 @@ Expected: one documentation commit; no source or test files are changed by this 
 - Consumes: existing `ScriptedModel.complete_json(request)` for `vertical.*` requests.
 - Produces: `IntakeAwareScriptedModel.complete_json(request)` that returns a valid `requirements-use-case-draft.v1` payload for `requirements.use_case` and delegates all stage requests.
 
-- [ ] **Step 1: Write the failing acceptance test**
+- [x] **Step 1: Write the failing acceptance test**
 
   Add a test that creates a repository-backed document/source region, invokes `services.generation("robot").generate("robot", document_ids=("doc-1",))`, and asserts `result.status == "completed"`, `result.traceability.end_to_end_complete_count == 1`, and the provider call sequence starts with `requirements.use_case` followed by the five vertical stage lenses.
 
-- [ ] **Step 2: Run the focused test to verify the capability is missing**
+- [x] **Step 2: Run the focused test to verify the incremental boundary**
 
 ```bash
 ./.venv/bin/pytest -q tests/application/test_model_generation.py::test_intake_aware_structured_provider_generates_complete_document_model
 ```
 
-Expected: FAIL because the fixture does not yet declare or answer the intake lens.
+Expected during the first run: FAIL because the stage fixture re-emits existing R entities instead of honoring the contextual incremental schema; the fixture is then corrected to reuse canonical IDs.
 
-- [ ] **Step 3: Implement the minimal fixture branch**
+- [x] **Step 3: Implement the minimal fixture branch**
 
-  Add `supports_requirements_intake = True` and return a schema-valid intake payload for `requirements.use_case`, using `region-1` in every source-backed field:
+  Add `supports_requirements_intake = True` and return a schema-valid intake payload for `requirements.use_case`, copying the actual `source_refs` and document ID from the request rather than inventing fixed IDs:
 
 ```python
 {
@@ -106,7 +106,7 @@ Expected: FAIL because the fixture does not yet declare or answer the intake len
 }
 ```
 
-- [ ] **Step 4: Run the focused test to verify the provider branch**
+- [x] **Step 4: Run the focused test to verify the provider branch**
 
 ```bash
 ./.venv/bin/pytest -q tests/application/test_model_generation.py::test_intake_aware_structured_provider_generates_complete_document_model
@@ -120,15 +120,15 @@ Expected: PASS; the call log contains intake plus five vertical lenses, and no `
 - Modify: `tests/application/test_model_generation.py`
 - Modify: `docs/superpowers/plans/2026-09-19-intake-aware-vertical-acceptance.md`
 
-- [ ] **Step 1: Extend the passing acceptance test with graph evidence**
+- [x] **Step 1: Extend the passing acceptance test with graph evidence**
 
-  Assert the graph contains `SYSTEM`, `STAKEHOLDER`, `USE_CASE`, `OPERATIONAL_SCENARIO`, `ACTIVITY`, `REQUIREMENT`, `FUNCTION`, `LOGICAL_COMPONENT`, `PHYSICAL_BLOCK`, `VERIFICATION_CASE`, and `VALIDATION_CASE`; assert the Requirement retains `region-1` source/evidence IDs and `resolve_requirement_trace(...).complete` is true.
+  Assert the graph contains `SYSTEM`, `STAKEHOLDER`, `USE_CASE`, `OPERATIONAL_SCENARIO`, `ACTIVITY`, `REQUIREMENT`, `FUNCTION`, `LOGICAL_COMPONENT`, `PHYSICAL_BLOCK`, `VERIFICATION_CASE`, and `VALIDATION_CASE`; assert the Requirement retains the actual document-region source/evidence ID and `resolve_requirement_trace(...).complete` is true.
 
-- [ ] **Step 2: Assert SysML round-trip and deliverable revision binding**
+- [x] **Step 2: Assert SysML round-trip and deliverable revision binding**
 
   Use `graph_to_sysml`/`sysml_to_graph` and `services.deliverables("robot").build("robot")`; assert restored entities/relations equal the source graph and the manifest revision/snapshot hash match the same graph.
 
-- [ ] **Step 3: Verify focused acceptance and update the checklist**
+- [x] **Step 3: Verify focused acceptance and update the checklist**
 
 ```bash
 ./.venv/bin/pytest -q tests/application/test_model_generation.py::test_intake_aware_structured_provider_generates_complete_document_model
@@ -143,7 +143,7 @@ Expected: PASS with complete source trace, typed model, SysML round-trip, and de
 - Modify: `docs/DEVELOPMENT_STATUS.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: Run the complete offline verification**
+- [x] **Step 1: Run the complete offline verification**
 
 ```bash
 git diff --check
@@ -152,7 +152,7 @@ RFLP_CONFIG_DIR="$(mktemp -d)" AI4MBSE_CAD_BACKEND=preview ./.venv/bin/python sc
 
 Expected: all tests pass with the existing skip count; compileall, architecture metrics, Ruff, and import-linter pass.
 
-- [ ] **Step 2: Document the stronger evidence boundary**
+- [x] **Step 2: Document the stronger evidence boundary**
 
   State that the offline suite now covers both the rule fallback and the provider-shaped intake path; do not claim real provider quality or remote execution.
 

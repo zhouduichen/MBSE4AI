@@ -20,7 +20,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev,web,documents]'
 ```
 
-配置并使用 LLM Profile 时，`analyze generate` 会由结构化 LLM 驱动五阶段模型生成；没有可用模型时仍可完整运行离线规则 Runtime。配置由 `model-profile` 管理，单次生成可用 `--profile` 选择档案而不改变全局 active profile。
+配置并使用 LLM Profile 时，`analyze generate` 会由结构化 LLM 驱动五阶段模型生成；没有可用模型时仍可完整运行离线规则 Runtime。离线回归同时覆盖结构化 provider 的需求 intake lens 和五阶段 lens 契约，但不替代真实远程模型质量验收。配置由 `model-profile` 管理，单次生成可用 `--profile` 选择档案而不改变全局 active profile。
 
 ## 最短路径
 

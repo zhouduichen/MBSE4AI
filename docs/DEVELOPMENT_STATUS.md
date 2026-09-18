@@ -27,6 +27,7 @@
 | 文档接入 | TXT、Markdown、DOCX、PDF 解析；扫描 PDF 使用可选 OCR 适配器 |
 | 文档证据上下文 | 解析出的每个 Source Region 持久化为 `document_region` Evidence，文档 Requirement 同时保存 source/evidence ID，补丁提交时物化为 ModelGraph 节点并进入五阶段结构化 LLM 上下文 |
 | 需求实体与属性捕获 | 离线词典规则捕获受限范围内的系统平台、任务域、运行环境、stakeholder 和 concern；所有派生结果保留 source refs、rule id、低置信度和人工复核语义；结构化 LLM 的 `system_context.attributes` 经 schema/compiler 持久化到 System |
+| Intake-aware 结构化主链验收 | 离线 fake provider 显式支持 `requirements.use_case` 与五个 `vertical.*` lens；文档 Source Region 经同一产品入口进入完整 R→F→L→P→V&V，并验证 canonical 追溯、SysML 往返和 revision-bound 交付包；不等同于真实远程模型质量验收 |
 | 自动文档到模型纵向入口 | `analyze generate` 与 Web `/analysis` 自动执行 IntakeDraft→CAS→R→F→L→P→V&V；离线规则摄取明确标记 `degraded`/`RULE`，并保留独立人工 Review 入口 |
 | Golden E2E | 校园无人配送机器人 fixture 可导入并跑完整阶段；失败与锁定保护可验证 |
 | 默认产品纵向生成 | 自然语言或已解析文档 → Requirements → Functional → Logical → Physical → V&V；五阶段写入同一 ModelGraph，并返回阶段结果、追溯摘要和 SysML 文本 |
