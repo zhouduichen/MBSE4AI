@@ -40,11 +40,12 @@ POST /projects/{id}/engineering-flow
 {
   "requirement_text": "系统应在校园内完成配送，并允许运营人员人工接管",
   "include_concept": false,
-  "cad_intent_text": "生成铝合金支架，长100毫米，宽50毫米，高10毫米"
+  "cad_intent_text": "生成铝合金支架，长100毫米，宽50毫米，高10毫米",
+  "selected_structure_option_id": "bracket-gusseted-plate"
 }
 ```
 
-返回的 `flow` 同时包含五阶段生成、`model.sysml`/追溯/V&V 交付物及同一 `revision`/`snapshot_hash`。`completed` 表示纵向模型已生成；`needs_input`、`needs_clarification` 和 `needs_approval` 分别表示总体设计缺参、CAD 意图需澄清或 CAD 计划等待人工审批。该入口不会自动应用概念候选，也不会批准或执行 CAD 计划。
+返回的 `flow` 同时包含五阶段生成、`model.sysml`/追溯/V&V 交付物及同一 `revision`/`snapshot_hash`。`completed` 表示纵向模型已生成；`needs_input`、`needs_clarification` 和 `needs_approval` 分别表示总体设计缺参、CAD 意图需澄清或 CAD 计划等待人工审批。`selected_structure_option_id` 只有显式传入才会编译为对应的参数化结构操作；省略时不会静默采纳推荐。该入口不会自动应用概念候选，也不会批准或执行 CAD 计划。
 
 使用已保存的远程 SSH/Tailscale LLM Profile 做本次真实 LLM 生成（不会启动本机模型，也不会切换 active profile）：
 

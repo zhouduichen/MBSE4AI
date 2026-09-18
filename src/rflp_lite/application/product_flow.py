@@ -58,6 +58,7 @@ class EngineeringProductFlowService:
         include_concept: bool = False,
         optimize_concept: bool = True,
         cad_intent_text: str | None = None,
+        selected_structure_option_id: str = "",
         source_requirement_ids: Sequence[str] = (),
     ) -> ProductFlowResult:
         """Run the product chain and return its current human-review boundary."""
@@ -102,7 +103,10 @@ class EngineeringProductFlowService:
                 }
                 status = "needs_clarification"
             else:
-                plan = self.cad.create_plan(draft.draft_id)
+                plan = self.cad.create_plan(
+                    draft.draft_id,
+                    selected_structure_option_id=str(selected_structure_option_id).strip(),
+                )
                 cad = {
                     "status": "needs_approval" if plan.get("status") == "ready" else "needs_clarification",
                     "draft": draft_payload,

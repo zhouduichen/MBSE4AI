@@ -76,3 +76,18 @@ def test_product_flow_stops_at_cad_approval_without_execution(tmp_path: Path):
     assert services.cad_design("p1").models() == ()
     assert result.deliverable["artifacts"]["detail_design"]["content"]["cad_execution_plans"]
 
+
+def test_product_flow_carries_explicit_structure_selection_into_cad_plan(tmp_path: Path):
+    services = _services(tmp_path)
+
+    result = services.product_flow("p1").run(
+        "p1",
+        requirement_text="系统应支持详细结构设计",
+        cad_intent_text="生成铝合金支架，长100毫米，宽50毫米，高10毫米",
+        selected_structure_option_id="bracket-gusseted-plate",
+    )
+
+    plan = result.cad["plan"]
+    assert result.status == "needs_approval"
+    assert plan["selected_structure_option_id"] == "bracket-gusseted-plate"
+    assert [item["operation"] for item in plan["operations"]].count("add_rib") == 2

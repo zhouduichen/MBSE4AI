@@ -63,6 +63,19 @@ def test_product_flow_api_returns_review_boundary_states(tmp_path: Path):
     assert flow["status"] == "needs_approval"
     assert flow["cad"]["plan"]["approval_status"] == "pending"
 
+    selected = client.post(
+        "/projects/p1/engineering-flow",
+        json={
+            "requirement_text": "系统应支持详细结构设计",
+            "cad_intent_text": "生成铝合金支架，长100毫米，宽50毫米，高10毫米",
+            "selected_structure_option_id": "bracket-gusseted-plate",
+        },
+    )
+    assert selected.status_code == 200
+    selected_plan = selected.json()["flow"]["cad"]["plan"]
+    assert selected_plan["selected_structure_option_id"] == "bracket-gusseted-plate"
+    assert [item["operation"] for item in selected_plan["operations"]].count("add_rib") == 2
+
 
 def test_product_flow_api_returns_concept_input_boundary(tmp_path: Path):
     client = _client(tmp_path)
@@ -81,4 +94,3 @@ def test_product_flow_api_returns_concept_input_boundary(tmp_path: Path):
     flow = response.json()["flow"]
     assert flow["status"] == "needs_input"
     assert flow["concept"]["status"] == "needs_input"
-

@@ -42,6 +42,7 @@ def run(
     include_concept: bool = False,
     optimize_concept: bool = True,
     cad_intent_text: str | None = None,
+    selected_structure_option_id: str = "",
 ) -> ProductFlowResult:
     ...
 ```
@@ -80,6 +81,7 @@ Concept and CAD records remain in their existing audit stores. The orchestration
 - Empty input follows the existing `InputRequired` contract.
 - Concept `InputRequired` is converted into `needs_input` only when concept was explicitly requested; its details are returned unchanged.
 - CAD clarification is represented by the existing draft status and questions.
+- An explicitly supplied `selected_structure_option_id` is validated by the existing CAD service; an unknown option remains an error and is never compiled into operations.
 - Any unexpected domain/service error remains an API error; it is not converted into a successful flow.
 - The result never reports a downstream artifact as accepted when it is only a candidate, preview, or pending approval.
 - The deliverable is rebuilt after each flow and carries the graph's current revision and snapshot hash. No export call mutates the graph.
@@ -92,11 +94,12 @@ Concept and CAD records remain in their existing audit stores. The orchestration
 POST /projects/{project_id}/engineering-flow
 ```
 
-The JSON request accepts `requirement_text`, `document_ids`, `include_concept`, `optimize_concept`, and `cad_intent_text`. The response is the `ProductFlowResult` dictionary. The route uses the selected request profile for generation/CAD exactly as the existing services do; omitted profile selection remains offline rule/preview behavior.
+The JSON request accepts `requirement_text`, `document_ids`, `include_concept`, `optimize_concept`, `cad_intent_text`, and an optional `selected_structure_option_id`. The response is the `ProductFlowResult` dictionary. The route uses the selected request profile for generation/CAD exactly as the existing services do; omitted profile selection remains offline rule/preview behavior. The selected structure option is passed only when explicitly supplied; otherwise the CAD plan remains a base-envelope plan and does not silently adopt a recommendation.
 
 ## Verification strategy
 
 - application tests prove status transitions for a complete RFLP-only flow, missing concept input, CAD clarification, and CAD plan awaiting approval;
+- product-flow coverage proves an explicit bracket structure selection changes the allowlisted CAD operations while an omitted selection does not;
 - document e2e coverage uses an already ingested document and proves source evidence, complete traceability, and the unified deliverable binding;
 - API TestClient coverage proves the new route returns JSON without starting a server;
 - existing full-suite, architecture-budget, Ruff, import-boundary, SysML round-trip, V&V, concept, and CAD tests remain green;
