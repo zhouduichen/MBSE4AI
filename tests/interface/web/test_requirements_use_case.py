@@ -71,6 +71,43 @@ def test_requirements_use_case_api_and_behavior_page_form_a_vertical_slice(tmp_p
     assert sequence_diagrams[0]["editable_entity_ids"]
     assert requirement_ids <= set(sequence_diagrams[0]["requirement_ids"])
 
+    use_case = behavior_payload["use_cases"][0]
+    use_case_payload = dict(use_case["payload"])
+    use_case_payload["goal"] = "人工确认后的任务目标"
+    edited_use_case = client.post(
+        f"/projects/p1/entities/{use_case['id']}/edit",
+        json={
+            "expected_revision": model_payload["revision"],
+            "name": "人工确认用例",
+            "payload": use_case_payload,
+        },
+    )
+    assert edited_use_case.status_code == 200
+    after_use_case = client.get("/projects/p1/behavior").json()
+    updated_use_case = next(item for item in after_use_case["use_cases"] if item["id"] == use_case["id"])
+    assert updated_use_case["name"] == "人工确认用例"
+    assert updated_use_case["goal"] == "人工确认后的任务目标"
+
+    current_model = client.get("/projects/p1/model").json()
+    activity_id = sequence_diagrams[0]["editable_entity_ids"][1]
+    activity = next(item for item in current_model["entities"] if item["id"] == activity_id)
+    activity_payload = dict(activity["payload"])
+    activity_payload["action"] = "人工修改后的活动"
+    edited_activity = client.post(
+        f"/projects/p1/entities/{activity_id}/edit",
+        json={
+            "expected_revision": current_model["revision"],
+            "payload": activity_payload,
+        },
+    )
+    assert edited_activity.status_code == 200
+    after_activity = client.get("/projects/p1/behavior").json()
+    assert any(
+        message["action"] == "人工修改后的活动"
+        for diagram in after_activity["sequence_diagrams"]
+        for message in diagram["messages"]
+    )
+
     behavior = client.get("/ui/projects/p1/behavior")
     assert behavior.status_code == 200
     assert "Use Case Framework" in behavior.text
@@ -78,6 +115,8 @@ def test_requirements_use_case_api_and_behavior_page_form_a_vertical_slice(tmp_p
     assert "Sequence Diagram Framework" in behavior.text
     assert "操作员" in behavior.text
     assert "来源需求" in behavior.text
+    assert "直接编辑" in behavior.text
+    assert 'data-behavior-edit-form=' in behavior.text
     assert next(iter(requirement_ids)) in behavior.text
     use_case_id = behavior_payload["use_cases"][0]["id"]
     assert f"/ui/projects/p1/model#entity-{use_case_id}" in behavior.text
