@@ -105,6 +105,33 @@ def test_generate_mode_returns_stage_and_traceability_payload(tmp_path: Path):
     assert run["controller"]["next_action"]["kind"] == "collect_evidence"
 
 
+def test_generate_mode_auto_intakes_uploaded_document_before_rflp(tmp_path: Path):
+    client = _client(tmp_path)
+    assert client.post("/projects", json={"id": "mission"}).status_code == 200
+    source = Path(__file__).parents[2] / "fixtures" / "requirements_use_case_acceptance.txt"
+
+    uploaded = client.post(
+        "/projects/mission/documents",
+        files={"file": (source.name, source.read_bytes(), "text/plain")},
+    )
+    assert uploaded.status_code == 200
+    document_id = uploaded.json()["document"]["document_id"]
+
+    response = client.post(
+        "/projects/mission/analysis",
+        json={"mode": "generate", "document_ids": [document_id]},
+    )
+
+    assert response.status_code == 200
+    run = response.json()["run"]
+    assert run["traceability"]["end_to_end_complete_count"] == 4
+    model = client.get("/projects/mission/model").json()
+    assert sum(item["kind"] == "requirement" for item in model["entities"]) == 4
+    assert any(item["kind"] == "use_case" for item in model["entities"])
+    assert any(item["kind"] == "operational_scenario" for item in model["entities"])
+    assert any(item["kind"] == "activity" for item in model["entities"])
+
+
 def test_generate_mode_keeps_compound_constraints_closed_through_vv(tmp_path: Path):
     client = _client(tmp_path)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200

@@ -153,6 +153,7 @@ class _CompilerState:
     graph: ModelGraph
     valid_sources: set[str]
     diagnostics: list[str]
+    producer: Producer = Producer.LLM
     operations: list[object] = field(default_factory=list)
     working_entities: dict[str, Entity] = field(default_factory=dict)
     working_relations: dict[str, Relation] = field(default_factory=dict)
@@ -190,7 +191,9 @@ class _CompilerState:
         stored_payload.setdefault("requires_human_review", True)
         stored_payload.setdefault(
             "provenance",
-            "document_evidence" if source_ids else "llm_inferred",
+            "document_evidence"
+            if source_ids
+            else ("rule_inferred" if self.producer is Producer.RULE else "llm_inferred"),
         )
         stored_payload.setdefault("source_refs", list(source_ids))
         entity = make_entity(
@@ -198,7 +201,7 @@ class _CompilerState:
             clean_name,
             stored_payload,
             status=EntityStatus.CANDIDATE,
-            producer=Producer.LLM,
+            producer=self.producer,
             confidence=score,
             source_ids=source_ids,
             evidence_ids=source_ids,
@@ -255,12 +258,14 @@ def _new_compiler_state(
     graph: ModelGraph,
     valid_sources: set[str],
     diagnostics: list[str],
+    producer: Producer,
 ) -> _CompilerState:
     return _CompilerState(
-        project_id,
-        graph,
-        valid_sources,
-        diagnostics,
+        project_id=project_id,
+        graph=graph,
+        valid_sources=valid_sources,
+        diagnostics=diagnostics,
+        producer=producer,
         working_entities=dict(graph.entity_index),
         working_relations={item.id: item for item in graph.relations},
     )
@@ -697,6 +702,7 @@ class RequirementsUseCaseService:
             graph,
             valid_sources,
             diagnostics,
+            Producer.RULE if intake.status == "degraded" else Producer.LLM,
         )
         requirement_ids, _ = _compile_base_entities(state, payload)
         scenario_ids, scenario_activity_ids = _compile_scenarios(state, payload)
@@ -943,7 +949,7 @@ def _fallback_payload(text: str, source_refs: Sequence[str], document_ids: Seque
     return {
         "schema_version": _SCHEMA_VERSION,
         "source_document_ids": list(document_ids),
-        "system_context": {"name": "目标系统", "mission": statements[0] if statements else "待确认", "source_refs": refs},
+        "system_context": {"name": "目标系统", "mission": "待确认", "source_refs": refs},
         "entities": entities,
         "requirements": requirements,
         "use_cases": [{

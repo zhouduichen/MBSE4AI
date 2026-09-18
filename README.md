@@ -68,7 +68,7 @@ Jiayu-intern 的 SSH 转发、Profile JSON 和一次性 CASE-04 验收命令见
 .venv/bin/ai4mbse --workspace-root .local-workspaces analyze generate document-demo
 ```
 
-需求分析工作台还提供一条独立的 M1/M2 入口：在 `/ui/projects/<project-id>/requirements-use-case` 选择已导入的文档或粘贴文本，生成带来源、约束来源、置信度和澄清问题的 `IntakeDraft`，再人工应用到 ModelGraph。应用后可在“行为与接口”页面查看 Use Case、Operational Scenario 和 Activity 框架，并继续使用现有 Review、RFLP 和 SysML 导出。
+`analyze generate` 和 Web `/analysis` 现在会先自动执行结构化需求/用例摄取：文本或已上传的 TXT、Markdown、DOCX、PDF 先生成带来源、约束来源、置信度和澄清问题的 `IntakeDraft`，经现有 CAS 写入候选 ModelGraph 后再继续 R→F→L→P→V&V。离线模式明确标记为 `degraded`/`RULE`，不会伪装成 LLM 结果；之后同一请求会产出 Use Case、Operational Scenario、Activity、完整追溯、SysML 和交付包。需求分析工作台 `/ui/projects/<project-id>/requirements-use-case` 仍保留为需要人工逐稿审查时的独立 M1/M2 入口。
 
 详细设计开发切片位于 `/ui/projects/<project-id>/cad-design`：输入“生成铝合金支架，长100毫米，宽50毫米，高10毫米”这类意图后，系统会给出澄清问题（若信息不完整），生成可审查的 CAD 操作计划，并严格按“预览 → 审批 → 执行”创建参数化工件。默认是离线 preview；显式设置 `AI4MBSE_CAD_BACKEND=freecad-remote` 后，操作计划会通过 SSH 在远程 FreeCAD headless 中生成真实 `.FCStd`/`.step`，重新读取校验实体、回传到项目 `.rflp/cad_artifacts`，并可通过页面下载。执行结果可回写为 `PhysicalBlock` 并与来源 Requirement 建立 `satisfiedBy` 关系；随后可生成共享 2D/3D 语义标注、基准 A、基础 GD&T 建议、风险高亮 SVG 和带特征位置证据的 DFM/DFA finding。CAD 意图仍遵循“未显式选择远程 Profile 时不调用本机模型”的约束。
 

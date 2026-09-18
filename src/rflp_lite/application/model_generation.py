@@ -40,6 +40,7 @@ from rflp_lite.methodology.vertical_generation import (
 )
 from rflp_lite.application.tool_layer import EngineeringToolLayer
 from rflp_lite.application.requirement_input import RequirementInputService
+from rflp_lite.application.requirements_use_case import RequirementsUseCaseService
 from rflp_lite.repository.port import ModelRepository, Run, Step
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
@@ -1359,9 +1360,45 @@ class ModelGenerationService:
         graph = self.repository.load_graph(request.project_id)
         explicit_text = str(request.requirement_text or "").strip()
         if explicit_text or request.document_ids or self.repository.has_documents(request.project_id):
-            RequirementInputService(self.repository, request.project_id).ensure(
+            model = getattr(self.runtime, "model", None)
+            if model is not None and not getattr(model, "supports_requirements_intake", False):
+                # Keep stage-only test/demonstration models on the historical
+                # RequirementInputService path.  The production provider
+                # adapter opts into the richer intake contract explicitly.
+                RequirementInputService(self.repository, request.project_id).ensure(
+                    text=explicit_text or None,
+                    document_ids=request.document_ids,
+                )
+                return
+            intake = RequirementsUseCaseService(
+                self.repository,
+                request.project_id,
+                model=model,
+                profile_id=str(getattr(self.runtime_selection, "profile_id", "offline-rule")),
+                provider_id=str(getattr(self.runtime_selection, "provider_id", "offline")),
+                model_id=str(getattr(self.runtime_selection, "model_id", "rule-runtime")),
+                max_output_tokens=self.output_budget,
+            )
+            draft = intake.create_draft(
                 text=explicit_text or None,
                 document_ids=request.document_ids,
+            )
+            applied = intake.apply_draft(draft)
+            self._audit(
+                request.project_id,
+                "model_generation.input_intake",
+                {
+                    "draft_id": draft.draft_id,
+                    "status": draft.status,
+                    "input_hash": draft.input_hash,
+                    "profile_id": draft.profile_id,
+                    "provider_id": draft.provider_id,
+                    "model_id": draft.model_id,
+                    "revision": applied.get("revision"),
+                    "created_entity_count": applied.get("created_entity_count", 0),
+                    "created_relation_count": applied.get("created_relation_count", 0),
+                    "diagnostics": list(draft.diagnostics),
+                },
             )
             return
         if graph.has_active_entities:

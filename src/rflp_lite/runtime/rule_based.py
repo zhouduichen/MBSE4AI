@@ -402,9 +402,13 @@ class VerticalRuleRuntime:
                 builder.relate(derived, RelationPredicate.DERIVED_FROM, source)
             requirements = (derived,)
         domain = _domain_label(requirements) or builder.context.project_id
-        system = _context_first(builder.context, EntityKind.SYSTEM) or builder.add(
-            EntityKind.SYSTEM, f"{domain}系统", _system_payload(domain)
-        )
+        system = _context_first(builder.context, EntityKind.SYSTEM)
+        if system is None:
+            system = builder.add(
+                EntityKind.SYSTEM, f"{domain}系统", _system_payload(domain)
+            )
+        elif str(system.payload.get("mission", "")).strip().casefold() in {"", "待确认", "tbd", "unknown"}:
+            builder.update(system, payload=_system_payload(domain))
         stakeholder = _context_first(builder.context, EntityKind.STAKEHOLDER) or builder.add(
             EntityKind.STAKEHOLDER, "系统使用者", {"role": "使用与验收"}
         )

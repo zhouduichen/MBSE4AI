@@ -217,6 +217,26 @@ def test_natural_language_generation_is_editable_and_traceable(tmp_path: Path):
     assert "人工可继续编辑" in graph_to_sysml(edited)
 
 
+def test_automatic_structured_intake_precedes_vertical_generation(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("intake-first", "自动需求到模型")
+
+    result = services.generation("intake-first").generate(
+        "intake-first",
+        requirement_text="操作员应在 2 秒内接收告警；系统应支持人工接管",
+    )
+    graph = services.model("intake-first").graph("intake-first")
+
+    assert result.traceability.complete_count == 2
+    assert any(item.kind is EntityKind.USE_CASE for item in graph.entities)
+    assert any(item.kind is EntityKind.OPERATIONAL_SCENARIO for item in graph.entities)
+    assert any(item.kind is EntityKind.ACTIVITY for item in graph.entities)
+    assert any(
+        event["kind"] == "model_generation.input_intake"
+        for event in services.repository("intake-first").list_audit_events("intake-first")
+    )
+
+
 def test_offline_generation_keeps_the_model_subject_from_input(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("warehouse")

@@ -1,3 +1,6 @@
+import io
+import zipfile
+
 import pytest
 
 from rflp_lite.adapters.documents.ocr import RapidOcrAdapter
@@ -11,6 +14,25 @@ def test_text_document_is_parsed_into_page_aware_regions():
     assert parsed.pages[0].number == 1
     assert [region.page for region in parsed.regions] == [1, 1]
     assert parsed.regions[0].locator == "paragraph-1"
+
+
+def test_docx_document_is_parsed_into_structured_regions():
+    document_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>任务要求</w:t></w:r></w:p>
+    <w:p><w:r><w:t>系统应在 2 秒内上报告警。</w:t></w:r></w:p>
+  </w:body>
+</w:document>"""
+    content = io.BytesIO()
+    with zipfile.ZipFile(content, "w") as archive:
+        archive.writestr("word/document.xml", document_xml)
+
+    parsed = LocalDocumentParser().parse("纲要.docx", content.getvalue())
+
+    assert parsed.artifact.kind == "docx"
+    assert [region.text for region in parsed.regions] == ["任务要求", "系统应在 2 秒内上报告警。"]
+    assert parsed.regions[0].heading_path == ("任务要求",)
 
 
 def test_document_parser_rejects_unsupported_and_oversized_inputs():

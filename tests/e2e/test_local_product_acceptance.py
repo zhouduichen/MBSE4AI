@@ -25,6 +25,13 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
     graph = services.model("acceptance").graph("acceptance")
     requirements = [item for item in graph.entities if item.kind is EntityKind.REQUIREMENT]
     assert len(requirements) == 4
+    assert any(item.kind is EntityKind.USE_CASE for item in graph.entities)
+    assert any(item.kind is EntityKind.OPERATIONAL_SCENARIO for item in graph.entities)
+    assert any(item.kind is EntityKind.ACTIVITY for item in graph.entities)
+    assert any(
+        event.get("kind") == "model_generation.input_intake"
+        for event in services.repository("acceptance").list_audit_events("acceptance")
+    )
     assert result.status == "completed"
     assert result.traceability.complete_count == len(requirements)
     assert [stage.stage for stage in result.stage_results] == [

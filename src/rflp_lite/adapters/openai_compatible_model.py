@@ -785,6 +785,9 @@ def _recover_vertical_json(raw: object) -> Mapping[str, object] | None:
 class OpenAICompatibleModel:
     """Translate the stable application request into one JSON-only model call."""
 
+    # This adapter accepts both the vertical stage contracts and the structured
+    # requirements/use-case intake contract used by the default product path.
+    supports_requirements_intake = True
     supports_requirement_batching = True
     # The adapter is stateless per request, so independent requirement batches
     # can use the provider's in-flight request slots.  StructuredModelRuntime

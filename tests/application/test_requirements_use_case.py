@@ -206,6 +206,11 @@ def test_rule_fallback_is_explicitly_degraded_but_produces_use_case_framework(tm
     assert result["created_entity_count"] >= 4
     assert any(item.kind is EntityKind.USE_CASE for item in graph.entities)
     assert any(item.kind is EntityKind.ACTIVITY for item in graph.entities)
+    assert all(
+        item.meta.producer is Producer.RULE
+        for item in graph.entities
+        if item.kind is not EntityKind.EVIDENCE
+    )
 
 
 def test_invalid_structured_model_output_degrades_without_writing_invalid_json(tmp_path: Path):
