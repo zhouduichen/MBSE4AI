@@ -31,6 +31,8 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     model = client.post(f"/projects/p1/cad/plans/{plan['id']}/execute").json()["model"]
     review = client.post(f"/projects/p1/cad/models/{model['id']}/review").json()["review"]
     assert review["annotations"]
+    assert review["artifacts"]["drawing_svg"].startswith("<svg")
+    assert review["artifacts"]["drawing_hash"]
     applied = client.post(f"/projects/p1/cad/models/{model['id']}/apply").json()["apply"]
     assert applied["entity"]["kind"] == "physical_block"
     assert applied["entity"]["payload"]["design_review"]["id"] == review["id"]

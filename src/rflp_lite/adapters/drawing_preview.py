@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from html import escape
 from typing import Any
 
 from rflp_lite.domain.canonical import canonical_hash
@@ -74,6 +75,82 @@ def _annotation(
     )
 
 
+def _bbox(part: Mapping[str, object]) -> tuple[float, float, float] | None:
+    raw = part.get("bbox_mm", ())
+    if not isinstance(raw, (list, tuple)) or len(raw) != 3:
+        return None
+    try:
+        values = tuple(float(value) for value in raw)
+    except (TypeError, ValueError):
+        return None
+    return values if all(value > 0 for value in values) else None
+
+
+def _drawing_svg(
+    model: Mapping[str, object], annotations: tuple[DrawingAnnotation, ...]
+) -> str:
+    """Render a deterministic vendor-neutral 2D preview from shared semantics."""
+
+    rows = [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="760" '
+        'viewBox="0 0 760 0" data-unit="mm">',
+        "<title>Parametric 2D drawing preview</title>",
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
+    ]
+    parts = model.get("parts", ())
+    y = 28.0
+    rendered = False
+    for part in parts if isinstance(parts, (list, tuple)) else ():
+        if not isinstance(part, Mapping):
+            continue
+        part_id = str(part.get("id", "part"))
+        dimensions = _bbox(part)
+        if dimensions is None:
+            continue
+        rendered = True
+        length, width, height = dimensions
+        scale = min(1.8, 240.0 / max(length, 1.0), 130.0 / max(width, 1.0))
+        top_width = max(36.0, length * scale)
+        top_height = max(24.0, width * scale)
+        side_height = max(18.0, height * scale)
+        x = 56.0
+        rows.extend(
+            (
+                f'<g data-part-id="{escape(part_id, quote=True)}">',
+                f'<text x="{x:g}" y="{y:g}" font-size="13" font-weight="600">{escape(part_id)} · top</text>',
+                f'<rect x="{x:g}" y="{y + 8:g}" width="{top_width:g}" height="{top_height:g}" fill="#eef5fb" stroke="#2f5f8f"/>',
+                f'<text x="{x:g}" y="{y + top_height + 24:g}" font-size="11">L {length:g} mm · W {width:g} mm</text>',
+                f'<text x="{x:g}" y="{y + top_height + 50:g}" font-size="13" font-weight="600">{escape(part_id)} · side</text>',
+                f'<rect x="{x:g}" y="{y + top_height + 58:g}" width="{top_width:g}" height="{side_height:g}" fill="#f7f2e8" stroke="#8b6a2f"/>',
+                f'<text x="{x:g}" y="{y + top_height + side_height + 74:g}" font-size="11">L {length:g} mm · H {height:g} mm</text>',
+                "</g>",
+            )
+        )
+        y += top_height + side_height + 112.0
+    if not rendered:
+        rows.append('<text x="24" y="32" font-size="13">No valid bounding box available</text>')
+        y = 56.0
+    rows.append('<g data-annotations="shared-semantics">')
+    y += 8.0
+    for annotation in annotations:
+        detail = annotation.value
+        if annotation.tolerance:
+            detail += f" {annotation.tolerance}"
+        if annotation.datum:
+            detail += f" | datum {annotation.datum}"
+        rows.append(
+            f'<text x="56" y="{y:g}" font-size="11" data-annotation-id="{escape(annotation.id, quote=True)}">'
+            f'{escape(annotation.annotation_kind)}: {escape(detail)} [{escape(annotation.standard)}]</text>'
+        )
+        y += 16.0
+    rows.extend(("</g>", "</svg>"))
+    svg = "".join(rows)
+    canvas_height = max(y + 16.0, 100.0)
+    return svg.replace('viewBox="0 0 760 0"', f'viewBox="0 0 760 {canvas_height:g}"').replace(
+        'height="100%"', f'height="{canvas_height:g}"'
+    )
+
+
 class PreviewDrawingAdapter:
     id = "drawing.vendor-neutral.preview"
     version = "drawing-preview-v1"
@@ -89,8 +166,7 @@ class PreviewDrawingAdapter:
             if not isinstance(part, Mapping):
                 continue
             part_id = str(part.get("id", "part"))
-            bbox = part.get("bbox_mm", ())
-            dimensions = tuple(float(value) for value in bbox) if isinstance(bbox, (list, tuple)) and len(bbox) == 3 else ()
+            dimensions = _bbox(part) or ()
             if len(dimensions) == 3 and all(value > 0 for value in dimensions):
                 for name, value, anchor in (
                     ("length", dimensions[0], (0.0, -14.0)),
@@ -133,7 +209,20 @@ class PreviewDrawingAdapter:
                 ))
         if any(item.status == "needs_review" for item in annotations):
             diagnostics.append("annotation placement collision requires review")
-        return AnnotationResult(tuple(annotations), tuple(diagnostics))
+        annotation_values = tuple(annotations)
+        drawing_svg = _drawing_svg(model, annotation_values)
+        return AnnotationResult(
+            annotation_values,
+            tuple(diagnostics),
+            {
+                "drawing_backend": "vendor-neutral-parametric-preview",
+                "drawing_format": "svg",
+                "drawing_svg": drawing_svg,
+                "drawing_hash": canonical_hash(drawing_svg),
+                "annotation_standard": f"{_STANDARD} + {_GDT_STANDARD} candidate",
+                "source_kind": "development",
+            },
+        )
 
 
 __all__ = ["PreviewDrawingAdapter"]

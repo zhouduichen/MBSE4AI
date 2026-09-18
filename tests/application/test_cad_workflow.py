@@ -43,6 +43,9 @@ def test_cad_plan_execute_review_and_apply_are_idempotent(tmp_path: Path):
     review = services.design_review("p").review(model["id"], model["model_payload"])
     assert review["status"] == "passed"
     assert {"top", "isometric"} <= set(review["annotations"][0]["views"])
+    assert review["artifacts"]["drawing_svg"].startswith("<svg")
+    assert review["artifacts"]["drawing_hash"]
+    assert review["artifacts"]["source_kind"] == "development"
     assert services.design_review("p").review(model["id"], model["model_payload"])["idempotent"] is True
 
     applied = cad.apply_model(model["id"])

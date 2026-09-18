@@ -79,6 +79,8 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
     model = cad.execute_plan(plan["id"])
     review = services.design_review("acceptance").review(model["id"], model["model_payload"])
     assert review["annotations"]
+    assert review["artifacts"]["drawing_svg"].startswith("<svg")
+    assert review["artifacts"]["drawing_hash"]
     assert review["artifacts"]["risk_highlight_svg"].startswith("<svg")
 
     risky_payload = json.loads(json.dumps(model["model_payload"]))
@@ -107,6 +109,7 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
     package = services.deliverables("acceptance").build("acceptance")
     assert {"sysml", "behavior", "traceability", "concept_design", "detail_design"} <= set(package["artifacts"])
     assert package["artifacts"]["behavior"]["content"]["sequence_diagrams"]
+    assert package["artifacts"]["detail_design"]["content"]["design_reviews"][-1]["artifacts"]["drawing_svg"].startswith("<svg")
     archive_bytes, _ = services.deliverables("acceptance").export_zip("acceptance")
     with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
         assert {"model.sysml", "behavior.json", "concept-design.json", "detail-design.json"} <= set(archive.namelist())

@@ -70,7 +70,7 @@
   const renderModel = (model) => {
     chain.innerHTML = `<pre>${JSON.stringify(model, null, 2)}</pre><div class="actions"><button class="button" id="cad-apply-button">写入 ModelGraph</button><button class="button" id="cad-review-button">生成标注与 DFM/DFA 审查</button></div>`;
     document.querySelector('#cad-apply-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/apply`, {method: 'POST'}); status.textContent = `已写入 ${result.apply.entity.id}`; } catch (error) { status.textContent = error.message; } };
-    document.querySelector('#cad-review-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/review`, {method: 'POST'}); chain.innerHTML += `<pre>${JSON.stringify(result.review, null, 2)}</pre>`; status.textContent = result.review.status; } catch (error) { status.textContent = error.message; } };
+    document.querySelector('#cad-review-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/review`, {method: 'POST'}); const drawing = result.review.artifacts?.drawing_svg || ''; chain.innerHTML += `<div class="callout info">二维图纸预览（development evidence，不是正式工程图）</div><div class="svg-preview">${drawing}</div><pre>${JSON.stringify(result.review, null, 2)}</pre>`; status.textContent = result.review.status; } catch (error) { status.textContent = error.message; } };
   };
   document.querySelector('#cad-intent-submit').onclick = async () => {
     status.textContent = '分析中…';

@@ -79,13 +79,15 @@ class FreeCadDrawingAdapter(PreviewDrawingAdapter):
         self, model: Mapping[str, object], context: Mapping[str, object] | None = None
     ) -> AnnotationResult:
         result = super().generate_annotations(model, context)
+        drawing_svg = _risk_svg(model, (), result.annotations)
         return AnnotationResult(
             result.annotations,
             result.diagnostics,
             {
                 "drawing_backend": "FreeCAD geometry projection",
                 "source_kind": "real",
-                "drawing_svg": _risk_svg(model, (), result.annotations),
+                "drawing_svg": drawing_svg,
+                "drawing_hash": canonical_hash(drawing_svg),
                 "annotation_standard": "GB/T 1804-m + ASME Y14.5 candidate",
             },
         )

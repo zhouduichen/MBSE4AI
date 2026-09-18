@@ -76,7 +76,7 @@ Jiayu-intern 的 SSH 转发、Profile JSON 和一次性 CASE-04 验收命令见
 
 总体设计页的“从 ModelGraph 提取指标”会调用 `/projects/<project-id>/concept-design/input`，把需求中的显式质量、尺寸、速度等约束回填到可编辑指标包络，并明确显示缺失必填参数；生成后页面按候选展示气动、结构、重量/重心评估指标、状态、适用域/批准诊断、候选完成度、Pareto 候选和优化停止原因。`concept-design.json` 同步保存每条评估的输入参数、有效域状态、验证数据集、误差/批准信息和候选级优化反馈。
 
-详细设计开发切片位于 `/ui/projects/<project-id>/cad-design`：输入“生成铝合金支架，长100毫米，宽50毫米，高10毫米”这类意图后，系统会给出澄清问题（若信息不完整），生成可审查的 CAD 操作计划，并严格按“预览 → 审批 → 执行”创建参数化工件。默认是离线 preview；显式设置 `AI4MBSE_CAD_BACKEND=freecad-remote` 后，操作计划会通过 SSH 在远程 FreeCAD headless 中生成真实 `.FCStd`/`.step`，重新读取校验实体、回传到项目 `.rflp/cad_artifacts`，并可通过页面下载。执行结果可回写为 `PhysicalBlock` 并与来源 Requirement 建立 `satisfiedBy` 关系；随后可生成共享 2D/3D 语义标注、基准 A、基础 GD&T 建议、风险高亮 SVG 和带特征位置证据的 DFM/DFA finding。应用 CAD 模型时，已有审查结果会一并回接 PhysicalBlock，并随 SysML v2 子集往返和完整交付包输出。CAD 意图仍遵循“未显式选择远程 Profile 时不调用本机模型”的约束。
+详细设计开发切片位于 `/ui/projects/<project-id>/cad-design`：输入“生成铝合金支架，长100毫米，宽50毫米，高10毫米”这类意图后，系统会给出澄清问题（若信息不完整），生成可审查的 CAD 操作计划，并严格按“预览 → 审批 → 执行”创建参数化工件。默认是离线 preview；显式设置 `AI4MBSE_CAD_BACKEND=freecad-remote` 后，操作计划会通过 SSH 在远程 FreeCAD headless 中生成真实 `.FCStd`/`.step`，重新读取校验实体、回传到项目 `.rflp/cad_artifacts`，并可通过页面下载。执行结果可回写为 `PhysicalBlock` 并与来源 Requirement 建立 `satisfiedBy` 关系；随后可生成共享 2D/3D 语义标注、基准 A、基础 GD&T 建议、厂商无关的二维图纸 SVG 预览、风险高亮 SVG 和带特征位置证据的 DFM/DFA finding。二维图纸预览与标注共享同一语义对象和哈希，并明确标记为 development evidence；应用 CAD 模型时，已有审查结果会一并回接 PhysicalBlock，并随 SysML v2 子集往返和完整交付包输出。CAD 意图仍遵循“未显式选择远程 Profile 时不调用本机模型”的约束。
 
 当总体布局或 CAD 意图没有显式传入来源需求时，系统会从当前 ModelGraph 选择未拒绝的根 Requirement 自动建立来源范围；显式选择仍优先。这样需求分析后的概念候选和详细设计 PhysicalBlock 不再依赖手工复制需求 ID，且保留完整 R→设计对象的追溯关系。
 
@@ -172,4 +172,4 @@ RFLP_CONFIG_DIR="$(mktemp -d)" AI4MBSE_CAD_BACKEND=preview ./.venv/bin/python -m
 
 ## 边界
 
-Core 已包含当前版的 M3/M4 概念布局切片和 M5 详细设计开发切片：总体设计页面和 `/projects/{id}/concept-design/run` 可基于固定翼领域包检索历史方案、生成 3–5 套可行概念布局、输出确定性二维 SVG，并并行执行气动/结构/重量重心开发评估及帕累托反馈；每条评估现在保留可复核的输入、适用域、验证数据集和批准诊断，候选级摘要记录失败隔离与优化反馈。详细设计页面提供自然语言 CAD 意图、操作计划、远程 FreeCAD 实体生成、标注和 DFM/DFA 审查。内置评估器仍标记为 development evidence；FreeCAD 后端只在显式配置后连接远程服务器，正式制造结论仍需客户批准的标准、规则库和验证适配器。旧版智能发现、Project Bridge、测试执行沙箱、旧 Baseline/TaskContract/Job 体系或 MLflow 适配器仍不作为隐式依赖存在。
+Core 已包含当前版的 M3/M4 概念布局切片和 M5 详细设计开发切片：总体设计页面和 `/projects/{id}/concept-design/run` 可基于固定翼领域包检索历史方案、生成 3–5 套可行概念布局、输出确定性二维 SVG，并并行执行气动/结构/重量重心开发评估及帕累托反馈；每条评估现在保留可复核的输入、适用域、验证数据集和批准诊断，候选级摘要记录失败隔离与优化反馈。详细设计页面提供自然语言 CAD 意图、操作计划、远程 FreeCAD 实体生成、共享 2D/3D 标注、厂商无关二维图纸 SVG 预览和 DFM/DFA 审查；默认 preview 的图纸与规则结果均是 development evidence，FreeCAD 后端只在显式配置后连接远程服务器，正式制造结论仍需客户批准的标准、规则库和验证适配器。旧版智能发现、Project Bridge、测试执行沙箱、旧 Baseline/TaskContract/Job 体系或 MLflow 适配器仍不作为隐式依赖存在。
