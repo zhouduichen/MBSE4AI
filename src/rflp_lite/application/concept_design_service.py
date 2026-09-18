@@ -392,6 +392,7 @@ def _evaluation_summary(
         "optimization_evidence_status": optimization.evidence_status,
         "objective_definitions": [
             {
+                "id": str(item.get("id", f"{item.get('discipline', '')}.{item.get('metric', '')}")),
                 "discipline": str(item.get("discipline", "")),
                 "metric": str(item.get("metric", "")),
                 "direction": str(item.get("direction", "")),

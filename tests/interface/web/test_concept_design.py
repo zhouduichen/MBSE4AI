@@ -34,6 +34,7 @@ def test_concept_design_api_generates_evaluates_and_applies(tmp_path):
     assert run["evaluation_summary"]["optimization_evidence_status"] == "development"
     assert run["evaluation_summary"]["schema_version"] == "concept-evaluation-summary.v2"
     assert run["evaluation_summary"]["objective_definitions"]
+    assert all({"id", "discipline", "metric", "direction"} <= set(item) for item in run["evaluation_summary"]["objective_definitions"])
     ranking = run["evaluation_summary"]["ranking"]
     assert {row["candidate_id"] for row in ranking} == {item["id"] for item in run["candidates"]}
     assert all("rank" in row and "objectives" in row and "front" in row for row in ranking)
@@ -54,6 +55,7 @@ def test_concept_design_api_generates_evaluates_and_applies(tmp_path):
     assert "Pareto" in page.text
     assert "排序" in page.text
     assert "目标向量" in page.text
+    assert "目标顺序" in page.text
     assert '"parameters": {}' in page.text
     assert '"mass_kg": 560' not in page.text
 
