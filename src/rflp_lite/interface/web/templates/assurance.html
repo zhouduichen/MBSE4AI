@@ -36,6 +36,7 @@
           {% if row.case_id %}
           <details><summary class="button compact">记录结果</summary>
             <form class="vv-execution-form compact-form" data-case-id="{{ row.case_id }}">
+              {% if row.branch_scenarios %}<label class="field">分支场景<select name="scenario_id"><option value="">整个 V&V 用例</option>{% for scenario in row.branch_scenarios %}<option value="{{ scenario.id }}">{{ scenario.branch_type }} · {{ scenario.branch_label }} · {{ scenario.status }}</option>{% endfor %}</select></label><small class="table-secondary">分支覆盖：{{ row.branch_summary.complete }}/{{ row.branch_summary.total }} · 已执行：{{ row.branch_summary.executed }}</small>{% endif %}
               <label class="field">结果<select name="outcome"><option value="passed">通过</option><option value="failed">未通过</option><option value="blocked">受阻</option><option value="inconclusive">暂无结论</option></select></label>
               <label class="field">声明<input name="claim" required placeholder="例如：测试通过"></label>
               <label class="field">结果摘录<textarea name="excerpt" rows="2" required placeholder="粘贴测试/演示结果"></textarea></label>
@@ -62,6 +63,7 @@ document.querySelectorAll('.vv-execution-form').forEach((form) => form.addEventL
     claim: form.elements.claim.value.trim(),
     excerpt: form.elements.excerpt.value.trim(),
     locator: form.elements.locator.value.trim(),
+    scenario_id: form.elements.scenario_id?.value || null,
     expected_revision: {{ revision }},
   };
   try {

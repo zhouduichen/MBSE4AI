@@ -46,3 +46,49 @@ def test_assurance_projection_exposes_executable_plan_and_separates_evidence():
     assert row["stimulus"] == "提交任务"
     assert row["execution_evidence_ids"] == []
     assert row["plan_status"] == "PASS"
+
+
+def test_assurance_projection_exposes_branch_scenarios_and_summary():
+    requirement = make_entity(EntityKind.REQUIREMENT, "R", status=EntityStatus.ACCEPTED)
+    scenario = {
+        "id": "scenario-failure",
+        "branch_type": "failure",
+        "branch_label": "任务失败后重试",
+        "activity_id": "activity-1",
+        "requirement_ids": [requirement.id],
+        "stimulus": "触发失败",
+        "procedure": "观察重试",
+        "expected_result": "进入恢复路径",
+        "pass_criteria": "恢复结果可复核",
+        "status": "failed",
+        "execution_evidence_ids": ["evidence-1"],
+    }
+    verification = make_entity(
+        EntityKind.VERIFICATION_CASE,
+        "验证 R",
+        {
+            "method": "test",
+            "verification_objective": "证明 R 满足",
+            "precondition": "设备已部署",
+            "test_condition": "额定负载和边界工况",
+            "input": "任务数据",
+            "stimulus": "提交任务",
+            "procedure": "执行任务并记录结果",
+            "expected_result": "系统完成任务",
+            "pass_criteria": "结果满足 R",
+            "requirement_ids": [requirement.id],
+            "branch_scenarios": [scenario],
+            "execution_evidence_ids": ["evidence-1"],
+        },
+        status=EntityStatus.VALIDATED,
+    )
+    graph = ModelGraph(
+        "p1",
+        (requirement, verification),
+        (Relation("verify", requirement.id, RelationPredicate.VERIFIED_BY, verification.id),),
+    )
+
+    row = build_assurance_view(graph)["verification_validation"][0]
+
+    assert row["branch_scenarios"][0]["id"] == "scenario-failure"
+    assert row["branch_summary"] == {"total": 1, "complete": 1, "executed": 1}

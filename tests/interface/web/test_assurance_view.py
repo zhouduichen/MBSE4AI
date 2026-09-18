@@ -38,6 +38,9 @@ def test_assurance_page_exposes_controller_next_action_after_vv_failure(tmp_path
     assert "未配置模型" in page.text
     assert "task_id" not in page.text
     assert "重构受影响功能" in page.text
+    assert "分支场景" in page.text
+    assert "scenario_id" in page.text
+    assert "分支覆盖" in page.text
 
 
 def test_assurance_page_renders_executable_vv_plan_fields(tmp_path):

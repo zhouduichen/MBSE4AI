@@ -344,6 +344,10 @@ def test_vv_execution_endpoint_records_result_and_exposes_failure_feedback(tmp_p
     verification = next(
         item for item in model["entities"] if item["kind"] == "verification_case"
     )
+    scenario = next(
+        item for item in verification["payload"]["branch_scenarios"]
+        if item["branch_type"] == "failure"
+    )
 
     response = client.post(
         f"/projects/p1/vv/{verification['id']}/execute",
@@ -352,6 +356,7 @@ def test_vv_execution_endpoint_records_result_and_exposes_failure_feedback(tmp_p
             "claim": "接管响应超时",
             "excerpt": "测试日志：响应时间 4.2 s，超过通过准则。",
             "locator": "test.log:42",
+            "scenario_id": scenario["id"],
             "expected_revision": generated["revision"],
         },
     )
@@ -360,7 +365,18 @@ def test_vv_execution_endpoint_records_result_and_exposes_failure_feedback(tmp_p
     execution = response.json()["execution"]
     assert execution["outcome"] == "failed"
     assert execution["evidence_id"]
+    assert execution["scenario_id"] == scenario["id"]
     assert execution["methodology"]["metrics"]["vv_execution_failure_count"] == 1
+    updated_model = client.get("/projects/p1/model").json()
+    updated_verification = next(
+        item for item in updated_model["entities"]
+        if item["id"] == verification["id"]
+    )
+    updated_scenario = next(
+        item for item in updated_verification["payload"]["branch_scenarios"]
+        if item["id"] == scenario["id"]
+    )
+    assert updated_scenario["status"] == "failed"
     assert any(
         item["code"] == "verification_execution_failed"
         for item in client.get("/projects/p1/issues").json()["issues"]

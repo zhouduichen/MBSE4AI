@@ -46,6 +46,7 @@ class VvExecutionResult:
     issue_id: str = ""
     methodology: Mapping[str, object] = None
     controller: Mapping[str, object] = None
+    scenario_id: str = ""
 
     def as_dict(self) -> Mapping[str, object]:
         return {
@@ -56,6 +57,7 @@ class VvExecutionResult:
             "evidence_id": self.evidence_id,
             "revision": self.revision,
             "issue_id": self.issue_id,
+            "scenario_id": self.scenario_id,
             "methodology": dict(self.methodology or {}),
             "controller": dict(self.controller or {}),
         }
@@ -88,6 +90,7 @@ class VvExecutionService:
         source_type: str = "vv_execution",
         expected_revision: int | None = None,
         metadata: Mapping[str, object] | None = None,
+        scenario_id: str | None = None,
     ) -> VvExecutionResult:
         graph = self.model_service.graph(project_id)
         case = graph.entity_index.get(case_id)
@@ -103,18 +106,35 @@ class VvExecutionService:
                 f"stale V&V execution result: expected {revision}, current {graph.revision}"
             )
         normalized = _normalize_outcome(outcome)
+        clean_scenario_id = str(scenario_id or "").strip()
+        branch_scenarios = case.payload.get("branch_scenarios", ())
+        if clean_scenario_id:
+            if not isinstance(branch_scenarios, (list, tuple)):
+                raise NotFoundError(f"V&V branch scenario not found: {clean_scenario_id}")
+            selected_scenario = next(
+                (
+                    item for item in branch_scenarios
+                    if isinstance(item, Mapping)
+                    and str(item.get("id", "")) == clean_scenario_id
+                ),
+                None,
+            )
+            if selected_scenario is None:
+                raise NotFoundError(f"V&V branch scenario not found: {clean_scenario_id}")
         clean_claim = str(claim).strip()
         clean_excerpt = str(excerpt).strip()
         if not clean_claim or not clean_excerpt:
             raise ContractViolation("V&V execution requires claim and excerpt")
         clean_locator = str(locator).strip()
         clean_source_type = str(source_type).strip() or "vv_execution"
-        evidence_id = f"evidence-vv-{canonical_hash((project_id, case_id, normalized, clean_claim, clean_excerpt, clean_locator))[:16]}"
+        evidence_id = f"evidence-vv-{canonical_hash((project_id, case_id, clean_scenario_id, normalized, clean_claim, clean_excerpt, clean_locator))[:16]}"
         existing_ids = tuple(dict.fromkeys(
             [*case.meta.evidence_ids, *list(_evidence_ids(case.payload))]
         ))
         if evidence_id in existing_ids:
-            return self._result(project_id, case, normalized, evidence_id, graph.revision, "")
+            return self._result(
+                project_id, case, normalized, evidence_id, graph.revision, "", clean_scenario_id,
+            )
 
         evidence = {
             "id": evidence_id,
@@ -123,6 +143,7 @@ class VvExecutionService:
             "locator": clean_locator,
             "claim": clean_claim,
             "excerpt": clean_excerpt,
+            "scenario_id": clean_scenario_id,
         }
         self.repository.save_evidence(project_id, evidence)
         record = {
@@ -131,6 +152,7 @@ class VvExecutionService:
             "claim": clean_claim,
             "locator": clean_locator,
             "source_type": clean_source_type,
+            "scenario_id": clean_scenario_id,
             "metadata": dict(metadata or {}),
             "recorded_revision": graph.revision + 1,
         }
@@ -140,6 +162,27 @@ class VvExecutionService:
         execution_evidence_ids = list(dict.fromkeys([
             *list(_execution_evidence_ids(case.payload)), evidence_id
         ]))
+        next_branch_scenarios = list(branch_scenarios) if isinstance(branch_scenarios, (list, tuple)) else []
+        if clean_scenario_id:
+            next_branch_scenarios = [
+                {
+                    **dict(item),
+                    "status": normalized,
+                    "execution_evidence_ids": list(dict.fromkeys([
+                        *(
+                            list(item.get("execution_evidence_ids", ()))
+                            if isinstance(item, Mapping)
+                            and isinstance(item.get("execution_evidence_ids", ()), (list, tuple))
+                            else []
+                        ),
+                        evidence_id,
+                    ])),
+                    "last_execution": record,
+                }
+                if isinstance(item, Mapping) and str(item.get("id", "")) == clean_scenario_id
+                else item
+                for item in next_branch_scenarios
+            ]
         patch = Patch.create(
             project_id,
             "vv.execute",
@@ -166,6 +209,7 @@ class VvExecutionService:
                         "execution_status": normalized,
                         "last_execution": record,
                         "execution_records": [*previous_records, record],
+                        **({"branch_scenarios": next_branch_scenarios} if clean_scenario_id else {}),
                     },
                 }),
                 *(
@@ -193,13 +237,17 @@ class VvExecutionService:
             "case_type": case.kind.value,
             "outcome": normalized,
             "evidence_id": evidence_id,
+            "scenario_id": clean_scenario_id,
             "revision": next_revision,
             "issue_id": issue_id,
         })
         updated = self.model_service.graph(project_id)
-        return self._result(project_id, updated.entity_index[case_id], normalized, evidence_id, next_revision, issue_id)
+        return self._result(
+            project_id, updated.entity_index[case_id], normalized, evidence_id,
+            next_revision, issue_id, clean_scenario_id,
+        )
 
-    def _result(self, project_id, case, outcome, evidence_id, revision, issue_id):
+    def _result(self, project_id, case, outcome, evidence_id, revision, issue_id, scenario_id=""):
         report = self.methodology_engine.analyze(self.model_service.graph(project_id))
         return VvExecutionResult(
             project_id,
@@ -211,6 +259,7 @@ class VvExecutionService:
             issue_id,
             report.as_dict(),
             self.controller.plan(self.model_service.graph(project_id), report).as_dict(),
+            scenario_id,
         )
 
     def _record_execution_issue(self, project_id, case, outcome, evidence_id, excerpt):

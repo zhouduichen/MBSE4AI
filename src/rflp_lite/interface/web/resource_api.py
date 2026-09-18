@@ -1501,6 +1501,7 @@ async def execute_vv(request: Request, project_id: str, case_id: str):
             source_type=str(payload.get("source_type", "vv_execution")),
             expected_revision=payload.get("expected_revision"),
             metadata=payload.get("metadata") if isinstance(payload.get("metadata"), Mapping) else None,
+            scenario_id=str(payload.get("scenario_id", "")).strip() or None,
         )
         execution = result.as_dict()
         return {"status": "ok", "execution": execution, **execution}

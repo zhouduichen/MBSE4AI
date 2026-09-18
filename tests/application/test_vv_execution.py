@@ -103,6 +103,46 @@ def test_vv_execution_pass_resolves_prior_failure_without_duplicate_evidence(tmp
     )
 
 
+def test_vv_execution_updates_selected_branch_scenario(tmp_path: Path):
+    services = build_v2_services(
+        tmp_path / "workspaces",
+        runtime=VerticalRuleRuntime(),
+    )
+    services.projects.create("branch-execution")
+    generated = services.generation("branch-execution").generate(
+        "branch-execution",
+        requirement_text="系统应支持人工接管",
+    )
+    graph = services.model("branch-execution").graph("branch-execution")
+    case = next(
+        item for item in graph.entities
+        if item.kind is EntityKind.VERIFICATION_CASE
+    )
+    scenario = next(
+        item for item in case.payload["branch_scenarios"]
+        if item["branch_type"] == "failure"
+    )
+
+    result = services.vv("branch-execution").record_result(
+        "branch-execution",
+        case.id,
+        scenario_id=scenario["id"],
+        outcome="failed",
+        claim="失败分支未能安全接管",
+        excerpt="测试记录显示未进入人工接管",
+        expected_revision=generated.revision,
+    )
+
+    updated = services.model("branch-execution").graph("branch-execution").entity_index[case.id]
+    changed = next(
+        item for item in updated.payload["branch_scenarios"]
+        if item["id"] == scenario["id"]
+    )
+    assert changed["status"] == "failed"
+    assert result.evidence_id in changed["execution_evidence_ids"]
+    assert changed["last_execution"]["scenario_id"] == scenario["id"]
+
+
 def test_vv_failure_can_drive_targeted_downstream_iteration(tmp_path: Path):
     services = build_v2_services(
         tmp_path / "workspaces",

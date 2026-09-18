@@ -89,6 +89,24 @@ def build_assurance_view(graph: ModelGraph, issues: tuple[Mapping[str, object], 
                 }
                 plan_missing = list(missing_vv_plan_fields(case.payload)) if case else [kind]
                 plan_complete = bool(case and not plan_missing)
+                branch_scenarios = [
+                    dict(item)
+                    for item in (case.payload.get("branch_scenarios", ()) if case else ())
+                    if isinstance(item, Mapping)
+                ]
+                branch_summary = {
+                    "total": len(branch_scenarios),
+                    "complete": sum(
+                        str(item.get("status", "")) != "needs_review"
+                        for item in branch_scenarios
+                    ),
+                    "executed": sum(
+                        str(item.get("status", ""))
+                        in {"passed", "failed", "blocked", "inconclusive"}
+                        or bool(item.get("execution_evidence_ids"))
+                        for item in branch_scenarios
+                    ),
+                }
                 vv_rows.append({
                     "requirement_id": requirement.id,
                     "requirement": requirement.meta.name,
@@ -108,6 +126,8 @@ def build_assurance_view(graph: ModelGraph, issues: tuple[Mapping[str, object], 
                     "execution_status": case.payload.get("execution_status", "pending") if case else "missing",
                     "execution_evidence_ids": list(case.payload.get("execution_evidence_ids", ())) if case and isinstance(case.payload.get("execution_evidence_ids", ()), (list, tuple)) else [],
                     "last_execution": case.payload.get("last_execution", {}) if case else {},
+                    "branch_scenarios": branch_scenarios,
+                    "branch_summary": branch_summary,
                     "issues": list(issue_index.get(requirement.id, ())),
                 })
     hazards = []
