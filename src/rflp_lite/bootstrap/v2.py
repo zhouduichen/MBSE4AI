@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from collections.abc import Sequence
 from typing import Mapping
@@ -9,6 +10,8 @@ from urllib.parse import urlparse
 
 from rflp_lite.adapters.document_intelligence import LocalDocumentParser
 from rflp_lite.adapters.cad_preview import PreviewCadAdapter
+from rflp_lite.adapters.freecad_remote import FreeCadRemoteAdapter, FreeCadRemoteConfig
+from rflp_lite.adapters.freecad_review import FreeCadDesignRuleAdapter, FreeCadDrawingAdapter
 from rflp_lite.adapters.design_rules_preview import PreviewDesignRuleAdapter
 from rflp_lite.adapters.drawing_preview import PreviewDrawingAdapter
 from rflp_lite.adapters.disciplines import discipline_registry
@@ -191,7 +194,7 @@ class V2Services:
         return CadWorkflowService(
             self.repository(project_id),
             project_id,
-            cad=PreviewCadAdapter(),
+            cad=self._cad_adapter(project_id),
             intent_service=DesignIntentService(
                 model=getattr(selection.runtime, "model", None),
                 provider_id=selection.provider_id,
@@ -200,12 +203,23 @@ class V2Services:
         )
 
     def design_review(self, project_id: str) -> DesignReviewService:
+        real_cad = self._real_cad_enabled()
         return DesignReviewService(
             self.repository(project_id),
             project_id,
-            drawing=PreviewDrawingAdapter(),
-            rules=PreviewDesignRuleAdapter(),
+            drawing=FreeCadDrawingAdapter() if real_cad else PreviewDrawingAdapter(),
+            rules=FreeCadDesignRuleAdapter() if real_cad else PreviewDesignRuleAdapter(),
         )
+
+    def _cad_adapter(self, project_id: str):
+        if not self._real_cad_enabled():
+            return PreviewCadAdapter()
+        artifact_root = self.projects.path(project_id) / ".rflp" / "cad_artifacts"
+        return FreeCadRemoteAdapter(FreeCadRemoteConfig.from_env(artifact_root))
+
+    @staticmethod
+    def _real_cad_enabled() -> bool:
+        return os.getenv("AI4MBSE_CAD_BACKEND", "preview").strip().casefold() == "freecad-remote"
 
     def evidence(self, project_id: str) -> EvidenceService:
         repository = self.repository(project_id)

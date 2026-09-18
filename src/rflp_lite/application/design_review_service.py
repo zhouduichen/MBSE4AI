@@ -34,7 +34,8 @@ class DesignReviewService:
             "model_id": model_id,
             "annotations": [to_primitive(item) for item in result.annotations],
             "diagnostics": list(result.diagnostics),
-            "source_kind": "development",
+            "artifacts": to_primitive(result.artifacts),
+            "source_kind": _source_kind(model_payload),
         }
 
     def review(self, model_id: str, model_payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -66,7 +67,11 @@ class DesignReviewService:
             "status": "needs_review" if open_critical or any(item.status == "needs_review" for item in annotations.annotations) else "passed",
             "input_hash": input_hash,
             "diagnostics": list(annotations.diagnostics) + list(findings.diagnostics),
-            "source_kind": "development",
+            "artifacts": {
+                **to_primitive(annotations.artifacts),
+                **to_primitive(findings.artifacts),
+            },
+            "source_kind": _source_kind(model_payload),
             "rule_version": getattr(self.rules, "version", "unknown"),
         }
         self.store.save("design_review", record)
@@ -114,3 +119,7 @@ class DesignReviewService:
 
 
 __all__ = ["DesignReviewService"]
+
+
+def _source_kind(model_payload: Mapping[str, Any]) -> str:
+    return "real" if str(model_payload.get("cad_system", "")).casefold() == "freecad" else "development"

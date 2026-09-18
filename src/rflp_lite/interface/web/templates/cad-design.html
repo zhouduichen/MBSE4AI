@@ -10,7 +10,7 @@
 </section>
 
 <section class="card">
-  <div class="card-header"><div><h2>输入设计意图</h2><p>当前使用厂商无关的开发适配器；正式 CAD 验收需配置真实 CAD 适配器。</p></div></div>
+  <div class="card-header"><div><h2>输入设计意图</h2><p>{% if capabilities.source_kind == 'real' %}当前使用远程 FreeCAD 实体后端，输出可下载的 FCStd/STEP 工件。{% else %}当前使用厂商无关的开发适配器；设置 AI4MBSE_CAD_BACKEND=freecad-remote 后启用远程 FreeCAD。{% endif %}</p></div></div>
   <textarea id="cad-intent-text" rows="4" placeholder="例如：生成铝合金支架，长100毫米，宽50毫米，高10毫米"></textarea>
   <input id="cad-source-requirements" placeholder="来源需求 ID（可选，逗号分隔）">
   <label class="field compact-field" for="cad-profile">远程模型（可选；不选则使用确定性解析）
@@ -27,10 +27,10 @@
 </section>
 
 <section class="card">
-  <div class="card-header"><div><h2>已有模型与审查</h2><p>模型输出包含参数化 JSON、OBJ 和 OpenSCAD 源码；审查结果保留在项目审计链中。</p></div></div>
+  <div class="card-header"><div><h2>已有模型与审查</h2><p>模型、标注和 DFM/DFA 审查结果保留在项目审计链中；真实后端会登记 FCStd/STEP 下载入口。</p></div></div>
   <div id="cad-models">
     {% for model in models %}
-    <article class="list-card"><div class="list-card-header"><strong>{{ model.id }}</strong><span class="status-pill">{{ model.model.status }}</span></div><pre>{{ model.model_payload|tojson(indent=2) }}</pre></article>
+    <article class="list-card"><div class="list-card-header"><strong>{{ model.id }}</strong><span class="status-pill">{{ model.model.status }}</span></div><pre>{{ model.model_payload|tojson(indent=2) }}</pre>{% if model.model_payload.artifacts %}<div class="actions"><a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/fcstd">下载 FCStd</a><a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/step">下载 STEP</a></div>{% endif %}</article>
     {% else %}<p class="muted">尚无已执行模型。</p>{% endfor %}
   </div>
 </section>

@@ -154,7 +154,13 @@ def _plan_operations(intent: DesignIntent) -> tuple[CadOperation, ...]:
             CadOperation(
                 "add-hole",
                 "add_hole",
-                (("part_id", intent.id), ("diameter_mm", diameter), ("depth_mm", height or diameter * 2)),
+                (
+                    ("part_id", intent.id),
+                    ("diameter_mm", diameter),
+                    ("depth_mm", height or diameter * 2),
+                    ("x_mm", (length or diameter) / 2),
+                    ("y_mm", (width or diameter) / 2),
+                ),
                 ("create-box",),
                 "创建孔特征",
             )

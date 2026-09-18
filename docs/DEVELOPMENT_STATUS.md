@@ -85,7 +85,7 @@
 | 可执行 V&V 计划闭环 | V&V prompt、结构化 Schema、语义校核、离线/生命周期运行时、Methodology、Assurance 页面和 `vv-plan` 交付物共享九字段计划契约；来源 `evidence_ids` 与实际 `execution_evidence_ids` 分离，计划完整不宣称执行通过 |
 | 候选状态与完成度隔离 | 候选实体保留在 Review、架构候选和约束分析上下文中，但只有 validated/accepted/locked 实体参与 Methodology 完成度与覆盖统计；候选 Physical 仍可触发冲突检测和 Trade Study |
 | 总体布局候选生成（2.1） | 版本化声明式领域包、JSON/CSV 历史方案导入、加权相似检索、确定性 3–5 套满足硬约束的候选、来源/差异/约束余量、俯视/侧视概念 SVG；可将人工选择候选写入现有 `PhysicalBlock` |
-| 详细设计开发切片（3.1–3.3） | 设计意图与澄清、CAD 操作计划、预览/审批/执行门、参数化 JSON/OBJ/OpenSCAD 开发工件、标注/基准/GD&T 建议、DFM/DFA finding、审查状态、PhysicalBlock 回写和审计链；厂商无关 preview，尚未作为真实 CAD 正式验收 |
+| 详细设计开发切片（3.1–3.3） | 设计意图与澄清、CAD 操作计划、预览/审批/执行门、远程 FreeCAD headless 实体生成与 FCStd/STEP 回读、几何摘要、标注/基准/GD&T 候选、风险高亮 SVG、DFM/DFA finding、审查状态、PhysicalBlock 回写和审计链；FreeCAD 真实几何链已可验收，正式制造结论仍需客户标准和规则库 |
 | 多学科快速评估（2.2） | 气动、结构、重量/重心三个适配器有界并行执行；保留输入/输出哈希、适配器版本、缓存、失败隔离、代理有效域门禁、帕累托排序和有界优化反馈；内置计算器固定标记为 development evidence |
 
 ## 历史 Harness 验收边界
@@ -101,7 +101,7 @@ PR09 的 conformance runner 位于 `tests/contract_conformance/`，默认使用�
 
 最终 live artifact：`docs/superpowers/artifacts/pr09/contract-conformance-1789049206566817000.json`。五阶段主验收位于 `tests/e2e/test_vertical_model_generation.py`；完整 23-task 主验收位于 `tests/e2e/test_legacy_pipeline.py`、`tests/runtime/test_lifecycle_rule_runtime.py` 和 `tests/application/test_sysml_v2.py`。脚本模型验收不等同于真实 Provider 稳定性。
 
-Methodology Engine v1 的边界是确定性反馈；Systems Engineering Controller v1 已将这些反馈转成有限动作，并允许用户比较候选方案后提交 Trade Study 决策。Review 后可显式继续生成下游：系统从已接受实体的下一层运行到 V&V，锁定实体作为只读锚点，V&V 不创建空的后续运行。当前 Controller 仍不替用户无审查地改写工程事实或选择方案；V&V 已支持外部结果/证据接入和失败反馈，工程工具已有注册式结果端口和内置模型约束分析器，但真实测试执行沙箱、仿真适配和 CAD/真实工程工具连接仍需接入经批准的具体适配器。
+Methodology Engine v1 的边界是确定性反馈；Systems Engineering Controller v1 已将这些反馈转成有限动作，并允许用户比较候选方案后提交 Trade Study 决策。Review 后可显式继续生成下游：系统从已接受实体的下一层运行到 V&V，锁定实体作为只读锚点，V&V 不创建空的后续运行。当前 Controller 仍不替用户无审查地改写工程事实或选择方案；V&V 已支持外部结果/证据接入和失败反馈，工程工具已有注册式结果端口和内置模型约束分析器，详细设计已接通远程 FreeCAD 实体适配器，但真实测试执行沙箱、仿真适配和更完整 CAD/PMI 工具连接仍需按客户环境接入。
 
 ## 当前验收命令
 
@@ -111,11 +111,12 @@ Methodology Engine v1 的边界是确定性反馈；Systems Engineering Controll
 ./.venv/bin/ruff check src tests scripts
 ./.venv/bin/python scripts/architecture_metrics.py
 ./.venv/bin/lint-imports
+AI4MBSE_CAD_BACKEND=freecad-remote ./.venv/bin/pytest -q tests/integration/test_freecad_remote.py
 ```
 
 ## 明确边界
 
-本版本已将 2.1/2.2 的概念布局与多学科快速评估切片接回 Core，并开始形成 3.1–3.3 的厂商无关详细设计开发链。当前固定翼评估器和 CAD/标注/DFM-DFA preview 都是开发证据；正式工程结论仍需客户批准的真实工具、标准配置和验证合格适配器。
+本版本已将 2.1/2.2 的概念布局与多学科快速评估切片接回 Core，并将 3.1–3.3 接到远程 FreeCAD 真实几何链。默认 preview 不触碰本机模型；设置 `AI4MBSE_CAD_BACKEND=freecad-remote` 后使用 `Jiayu-intern` 上的独立 FreeCAD 环境，输出 FCStd/STEP 并回读验证。固定翼评估器、GD&T 标准映射和 DFM/DFA 规则仍是开发证据；正式工程结论仍需客户批准的真实标准、规则库和验证合格适配器。
 
 Track B 需要显式配置 profile，不能在无密钥 CI 中默认运行：
 

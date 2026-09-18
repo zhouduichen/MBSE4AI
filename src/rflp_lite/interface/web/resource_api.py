@@ -9,7 +9,7 @@ from typing import Mapping
 from uuid import uuid4
 
 from fastapi import APIRouter, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.canonical import to_primitive
@@ -814,6 +814,26 @@ def apply_cad_model(request: Request, project_id: str, model_id: str):
     try:
         result = _services(request).cad_design(project_id).apply_model(model_id)
         return {"status": "ok", "apply": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/cad/models/{model_id}/artifacts/{artifact_name}")
+def download_cad_artifact(request: Request, project_id: str, model_id: str, artifact_name: str):
+    try:
+        suffixes = {"fcstd": ("fcstd", "application/octet-stream"), "step": ("step", "application/step")}
+        suffix, media_type = suffixes.get(artifact_name.casefold(), ("", ""))
+        if not suffix:
+            raise ContractViolation("artifact_name must be fcstd or step")
+        services = _services(request)
+        model = services.cad_design(project_id).get_model(model_id)
+        payload = model.get("model_payload", {})
+        raw_path = payload.get("artifacts", {}).get(suffix) if isinstance(payload, Mapping) else None
+        path = Path(str(raw_path)).resolve()
+        root = (services.projects.path(project_id) / ".rflp" / "cad_artifacts").resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise NotFoundError("CAD artifact is not available")
+        return FileResponse(path, media_type=media_type, filename=f"{model_id}.{suffix}")
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 

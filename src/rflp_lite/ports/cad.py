@@ -47,12 +47,14 @@ class CadOperationResult:
 class AnnotationResult:
     annotations: tuple[DrawingAnnotation, ...]
     diagnostics: tuple[str, ...] = ()
+    artifacts: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class RuleReviewResult:
     findings: tuple[DesignFinding, ...]
     diagnostics: tuple[str, ...] = ()
+    artifacts: Mapping[str, Any] = field(default_factory=dict)
 
 
 class CadPort(Protocol):
