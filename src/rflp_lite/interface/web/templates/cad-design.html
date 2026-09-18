@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}详细设计与制造审查 · AI4MBSE{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">M5 / 3.1–3.3</p>
+    <h1>详细设计与制造审查</h1>
+    <p class="lede">自然语言意图 → 澄清 → CAD 执行计划 → 审批 → 参数化模型 → 标注与 DFM/DFA 审查。</p>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>输入设计意图</h2><p>当前使用厂商无关的开发适配器；正式 CAD 验收需配置真实 CAD 适配器。</p></div></div>
+  <textarea id="cad-intent-text" rows="4" placeholder="例如：生成铝合金支架，长100毫米，宽50毫米，高10毫米"></textarea>
+  <input id="cad-source-requirements" placeholder="来源需求 ID（可选，逗号分隔）">
+  <label class="field compact-field" for="cad-profile">远程模型（可选；不选则使用确定性解析）
+    <select id="cad-profile"><option value="">确定性开发解析器</option>{% for profile in model_profiles %}<option value="{{ profile.id }}" {% if profile.id == active_profile_id %}selected{% endif %}>{{ profile.label or profile.id }} · {{ profile.model }}</option>{% endfor %}</select>
+  </label>
+  <div class="actions"><button class="button primary" id="cad-intent-submit">分析设计意图</button><span class="muted" id="cad-status"></span></div>
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>执行链</h2><p id="cad-chain-summary">{% if drafts %}已有 {{ drafts|length }} 个意图草案{% else %}尚未创建意图草案{% endif %}</p></div></div>
+  <div id="cad-chain">
+    {% if drafts %}<pre>{{ drafts[-1]|tojson(indent=2) }}</pre>{% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>已有模型与审查</h2><p>模型输出包含参数化 JSON、OBJ 和 OpenSCAD 源码；审查结果保留在项目审计链中。</p></div></div>
+  <div id="cad-models">
+    {% for model in models %}
+    <article class="list-card"><div class="list-card-header"><strong>{{ model.id }}</strong><span class="status-pill">{{ model.model.status }}</span></div><pre>{{ model.model_payload|tojson(indent=2) }}</pre></article>
+    {% else %}<p class="muted">尚无已执行模型。</p>{% endfor %}
+  </div>
+</section>
+
+<script>
+(() => {
+  const projectId = {{ project_id|tojson }};
+  const status = document.querySelector('#cad-status');
+  const chain = document.querySelector('#cad-chain');
+  const summary = document.querySelector('#cad-chain-summary');
+  const call = async (url, options = {}) => {
+    const response = await fetch(url, {headers: {'content-type': 'application/json'}, ...options});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || '请求失败');
+    return payload;
+  };
+  const renderDraft = (draft) => {
+    chain.innerHTML = `<pre>${JSON.stringify(draft, null, 2)}</pre><div class="actions"><button class="button primary" id="cad-plan-button">生成执行计划</button></div>`;
+    summary.textContent = draft.status === 'ready' ? '意图已就绪，可生成待审批计划' : '存在澄清项，计划只能预览，不能审批执行';
+    document.querySelector('#cad-plan-button').onclick = async () => {
+      try {
+        const planned = await call(`/projects/${projectId}/cad/plan`, {method: 'POST', body: JSON.stringify({draft_id: draft.draft_id})});
+        renderPlan(planned.plan);
+      } catch (error) { status.textContent = error.message; }
+    };
+  };
+  const renderPlan = (plan) => {
+    chain.innerHTML = `<pre>${JSON.stringify(plan, null, 2)}</pre><div class="actions"><button class="button primary" id="cad-approve-button">审批并执行</button></div>`;
+    document.querySelector('#cad-approve-button').onclick = async () => {
+      try {
+        await call(`/projects/${projectId}/cad/plans/${plan.id}/approve`, {method: 'POST'});
+        const executed = await call(`/projects/${projectId}/cad/plans/${plan.id}/execute`, {method: 'POST'});
+        renderModel(executed.model);
+      } catch (error) { status.textContent = error.message; }
+    };
+  };
+  const renderModel = (model) => {
+    chain.innerHTML = `<pre>${JSON.stringify(model, null, 2)}</pre><div class="actions"><button class="button" id="cad-apply-button">写入 ModelGraph</button><button class="button" id="cad-review-button">生成标注与 DFM/DFA 审查</button></div>`;
+    document.querySelector('#cad-apply-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/apply`, {method: 'POST'}); status.textContent = `已写入 ${result.apply.entity.id}`; } catch (error) { status.textContent = error.message; } };
+    document.querySelector('#cad-review-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/review`, {method: 'POST'}); chain.innerHTML += `<pre>${JSON.stringify(result.review, null, 2)}</pre>`; status.textContent = result.review.status; } catch (error) { status.textContent = error.message; } };
+  };
+  document.querySelector('#cad-intent-submit').onclick = async () => {
+    status.textContent = '分析中…';
+    try {
+      const sourceRequirementIds = document.querySelector('#cad-source-requirements').value.split(',').map(item => item.trim()).filter(Boolean);
+      const profileId = document.querySelector('#cad-profile').value;
+      const result = await call(`/projects/${projectId}/cad/intent`, {method: 'POST', body: JSON.stringify({text: document.querySelector('#cad-intent-text').value, source_requirement_ids: sourceRequirementIds, profile_id: profileId})});
+      renderDraft(result.draft); status.textContent = '完成';
+    } catch (error) { status.textContent = error.message; }
+  };
+})();
+</script>
+{% endblock %}

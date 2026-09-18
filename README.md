@@ -70,6 +70,8 @@ Jiayu-intern 的 SSH 转发、Profile JSON 和一次性 CASE-04 验收命令见
 
 需求分析工作台还提供一条独立的 M1/M2 入口：在 `/ui/projects/<project-id>/requirements-use-case` 选择已导入的文档或粘贴文本，生成带来源、约束来源、置信度和澄清问题的 `IntakeDraft`，再人工应用到 ModelGraph。应用后可在“行为与接口”页面查看 Use Case、Operational Scenario 和 Activity 框架，并继续使用现有 Review、RFLP 和 SysML 导出。
 
+详细设计开发切片位于 `/ui/projects/<project-id>/cad-design`：输入“生成铝合金支架，长100毫米，宽50毫米，高10毫米”这类意图后，系统会给出澄清问题（若信息不完整），生成可审查的 CAD 操作计划，并严格按“预览 → 审批 → 执行”创建参数化开发工件。执行结果包含参数化 JSON、OBJ 和 OpenSCAD 源码，可回写为 `PhysicalBlock` 并与来源 Requirement 建立 `satisfiedBy` 关系；随后可生成共享 2D/3D 语义标注、基准 A、基础 GD&T 建议和带特征位置证据的 DFM/DFA finding。当前 CAD、标注和规则适配器均为 `development` preview，正式 CAD/PMI/制造验收仍需客户认可的真实工具适配器。未显式选择远程 Profile 时，该入口只运行确定性解析器，不调用本机模型。
+
 已有 SysML v2 子集模型也可以在 Web Analysis 页面上传，导入同一份 Typed ModelGraph；导入后可以继续生成下游层、Review、编辑并导出完整工程交付包。
 
 Golden fixture 也可以作为完整 23-task 生命周期的离线回归输入：
@@ -156,4 +158,4 @@ Controller 还提供有界的“自动推进安全动作”入口：它可以连
 
 ## 边界
 
-Core 已包含当前版的 M3/M4 概念布局切片：总体设计页面和 `/projects/{id}/concept-design/run` 可基于固定翼领域包检索历史方案、生成 3–5 套可行概念布局、输出确定性二维 SVG，并并行执行气动/结构/重量重心开发评估及帕累托反馈；内置评估器不冒充正式仿真证据，客户批准的真实工具仍通过适配器接入。旧版智能发现、Project Bridge、测试执行沙箱、旧 Baseline/TaskContract/Job 体系或 MLflow 适配器仍不作为隐式依赖存在。
+Core 已包含当前版的 M3/M4 概念布局切片和 M5 详细设计开发切片：总体设计页面和 `/projects/{id}/concept-design/run` 可基于固定翼领域包检索历史方案、生成 3–5 套可行概念布局、输出确定性二维 SVG，并并行执行气动/结构/重量重心开发评估及帕累托反馈；详细设计页面提供自然语言 CAD 意图、操作计划、参数化 preview、标注和 DFM/DFA 审查。内置评估器和 CAD preview 都不冒充正式工程证据，客户批准的真实仿真/CAD/制图工具仍通过适配器接入。旧版智能发现、Project Bridge、测试执行沙箱、旧 Baseline/TaskContract/Job 体系或 MLflow 适配器仍不作为隐式依赖存在。

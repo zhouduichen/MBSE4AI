@@ -1531,6 +1531,39 @@ def concept_design_page(request: Request, project_id: str):
     )
 
 
+@resource_pages.get("/ui/projects/{project_id}/cad-design", name="cad_design_page")
+def cad_design_page(request: Request, project_id: str):
+    services = _v2(request)
+    cad = services.cad_design(project_id)
+    profile_snapshot = _mapping(services.settings.list_profiles())
+    profiles = [
+        _mapping(item)
+        for item in profile_snapshot.get("profiles", ())
+        if isinstance(item, Mapping)
+        and str(item.get("base_url", "")).startswith(("http://", "https://"))
+        and (
+            str(item.get("model_location", "")).casefold() == "remote"
+            or str(item.get("base_url", "")).split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+            not in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+        )
+    ]
+    return templates.TemplateResponse(
+        request=request,
+        name="cad-design.html",
+        context={
+            "project_id": project_id,
+            "active": "cad-design",
+            "capabilities": cad.capabilities(),
+            "model_profiles": profiles,
+            "active_profile_id": str(profile_snapshot.get("active_id") or ""),
+            "drafts": [item.as_dict() for item in cad.drafts()],
+            "plans": list(cad.plans()),
+            "models": list(cad.models()),
+            "reviews": list(services.design_review(project_id).reviews()),
+        },
+    )
+
+
 @resource_pages.get("/ui/projects/{project_id}/requirements/{entity_id}", name="requirement_detail_page")
 def requirement_detail_page(request: Request, project_id: str, entity_id: str):
     context = _review_context(request, project_id)

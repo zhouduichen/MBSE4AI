@@ -5,8 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from collections.abc import Sequence
 from typing import Mapping
+from urllib.parse import urlparse
 
 from rflp_lite.adapters.document_intelligence import LocalDocumentParser
+from rflp_lite.adapters.cad_preview import PreviewCadAdapter
+from rflp_lite.adapters.design_rules_preview import PreviewDesignRuleAdapter
+from rflp_lite.adapters.drawing_preview import PreviewDrawingAdapter
 from rflp_lite.adapters.disciplines import discipline_registry
 from rflp_lite.adapters.llm_client import test_connection as test_llm_connection
 from rflp_lite.adapters.scheme_sources import read_scheme_rows
@@ -24,6 +28,9 @@ from rflp_lite.application.project_context import ProjectContextService
 from rflp_lite.application.requirement_input import RequirementInputService
 from rflp_lite.application.requirements_use_case import RequirementsUseCaseService
 from rflp_lite.application.concept_project_service import ConceptDesignProjectService
+from rflp_lite.application.cad_workflow import CadWorkflowService
+from rflp_lite.application.design_intent import DesignIntentService
+from rflp_lite.application.design_review_service import DesignReviewService
 from rflp_lite.application.render_service import RenderService
 from rflp_lite.application.review_service import ReviewService
 from rflp_lite.application.settings_service import SettingsService
@@ -137,9 +144,13 @@ class V2Services:
         """
 
         config = self._selection_config(profile_id)
+        host = urlparse(str(config.get("base_url", ""))).hostname if config else None
+        loopback = host in {None, "localhost", "127.0.0.1", "::1", "0.0.0.0"}
+        tunneled_remote = bool(config) and str(config.get("model_location", "")).casefold() == "remote"
+        use_remote_profile = profile_id is not None and (not loopback or tunneled_remote)
         selection = self.runtime_factory.select(
-            config,
-            runtime_override=self._runtime_override,
+            config if use_remote_profile else None,
+            runtime_override=self._runtime_override if use_remote_profile else None,
         )
         return RequirementsUseCaseService(
             self.repository(project_id),
@@ -160,6 +171,40 @@ class V2Services:
             project_id,
             registry_factory=discipline_registry,
             scheme_reader=read_scheme_rows,
+        )
+
+    def cad_design(self, project_id: str, *, profile_id: str | None = None) -> CadWorkflowService:
+        config = self._selection_config(profile_id)
+        # CAD intent extraction must never silently start a model on this
+        # machine.  A remote HTTP endpoint, including a model hosted on a
+        # linked SSH/Tailscale server, is allowed only when its profile is
+        # explicitly selected.  An omitted profile always uses the offline
+        # clarification parser.
+        host = urlparse(str(config.get("base_url", ""))).hostname if config else None
+        loopback = host in {None, "localhost", "127.0.0.1", "::1", "0.0.0.0"}
+        tunneled_remote = bool(config) and str(config.get("model_location", "")).casefold() == "remote"
+        use_remote_profile = profile_id is not None and (not loopback or tunneled_remote)
+        selection = self.runtime_factory.select(
+            config if use_remote_profile else None,
+            runtime_override=self._runtime_override if use_remote_profile else None,
+        )
+        return CadWorkflowService(
+            self.repository(project_id),
+            project_id,
+            cad=PreviewCadAdapter(),
+            intent_service=DesignIntentService(
+                model=getattr(selection.runtime, "model", None),
+                provider_id=selection.provider_id,
+                model_id=selection.model_id,
+            ),
+        )
+
+    def design_review(self, project_id: str) -> DesignReviewService:
+        return DesignReviewService(
+            self.repository(project_id),
+            project_id,
+            drawing=PreviewDrawingAdapter(),
+            rules=PreviewDesignRuleAdapter(),
         )
 
     def evidence(self, project_id: str) -> EvidenceService:

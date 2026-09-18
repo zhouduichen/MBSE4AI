@@ -744,6 +744,127 @@ async def apply_concept_design(request: Request, project_id: str, run_id: str):
         return _error(exc)
 
 
+@resource_api.post("/projects/{project_id}/cad/intent")
+async def create_cad_intent(request: Request, project_id: str):
+    """Extract a reviewable CAD intent; this endpoint never mutates the model graph."""
+
+    try:
+        payload = await _json_object(request)
+        raw_sources = payload.get("source_requirement_ids", ())
+        if not isinstance(raw_sources, (list, tuple)):
+            raise ContractViolation("source_requirement_ids must be an array")
+        profile_id = str(payload.get("profile_id", "")).strip() or None
+        draft = _services(request).cad_design(project_id, profile_id=profile_id).create_intent(
+            str(payload.get("text", payload.get("statement", ""))),
+            source_requirement_ids=tuple(str(item) for item in raw_sources if str(item).strip()),
+        )
+        return {"status": "ok", "draft": draft.as_dict()}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/cad")
+def get_cad_design(request: Request, project_id: str):
+    try:
+        service = _services(request).cad_design(project_id)
+        return {
+            "status": "ok",
+            "capabilities": service.capabilities(),
+            "drafts": [item.as_dict() for item in service.drafts()],
+            "plans": list(service.plans()),
+            "models": list(service.models()),
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/plan")
+async def create_cad_plan(request: Request, project_id: str):
+    try:
+        payload = await _json_object(request)
+        draft_id = str(payload.get("draft_id", "")).strip()
+        if not draft_id:
+            raise ContractViolation("draft_id is required")
+        plan = _services(request).cad_design(project_id).create_plan(draft_id)
+        return {"status": "ok", "plan": plan}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/plans/{plan_id}/approve")
+def approve_cad_plan(request: Request, project_id: str, plan_id: str):
+    try:
+        plan = _services(request).cad_design(project_id).approve_plan(plan_id)
+        return {"status": "ok", "plan": plan}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/plans/{plan_id}/execute")
+def execute_cad_plan(request: Request, project_id: str, plan_id: str):
+    try:
+        model = _services(request).cad_design(project_id).execute_plan(plan_id)
+        return {"status": "ok", "model": model}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/models/{model_id}/apply")
+def apply_cad_model(request: Request, project_id: str, model_id: str):
+    try:
+        result = _services(request).cad_design(project_id).apply_model(model_id)
+        return {"status": "ok", "apply": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/models/{model_id}/annotations")
+def annotate_cad_model(request: Request, project_id: str, model_id: str):
+    try:
+        service = _services(request).cad_design(project_id)
+        model = service.get_model(model_id)
+        result = _services(request).design_review(project_id).annotate(
+            model_id,
+            model.get("model_payload", {}),
+        )
+        return {"status": "ok", "annotation": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/models/{model_id}/review")
+def review_cad_model(request: Request, project_id: str, model_id: str):
+    try:
+        cad = _services(request).cad_design(project_id)
+        model = cad.get_model(model_id)
+        review = _services(request).design_review(project_id).review(
+            model_id,
+            model.get("model_payload", {}),
+        )
+        return {"status": "ok", "review": review}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/cad/reviews")
+def list_cad_reviews(request: Request, project_id: str):
+    try:
+        return {"status": "ok", "reviews": list(_services(request).design_review(project_id).reviews())}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/reviews/{review_id}/findings/{finding_id}")
+async def update_cad_finding(request: Request, project_id: str, review_id: str, finding_id: str):
+    try:
+        payload = await _json_object(request)
+        decision = str(payload.get("decision", "")).strip()
+        review = _services(request).design_review(project_id).update_finding(review_id, finding_id, decision)
+        return {"status": "ok", "review": review}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/analysis")
 async def run_analysis(request: Request, project_id: str):
     try:
