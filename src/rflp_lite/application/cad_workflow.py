@@ -17,7 +17,7 @@ from rflp_lite.domain.detail_design import (
 )
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.errors import ContractViolation, NotFoundError
-from rflp_lite.domain.model import AddEntity, Patch, Relate
+from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.ports.cad import CadOperationResult, CadPort
 
@@ -336,16 +336,26 @@ class CadWorkflowService:
         graph = self.repository.load_graph(self.project_id)
         intent = self.get_draft_for_intent(str(model_record.get("intent_id", ""))).intent
         reference = _mapping(model_record.get("model"))
+        review = next(
+            (
+                item for item in reversed(self.store.records("design_review"))
+                if str(item.get("model_id", "")) == model_id
+            ),
+            None,
+        )
+        design_payload = {
+            "representation_kind": "cad_model",
+            "design_intent": intent.as_dict(),
+            "cad_model_reference": dict(reference),
+            "cad_model_payload": model_record.get("model_payload", {}),
+            "source_requirement_ids": list(intent.source_requirement_ids),
+        }
+        if review is not None:
+            design_payload["design_review"] = dict(review)
         entity = make_entity(
             EntityKind.PHYSICAL_BLOCK,
             intent.target_name,
-            {
-                "representation_kind": "cad_model",
-                "design_intent": intent.as_dict(),
-                "cad_model_reference": dict(reference),
-                "cad_model_payload": model_record.get("model_payload", {}),
-                "source_requirement_ids": list(intent.source_requirement_ids),
-            },
+            design_payload,
             status=EntityStatus.ACCEPTED,
             producer=Producer.LLM if intent.provenance == "llm" else Producer.RULE,
             confidence=intent.confidence,
@@ -354,7 +364,23 @@ class CadWorkflowService:
         )
         existing = graph.entity_index.get(entity.id)
         if existing is not None:
-            return {"model": model_record, "entity": existing.as_dict(), "idempotent": True, "revision": graph.revision}
+            current_review = existing.payload.get("design_review")
+            if review is None or isinstance(current_review, Mapping) and current_review.get("id") == review.get("id"):
+                return {"model": model_record, "entity": existing.as_dict(), "idempotent": True, "revision": graph.revision}
+            patch = Patch.create(
+                self.project_id,
+                "cad.apply_model",
+                (UpdateEntity(existing.id, {"payload": {"design_review": dict(review)}}),),
+                f"回接 CAD 模型审查 {model_id}",
+                graph.revision,
+            )
+            revision = self.repository.append_patch(self.project_id, patch, graph.revision)
+            updated = self.repository.load_graph(self.project_id).entity_index[existing.id]
+            self.store.record_audit(
+                "cad.model_review_attached",
+                {"model_id": model_id, "entity_id": existing.id, "review_id": review.get("id"), "revision": revision.sequence},
+            )
+            return {"model": model_record, "entity": updated.as_dict(), "revision": to_primitive(revision)}
         operations: list[Any] = [AddEntity(entity)]
         operations.extend(
             Relate(requirement_id, RelationPredicate.SATISFIED_BY, entity.id)

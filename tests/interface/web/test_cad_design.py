@@ -31,5 +31,7 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     model = client.post(f"/projects/p1/cad/plans/{plan['id']}/execute").json()["model"]
     review = client.post(f"/projects/p1/cad/models/{model['id']}/review").json()["review"]
     assert review["annotations"]
-    assert client.post(f"/projects/p1/cad/models/{model['id']}/apply").json()["apply"]["entity"]["kind"] == "physical_block"
+    applied = client.post(f"/projects/p1/cad/models/{model['id']}/apply").json()["apply"]
+    assert applied["entity"]["kind"] == "physical_block"
+    assert applied["entity"]["payload"]["design_review"]["id"] == review["id"]
     assert client.get("/ui/projects/p1/cad-design").status_code == 200

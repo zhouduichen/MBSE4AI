@@ -93,6 +93,15 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
 
     applied = cad.apply_model(model["id"])
     assert applied["entity"]["kind"] == EntityKind.PHYSICAL_BLOCK.value
+    assert applied["entity"]["payload"]["design_review"]["id"] == review["id"]
+    assert applied["entity"]["payload"]["design_review"]["annotations"] == review["annotations"]
+    detail_graph = services.model("acceptance").graph("acceptance")
+    detail_restored = sysml_to_graph(graph_to_sysml(detail_graph), "acceptance")
+    restored_physical = next(
+        item for item in detail_restored.entities
+        if item.id == applied["entity"]["id"]
+    )
+    assert restored_physical.payload["design_review"]["findings"] == review["findings"]
     package = services.deliverables("acceptance").build("acceptance")
     assert {"sysml", "traceability", "concept_design", "detail_design"} <= set(package["artifacts"])
     archive_bytes, _ = services.deliverables("acceptance").export_zip("acceptance")

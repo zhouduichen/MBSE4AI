@@ -90,7 +90,7 @@
 | 候选状态与完成度隔离 | 候选实体保留在 Review、架构候选和约束分析上下文中，但只有 validated/accepted/locked 实体参与 Methodology 完成度与覆盖统计；候选 Physical 仍可触发冲突检测和 Trade Study |
 | 总体布局候选生成（2.1） | 版本化声明式领域包、JSON/CSV 历史方案导入、加权相似检索、确定性 3–5 套满足硬约束的候选、来源/差异/约束余量、俯视/侧视概念 SVG；可将人工选择候选写入现有 `PhysicalBlock` |
 | 设计来源自动回接（2.1/3.1） | 概念布局与 CAD 意图在未显式选取来源时自动读取当前 ModelGraph 的根 Requirement；显式来源保持优先，应用后通过 `satisfiedBy`/来源载荷保留需求→设计对象追溯 |
-| 详细设计开发切片（3.1–3.3） | 设计意图与澄清、CAD 操作计划、预览/审批/执行门、远程 FreeCAD headless 实体生成与 FCStd/STEP 回读、几何摘要、标注/基准/GD&T 候选、风险高亮 SVG、DFM/DFA finding、审查状态、PhysicalBlock 回写和审计链；FreeCAD 真实几何链已可验收，正式制造结论仍需客户标准和规则库 |
+| 详细设计开发切片（3.1–3.3） | 设计意图与澄清、CAD 操作计划、预览/审批/执行门、远程 FreeCAD headless 实体生成与 FCStd/STEP 回读、几何摘要、标注/基准/GD&T 候选、风险高亮 SVG、DFM/DFA finding、审查状态、审查结果回接 PhysicalBlock/SysML 和审计链；FreeCAD 真实几何链已可验收，正式制造结论仍需客户标准和规则库 |
 | 多学科快速评估（2.2） | 气动、结构、重量/重心三个适配器有界并行执行；保留输入/输出哈希、适配器版本、缓存、失败隔离、代理有效域门禁、帕累托排序和有界优化反馈；内置计算器固定标记为 development evidence |
 
 ## 历史 Harness 验收边界
