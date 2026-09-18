@@ -41,7 +41,7 @@
     {% if group.entities %}
     <div class="module-grid">
       {% for item in group.entities %}
-      <article class="card model-entity-card" data-entity-id="{{ item.id }}">
+      <article id="entity-{{ item.id }}" class="card model-entity-card" data-entity-id="{{ item.id }}">
         <div class="panel-head"><div><span class="status-badge info">{{ item.kind_label }}</span><h3>{{ item.name }}</h3></div><span class="status-badge {{ item.status }}">{{ item.status_label }}</span></div>
         <div class="entity-meta"><span>来源 {{ item.source_count }}</span><span>证据 {{ item.evidence_count }}</span><span>关系 {{ item.relation_count }}</span>{% if item.issue_count %}<span class="status-badge failed">问题 {{ item.issue_count }}</span>{% endif %}</div>
         <details class="advanced-details entity-identifier"><summary>查看工程标识（高级）</summary><code>{{ item.id }}</code></details>

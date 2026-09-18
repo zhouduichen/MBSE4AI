@@ -81,6 +81,9 @@ def test_requirements_use_case_api_and_behavior_page_form_a_vertical_slice(tmp_p
     assert next(iter(requirement_ids)) in behavior.text
     use_case_id = behavior_payload["use_cases"][0]["id"]
     assert f"/ui/projects/p1/model#entity-{use_case_id}" in behavior.text
+    model_page = client.get("/ui/projects/p1/model")
+    assert model_page.status_code == 200
+    assert f'id="entity-{use_case_id}"' in model_page.text
 
     intake = client.get("/ui/projects/p1/requirements-use-case")
     assert intake.status_code == 200
