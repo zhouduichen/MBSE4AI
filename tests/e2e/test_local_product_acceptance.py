@@ -46,6 +46,17 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
     assert {(item.source_id, item.predicate, item.target_id) for item in restored.relations} == {
         (item.source_id, item.predicate, item.target_id) for item in graph.relations
     }
+    original_cases = {
+        item.id: item.payload.get("branch_scenarios")
+        for item in graph.entities
+        if item.kind in {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}
+    }
+    restored_cases = {
+        item.id: item.payload.get("branch_scenarios")
+        for item in restored.entities
+        if item.kind in {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}
+    }
+    assert restored_cases == original_cases
     function = next(item for item in requirements if item.kind is EntityKind.REQUIREMENT)
     services.model("acceptance").apply_patch(
         "acceptance",

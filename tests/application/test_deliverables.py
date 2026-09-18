@@ -174,6 +174,22 @@ def test_build_contains_all_required_artifacts(tmp_path: Path):
     assert package["artifacts"]["rflp_svg"]["content"].startswith("<svg")
 
 
+def test_vv_deliverable_contains_branch_coverage(tmp_path: Path):
+    services = _services(tmp_path)
+    services.generation("p1").generate(
+        "p1",
+        requirement_text="系统应支持人工接管",
+    )
+
+    package = services.deliverables("p1").build("p1")
+    vv_plan = package["artifacts"]["vv_plan"]["content"]
+
+    assert vv_plan["metrics"]["branch_scenario_total"] == 10
+    assert vv_plan["metrics"]["branch_scenario_complete"] == 10
+    assert vv_plan["rows"][0]["branch_scenarios"]
+    assert package["revision"] == package["artifacts"]["vv_plan"]["revision"]
+
+
 def test_behavior_deliverable_preserves_requirement_back_links(tmp_path: Path):
     services = _services(tmp_path)
     services.generation("p1").generate(

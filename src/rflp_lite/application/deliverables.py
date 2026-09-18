@@ -280,6 +280,22 @@ def _vv_plan(assurance: Mapping[str, object]) -> Mapping[str, object]:
     requirement_ids = {str(row.get("requirement_id", "")) for row in rows if row.get("requirement_id")}
     verification_rows = [row for row in rows if row.get("case_type") == "verification"]
     validation_rows = [row for row in rows if row.get("case_type") == "validation"]
+    branch_scenarios = [
+        item
+        for row in rows
+        for item in row.get("branch_scenarios", ())
+        if isinstance(item, Mapping)
+    ]
+    known_branch_types = {"normal", "failure", "alternative", "boundary", "exception"}
+    branch_complete = [
+        item for item in branch_scenarios
+        if str(item.get("branch_type", "")) in known_branch_types
+        and str(item.get("status", "")).strip() != "needs_review"
+        and all(
+            str(item.get(field, "")).strip()
+            for field in ("activity_id", "stimulus", "procedure", "expected_result", "pass_criteria")
+        )
+    ]
     metrics = {
         "requirement_count": len(requirement_ids),
         "row_count": len(rows),
@@ -287,6 +303,17 @@ def _vv_plan(assurance: Mapping[str, object]) -> Mapping[str, object]:
         "incomplete_row_count": sum(row.get("status") != "PASS" for row in rows),
         "verification_coverage_percent": _coverage_percent(requirement_ids, verification_rows),
         "validation_coverage_percent": _coverage_percent(requirement_ids, validation_rows),
+        "branch_scenario_total": len(branch_scenarios),
+        "branch_scenario_complete": len(branch_complete),
+        "branch_execution_coverage_percent": round(
+            100 * sum(
+                str(item.get("status", ""))
+                in {"passed", "failed", "blocked", "inconclusive"}
+                or bool(item.get("execution_evidence_ids"))
+                for item in branch_scenarios
+            ) / len(branch_scenarios),
+            2,
+        ) if branch_scenarios else 0.0,
         "gate_coverage": gate_metrics,
     }
     return {"rows": rows, "gates": gates, "metrics": metrics}
@@ -372,13 +399,13 @@ def _vv_markdown(vv_plan: Mapping[str, object]) -> str:
     lines = [
         "# V&V Plan",
         "",
-        "| Requirement | Type | Case | Method | Condition | Stimulus | Acceptance criteria | Status | Missing |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Requirement | Type | Case | Method | Condition | Stimulus | Acceptance criteria | Branch coverage | Status | Missing |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in vv_plan.get("rows", ()):
         missing = ", ".join(str(item) for item in row.get("missing", ())) or "—"
         lines.append(
-            "| {requirement} | {case_type} | {case} | {method} | {condition} | {stimulus} | {criteria} | {status} | {missing} |".format(
+            "| {requirement} | {case_type} | {case} | {method} | {condition} | {stimulus} | {criteria} | {branches} | {status} | {missing} |".format(
                 requirement=_cell(row.get("requirement_id")),
                 case_type=_cell(row.get("case_type_label") or row.get("case_type")),
                 case=_cell(row.get("case_id") or "—"),
@@ -386,6 +413,9 @@ def _vv_markdown(vv_plan: Mapping[str, object]) -> str:
                 condition=_cell(row.get("test_condition") or "—"),
                 stimulus=_cell(row.get("stimulus") or "—"),
                 criteria=_cell(row.get("pass_criteria") or "—"),
+                branches=_cell(
+                    f"{row.get('branch_summary', {}).get('complete', 0)}/{row.get('branch_summary', {}).get('total', 0)}"
+                ),
                 status=_cell(row.get("status") or "UNKNOWN"),
                 missing=_cell(missing),
             )

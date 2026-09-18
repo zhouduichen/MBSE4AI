@@ -1086,7 +1086,7 @@ def _branch_scenario_metrics(cases, activities):
                 len({str(item.get("branch_type")) for item in complete} & required_types),
                 len(required_types),
             )
-            if activities and scenarios
+            if scenarios
             else 0.0
         ),
         "branch_execution_coverage": _ratio(len(executable), len(scenarios)),
