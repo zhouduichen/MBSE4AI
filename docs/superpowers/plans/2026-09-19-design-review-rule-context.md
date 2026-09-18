@@ -48,5 +48,5 @@
 - Modify: `docs/superpowers/README.md`
 
 - [x] Assert rule context and summaries survive PhysicalBlock review write-back and detail-design delivery.
-- [ ] Run focused tests, `git diff --check`, full offline `scripts/verify_full.py`, Ruff, architecture metrics and import-linter.
-- [ ] Commit and push the slice.
+- [x] Run focused tests, `git diff --check`, full offline `scripts/verify_full.py`, Ruff, architecture metrics and import-linter.
+- [x] Commit and push the slice.
