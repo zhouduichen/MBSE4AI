@@ -634,6 +634,57 @@ async def ingest_document(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.post("/projects/{project_id}/requirements-use-case/draft")
+async def create_requirements_use_case_draft(request: Request, project_id: str):
+    """Create a reviewable document-to-requirements/behavior draft."""
+
+    try:
+        payload = await _json_object(request)
+        raw_document_ids = payload.get("document_ids", ())
+        if not isinstance(raw_document_ids, (list, tuple)):
+            raise ContractViolation("document_ids must be an array")
+        profile_id = str(payload.get("profile_id", "")).strip() or None
+        text = str(payload.get("text", payload.get("requirement_text", ""))).strip() or None
+        draft = _services(request).requirements_use_case(
+            project_id,
+            profile_id=profile_id,
+        ).create_draft(
+            text=text,
+            document_ids=tuple(str(item) for item in raw_document_ids if str(item).strip()),
+        )
+        return {"status": "ok", "draft": draft.as_dict()}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/requirements-use-case/drafts")
+def list_requirements_use_case_drafts(request: Request, project_id: str):
+    try:
+        drafts = _services(request).requirements_use_case(project_id).list_drafts()
+        return {"status": "ok", "drafts": [item.as_dict() for item in drafts]}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/requirements-use-case/apply")
+async def apply_requirements_use_case_draft(request: Request, project_id: str):
+    try:
+        payload = await _json_object(request)
+        service = _services(request).requirements_use_case(project_id)
+        raw_draft = payload.get("draft")
+        if isinstance(raw_draft, Mapping):
+            draft = raw_draft
+        else:
+            draft_id = str(payload.get("draft_id", "")).strip()
+            if not draft_id:
+                raise ContractViolation("draft or draft_id is required")
+            draft = service.get_draft(draft_id)
+        result = service.apply_draft(draft)
+        return {"status": "ok", "apply": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/analysis")
 async def run_analysis(request: Request, project_id: str):
     try:

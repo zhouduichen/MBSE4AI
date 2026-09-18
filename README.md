@@ -68,6 +68,8 @@ Jiayu-intern 的 SSH 转发、Profile JSON 和一次性 CASE-04 验收命令见
 .venv/bin/ai4mbse --workspace-root .local-workspaces analyze generate document-demo
 ```
 
+需求分析工作台还提供一条独立的 M1/M2 入口：在 `/ui/projects/<project-id>/requirements-use-case` 选择已导入的文档或粘贴文本，生成带来源、约束来源、置信度和澄清问题的 `IntakeDraft`，再人工应用到 ModelGraph。应用后可在“行为与接口”页面查看 Use Case、Operational Scenario 和 Activity 框架，并继续使用现有 Review、RFLP 和 SysML 导出。
+
 已有 SysML v2 子集模型也可以在 Web Analysis 页面上传，导入同一份 Typed ModelGraph；导入后可以继续生成下游层、Review、编辑并导出完整工程交付包。
 
 Golden fixture 也可以作为完整 23-task 生命周期的离线回归输入：

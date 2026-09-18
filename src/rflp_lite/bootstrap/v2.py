@@ -20,6 +20,7 @@ from rflp_lite.application.model_generation import ModelGenerationService
 from rflp_lite.application.project_service import ProjectService
 from rflp_lite.application.project_context import ProjectContextService
 from rflp_lite.application.requirement_input import RequirementInputService
+from rflp_lite.application.requirements_use_case import RequirementsUseCaseService
 from rflp_lite.application.render_service import RenderService
 from rflp_lite.application.review_service import ReviewService
 from rflp_lite.application.settings_service import SettingsService
@@ -118,6 +119,34 @@ class V2Services:
 
     def requirements_input(self, project_id: str) -> RequirementInputService:
         return RequirementInputService(self.repository(project_id), project_id)
+
+    def requirements_use_case(
+        self,
+        project_id: str,
+        *,
+        profile_id: str | None = None,
+    ) -> RequirementsUseCaseService:
+        """Build the document-to-behavior intake service for one profile.
+
+        The selected runtime owns the concrete remote model.  Rule runtimes
+        intentionally expose no model and therefore produce an explicit
+        degraded draft instead of starting a local model implicitly.
+        """
+
+        config = self._selection_config(profile_id)
+        selection = self.runtime_factory.select(
+            config,
+            runtime_override=self._runtime_override,
+        )
+        return RequirementsUseCaseService(
+            self.repository(project_id),
+            project_id,
+            model=getattr(selection.runtime, "model", None),
+            profile_id=selection.profile_id,
+            provider_id=selection.provider_id,
+            model_id=selection.model_id,
+            max_output_tokens=selection.max_output_tokens or 4096,
+        )
 
     def context(self, project_id: str) -> ProjectContextService:
         return ProjectContextService(self.repository(project_id), project_id)

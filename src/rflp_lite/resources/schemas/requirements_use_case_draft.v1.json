@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "requirements-use-case-draft.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source_document_ids", "system_context", "entities", "requirements", "use_cases", "scenarios", "clarifications", "diagnostics"],
+  "properties": {
+    "schema_version": {"const": "requirements-use-case-draft.v1"},
+    "source_document_ids": {"type": "array", "items": {"type": "string"}},
+    "system_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "mission", "source_refs"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 240},
+        "mission": {"type": "string", "maxLength": 2000},
+        "source_refs": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["local_ref", "kind", "name", "attributes", "source_refs", "confidence"],
+        "properties": {
+          "local_ref": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
+          "kind": {"enum": ["system", "stakeholder", "concern", "scenario_hypothesis"]},
+          "name": {"type": "string", "minLength": 1, "maxLength": 240},
+          "attributes": {"type": "object", "additionalProperties": true},
+          "source_refs": {"type": "array", "items": {"type": "string"}},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["local_ref", "statement", "level", "type", "obligation", "verification_method", "constraints", "source_refs", "confidence", "related_refs"],
+        "properties": {
+          "local_ref": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
+          "statement": {"type": "string", "minLength": 1, "maxLength": 2000},
+          "level": {"enum": ["stakeholder", "system", "functional", "technical"]},
+          "type": {"enum": ["functional", "performance", "interface", "safety", "constraint"]},
+          "obligation": {"type": "string", "minLength": 1, "maxLength": 32},
+          "verification_method": {"type": "string", "minLength": 1, "maxLength": 64},
+          "constraints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["field", "operator", "value", "unit", "source", "source_refs", "confidence", "assumption"],
+              "properties": {
+                "field": {"type": "string", "minLength": 1, "maxLength": 100},
+                "operator": {"enum": ["min", "max", "eq", "lte", "gte", "lt", "gt"]},
+                "value": {"type": "number"},
+                "unit": {"type": "string", "maxLength": 32},
+                "source": {"enum": ["explicit", "derived", "llm_inferred"]},
+                "source_refs": {"type": "array", "items": {"type": "string"}},
+                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "assumption": {"type": "string", "maxLength": 500}
+              }
+            }
+          },
+          "source_refs": {"type": "array", "items": {"type": "string"}},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "related_refs": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "use_cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["local_ref", "name", "goal", "primary_actor_refs", "preconditions", "postconditions", "scenario_refs", "requirement_refs", "source_refs", "confidence"],
+        "properties": {
+          "local_ref": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
+          "name": {"type": "string", "minLength": 1, "maxLength": 240},
+          "goal": {"type": "string", "maxLength": 1000},
+          "primary_actor_refs": {"type": "array", "items": {"type": "string"}},
+          "preconditions": {"type": "array", "items": {"type": "string", "maxLength": 500}},
+          "postconditions": {"type": "array", "items": {"type": "string", "maxLength": 500}},
+          "scenario_refs": {"type": "array", "items": {"type": "string"}},
+          "requirement_refs": {"type": "array", "items": {"type": "string"}},
+          "source_refs": {"type": "array", "items": {"type": "string"}},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["local_ref", "kind", "name", "description", "actor_refs", "steps", "branches", "requirement_refs", "source_refs", "confidence"],
+        "properties": {
+          "local_ref": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
+          "kind": {"const": "operational_scenario"},
+          "name": {"type": "string", "minLength": 1, "maxLength": 240},
+          "description": {"type": "string", "maxLength": 2000},
+          "actor_refs": {"type": "array", "items": {"type": "string"}},
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["order", "actor_ref", "action", "guard"],
+              "properties": {
+                "order": {"type": "integer", "minimum": 1},
+                "actor_ref": {"type": "string"},
+                "action": {"type": "string", "minLength": 1, "maxLength": 1000},
+                "guard": {"type": "string", "maxLength": 500}
+              }
+            }
+          },
+          "branches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["condition", "target_order", "action"],
+              "properties": {
+                "condition": {"type": "string", "minLength": 1, "maxLength": 500},
+                "target_order": {"type": "integer", "minimum": 1},
+                "action": {"type": "string", "minLength": 1, "maxLength": 1000}
+              }
+            }
+          },
+          "requirement_refs": {"type": "array", "items": {"type": "string"}},
+          "source_refs": {"type": "array", "items": {"type": "string"}},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "clarifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "related_refs", "severity"],
+        "properties": {
+          "question": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "related_refs": {"type": "array", "items": {"type": "string"}},
+          "severity": {"enum": ["low", "medium", "high"]}
+        }
+      }
+    },
+    "diagnostics": {"type": "array", "items": {"type": "string", "maxLength": 500}}
+  }
+}

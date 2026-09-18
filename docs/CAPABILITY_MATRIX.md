@@ -3,6 +3,7 @@
 | Capability | Current implementation | Phase 0/1 policy | Later phase |
 | --- | --- | --- | --- |
 | Projects / documents | Managed project directories, TXT/Markdown/DOCX/PDF ingestion, source regions | `ProjectService` + document parser port | Richer layout extraction |
+| Requirements / use-case intelligence | Structured `IntakeDraft` from document regions or text; entity/attribute/explicit and inferred constraint candidates; Use Case, Operational Scenario and Activity framework; source/evidence traceability; candidate review/apply | Remote structured model proposal plus deterministic schema/constraint/ModelGraph compiler; offline path is explicitly degraded | Domain datasets, richer ambiguity resolution and accepted scenario libraries |
 | Typed ModelGraph | Entity kinds, closed relations, status, provenance, evidence and stable IDs | `domain` is the only model truth | More domain-specific profiles |
 | Methodology | 23 TaskSpecs across four phases plus Closure; V&V plans require method, objective, precondition, test condition, input, stimulus, procedure, expected result and acceptance criteria | `WorkflowRunner`, Context, validators and gates | Additional task templates |
 | Executable V&V plans | VerificationCase and ValidationCase expose the same nine-field executable plan; source evidence and execution evidence remain separate | Shared `VV_PLAN_FIELDS`, semantic completion findings and revision-bound deliverables | Method-specific procedures and approved external adapters |

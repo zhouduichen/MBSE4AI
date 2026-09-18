@@ -1483,6 +1483,38 @@ def requirements_page(request: Request, project_id: str, status: str | None = No
     return templates.TemplateResponse(request=request, name="requirements.html", context={**view, "project_id": project_id, "active": "requirements", "selected_status": status or "", "query": q or ""})
 
 
+@resource_pages.get("/ui/projects/{project_id}/requirements-use-case", name="requirements_use_case_page")
+def requirements_use_case_page(request: Request, project_id: str):
+    services = _v2(request)
+    repository = services.repository(project_id)
+    profile_snapshot = _mapping(services.settings.list_profiles())
+    profiles = [
+        _mapping(item)
+        for item in profile_snapshot.get("profiles", ())
+        if isinstance(item, Mapping)
+    ]
+    drafts = [item.as_dict() for item in services.requirements_use_case(project_id).list_drafts()]
+    available_document_ids = tuple(dict.fromkeys(
+        str(item.get("document_id", ""))
+        for item in repository.list_source_regions(project_id)
+        if str(item.get("document_id", "")).strip()
+    ))
+    graph = services.model(project_id).graph(project_id)
+    return templates.TemplateResponse(
+        request=request,
+        name="requirements-use-case.html",
+        context={
+            "project_id": project_id,
+            "revision": graph.revision,
+            "drafts": drafts,
+            "available_document_ids": available_document_ids,
+            "model_profiles": profiles,
+            "active_profile_id": str(profile_snapshot.get("active_id") or ""),
+            "active": "requirements-use-case",
+        },
+    )
+
+
 @resource_pages.get("/ui/projects/{project_id}/requirements/{entity_id}", name="requirement_detail_page")
 def requirement_detail_page(request: Request, project_id: str, entity_id: str):
     context = _review_context(request, project_id)
