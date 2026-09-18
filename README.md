@@ -72,7 +72,7 @@ Jiayu-intern 的 SSH 转发、Profile JSON 和一次性 CASE-04 验收命令见
 
 `analyze generate`、`analyze run` 和 Web `/analysis` 现在共享同一个结构化需求/用例摄取边界：文本或已上传的 TXT、Markdown、DOCX、PDF 先生成带来源、约束来源、置信度和澄清问题的 `IntakeDraft`，经现有 CAS 写入候选 ModelGraph 后再继续五阶段或 23-task R→F→L→P→V&V。离线模式明确标记为 `degraded`/`RULE`，不会伪装成 LLM 结果；除显式数值约束外，有限词典规则还会捕获系统平台/任务域/运行环境、stakeholder 和 concern 属性，生成低置信度 `derived` 结果并显示“需人工确认”，不会自动批准。之后同一请求会产出 Use Case、Operational Scenario、Activity、完整追溯、SysML 和交付包。需求分析工作台 `/ui/projects/<project-id>/requirements-use-case` 仍保留为需要人工逐稿审查时的独立 M1/M2 入口。
 
-行为工作台 `/ui/projects/<project-id>/behavior` 会从已写入的 Operational Scenario/Activity 确定性投影 Sequence Diagram Framework：参与者、消息顺序、守卫、分支、Mermaid 文本和可编辑实体 ID 均来自同一份 ModelGraph；通过工作台编辑源实体后重新读取即可刷新，不额外调用 LLM。
+行为工作台 `/ui/projects/<project-id>/behavior` 会从已写入的 Operational Scenario/Activity 确定性投影 Sequence Diagram Framework：参与者、消息顺序、守卫、分支、Mermaid 文本和可编辑实体 ID 均来自同一份 ModelGraph；Use Case、Scenario、Sequence Diagram 和关系列表同时保留来源 Requirement ID，可从行为结果反查需求；通过工作台编辑源实体后重新读取即可刷新，不额外调用 LLM。
 
 总体设计页的“从 ModelGraph 提取指标”会调用 `/projects/<project-id>/concept-design/input`，把需求中的显式质量、尺寸、速度等约束回填到可编辑指标包络；中文“不超过/不少于/为”等比较词会分别规范化为 `max`/`min`/`exact`，并保留逐条证据，缺失必填参数仍明确显示。`POST /projects/<project-id>/concept-design/run` 也支持 `{"from_requirements": true}`，完整需求可直接进入 2.1/2.2，缺参则返回 `needs_input`，不会用固定翼示例值补齐。生成后页面按候选展示气动、结构、重量/重心评估指标、状态、适用域/批准诊断、候选完成度、Pareto 候选和优化停止原因。`concept-design.json` 同步保存每条评估的输入参数、有效域状态、验证数据集、误差/批准信息和候选级优化反馈。
 

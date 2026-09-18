@@ -85,7 +85,7 @@
 | 追溯语义闭环 | 同一 canonical scope resolver 校验需求来源、功能、逻辑、物理及 V&V 载荷；技术需求支持来源链与直接物理候选，作用域失配会同时阻断 Assurance 完成检查并生成可回流的工程问题 |
 | 统一需求输入边界 | 五阶段生成与 23-task pipeline 共享 `InputPreparationService`→`RequirementsUseCaseService`→CAS；文本/文档可组合输入，重复 statement 复用节点并通过 CAS 合并全部 Source Region/evidence provenance，多条需求保持独立下游追溯 |
 | Pipeline 文档直通验收 | `project ingest` 后直接执行 `analyze run` 或 Web `mode=pipeline` 会自动生成 Requirement、Use Case、Operational Scenario、Activity，再完成 23-task 生命周期与追溯；不需要手动应用 IntakeDraft |
-| 行为时序投影（1.2） | Behavior API/UI 从 ModelGraph 中的 Operational Scenario/Activity 确定性生成参与者、消息、守卫、分支和 Mermaid Sequence Diagram；保留 scenario/activity ID，编辑源实体后可重新读取，不新增同步图实体或模型调用 |
+| 行为时序投影（1.2） | Behavior API/UI 从 ModelGraph 中的 Operational Scenario/Activity 确定性生成参与者、消息、守卫、分支和 Mermaid Sequence Diagram；保留 scenario/activity ID，并在 Use Case、Scenario、Sequence Diagram 及关系列表中暴露 Requirement 反查 ID；编辑源实体后可重新读取，不新增同步图实体或模型调用 |
 | 指标包络建议与 MDO 展示（2.1/2.2） | `/concept-design/input` 从根 Requirement 的显式约束生成可编辑 envelope 草案和证据/缺口列表；中文 `max/min/exact` 比较表达已统一规范化，`run` 支持 `from_requirements` 直接消费完整需求，单侧缺参仍返回 `needs_input` 且不使用示例默认值；总体设计页展示每个候选的气动、结构、重量/重心结果以及 Pareto/优化反馈 |
 | 统一追溯投影 | `resolve_requirement_trace` 成为 Generation Summary、Traceability/Coverage/RFLP、`/trace` 和 `traceability.json` 的共同逐需求语义来源；ready-only 目标、V&V scope、缺口、主路径和覆盖率在各入口保持一致，并保留 SysML/ModelGraph 编辑回读 |
 | 可执行 V&V 计划闭环 | V&V prompt、结构化 Schema、语义校核、离线/生命周期运行时、Methodology、Assurance 页面和 `vv-plan` 交付物共享九字段计划契约；来源 `evidence_ids` 与实际 `execution_evidence_ids` 分离，计划完整不宣称执行通过 |

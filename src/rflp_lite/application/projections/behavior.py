@@ -6,8 +6,9 @@ import re
 from typing import Mapping
 
 from rflp_lite.application.projections.common import entity_card, header, issues_by_entity
-from rflp_lite.domain.entities import EntityKind
+from rflp_lite.domain.entities import Entity, EntityKind
 from rflp_lite.domain.model import ModelGraph
+from rflp_lite.domain.relations import RelationPredicate
 
 
 _KINDS = (
@@ -18,6 +19,30 @@ _KINDS = (
     EntityKind.INTERFACE,
     EntityKind.STATE,
 )
+_RELATION_KINDS = frozenset((*_KINDS, EntityKind.REQUIREMENT))
+
+
+def _requirement_ids_for_entity(graph: ModelGraph, entity: Entity) -> list[str]:
+    """Read requirement links from graph relations, with a legacy payload fallback."""
+
+    index = graph.entity_index
+    explicit = sorted(
+        relation.source_id
+        for relation in graph.relations
+        if relation.target_id == entity.id
+        and relation.predicate is RelationPredicate.DERIVED_FROM
+        and index.get(relation.source_id) is not None
+        and index[relation.source_id].kind is EntityKind.REQUIREMENT
+    )
+    if explicit:
+        return list(dict.fromkeys(explicit))
+    raw_payload_ids = entity.payload.get("requirement_ids", ())
+    payload_ids = (raw_payload_ids,) if isinstance(raw_payload_ids, str) else raw_payload_ids
+    return list(dict.fromkeys(
+        str(value)
+        for value in (payload_ids or ())
+        if str(value) in index and index[str(value)].kind is EntityKind.REQUIREMENT
+    ))
 
 
 def _mermaid_text(value: object, default: str = "") -> str:
@@ -157,6 +182,7 @@ def _sequence_diagrams(graph: ModelGraph) -> list[Mapping[str, object]]:
         diagrams.append({
             "scenario_id": scenario.id,
             "scenario_name": scenario.meta.name,
+            "requirement_ids": _requirement_ids_for_entity(graph, scenario),
             "diagram_kind": "sequence",
             "format": "mermaid",
             "participants": participants,
@@ -170,7 +196,7 @@ def _sequence_diagrams(graph: ModelGraph) -> list[Mapping[str, object]]:
 
 def build_behavior_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> Mapping[str, object]:
     issue_index = issues_by_entity(issues)
-    entity_ids = {item.id for item in graph.entities if item.kind in _KINDS}
+    entity_ids = {item.id for item in graph.entities if item.kind in _RELATION_KINDS}
     records = {kind.value: [entity_card(item, issue_count=len(issue_index.get(item.id, ()))) for item in sorted(graph.entities, key=lambda value: value.id) if item.kind is kind] for kind in _KINDS}
     relations = []
     for relation in sorted(graph.relations, key=lambda item: item.id):
@@ -187,6 +213,7 @@ def build_behavior_view(graph: ModelGraph, issues: tuple[Mapping[str, object], .
             "actor_ids": entity.payload.get("actor_ids", []),
             "steps": entity.payload.get("steps", []),
             "branches": entity.payload.get("branches", []),
+            "requirement_ids": _requirement_ids_for_entity(graph, entity),
         })
     use_cases = []
     for entity in sorted(
@@ -198,7 +225,7 @@ def build_behavior_view(graph: ModelGraph, issues: tuple[Mapping[str, object], .
             "goal": entity.payload.get("goal", ""),
             "primary_actor_ids": entity.payload.get("primary_actor_ids", []),
             "scenario_ids": entity.payload.get("scenario_ids", []),
-            "requirement_ids": entity.payload.get("requirement_ids", []),
+            "requirement_ids": _requirement_ids_for_entity(graph, entity),
         })
     incomplete = []
     for state in records[EntityKind.STATE.value]:

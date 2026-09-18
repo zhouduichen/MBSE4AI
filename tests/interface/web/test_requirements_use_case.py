@@ -46,11 +46,30 @@ def test_requirements_use_case_api_and_behavior_page_form_a_vertical_slice(tmp_p
 
     behavior_api = client.get("/projects/p1/behavior")
     assert behavior_api.status_code == 200
-    sequence_diagrams = behavior_api.json()["sequence_diagrams"]
+    behavior_payload = behavior_api.json()
+    model_payload = client.get("/projects/p1/model").json()
+    requirement_ids = {
+        item["id"]
+        for item in model_payload["entities"]
+        if item["kind"] == "requirement"
+    }
+    behavior_relation_sources = {
+        item["source"]
+        for item in behavior_payload["relations"]
+        if item["source"] in requirement_ids
+    }
+    assert behavior_relation_sources == requirement_ids
+    assert requirement_ids <= {
+        requirement_id
+        for item in behavior_payload["use_cases"]
+        for requirement_id in item["requirement_ids"]
+    }
+    sequence_diagrams = behavior_payload["sequence_diagrams"]
     assert sequence_diagrams
     assert sequence_diagrams[0]["format"] == "mermaid"
     assert "sequenceDiagram" in sequence_diagrams[0]["mermaid"]
     assert sequence_diagrams[0]["editable_entity_ids"]
+    assert requirement_ids <= set(sequence_diagrams[0]["requirement_ids"])
 
     behavior = client.get("/ui/projects/p1/behavior")
     assert behavior.status_code == 200
@@ -58,6 +77,8 @@ def test_requirements_use_case_api_and_behavior_page_form_a_vertical_slice(tmp_p
     assert "Operational Scenario Framework" in behavior.text
     assert "Sequence Diagram Framework" in behavior.text
     assert "操作员" in behavior.text
+    assert "来源需求" in behavior.text
+    assert next(iter(requirement_ids)) in behavior.text
 
     intake = client.get("/ui/projects/p1/requirements-use-case")
     assert intake.status_code == 200

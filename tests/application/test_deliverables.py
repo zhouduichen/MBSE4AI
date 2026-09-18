@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 
 from rflp_lite.application.model_generation import build_traceability_summary
+from rflp_lite.application.projections.behavior import build_behavior_view
 from rflp_lite.application.projections.traceability import build_traceability_view
 from rflp_lite.application.sysml_v2 import sysml_to_graph
 from rflp_lite.bootstrap.v2 import build_v2_services
@@ -171,6 +172,28 @@ def test_build_contains_all_required_artifacts(tmp_path: Path):
     assert package["artifacts"]["vv_plan"]["content"]["rows"][0]["stimulus"]
     assert package["artifacts"]["evidence"]["content"]["records"] == []
     assert package["artifacts"]["rflp_svg"]["content"].startswith("<svg")
+
+
+def test_behavior_deliverable_preserves_requirement_back_links(tmp_path: Path):
+    services = _services(tmp_path)
+    services.generation("p1").generate(
+        "p1",
+        requirement_text="操作员应在 2 秒内接收告警；系统应支持人工接管",
+    )
+
+    graph = services.model("p1").graph("p1")
+    package = services.deliverables("p1").build("p1")
+    behavior = package["artifacts"]["behavior"]["content"]
+
+    assert behavior == build_behavior_view(graph)
+    requirement_ids = {
+        item.id for item in graph.entities if item.kind is EntityKind.REQUIREMENT
+    }
+    assert requirement_ids <= {
+        row["source"] for row in behavior["relations"]
+        if row["source"] in requirement_ids
+    }
+    assert all(item["requirement_ids"] for item in behavior["use_cases"])
 
 
 def test_architecture_report_reuses_logical_decision_evidence(tmp_path: Path):
