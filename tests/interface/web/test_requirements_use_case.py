@@ -36,10 +36,19 @@ def test_requirements_use_case_api_and_behavior_page_form_a_vertical_slice(tmp_p
     assert repeated.status_code == 200
     assert repeated.json()["apply"]["idempotent"] is True
 
+    behavior_api = client.get("/projects/p1/behavior")
+    assert behavior_api.status_code == 200
+    sequence_diagrams = behavior_api.json()["sequence_diagrams"]
+    assert sequence_diagrams
+    assert sequence_diagrams[0]["format"] == "mermaid"
+    assert "sequenceDiagram" in sequence_diagrams[0]["mermaid"]
+    assert sequence_diagrams[0]["editable_entity_ids"]
+
     behavior = client.get("/ui/projects/p1/behavior")
     assert behavior.status_code == 200
     assert "Use Case Framework" in behavior.text
     assert "Operational Scenario Framework" in behavior.text
+    assert "Sequence Diagram Framework" in behavior.text
     assert "操作员" in behavior.text
 
     intake = client.get("/ui/projects/p1/requirements-use-case")

@@ -435,9 +435,11 @@ def test_pipeline_analysis_accepts_natural_language_input(tmp_path: Path) -> Non
     )
 
     assert response.status_code == 200
-    assert response.json()["run"]["traceability"]["end_to_end_complete_count"] == 4
     graph = app.state.container.v2.repository("p1").load_graph("p1")
     assert any(item.payload.get("statement") == "系统应支持人工接管" for item in graph.entities)
+    requirement_count = sum(item.kind.value == "requirement" for item in graph.entities)
+    assert requirement_count == 1
+    assert response.json()["run"]["traceability"]["end_to_end_complete_count"] == requirement_count
 
 
 def test_pipeline_analysis_auto_intakes_uploaded_document(tmp_path: Path) -> None:

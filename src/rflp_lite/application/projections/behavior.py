@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Mapping
 
 from rflp_lite.application.projections.common import entity_card, header, issues_by_entity
@@ -17,6 +18,154 @@ _KINDS = (
     EntityKind.INTERFACE,
     EntityKind.STATE,
 )
+
+
+def _mermaid_text(value: object, default: str = "") -> str:
+    """Keep user/model text on one Mermaid line without allowing syntax injection."""
+
+    text = str(value or default).replace("\r", " ").replace("\n", " ")
+    return re.sub(r"\s+", " ", text).replace('"', "'").strip() or default
+
+
+def _sequence_diagrams(graph: ModelGraph) -> list[Mapping[str, object]]:
+    """Project recorded scenario/activity data into an editable sequence view.
+
+    This is deliberately a projection rather than a new graph entity: the scenario
+    and activities remain the source of truth, so edits made through the workbench
+    are reflected on the next read without requiring a diagram synchronization job.
+    """
+
+    entities = graph.entity_index
+    systems = sorted(
+        (item for item in graph.entities if item.kind is EntityKind.SYSTEM),
+        key=lambda item: item.id,
+    )
+    system = systems[0] if systems else None
+    system_id = system.id if system is not None else "system"
+    system_name = system.meta.name if system is not None else "系统"
+    diagrams: list[Mapping[str, object]] = []
+
+    for scenario in sorted(
+        (item for item in graph.entities if item.kind is EntityKind.OPERATIONAL_SCENARIO),
+        key=lambda item: item.id,
+    ):
+        activity_items = sorted(
+            (
+                item
+                for item in graph.entities
+                if item.kind is EntityKind.ACTIVITY
+                and str(item.payload.get("scenario_id", "")) == scenario.id
+            ),
+            key=lambda item: (int(item.payload.get("order", 0) or 0), item.id),
+        )
+        raw_steps = activity_items or list(scenario.payload.get("steps", ()) or ())
+        steps: list[Mapping[str, object]] = []
+        for index, raw_step in enumerate(raw_steps, start=1):
+            if hasattr(raw_step, "payload"):
+                payload = raw_step.payload
+            elif isinstance(raw_step, Mapping):
+                payload = raw_step
+            elif isinstance(raw_step, str):
+                payload = {"action": raw_step}
+            else:
+                payload = {}
+            if not isinstance(payload, Mapping):
+                continue
+            activity_id = raw_step.id if hasattr(raw_step, "id") else ""
+            steps.append({
+                "order": int(payload.get("order", index) or index),
+                "activity_id": activity_id,
+                "actor_id": str(payload.get("actor_id", "") or ""),
+                "action": str(payload.get("action", "") or "").strip() or "活动",
+                "guard": str(payload.get("guard", "") or "").strip(),
+            })
+        steps.sort(key=lambda item: (int(item["order"]), str(item["activity_id"])))
+
+        actor_ids: list[str] = []
+        for raw_id in list(scenario.payload.get("actor_ids", ()) or ()) + [
+            str(step["actor_id"]) for step in steps if step["actor_id"]
+        ]:
+            actor_id = str(raw_id)
+            if actor_id and actor_id not in actor_ids and actor_id != system_id:
+                actor_ids.append(actor_id)
+        participants: list[Mapping[str, object]] = [
+            {"id": system_id, "alias": "system", "name": system_name, "role": "system"}
+        ]
+        for position, actor_id in enumerate(actor_ids, start=1):
+            actor = entities.get(actor_id)
+            participants.append({
+                "id": actor_id,
+                "alias": f"actor{position}",
+                "name": actor.meta.name if actor is not None else actor_id,
+                "role": actor.kind.value if actor is not None else "actor",
+            })
+        participant_aliases = {str(item["id"]): str(item["alias"]) for item in participants}
+
+        messages: list[Mapping[str, object]] = []
+        mermaid_lines = ["sequenceDiagram"]
+        for participant in participants:
+            mermaid_lines.append(
+                f"  participant {participant['alias']} as {_mermaid_text(participant['name'], '参与者')}"
+            )
+        for step in steps:
+            actor_id = str(step["actor_id"] or system_id)
+            source_id = actor_id if actor_id in participant_aliases else system_id
+            target_id = system_id
+            source_alias = participant_aliases[source_id]
+            target_alias = participant_aliases[target_id]
+            message = {
+                "order": step["order"],
+                "activity_id": step["activity_id"],
+                "source_id": source_id,
+                "target_id": target_id,
+                "source_alias": source_alias,
+                "target_alias": target_alias,
+                "action": step["action"],
+                "guard": step["guard"],
+            }
+            messages.append(message)
+            mermaid_lines.append(
+                f"  {source_alias}->>{target_alias}: {_mermaid_text(step['action'], '活动')}"
+            )
+            if step["guard"]:
+                mermaid_lines.append(
+                    f"  Note over {target_alias}: 守卫：{_mermaid_text(step['guard'])}"
+                )
+
+        branches: list[Mapping[str, str]] = []
+        for branch in scenario.payload.get("branches", ()) or ():
+            if isinstance(branch, Mapping):
+                condition = str(branch.get("condition", "")).strip()
+                action = str(branch.get("action", "")).strip()
+            elif isinstance(branch, str):
+                condition, action = branch.strip(), ""
+            else:
+                continue
+            if condition or action:
+                branches.append({"condition": condition, "action": action})
+        if branches:
+            for index, branch in enumerate(branches):
+                if index == 0:
+                    mermaid_lines.append(f"  alt {_mermaid_text(branch['condition'], '分支')}")
+                else:
+                    mermaid_lines.append(f"  else {_mermaid_text(branch['condition'], '分支')}")
+                mermaid_lines.append(
+                    f"    system->>system: {_mermaid_text(branch['action'], '执行分支')}"
+                )
+            mermaid_lines.append("  end")
+
+        diagrams.append({
+            "scenario_id": scenario.id,
+            "scenario_name": scenario.meta.name,
+            "diagram_kind": "sequence",
+            "format": "mermaid",
+            "participants": participants,
+            "messages": messages,
+            "branches": branches,
+            "mermaid": "\n".join(mermaid_lines),
+            "editable_entity_ids": [scenario.id, *(item.id for item in activity_items)],
+        })
+    return diagrams
 
 
 def build_behavior_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> Mapping[str, object]:
@@ -60,6 +209,7 @@ def build_behavior_view(graph: ModelGraph, issues: tuple[Mapping[str, object], .
         "records": records,
         "relations": relations,
         "scenarios": scenarios,
+        "sequence_diagrams": _sequence_diagrams(graph),
         "use_cases": use_cases,
         "incomplete": incomplete,
     }
