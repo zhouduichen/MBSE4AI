@@ -131,7 +131,63 @@ def _number(parameters: Mapping[str, Any], name: str) -> float | None:
     return float(value) if float(value) > 0 else None
 
 
-def _plan_operations(intent: DesignIntent) -> tuple[CadOperation, ...]:
+_RIBBED_STRUCTURE_OPTIONS = frozenset({"bracket-gusseted-plate", "base-ribbed-plate"})
+_BLOCK_STRUCTURE_OPTIONS = frozenset({"bracket-machined-block", "base-machined-block"})
+
+
+def _structure_operations(
+    intent: DesignIntent,
+    selected_structure_option_id: str,
+    length: float | None,
+    width: float | None,
+    height: float | None,
+) -> tuple[CadOperation, ...]:
+    if not selected_structure_option_id or not all(value is not None for value in (length, width, height)):
+        return ()
+    assert length is not None and width is not None and height is not None
+    part_id = intent.id
+    if selected_structure_option_id in _RIBBED_STRUCTURE_OPTIONS:
+        rib_length = max(length * 0.85, 2.0)
+        rib_width = max(width * 0.08, 2.0)
+        rib_height = max(height * 2.0, 2.0)
+        rib_x = max(length * 0.075, 0.5)
+        return tuple(
+            CadOperation(
+                f"add-rib-{index}",
+                "add_rib",
+                (
+                    ("part_id", part_id),
+                    ("length_mm", rib_length),
+                    ("width_mm", rib_width),
+                    ("height_mm", rib_height),
+                    ("x_mm", rib_x),
+                    ("y_mm", max(width * fraction, 0.5)),
+                    ("z_mm", height),
+                    ("structure_option_id", selected_structure_option_id),
+                ),
+                ("create-box",) if index == 1 else ("add-rib-1",),
+                "增加参数化加强筋",
+            )
+            for index, fraction in ((1, 0.20), (2, 0.72))
+        )
+    if selected_structure_option_id in _BLOCK_STRUCTURE_OPTIONS:
+        return (
+            CadOperation(
+                "add-fillet",
+                "add_fillet",
+                (
+                    ("part_id", part_id),
+                    ("radius_mm", max(min(length, width, height) * 0.08, 0.5)),
+                    ("structure_option_id", selected_structure_option_id),
+                ),
+                ("create-box",),
+                "对整体块式结构增加参数化圆角",
+            ),
+        )
+    return ()
+
+
+def _plan_operations(intent: DesignIntent, selected_structure_option_id: str = "") -> tuple[CadOperation, ...]:
     values = dict(intent.parameters)
     operations: list[CadOperation] = [
         CadOperation(
@@ -160,8 +216,10 @@ def _plan_operations(intent: DesignIntent) -> tuple[CadOperation, ...]:
                 "创建基础包络实体",
             )
         )
+        operations.extend(_structure_operations(intent, selected_structure_option_id, length, width, height))
     diameter = _number(values, "diameter_mm")
     if diameter and "孔" in intent.statement:
+        dependency = operations[-1].id
         operations.append(
             CadOperation(
                 "add-hole",
@@ -173,7 +231,7 @@ def _plan_operations(intent: DesignIntent) -> tuple[CadOperation, ...]:
                     ("x_mm", (length or diameter) / 2),
                     ("y_mm", (width or diameter) / 2),
                 ),
-                ("create-box",),
+                (dependency,),
                 "创建孔特征",
             )
         )
@@ -242,7 +300,7 @@ class CadWorkflowService:
         known_option_ids = {str(item.get("id", "")) for item in draft.intent.structure_options}
         if selected_option_id and selected_option_id not in known_option_ids:
             raise ContractViolation(f"unknown structure option: {selected_option_id}")
-        operations = _plan_operations(draft.intent)
+        operations = _plan_operations(draft.intent, selected_option_id)
         plan_id = f"cad-plan-{canonical_hash((self.project_id, draft.intent.id, operations, selected_option_id))[:16]}"
         status = "needs_clarification" if any(item.severity == "high" for item in draft.clarifications) else "ready"
         plan = CadExecutionPlan(

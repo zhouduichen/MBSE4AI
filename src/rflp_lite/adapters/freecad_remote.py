@@ -28,6 +28,7 @@ _OPERATIONS = (
     "create_part",
     "create_box",
     "create_cylinder",
+    "add_rib",
     "add_hole",
     "add_fillet",
     "set_material",
@@ -106,6 +107,9 @@ def _validate_plan(plan: CadExecutionPlan) -> None:
         if operation.operation == "create_cylinder":
             _positive(parameters, "diameter_mm")
             _positive(parameters, "height_mm")
+        if operation.operation == "add_rib":
+            for name in ("length_mm", "width_mm", "height_mm", "x_mm", "y_mm", "z_mm"):
+                _positive(parameters, name)
         if operation.operation == "add_hole":
             _positive(parameters, "diameter_mm")
             _positive(parameters, "depth_mm")
@@ -170,6 +174,14 @@ for operation in plan:
             shapes[part_id] = Part.makeBox(float(params["length_mm"]), float(params["width_mm"]), float(params["height_mm"]))
         elif name == "create_cylinder":
             shapes[part_id] = Part.makeCylinder(float(params["diameter_mm"]) / 2.0, float(params["height_mm"]))
+        elif name == "add_rib":
+            rib = Part.makeBox(
+                float(params["length_mm"]),
+                float(params["width_mm"]),
+                float(params["height_mm"]),
+                App.Vector(float(params["x_mm"]), float(params["y_mm"]), float(params["z_mm"])),
+            )
+            shapes[part_id] = shapes[part_id].fuse(rib)
         elif name == "add_hole":
             current = shapes[part_id]
             box = current.BoundBox

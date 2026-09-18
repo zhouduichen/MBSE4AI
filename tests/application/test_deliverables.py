@@ -318,6 +318,7 @@ def test_concept_and_detail_design_records_are_included_in_deliverables(tmp_path
     detail_content = package["artifacts"]["detail_design"]["content"]
     assert detail_content["design_intent_drafts"][-1]["structure_options"][0]["id"] == selected
     assert detail_content["cad_execution_plans"][-1]["selected_structure_option_id"] == selected
+    assert detail_content["cad_execution_plans"][-1]["operations"][-2]["operation"] == "add_rib"
     assert detail_content["cad_models"][-1]["selected_structure_option_id"] == selected
     assert detail_content["design_reviews"][-1]["artifacts"]["drawing_svg"].startswith("<svg")
     archive_bytes, _ = services.deliverables("p1").export_zip("p1")

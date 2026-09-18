@@ -39,6 +39,8 @@
 - [二维图纸预览实施计划](plans/2026-09-19-2d-drawing-preview.md)
 - [结构化结构选型推荐设计](specs/2026-09-19-structured-design-options-design.md)
 - [结构化结构选型推荐实施计划](plans/2026-09-19-structured-design-options.md)
+- [结构选型驱动参数化 CAD 设计](specs/2026-09-19-structure-profile-cad-generation-design.md)
+- [结构选型驱动参数化 CAD 实施计划](plans/2026-09-19-structure-profile-cad-generation.md)
 
 ## Superseded
 

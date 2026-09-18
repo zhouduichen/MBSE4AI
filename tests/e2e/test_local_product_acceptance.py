@@ -76,9 +76,11 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
     plan = cad.create_plan(draft.draft_id, selected_structure_option_id=selected)
     assert plan["status"] == "ready"
     assert plan["selected_structure_option_id"] == selected
+    assert [item["operation"] for item in plan["operations"]].count("add_rib") == 2
     assert plan["preview"]["schema_version"] == "parametric-cad-preview.v1"
     cad.approve_plan(plan["id"])
     model = cad.execute_plan(plan["id"])
+    assert [item["kind"] for item in model["model_payload"]["parts"][0]["features"]][-2:] == ["add_rib", "add_rib"]
     review = services.design_review("acceptance").review(model["id"], model["model_payload"])
     assert review["annotations"]
     assert review["artifacts"]["drawing_svg"].startswith("<svg")
@@ -113,6 +115,10 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
     assert {"sysml", "behavior", "traceability", "concept_design", "detail_design"} <= set(package["artifacts"])
     assert package["artifacts"]["behavior"]["content"]["sequence_diagrams"]
     assert package["artifacts"]["detail_design"]["content"]["design_reviews"][-1]["artifacts"]["drawing_svg"].startswith("<svg")
+    assert [
+        item["operation"]
+        for item in package["artifacts"]["detail_design"]["content"]["cad_execution_plans"][-1]["operations"]
+    ].count("add_rib") == 2
     archive_bytes, _ = services.deliverables("acceptance").export_zip("acceptance")
     with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
         assert {"model.sysml", "behavior.json", "concept-design.json", "detail-design.json"} <= set(archive.namelist())

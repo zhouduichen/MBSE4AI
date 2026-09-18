@@ -20,6 +20,7 @@ _OPERATIONS = (
     "create_part",
     "create_box",
     "create_cylinder",
+    "add_rib",
     "add_hole",
     "add_fillet",
     "set_material",
@@ -42,7 +43,7 @@ def _numbers(raw: object, names: tuple[str, ...]) -> tuple[float, ...]:
 def _part(parts: list[dict[str, Any]], operation, parameters: Mapping[str, Any]) -> dict[str, Any]:
     part_id = str(parameters.get("part_id", operation.id)).strip() or operation.id
     name = str(parameters.get("name", part_id))
-    item = {"id": part_id, "name": name, "features": [], "material": "", "bbox_mm": [0.0, 0.0, 0.0]}
+    item = {"id": part_id, "name": name, "features": [], "material": "", "bbox_mm": [0.0, 0.0, 0.0], "solids": []}
     parts.append(item)
     return item
 
@@ -66,6 +67,18 @@ def _apply_operation(parts, assemblies, operation) -> None:
         names = ("length_mm", "width_mm", "height_mm") if operation.operation == "create_box" else ("diameter_mm", "height_mm")
         dimensions = _numbers(parameters, names)
         target["bbox_mm"] = list(dimensions if len(dimensions) == 3 else (dimensions[0], dimensions[0], dimensions[1]))
+        if operation.operation == "create_box":
+            target["solids"] = [{"kind": "box", "size": list(dimensions), "origin": [0.0, 0.0, 0.0]}]
+        target["features"].append({"id": operation.id, "kind": operation.operation, "parameters": parameters})
+        return
+    if operation.operation == "add_rib":
+        length, width, height, x, y, z = _numbers(
+            parameters,
+            ("length_mm", "width_mm", "height_mm", "x_mm", "y_mm", "z_mm"),
+        )
+        target["solids"].append({"kind": "box", "size": [length, width, height], "origin": [x, y, z]})
+        bbox = target["bbox_mm"]
+        target["bbox_mm"] = [max(float(bbox[0]), x + length), max(float(bbox[1]), y + width), max(float(bbox[2]), z + height)]
         target["features"].append({"id": operation.id, "kind": operation.operation, "parameters": parameters})
         return
     if operation.operation in {"add_hole", "add_fillet"}:
@@ -82,13 +95,57 @@ def _apply_operation(parts, assemblies, operation) -> None:
     raise ContractViolation(f"unsupported CAD operation: {operation.operation}")
 
 
-def _obj_for_box(part: Mapping[str, object]) -> str:
+def _obj_for_cuboid(size: tuple[float, float, float], origin: tuple[float, float, float], index_offset: int) -> tuple[str, int]:
+    x, y, z = size
+    ox, oy, oz = origin
+    if min(x, y, z) <= 0:
+        return "", index_offset
+    vertices = ((ox, oy, oz), (ox + x, oy, oz), (ox + x, oy + y, oz), (ox, oy + y, oz), (ox, oy, oz + z), (ox + x, oy, oz + z), (ox + x, oy + y, oz + z), (ox, oy + y, oz + z))
+    faces = ((1, 2, 3, 4), (5, 8, 7, 6), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 8, 4), (5, 1, 4, 8))
+    offset = index_offset
+    return "\n".join([*(f"v {a:g} {b:g} {c:g}" for a, b, c in vertices), *("f " + " ".join(str(index + offset) for index in face) for face in faces)]), index_offset + 8
+
+
+def _obj_for_part(part: Mapping[str, object]) -> str:
+    solids = part.get("solids", ())
+    if not isinstance(solids, (list, tuple)) or not solids:
+        x, y, z = (float(value) for value in part.get("bbox_mm", (0.0, 0.0, 0.0)))
+        solids = ({"kind": "box", "size": [x, y, z], "origin": [0.0, 0.0, 0.0]},)
+    fragments: list[str] = []
+    offset = 0
+    for solid in solids:
+        if not isinstance(solid, Mapping) or solid.get("kind") != "box":
+            continue
+        size = tuple(float(value) for value in solid.get("size", (0.0, 0.0, 0.0)))
+        origin = tuple(float(value) for value in solid.get("origin", (0.0, 0.0, 0.0)))
+        fragment, offset = _obj_for_cuboid(size, origin, offset)
+        if fragment:
+            fragments.append(fragment)
+    return "\n".join(fragments)
+
+
+def _open_scad_for_part(part: Mapping[str, object]) -> str:
+    solids = part.get("solids", ())
+    if not isinstance(solids, (list, tuple)) or not solids:
+        x, y, z = (float(value) for value in part.get("bbox_mm", (0.0, 0.0, 0.0)))
+        solids = ({"kind": "box", "size": [x, y, z], "origin": [0.0, 0.0, 0.0]},)
+    lines = [f"// {part['id']}"]
+    for solid in solids:
+        if not isinstance(solid, Mapping) or solid.get("kind") != "box":
+            continue
+        size = [float(value) for value in solid.get("size", (0.0, 0.0, 0.0))]
+        origin = [float(value) for value in solid.get("origin", (0.0, 0.0, 0.0))]
+        if all(value > 0 for value in size):
+            lines.append(f"translate([{origin[0]}, {origin[1]}, {origin[2]}]) cube([{size[0]}, {size[1]}, {size[2]}]);")
+    return "\n".join(lines)
+
+
+def _legacy_obj_for_box(part: Mapping[str, object]) -> str:
+    """Retain the old private helper name for integrations importing it."""
     x, y, z = (float(value) for value in part.get("bbox_mm", (0.0, 0.0, 0.0)))
     if min(x, y, z) <= 0:
         return ""
-    vertices = ((0, 0, 0), (x, 0, 0), (x, y, 0), (0, y, 0), (0, 0, z), (x, 0, z), (x, y, z), (0, y, z))
-    faces = ((1, 2, 3, 4), (5, 8, 7, 6), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 8, 4), (5, 1, 4, 8))
-    return "\n".join([*(f"v {a:g} {b:g} {c:g}" for a, b, c in vertices), *("f " + " ".join(str(index) for index in face) for face in faces)])
+    return _obj_for_cuboid((x, y, z), (0.0, 0.0, 0.0), 0)[0]
 
 
 def _model_payload(plan: CadExecutionPlan) -> dict[str, Any]:
@@ -96,18 +153,14 @@ def _model_payload(plan: CadExecutionPlan) -> dict[str, Any]:
     assemblies: list[dict[str, Any]] = []
     for operation in plan.operations:
         _apply_operation(parts, assemblies, operation)
-    obj = "\n".join(_obj_for_box(part) for part in parts if _obj_for_box(part))
+    obj = "\n".join(_obj_for_part(part) for part in parts if _obj_for_part(part))
     return {
         "schema_version": "parametric-cad-preview.v1",
         "units": "mm",
         "parts": parts,
         "assemblies": assemblies,
         "obj": obj,
-        "open_scad_source": "\n".join(
-            f"// {part['id']}\ncube([{part['bbox_mm'][0]}, {part['bbox_mm'][1]}, {part['bbox_mm'][2]}]);"
-            for part in parts
-            if all(float(value) > 0 for value in part.get("bbox_mm", (0, 0, 0)))
-        ),
+        "open_scad_source": "\n".join(_open_scad_for_part(part) for part in parts if _open_scad_for_part(part)),
     }
 
 

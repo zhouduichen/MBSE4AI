@@ -32,6 +32,8 @@ def test_cad_plan_execute_review_and_apply_are_idempotent(tmp_path: Path):
     assert len(draft.payload["structure_options"]) >= 2
     assert {item["status"] for item in draft.payload["structure_options"]} == {"recommendation"}
     assert plan["selected_structure_option_id"] == ""
+    assert "add_rib" not in {item["operation"] for item in plan["operations"]}
+    assert "add_fillet" not in {item["operation"] for item in plan["operations"]}
     assert plan["preview"]["schema_version"] == "parametric-cad-preview.v1"
     with pytest.raises(ContractViolation):
         cad.execute_plan(plan["id"])
@@ -76,6 +78,33 @@ def test_structure_option_selection_is_validated_and_traced(tmp_path: Path):
     payload = applied["entity"]["payload"]
     assert payload["selected_structure_option_id"] == selected
     assert payload["design_intent"]["structure_options"][0]["id"] == selected
+
+
+def test_structure_option_changes_parameterized_cad_operations(tmp_path: Path):
+    services = build_v2_services(tmp_path)
+    services.projects.create("p")
+    cad = services.cad_design("p")
+    draft = cad.create_intent("生成铝合金支架，长100毫米，宽50毫米，高10毫米")
+
+    ribbed = cad.create_plan(
+        draft.draft_id,
+        selected_structure_option_id="bracket-gusseted-plate",
+    )
+    block = cad.create_plan(
+        draft.draft_id,
+        selected_structure_option_id="bracket-machined-block",
+    )
+
+    ribbed_operations = [item["operation"] for item in ribbed["operations"]]
+    block_operations = [item["operation"] for item in block["operations"]]
+    assert ribbed_operations.count("add_rib") == 2
+    assert "add_fillet" not in ribbed_operations
+    assert block_operations.count("add_fillet") == 1
+    assert "add_rib" not in block_operations
+    assert ribbed["preview"]["parts"][0]["bbox_mm"][2] > 10
+    assert [item["kind"] for item in ribbed["preview"]["parts"][0]["features"]][-2:] == ["add_rib", "add_rib"]
+    assert block["preview"]["parts"][0]["features"][-1]["kind"] == "add_fillet"
+    assert ribbed["preview_hash"] != block["preview_hash"]
 
 
 def test_design_rule_review_reports_feature_location_and_version(tmp_path: Path):
