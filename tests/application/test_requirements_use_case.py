@@ -14,6 +14,10 @@ def _payload() -> dict[str, object]:
         "system_context": {
             "name": "城市巡检系统",
             "mission": "执行城市巡检并上报告警",
+            "attributes": {
+                "platform_type": "inspection_system",
+                "capture_source": "llm",
+            },
             "source_refs": ["region-1"],
         },
         "entities": [{
@@ -187,6 +191,11 @@ def test_apply_draft_creates_traceable_behavior_and_is_idempotent(tmp_path: Path
     assert len([item for item in graph.entities if item.kind is EntityKind.USE_CASE]) == 1
     assert len([item for item in graph.entities if item.kind is EntityKind.OPERATIONAL_SCENARIO]) == 1
     assert len([item for item in graph.entities if item.kind is EntityKind.ACTIVITY]) == 2
+    system = next(item for item in graph.entities if item.kind is EntityKind.SYSTEM)
+    assert system.payload["attributes"] == {
+        "platform_type": "inspection_system",
+        "capture_source": "llm",
+    }
     assert all(item.meta.status is EntityStatus.CANDIDATE for item in graph.entities if item.meta.producer is Producer.LLM)
     assert any(item.kind is EntityKind.EVIDENCE for item in graph.entities)
     assert any(item.predicate.value == "participatesIn" for item in graph.relations)
@@ -236,6 +245,39 @@ def test_rule_fallback_preserves_implicit_constraints_as_reviewable_candidates(t
         "fail_safe_behavior",
     }
     assert stored.payload["requires_human_review"] is True
+
+
+def test_rule_fallback_captures_system_stakeholders_and_concerns(tmp_path: Path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    service = RequirementsUseCaseService(repository, "p1")
+
+    draft = service.create_draft(
+        text="校园无人配送机器人由操作员使用，维护人员负责维护，系统应故障安全并支持持续运行"
+    )
+    assert draft.payload["system_context"]["attributes"]["platform_type"] == "robot"
+    assert {item["name"] for item in draft.payload["entities"]} >= {
+        "操作员",
+        "维护人员",
+        "安全性",
+        "可靠性",
+        "可维护性",
+    }
+    assert all(item["confidence"] < 0.5 for item in draft.payload["entities"])
+    assert any("derived-entity:concern_safety" in item for item in draft.diagnostics)
+
+    service.apply_draft(draft)
+    graph = repository.load_graph("p1")
+    system = next(item for item in graph.entities if item.kind is EntityKind.SYSTEM)
+    assert system.payload["attributes"]["platform_type"] == "robot"
+    assert any(
+        item.kind is EntityKind.STAKEHOLDER and item.meta.name == "维护人员"
+        for item in graph.entities
+    )
+    assert any(
+        item.kind is EntityKind.CONCERN and item.meta.name == "安全性"
+        for item in graph.entities
+    )
 
 
 def test_invalid_structured_model_output_degrades_without_writing_invalid_json(tmp_path: Path):

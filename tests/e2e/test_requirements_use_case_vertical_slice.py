@@ -26,6 +26,8 @@ def test_document_to_requirements_behavior_and_traceability(tmp_path: Path):
     assert len(draft["requirements"]) >= 3
     assert draft["use_cases"]
     assert draft["scenarios"]
+    assert draft["system_context"]["attributes"]["platform_type"] == "generic_system"
+    assert any(item["kind"] == "stakeholder" for item in draft["entities"])
     assert all(
         item["source_refs"] or item["confidence"] < 1
         for item in draft["requirements"]
@@ -38,6 +40,9 @@ def test_document_to_requirements_behavior_and_traceability(tmp_path: Path):
     assert applied.status_code == 200
     assert applied.json()["apply"]["created_entity_count"] >= 6
     model_after_apply = client.get("/projects/mission/model").json()
+    system = next(item for item in model_after_apply["entities"] if item["kind"] == "system")
+    assert system["payload"]["attributes"]["platform_type"] == "generic_system"
+    assert any(item["kind"] == "stakeholder" for item in model_after_apply["entities"])
     assert any(
         item["payload"].get("inferred_constraints")
         for item in model_after_apply["entities"]
@@ -68,3 +73,36 @@ def test_document_to_requirements_behavior_and_traceability(tmp_path: Path):
     traceability = client.get("/projects/mission/traceability")
     assert traceability.status_code == 200
     assert traceability.json()["traceability"]["rows"]
+
+
+def test_text_intake_persists_bounded_concern_attributes(tmp_path: Path):
+    client = TestClient(create_app(tmp_path / "workspaces"))
+    assert client.post("/projects", json={"id": "profile"}).status_code == 200
+
+    response = client.post(
+        "/projects/profile/requirements-use-case/draft",
+        json={
+            "text": "校园无人配送机器人由操作员使用，维护人员负责维护，系统应故障安全并支持持续运行"
+        },
+    )
+    assert response.status_code == 200
+    draft = response.json()["draft"]
+    assert draft["system_context"]["attributes"]["platform_type"] == "robot"
+    assert {item["name"] for item in draft["entities"]} >= {
+        "操作员",
+        "维护人员",
+        "安全性",
+        "可靠性",
+        "可维护性",
+    }
+    assert all(item["confidence"] < 0.5 for item in draft["entities"])
+
+    applied = client.post(
+        "/projects/profile/requirements-use-case/apply",
+        json={"draft_id": draft["draft_id"]},
+    )
+    assert applied.status_code == 200
+    model = client.get("/projects/profile/model").json()
+    system = next(item for item in model["entities"] if item["kind"] == "system")
+    assert system["payload"]["attributes"]["platform_type"] == "robot"
+    assert any(item["kind"] == "concern" for item in model["entities"])

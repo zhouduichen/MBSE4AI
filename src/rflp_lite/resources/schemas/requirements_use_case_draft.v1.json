@@ -14,6 +14,7 @@
       "properties": {
         "name": {"type": "string", "minLength": 1, "maxLength": 240},
         "mission": {"type": "string", "maxLength": 2000},
+        "attributes": {"type": "object", "additionalProperties": true},
         "source_refs": {"type": "array", "items": {"type": "string"}}
       }
     },

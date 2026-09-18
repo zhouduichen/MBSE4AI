@@ -25,7 +25,9 @@ import jsonschema
 
 from rflp_lite.application.requirement_intake import (
     extract_requirement_constraints,
+    infer_requirement_entities,
     infer_requirement_constraints,
+    infer_system_profile,
     split_requirement_statements,
 )
 from rflp_lite.application.resources import resource_path
@@ -284,6 +286,9 @@ def _compile_base_entities(
             str(system_context.get("name", "目标系统")),
             {
                 "mission": str(system_context.get("mission", "")),
+                "attributes": dict(system_context.get("attributes", {}))
+                if isinstance(system_context.get("attributes"), Mapping)
+                else {},
                 "system_boundary": {"inside": [], "outside": []},
                 "objectives": [],
                 "environment_assumptions": [],
@@ -933,24 +938,22 @@ def _fallback_payload(text: str, source_refs: Sequence[str], document_ids: Seque
             "confidence": 0.55 if constraints else 0.45,
             "related_refs": [],
         })
-    actor_ref = "actor_operator"
-    combined = text.casefold()
-    has_actor = any(token in combined for token in ("用户", "操作员", "指挥员", "维护人员", "operator", "user"))
-    entities = []
-    if has_actor:
-        entities.append({
-            "local_ref": actor_ref,
-            "kind": "stakeholder",
-            "name": "操作员",
-            "attributes": {"role": "任务执行者"},
-            "source_refs": refs,
-            "confidence": 0.45,
-        })
+    system_profile = infer_system_profile(text, refs)
+    entities = [dict(item) for item in infer_requirement_entities(text, refs)]
+    actor_refs = [
+        str(item["local_ref"])
+        for item in entities
+        if str(item.get("kind", "")) == "stakeholder"
+    ]
+    diagnostics.extend(
+        f"rule:derived-entity:{item['local_ref']}"
+        for item in entities
+    )
     scenario_ref = "scenario_primary"
     steps = [
         {
             "order": index,
-            "actor_ref": actor_ref if has_actor and index % 2 else "system",
+            "actor_ref": actor_refs[(index - 1) % len(actor_refs)] if actor_refs and index % 2 else "system",
             "action": statement,
             "guard": "",
         }
@@ -959,14 +962,19 @@ def _fallback_payload(text: str, source_refs: Sequence[str], document_ids: Seque
     return {
         "schema_version": _SCHEMA_VERSION,
         "source_document_ids": list(document_ids),
-        "system_context": {"name": "目标系统", "mission": "待确认", "source_refs": refs},
+        "system_context": {
+            "name": system_profile["name"],
+            "mission": "待确认",
+            "attributes": dict(system_profile["attributes"]),
+            "source_refs": refs,
+        },
         "entities": entities,
         "requirements": requirements,
         "use_cases": [{
             "local_ref": "use_case_primary",
             "name": "执行主要任务",
             "goal": statements[0] if statements else "待确认任务目标",
-            "primary_actor_refs": [actor_ref] if has_actor else [],
+            "primary_actor_refs": actor_refs,
             "preconditions": [],
             "postconditions": [],
             "scenario_refs": [scenario_ref],
@@ -979,7 +987,7 @@ def _fallback_payload(text: str, source_refs: Sequence[str], document_ids: Seque
             "kind": "operational_scenario",
             "name": "完成主要任务",
             "description": "基于输入文本形成的待确认运行场景框架",
-            "actor_refs": [actor_ref] if has_actor else [],
+            "actor_refs": actor_refs,
             "steps": steps or [{"order": 1, "actor_ref": "system", "action": "执行任务", "guard": ""}],
             "branches": [],
             "requirement_refs": [item["local_ref"] for item in requirements],
@@ -1020,6 +1028,12 @@ def _prepare_payload(
         context = dict(system_context)
         context.setdefault("name", "目标系统")
         context.setdefault("mission", "")
+        context.setdefault("attributes", {})
+        context["attributes"] = (
+            dict(context["attributes"])
+            if isinstance(context.get("attributes"), Mapping)
+            else {}
+        )
         context.setdefault("source_refs", [])
         context["source_refs"] = _clean_refs(context.get("source_refs"), valid_source_refs, diagnostics, "system_context")
         payload["system_context"] = context

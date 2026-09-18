@@ -89,6 +89,59 @@ _IMPLICIT_RULES = (
     ),
 )
 
+# These vocabularies are deliberately small.  They provide useful structure
+# for offline intake without pretending to be an open-domain NER model.
+_SYSTEM_PROFILE_RULES = (
+    ("无人配送机器人", "robot", "无人配送机器人"),
+    ("传感器系统", "sensor_system", "传感器系统"),
+    ("飞行器", "aircraft", "飞行器"),
+    ("无人机", "uav", "无人机"),
+    ("车辆", "vehicle", "车辆"),
+    ("机器人", "robot", "机器人"),
+)
+_ENVIRONMENT_RULES = (
+    ("校园", "校园"),
+    ("室内", "室内"),
+    ("室外", "室外"),
+    ("海上", "海上"),
+    ("空中", "空中"),
+    ("高温", "高温"),
+    ("低温", "低温"),
+)
+_MISSION_RULES = (
+    ("配送", "配送"),
+    ("巡检", "巡检"),
+    ("侦察", "侦察"),
+    ("作战", "作战"),
+    ("维护", "维护"),
+)
+_STAKEHOLDER_RULES = (
+    ("操作员", "actor_operator", "操作员", "任务执行者"),
+    ("operator", "actor_operator", "操作员", "任务执行者"),
+    ("指挥员", "actor_commander", "指挥员", "任务指挥"),
+    ("维护人员", "actor_maintainer", "维护人员", "维护与保障"),
+    ("管理员", "actor_administrator", "管理员", "系统管理"),
+    ("安全监管方", "actor_safety_regulator", "安全监管方", "安全监管"),
+    ("用户", "actor_user", "用户", "任务使用者"),
+    ("user", "actor_user", "用户", "任务使用者"),
+)
+_CONCERN_RULES = (
+    ("故障安全", "concern_safety", "安全性", "故障安全语义"),
+    ("安全性", "concern_safety", "安全性", "安全性语义"),
+    ("可靠性", "concern_reliability", "可靠性", "可靠性语义"),
+    ("容错", "concern_reliability", "可靠性", "容错语义"),
+    ("冗余", "concern_reliability", "可靠性", "冗余语义"),
+    ("持续运行", "concern_reliability", "可靠性", "连续运行语义"),
+    ("可维护", "concern_maintainability", "可维护性", "可维护性语义"),
+    ("维护", "concern_maintainability", "可维护性", "维护语义"),
+    ("性能", "concern_performance", "性能", "性能语义"),
+    ("时延", "concern_performance", "性能", "时延语义"),
+    ("功耗", "concern_performance", "性能", "功耗语义"),
+    ("续航", "concern_performance", "性能", "续航语义"),
+    ("互操作", "concern_interoperability", "互操作性", "互操作语义"),
+    ("接口", "concern_interoperability", "互操作性", "接口语义"),
+)
+
 
 def split_requirement_statements(text: str) -> tuple[str, ...]:
     """Return ordered, normalized requirement-sized statements from ``text``."""
@@ -203,4 +256,89 @@ def infer_requirement_constraints(
                 "confidence": 0.35,
                 "assumption": assumption,
             })
+    return tuple(result)
+
+
+def infer_system_profile(
+    text: str, source_refs: Sequence[str] = ()
+) -> Mapping[str, object]:
+    """Capture a bounded system profile from known platform/domain phrases."""
+
+    normalized = str(text or "").casefold()
+    refs = list(dict.fromkeys(str(item).strip() for item in source_refs if str(item).strip()))
+    profile = next(
+        (
+            (code, label)
+            for phrase, code, label in sorted(_SYSTEM_PROFILE_RULES, key=lambda item: len(item[0]), reverse=True)
+            if phrase.casefold() in normalized
+        ),
+        ("generic_system", "目标系统"),
+    )
+    code, label = profile
+    attributes = {
+        "platform_type": code,
+        "platform_label": label,
+        "capture_source": "derived",
+        "rule_id": f"system-profile:{code}",
+        "confidence": 0.45,
+    }
+    environments = [
+        label
+        for phrase, label in _ENVIRONMENT_RULES
+        if phrase.casefold() in normalized
+    ]
+    mission_domains = [
+        label
+        for phrase, label in _MISSION_RULES
+        if phrase.casefold() in normalized
+    ]
+    if environments:
+        attributes["operating_environment"] = list(dict.fromkeys(environments))
+    if mission_domains:
+        attributes["mission_domain"] = list(dict.fromkeys(mission_domains))
+    return {"name": label, "attributes": attributes, "source_refs": refs}
+
+
+def infer_requirement_entities(
+    text: str, source_refs: Sequence[str] = ()
+) -> tuple[Mapping[str, object], ...]:
+    """Capture known stakeholders and concerns as reviewable derived entities."""
+
+    normalized = str(text or "").casefold()
+    refs = list(dict.fromkeys(str(item).strip() for item in source_refs if str(item).strip()))
+    result: list[Mapping[str, object]] = []
+    seen: set[str] = set()
+    for phrase, local_ref, name, role in _STAKEHOLDER_RULES:
+        if local_ref in seen or phrase.casefold() not in normalized:
+            continue
+        seen.add(local_ref)
+        result.append({
+            "local_ref": local_ref,
+            "kind": "stakeholder",
+            "name": name,
+            "attributes": {
+                "role": role,
+                "capture_source": "derived",
+                "rule_id": f"stakeholder:{local_ref}",
+            },
+            "source_refs": refs,
+            "confidence": 0.45,
+        })
+    for phrase, local_ref, name, matched_as in _CONCERN_RULES:
+        if local_ref in seen or phrase.casefold() not in normalized:
+            continue
+        seen.add(local_ref)
+        result.append({
+            "local_ref": local_ref,
+            "kind": "concern",
+            "name": name,
+            "attributes": {
+                "topic": name,
+                "matched_phrase": matched_as,
+                "capture_source": "derived",
+                "rule_id": f"concern:{local_ref}",
+            },
+            "source_refs": refs,
+            "confidence": 0.45,
+        })
     return tuple(result)

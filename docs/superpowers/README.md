@@ -47,6 +47,8 @@
 - [DFM/DFA 规则上下文与风险摘要实施计划](plans/2026-09-19-design-review-rule-context.md)
 - [离线需求隐含约束候选设计](specs/2026-09-19-offline-implicit-constraints-design.md)
 - [离线需求隐含约束实施计划](plans/2026-09-19-offline-implicit-constraints.md)
+- [离线需求实体与属性捕获设计](specs/2026-09-19-offline-entity-attribute-capture-design.md)
+- [离线需求实体与属性捕获实施计划](plans/2026-09-19-offline-entity-attribute-capture.md)
 
 ## Superseded
 

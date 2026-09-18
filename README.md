@@ -70,7 +70,7 @@ Jiayu-intern 的 SSH 转发、Profile JSON 和一次性 CASE-04 验收命令见
 
 导入文档后，`analyze run` 会自动执行 Intake 并直接进入 23-task 生命周期，不需要手动调用需求草稿 API；Web 端可用 `{"mode":"pipeline","document_ids":[...]}` 获得相同路径。
 
-`analyze generate`、`analyze run` 和 Web `/analysis` 现在共享同一个结构化需求/用例摄取边界：文本或已上传的 TXT、Markdown、DOCX、PDF 先生成带来源、约束来源、置信度和澄清问题的 `IntakeDraft`，经现有 CAS 写入候选 ModelGraph 后再继续五阶段或 23-task R→F→L→P→V&V。离线模式明确标记为 `degraded`/`RULE`，不会伪装成 LLM 结果；除显式数值约束外，有限语义规则会生成低置信度 `derived` 隐含约束，保留假设并显示“需人工确认”，不会自动批准。之后同一请求会产出 Use Case、Operational Scenario、Activity、完整追溯、SysML 和交付包。需求分析工作台 `/ui/projects/<project-id>/requirements-use-case` 仍保留为需要人工逐稿审查时的独立 M1/M2 入口。
+`analyze generate`、`analyze run` 和 Web `/analysis` 现在共享同一个结构化需求/用例摄取边界：文本或已上传的 TXT、Markdown、DOCX、PDF 先生成带来源、约束来源、置信度和澄清问题的 `IntakeDraft`，经现有 CAS 写入候选 ModelGraph 后再继续五阶段或 23-task R→F→L→P→V&V。离线模式明确标记为 `degraded`/`RULE`，不会伪装成 LLM 结果；除显式数值约束外，有限词典规则还会捕获系统平台/任务域/运行环境、stakeholder 和 concern 属性，生成低置信度 `derived` 结果并显示“需人工确认”，不会自动批准。之后同一请求会产出 Use Case、Operational Scenario、Activity、完整追溯、SysML 和交付包。需求分析工作台 `/ui/projects/<project-id>/requirements-use-case` 仍保留为需要人工逐稿审查时的独立 M1/M2 入口。
 
 行为工作台 `/ui/projects/<project-id>/behavior` 会从已写入的 Operational Scenario/Activity 确定性投影 Sequence Diagram Framework：参与者、消息顺序、守卫、分支、Mermaid 文本和可编辑实体 ID 均来自同一份 ModelGraph；通过工作台编辑源实体后重新读取即可刷新，不额外调用 LLM。
 

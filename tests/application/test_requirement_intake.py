@@ -1,6 +1,8 @@
 from rflp_lite.application.requirement_intake import (
     extract_requirement_constraints,
+    infer_requirement_entities,
     infer_requirement_constraints,
+    infer_system_profile,
     split_requirement_statements,
 )
 
@@ -103,3 +105,25 @@ def test_infer_requirement_constraints_returns_reviewable_derived_candidates():
 
 def test_infer_requirement_constraints_ignores_unrelated_text():
     assert infer_requirement_constraints("系统应完成校园配送") == ()
+
+
+def test_infers_bounded_system_profile_and_reviewable_entities():
+    text = "校园无人配送机器人由操作员使用，维护人员负责维护，系统应故障安全并支持持续运行"
+
+    profile = infer_system_profile(text, ("region-1",))
+    entities = infer_requirement_entities(text, ("region-1",))
+
+    assert profile["name"] == "无人配送机器人"
+    assert profile["attributes"]["platform_type"] == "robot"
+    assert profile["attributes"]["operating_environment"] == ["校园"]
+    assert profile["attributes"]["mission_domain"] == ["配送", "维护"]
+    assert {item["local_ref"] for item in entities} == {
+        "actor_operator",
+        "actor_maintainer",
+        "concern_maintainability",
+        "concern_reliability",
+        "concern_safety",
+    }
+    assert all(item["source_refs"] == ["region-1"] for item in entities)
+    assert all(0 < item["confidence"] < 0.5 for item in entities)
+    assert all(item["attributes"]["capture_source"] == "derived" for item in entities)
