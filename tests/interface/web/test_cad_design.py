@@ -52,3 +52,23 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     assert "审查记录与风险高亮" in page.text
     assert "风险高亮" in page.text
     assert review["id"] in page.text
+
+
+def test_cad_design_page_exposes_clarification_loop(tmp_path):
+    client = TestClient(create_app(tmp_path / "workspaces"))
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    draft_response = client.post(
+        "/projects/p1/cad/intent",
+        json={"text": "生成一个零件"},
+    )
+
+    assert draft_response.status_code == 200
+    assert draft_response.json()["draft"]["status"] == "needs_clarification"
+    page = client.get("/ui/projects/p1/cad-design")
+
+    assert page.status_code == 200
+    assert "需要澄清" in page.text
+    assert "请确认需要生成的目标零部件。" in page.text
+    assert 'data-clarification-option="支架"' in page.text
+    assert "请选择一个选项并重新分析设计意图" in page.text

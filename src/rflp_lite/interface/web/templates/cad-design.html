@@ -22,7 +22,7 @@
 <section class="card">
   <div class="card-header"><div><h2>执行链</h2><p id="cad-chain-summary">{% if drafts %}已有 {{ drafts|length }} 个意图草案{% else %}尚未创建意图草案{% endif %}</p></div></div>
   <div id="cad-chain">
-    {% if drafts %}<pre>{{ drafts[-1]|tojson(indent=2) }}</pre>{% endif %}
+    {% if drafts %}<pre>{{ drafts[-1]|tojson(indent=2) }}</pre>{% if drafts[-1].clarifications %}<div class="callout warning"><strong>需要澄清：</strong>请选择一个选项并重新分析设计意图；如果没有合适选项，请直接编辑上方输入。<div class="cad-clarifications">{% for item in drafts[-1].clarifications %}<article><strong>{{ item.question }}</strong><small>{{ item.ambiguity }} · 推荐：{{ item.recommendation or '—' }}</small><div class="actions">{% for option in item.options %}<button type="button" class="button compact" data-clarification-option="{{ option }}">{{ option }}</button>{% else %}<small class="muted">没有预设选项，请直接补充说明。</small>{% endfor %}</div></article>{% endfor %}</div></div>{% endif %}{% endif %}
   </div>
 </section>
 
@@ -76,8 +76,19 @@
     const details = options.map((item) => `<li><strong>${escapeHtml(item.label)}</strong>：${escapeHtml(item.rationale)} <span class="muted">适用：${escapeHtml(item.applicability)}</span></li>`).join('');
     return `<div class="callout info"><strong>结构选型推荐</strong><ul>${details}</ul><label class="field compact-field" for="cad-structure-option">生成计划时的结构选择<select id="cad-structure-option"><option value="">不预选（保留推荐，不视为批准）</option>${optionRows}</select></label></div>`;
   };
+  const renderClarifications = (draft) => {
+    const questions = Array.isArray(draft.clarifications) ? draft.clarifications : [];
+    if (!questions.length) return '';
+    const cards = questions.map((item) => {
+      const options = Array.isArray(item.options) && item.options.length
+        ? item.options.map((option) => `<button type="button" class="button compact" data-clarification-option="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join('')
+        : '<small class="muted">没有预设选项，请直接补充说明。</small>';
+      return `<article><strong>${escapeHtml(item.question)}</strong><small>${escapeHtml(item.ambiguity)} · 推荐：${escapeHtml(item.recommendation || '—')}</small><div class="actions">${options}</div></article>`;
+    }).join('');
+    return `<div class="callout warning"><strong>需要澄清：</strong>请选择一个选项并重新分析设计意图；如果没有合适选项，请直接编辑上方输入。<div class="cad-clarifications">${cards}</div></div>`;
+  };
   const renderDraft = (draft) => {
-    chain.innerHTML = `<pre>${JSON.stringify(draft, null, 2)}</pre>${renderStructureOptions(draft)}<div class="actions"><button class="button primary" id="cad-plan-button">生成执行计划</button></div>`;
+    chain.innerHTML = `<pre>${JSON.stringify(draft, null, 2)}</pre>${renderClarifications(draft)}${renderStructureOptions(draft)}<div class="actions"><button class="button primary" id="cad-plan-button">生成执行计划</button></div>`;
     summary.textContent = draft.status === 'ready' ? '意图已就绪，可生成待审批计划' : '存在澄清项，计划只能预览，不能审批执行';
     document.querySelector('#cad-plan-button').onclick = async () => {
       try {
@@ -122,6 +133,15 @@
     } catch (error) { status.textContent = error.message; }
   };
   document.addEventListener('click', async (event) => {
+    const clarification = event.target.closest('[data-clarification-option]');
+    if (clarification) {
+      const input = document.querySelector('#cad-intent-text');
+      const choice = clarification.dataset.clarificationOption || '';
+      const addition = `澄清选择：${choice}`;
+      if (choice && !input.value.includes(addition)) input.value = `${input.value.trim()}\n${addition}`.trim();
+      status.textContent = '已回填澄清选项，请再次点击“分析设计意图”';
+      return;
+    }
     const button = event.target.closest('[data-finding-decision]');
     if (!button) return;
     button.disabled = true;

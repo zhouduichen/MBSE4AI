@@ -240,6 +240,10 @@ tr:last-child td { border-bottom: none; }
 .cad-review-previews { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 12px 0; }
 .cad-review-previews h3 { margin: 0 0 6px; font-size: 12px; }
 .cad-review-previews .svg-preview { min-height: 80px; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: #fbfcfe; }
+.cad-clarifications { display: grid; gap: 8px; margin-top: 10px; }
+.cad-clarifications article { display: grid; gap: 5px; padding: 10px 12px; border: 1px solid var(--warn-border); border-radius: var(--radius); background: var(--panel); }
+.cad-clarifications article strong { color: var(--ink); font-size: 12px; }
+.cad-clarifications article small { color: var(--muted); font-size: 10px; }
 
 /* ---------- Lists & records ---------- */
 .compact-list { display: grid; gap: 6px; }
