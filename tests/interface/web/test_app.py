@@ -56,6 +56,8 @@ def test_engineering_flow_page_exposes_one_entry_product_chain(tmp_path: Path) -
     assert "R → F → L → P → V&amp;V" in response.text
     assert "/projects/${encodeURIComponent(projectId)}/engineering-flow" in response.text
     assert "不会自动批准或执行下游工程变更" in response.text
+    assert "行为模型（Use Case / Activity / Sequence）" in response.text
+    assert "/ui/projects/${encodeURIComponent(projectId)}/behavior" in response.text
 
 
 def test_engineering_flow_page_lists_parsed_document_sources(tmp_path: Path) -> None:

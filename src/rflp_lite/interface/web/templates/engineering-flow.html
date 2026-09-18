@@ -61,11 +61,13 @@
     const cadBody = cad.plan
       ? `<p>计划状态：${escapeHtml(cad.status)} · 审批：${escapeHtml(cad.plan.approval_status || 'pending')}</p><a class="button compact" href="/ui/projects/${encodeURIComponent(projectId)}/cad-design">进入 CAD 审查与执行</a>`
       : `<p class="status-badge candidate">${escapeHtml(cad.status)}</p>${cad.draft ? `<pre>${escapeHtml(JSON.stringify(cad.draft, null, 2))}</pre>` : ''}`;
+    const behavior = flow.deliverable?.artifacts?.behavior?.content || {};
+    const behaviorBody = `<p>用例 ${escapeHtml((behavior.use_cases || []).length)} 个 · 活动图 ${escapeHtml((behavior.activity_diagrams || []).length)} 个 · 时序图 ${escapeHtml((behavior.sequence_diagrams || []).length)} 个</p><a class="button compact" href="/ui/projects/${encodeURIComponent(projectId)}/behavior">进入行为模型工作台</a>`;
     result.hidden = false;
     summary.textContent = `状态：${flow.status} · revision ${flow.revision} · snapshot ${flow.snapshot_hash}`;
     metrics.innerHTML = `<article><span>RFLP 完整链路</span><strong>${escapeHtml(trace.rflp_complete_count ?? 0)}</strong></article><article><span>端到端闭环</span><strong>${escapeHtml(trace.end_to_end_complete_count ?? 0)}</strong></article><article><span>交付物</span><strong>${escapeHtml(Object.keys(flow.deliverable?.artifacts || {}).length)}</strong></article>`;
     stages.innerHTML = stageRows || '<div class="mini-empty">没有阶段结果</div>';
-    downstream.innerHTML = card('总体概念设计', conceptBody) + card('详细设计与审查', cadBody);
+    downstream.innerHTML = card('行为模型（Use Case / Activity / Sequence）', behaviorBody) + card('总体概念设计', conceptBody) + card('详细设计与审查', cadBody);
     deliverable.textContent = JSON.stringify({revision: flow.revision, snapshot_hash: flow.snapshot_hash, artifacts: Object.keys(flow.deliverable?.artifacts || {})}, null, 2);
   };
   form.addEventListener('submit', async (event) => {

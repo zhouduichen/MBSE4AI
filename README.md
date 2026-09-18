@@ -47,7 +47,7 @@ POST /projects/{id}/engineering-flow
 
 返回的 `flow` 同时包含五阶段生成、`model.sysml`/追溯/V&V 交付物及同一 `revision`/`snapshot_hash`。`completed` 表示纵向模型已生成；`needs_input`、`needs_clarification` 和 `needs_approval` 分别表示总体设计缺参、CAD 意图需澄清或 CAD 计划等待人工审批。`selected_structure_option_id` 只有显式传入才会编译为对应的参数化结构操作；省略时不会静默采纳推荐。该入口不会自动应用概念候选，也不会批准或执行 CAD 计划。
 
-Web 端对应的统一入口为 `/ui/projects/<project-id>/engineering-flow`：可以选择已解析的文档、补充自然语言需求，并按需继续到概念布局或 CAD 计划；结果页展示阶段状态、追溯指标、交付物 revision/hash 和人工审批边界。已有的 Analysis、总体设计和详细设计页面仍作为各阶段的深度审查工作台。
+Web 端对应的统一入口为 `/ui/projects/<project-id>/engineering-flow`：可以选择已解析的文档、补充自然语言需求，并按需继续到概念布局或 CAD 计划；结果页展示阶段状态、追溯指标、Use Case/Activity/Sequence 行为模型摘要、交付物 revision/hash 和人工审批边界，并可直达行为工作台。已有的 Analysis、总体设计和详细设计页面仍作为各阶段的深度审查工作台。
 
 使用已保存的远程 SSH/Tailscale LLM Profile 做本次真实 LLM 生成（不会启动本机模型，也不会切换 active profile）：
 
