@@ -78,6 +78,7 @@ def _annotation(
         annotation_kind=kind,
         target_feature_id=feature_id,
         value=value,
+        part_id=part_id,
         unit=unit,
         tolerance=tolerance,
         datum=datum,
@@ -102,20 +103,30 @@ def _bbox(part: Mapping[str, object]) -> tuple[float, float, float] | None:
     return values if all(value > 0 for value in values) else None
 
 
+def _annotation_detail(annotation: DrawingAnnotation) -> str:
+    detail = annotation.value
+    if annotation.tolerance:
+        detail += f" {annotation.tolerance}"
+    if annotation.datum:
+        detail += f" | datum {annotation.datum}"
+    return f"{annotation.annotation_kind}: {detail} [{annotation.standard}]"
+
+
 def _drawing_svg(
     model: Mapping[str, object], annotations: tuple[DrawingAnnotation, ...]
 ) -> str:
     """Render a deterministic vendor-neutral 2D preview from shared semantics."""
 
     rows = [
-        '<svg xmlns="http://www.w3.org/2000/svg" width="760" '
-        'viewBox="0 0 760 0" data-unit="mm">',
+        '<svg xmlns="http://www.w3.org/2000/svg" width="760" height="0" '
+        'viewBox="0 0 760 0" data-unit="mm" data-layout="semantic-bounds">',
         "<title>Parametric 2D drawing preview</title>",
         '<rect width="100%" height="100%" fill="#ffffff"/>',
     ]
     parts = model.get("parts", ())
     y = 28.0
     rendered = False
+    rendered_annotation_ids: set[str] = set()
     for part in parts if isinstance(parts, (list, tuple)) else ():
         if not isinstance(part, Mapping):
             continue
@@ -125,45 +136,70 @@ def _drawing_svg(
             continue
         rendered = True
         length, width, height = dimensions
+        part_annotations = tuple(item for item in annotations if item.part_id == part_id)
+        boxes = [(0.0, 0.0, length, width)] + [item.bounds for item in part_annotations]
+        min_x = min(item[0] for item in boxes)
+        min_y = min(item[1] for item in boxes)
+        max_y = max(item[1] + item[3] for item in boxes)
         scale = min(1.8, 240.0 / max(length, 1.0), 130.0 / max(width, 1.0))
         top_width = max(36.0, length * scale)
         top_height = max(24.0, width * scale)
         side_height = max(18.0, height * scale)
-        x = 56.0
+        origin_x = 56.0 - min_x * scale
+        origin_y = y + 22.0 - min_y * scale
+        side_y = origin_y + max(width, max_y) * scale + 32.0
         rows.extend(
             (
                 f'<g data-part-id="{escape(part_id, quote=True)}">',
-                f'<text x="{x:g}" y="{y:g}" font-size="13" font-weight="600">{escape(part_id)} · top</text>',
-                f'<rect x="{x:g}" y="{y + 8:g}" width="{top_width:g}" height="{top_height:g}" fill="#eef5fb" stroke="#2f5f8f"/>',
-                f'<text x="{x:g}" y="{y + top_height + 24:g}" font-size="11">L {length:g} mm · W {width:g} mm</text>',
-                f'<text x="{x:g}" y="{y + top_height + 50:g}" font-size="13" font-weight="600">{escape(part_id)} · side</text>',
-                f'<rect x="{x:g}" y="{y + top_height + 58:g}" width="{top_width:g}" height="{side_height:g}" fill="#f7f2e8" stroke="#8b6a2f"/>',
-                f'<text x="{x:g}" y="{y + top_height + side_height + 74:g}" font-size="11">L {length:g} mm · H {height:g} mm</text>',
-                "</g>",
+                f'<text x="56" y="{y:g}" font-size="13" font-weight="600">{escape(part_id)} · top</text>',
+                f'<rect x="{origin_x:g}" y="{origin_y:g}" width="{top_width:g}" height="{top_height:g}" fill="#eef5fb" stroke="#2f5f8f"/>',
+                f'<text x="56" y="{side_y - 10:g}" font-size="11">L {length:g} mm · W {width:g} mm</text>',
+                f'<text x="56" y="{side_y:g}" font-size="13" font-weight="600">{escape(part_id)} · side</text>',
+                f'<rect x="56" y="{side_y + 8:g}" width="{top_width:g}" height="{side_height:g}" fill="#f7f2e8" stroke="#8b6a2f"/>',
+                f'<text x="56" y="{side_y + side_height + 24:g}" font-size="11">L {length:g} mm · H {height:g} mm</text>',
             )
         )
-        y += top_height + side_height + 112.0
+        for annotation in part_annotations:
+            rendered_annotation_ids.add(annotation.id)
+            bx, by, bw, bh = annotation.bounds
+            annotation_x = origin_x + bx * scale
+            annotation_y = origin_y + by * scale
+            color = "#c53b3b" if annotation.status == "needs_review" else "#365f8d"
+            detail = _annotation_detail(annotation)
+            position = ",".join(f"{value:g}" for value in annotation.position)
+            bounds = ",".join(f"{value:g}" for value in annotation.bounds)
+            rows.extend(
+                (
+                    f'<g data-annotation-id="{escape(annotation.id, quote=True)}" '
+                    f'data-position="{position}" data-bounds="{bounds}">',
+                    f'<rect x="{annotation_x:g}" y="{annotation_y:g}" width="{bw * scale:g}" '
+                    f'height="{bh * scale:g}" fill="none" stroke="{color}" stroke-dasharray="4 2"/>',
+                    f'<text x="{annotation_x:g}" y="{annotation_y + max(9.0, bh * scale - 1):g}" '
+                    f'font-size="10" fill="{color}">{escape(detail)}</text>',
+                    "</g>",
+                )
+            )
+        rows.append("</g>")
+        y = max(side_y + side_height + 42.0, origin_y + max_y * scale + 28.0)
     if not rendered:
         rows.append('<text x="24" y="32" font-size="13">No valid bounding box available</text>')
         y = 56.0
-    rows.append('<g data-annotations="shared-semantics">')
-    y += 8.0
-    for annotation in annotations:
-        detail = annotation.value
-        if annotation.tolerance:
-            detail += f" {annotation.tolerance}"
-        if annotation.datum:
-            detail += f" | datum {annotation.datum}"
-        rows.append(
-            f'<text x="56" y="{y:g}" font-size="11" data-annotation-id="{escape(annotation.id, quote=True)}">'
-            f'{escape(annotation.annotation_kind)}: {escape(detail)} [{escape(annotation.standard)}]</text>'
-        )
-        y += 16.0
-    rows.extend(("</g>", "</svg>"))
+    orphan_annotations = tuple(item for item in annotations if item.id not in rendered_annotation_ids)
+    if orphan_annotations:
+        rows.append('<g data-annotations="shared-semantics">')
+        y += 8.0
+        for annotation in orphan_annotations:
+            rows.append(
+                f'<text x="56" y="{y:g}" font-size="11" data-annotation-id="{escape(annotation.id, quote=True)}">'
+                f'{escape(_annotation_detail(annotation))}</text>'
+            )
+            y += 16.0
+        rows.append("</g>")
+    rows.append("</svg>")
     svg = "".join(rows)
     canvas_height = max(y + 16.0, 100.0)
-    return svg.replace('viewBox="0 0 760 0"', f'viewBox="0 0 760 {canvas_height:g}"').replace(
-        'height="100%"', f'height="{canvas_height:g}"'
+    return svg.replace('height="0"', f'height="{canvas_height:g}"', 1).replace(
+        'viewBox="0 0 760 0"', f'viewBox="0 0 760 {canvas_height:g}"'
     )
 
 

@@ -38,6 +38,10 @@ def test_preview_drawing_emits_shared_annotation_svg_and_stable_hash():
     assert "100 mm" in first.artifacts["drawing_svg"]
     assert "平面度 0.20 | A" in first.artifacts["drawing_svg"]
     assert "±0.20" in first.artifacts["drawing_svg"]
+    assert 'data-layout="semantic-bounds"' in first.artifacts["drawing_svg"]
+    assert f'data-annotation-id="{first.annotations[0].id}"' in first.artifacts["drawing_svg"]
+    assert 'data-position="0,-14"' in first.artifacts["drawing_svg"]
+    assert 'data-bounds="0,-14,28,8"' in first.artifacts["drawing_svg"]
     assert first.artifacts["source_kind"] == "development"
     assert first.artifacts["drawing_hash"] == second.artifacts["drawing_hash"]
 

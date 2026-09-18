@@ -147,6 +147,7 @@ class DrawingAnnotation:
     annotation_kind: str
     target_feature_id: str
     value: str
+    part_id: str = ""
     unit: str = ""
     tolerance: str = ""
     datum: str = ""
@@ -163,6 +164,7 @@ class DrawingAnnotation:
             "id": self.id,
             "annotation_kind": self.annotation_kind,
             "target_feature_id": self.target_feature_id,
+            "part_id": self.part_id,
             "value": self.value,
             "unit": self.unit,
             "tolerance": self.tolerance,

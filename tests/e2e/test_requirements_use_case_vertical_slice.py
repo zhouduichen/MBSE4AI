@@ -1,3 +1,5 @@
+import io
+import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -35,6 +37,21 @@ def _single_page_pdf(lines: tuple[str, ...]) -> bytes:
         f"startxref\n{xref_offset}\n%%EOF\n".encode("ascii")
     )
     return bytes(document)
+
+
+def _docx_document(lines: tuple[str, ...]) -> bytes:
+    paragraphs = "".join(
+        f"<w:p><w:r><w:t>{line}</w:t></w:r></w:p>" for line in lines
+    )
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body>{paragraphs}</w:body></w:document>"
+    )
+    content = io.BytesIO()
+    with zipfile.ZipFile(content, "w") as archive:
+        archive.writestr("word/document.xml", document_xml)
+    return content.getvalue()
 
 
 def test_document_to_requirements_behavior_and_traceability(tmp_path: Path):
@@ -144,6 +161,7 @@ def test_pdf_document_reaches_structured_requirements_and_modelgraph(tmp_path: P
     )
     assert any(item["name"] == "操作员" for item in draft["entities"])
     assert all(item["source_refs"] for item in draft["requirements"])
+    assert len({item["source_refs"][0] for item in draft["requirements"]}) == 3
 
     applied = client.post(
         "/projects/pdf-mission/requirements-use-case/apply",
@@ -159,6 +177,53 @@ def test_pdf_document_reaches_structured_requirements_and_modelgraph(tmp_path: P
     )
     assert any(item["kind"] == "use_case" for item in model["entities"])
     assert any(item["kind"] == "activity" for item in model["entities"])
+
+
+def test_docx_document_reaches_structured_requirements_and_modelgraph(tmp_path: Path):
+    client = TestClient(create_app(tmp_path / "workspaces"))
+    assert client.post("/projects", json={"id": "docx-mission"}).status_code == 200
+    content = _docx_document(
+        (
+            "The system shall provide a status report.",
+            "The system latency shall be no more than 3 seconds.",
+            "The operator shall receive an alarm.",
+        )
+    )
+
+    uploaded = client.post(
+        "/projects/docx-mission/documents",
+        files={"file": ("brief.docx", content, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert uploaded.status_code == 200
+    document = uploaded.json()["document"]
+    assert document["name"] == "brief.docx"
+    assert document["region_count"] == 3
+
+    draft_response = client.post(
+        "/projects/docx-mission/requirements-use-case/draft",
+        json={"document_ids": [document["document_id"]]},
+    )
+    assert draft_response.status_code == 200
+    draft = draft_response.json()["draft"]
+    assert len(draft["requirements"]) == 3
+    assert all(item["source_refs"] for item in draft["requirements"])
+    assert len({item["source_refs"][0] for item in draft["requirements"]}) == 3
+    assert any(
+        constraint["field"] == "latency_ms"
+        and constraint["operator"] == "max"
+        and constraint["value"] == 3000.0
+        for requirement in draft["requirements"]
+        for constraint in requirement["constraints"]
+    )
+
+    applied = client.post(
+        "/projects/docx-mission/requirements-use-case/apply",
+        json={"draft_id": draft["draft_id"]},
+    )
+    assert applied.status_code == 200
+    model = client.get("/projects/docx-mission/model").json()
+    assert len([item for item in model["entities"] if item["kind"] == "requirement"]) == 3
+    assert any(item["kind"] == "use_case" for item in model["entities"])
 
 
 def test_text_intake_persists_bounded_concern_attributes(tmp_path: Path):

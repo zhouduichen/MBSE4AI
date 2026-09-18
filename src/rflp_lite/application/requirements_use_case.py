@@ -564,7 +564,7 @@ class RequirementsUseCaseService:
         output_hash = ""
         status = "completed"
         if self.model is None:
-            payload = _fallback_payload(source_text, source_refs, selected_document_ids)
+            payload = _fallback_payload(source_text, source_refs, selected_document_ids, regions)
             status = "degraded"
             diagnostics.append("llm:model_unavailable;使用规则降级草稿")
         else:
@@ -585,7 +585,7 @@ class RequirementsUseCaseService:
                 if response.repaired:
                     diagnostics.append("llm:structured-output-repaired")
             except (AdapterFailure, ValueError, TypeError, json.JSONDecodeError) as exc:
-                payload = _fallback_payload(source_text, source_refs, selected_document_ids)
+                payload = _fallback_payload(source_text, source_refs, selected_document_ids, regions)
                 status = "degraded"
                 diagnostics.append(f"llm:fallback:{_diagnostic_text(exc)}")
 
@@ -598,12 +598,12 @@ class RequirementsUseCaseService:
             )
         except ContractViolation as exc:
             diagnostics.append(f"llm:invalid-envelope:{_diagnostic_text(exc)}")
-            payload = _fallback_payload(source_text, source_refs, selected_document_ids)
+            payload = _fallback_payload(source_text, source_refs, selected_document_ids, regions)
         try:
             jsonschema.validate(instance=payload, schema=draft_schema())
         except jsonschema.ValidationError as exc:
             diagnostics.append(f"draft:schema-invalid:{exc.message[:240]}")
-            payload = _fallback_payload(source_text, source_refs, selected_document_ids)
+            payload = _fallback_payload(source_text, source_refs, selected_document_ids, regions)
             payload["diagnostics"] = list(payload.get("diagnostics", ())) + diagnostics[-1:]
             status = "degraded"
             jsonschema.validate(instance=payload, schema=draft_schema())
@@ -897,7 +897,44 @@ def _graph_context(graph: ModelGraph) -> dict[str, Any]:
     }
 
 
-def _fallback_payload(text: str, source_refs: Sequence[str], document_ids: Sequence[str]) -> dict[str, Any]:
+def _normalise_source_text(value: object) -> str:
+    return re.sub(r"[^\w]+", " ", " ".join(str(value).casefold().split())).strip()
+
+
+def _statement_source_refs(
+    statement: str,
+    regions: Sequence[Mapping[str, object]],
+    fallback: Sequence[str],
+) -> list[str]:
+    """Map a deterministic fallback requirement to its closest source region."""
+
+    statement_key = _normalise_source_text(statement)
+    if not statement_key:
+        return list(dict.fromkeys(str(item) for item in fallback if str(item).strip()))
+    statement_tokens = set(statement_key.split())
+    best: tuple[float, str] | None = None
+    for region in regions:
+        region_id = str(region.get("id", "")).strip()
+        region_key = _normalise_source_text(region.get("text", ""))
+        if not region_id or not region_key:
+            continue
+        if statement_key == region_key or statement_key in region_key or region_key in statement_key:
+            return [region_id]
+        region_tokens = set(region_key.split())
+        overlap = len(statement_tokens & region_tokens) / max(len(statement_tokens), len(region_tokens), 1)
+        if best is None or overlap > best[0]:
+            best = (overlap, region_id)
+    if best is not None and best[0] > 0.35:
+        return [best[1]]
+    return list(dict.fromkeys(str(item) for item in fallback if str(item).strip()))
+
+
+def _fallback_payload(
+    text: str,
+    source_refs: Sequence[str],
+    document_ids: Sequence[str],
+    source_regions: Sequence[Mapping[str, object]] = (),
+) -> dict[str, Any]:
     statements = split_requirement_statements(text)
     if not statements and text.strip():
         statements = (" ".join(text.split()).strip(),)
@@ -905,8 +942,9 @@ def _fallback_payload(text: str, source_refs: Sequence[str], document_ids: Seque
     requirements = []
     diagnostics: list[str] = []
     for index, statement in enumerate(statements, start=1):
+        statement_refs = _statement_source_refs(statement, source_regions, refs)
         explicit = extract_requirement_constraints(statement)
-        inferred = infer_requirement_constraints(statement, refs)
+        inferred = infer_requirement_constraints(statement, statement_refs)
         constraints = []
         for item in explicit.get("constraint_provenance", ()):
             constraints.append({
@@ -915,7 +953,7 @@ def _fallback_payload(text: str, source_refs: Sequence[str], document_ids: Seque
                 "value": float(item.get("value", 0)),
                 "unit": str(item.get("unit", "")),
                 "source": "explicit",
-                "source_refs": refs,
+                "source_refs": statement_refs,
                 "confidence": 1.0,
                 "assumption": "",
             })
@@ -934,7 +972,7 @@ def _fallback_payload(text: str, source_refs: Sequence[str], document_ids: Seque
             "obligation": "系统应",
             "verification_method": "test" if constraints else "review",
             "constraints": constraints,
-            "source_refs": refs,
+            "source_refs": statement_refs,
             "confidence": 0.55 if constraints else 0.45,
             "related_refs": [],
         })
