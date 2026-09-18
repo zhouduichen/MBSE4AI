@@ -51,3 +51,31 @@ def test_unknown_rule_set_and_missing_assembly_interface_are_review_findings():
     assert result.artifacts["finding_summary"]["by_severity"]["high"] >= 2
     assert result.artifacts["evidence_hash"]
     assert result.artifacts["risk_highlight_svg"].startswith("<svg")
+
+
+def test_risk_highlight_marks_each_finding_and_feature_location():
+    result = PreviewDesignRuleAdapter().review({
+        "parts": [{
+            "id": "bracket",
+            "material": "铝合金",
+            "bbox_mm": [100, 50, 10],
+            "features": [{
+                "id": "mounting-hole",
+                "kind": "add_hole",
+                "parameters": {
+                    "diameter_mm": 10,
+                    "edge_distance_mm": 5,
+                    "tool_access": False,
+                    "x_mm": 20,
+                    "y_mm": 10,
+                },
+            }],
+        }],
+    })
+
+    finding = next(item for item in result.findings if item.rule_id == "dfm.hole_edge_distance")
+    svg = result.artifacts["risk_highlight_svg"]
+    assert finding.location == (20.0, 10.0)
+    assert f'data-finding-id="{finding.id}"' in svg
+    assert 'data-feature-id="mounting-hole"' in svg
+    assert 'data-location-source="feature-coordinate"' in svg

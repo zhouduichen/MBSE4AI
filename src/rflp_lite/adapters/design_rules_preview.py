@@ -150,6 +150,26 @@ def _finding_summary(findings: tuple[DesignFinding, ...]) -> Mapping[str, object
     }
 
 
+def _feature_location(
+    bbox: tuple[float, ...], parameters: Mapping[str, object]
+) -> tuple[float, float] | tuple[float, ...]:
+    x = parameters.get("x_mm")
+    y = parameters.get("y_mm")
+    if (
+        len(bbox) == 3
+        and isinstance(x, (int, float))
+        and not isinstance(x, bool)
+        and isinstance(y, (int, float))
+        and not isinstance(y, bool)
+    ):
+        return float(x), float(y)
+    return bbox
+
+
+def _location_source(location: tuple[float, ...]) -> str:
+    return "feature-coordinate" if len(location) == 2 else "part-envelope"
+
+
 def _highlight_svg(model: Mapping[str, object], findings: tuple[DesignFinding, ...]) -> str:
     rows: list[str] = []
     y = 28.0
@@ -163,12 +183,40 @@ def _highlight_svg(model: Mapping[str, object], findings: tuple[DesignFinding, .
             continue
         width = max(80.0, min(float(bbox[0]), 520.0))
         height = max(40.0, min(float(bbox[1]), 240.0))
-        count = sum(item.part_id == part_id and item.severity in {"high", "critical"} for item in findings)
+        part_findings = [item for item in findings if item.part_id == part_id]
+        count = sum(item.severity in {"high", "critical"} for item in part_findings)
         color = "#d64545" if count else "#4b8bca"
-        rows.append(f'<rect x="36" y="{y:g}" width="{width:g}" height="{height:g}" fill="none" stroke="{color}" stroke-width="3"/>')
+        rows.append(
+            f'<g data-part-id="{escape(part_id, quote=True)}">'
+            f'<rect x="36" y="{y:g}" width="{width:g}" height="{height:g}" '
+            f'fill="none" stroke="{color}" stroke-width="3"/>'
+        )
         rows.append(f'<text x="36" y="{y - 7:g}" font-size="12">{escape(part_id)}</text>')
         if count:
             rows.append(f'<text x="44" y="{y + 18:g}" fill="{color}" font-size="11">risk: {count}</text>')
+        for index, finding in enumerate(part_findings):
+            if len(finding.location) == 2 and float(bbox[0]) > 0 and float(bbox[1]) > 0:
+                marker_x = 36.0 + max(0.0, min(1.0, finding.location[0] / float(bbox[0]))) * width
+                marker_y = y + max(0.0, min(1.0, finding.location[1] / float(bbox[1]))) * height
+            else:
+                marker_x = 36.0 + width * (0.2 + 0.6 * (index + 1) / max(len(part_findings) + 1, 2))
+                marker_y = y + height * 0.5
+            marker_color = "#d64545" if finding.severity in {"high", "critical"} else "#d08a18"
+            location_source = _location_source(finding.location)
+            rows.extend(
+                (
+                    f'<g data-finding-id="{escape(finding.id, quote=True)}" '
+                    f'data-feature-id="{escape(finding.feature_id, quote=True)}" '
+                    f'data-location-source="{location_source}">',
+                    f'<rect x="{marker_x - 9:g}" y="{marker_y - 9:g}" width="18" height="18" '
+                    f'fill="{marker_color}" fill-opacity=".22" stroke="{marker_color}" stroke-width="2"/>',
+                    f'<circle cx="{marker_x:g}" cy="{marker_y:g}" r="3.5" fill="{marker_color}"/>',
+                    f'<text x="{marker_x + 12:g}" y="{marker_y + 4:g}" font-size="9" fill="{marker_color}">'
+                    f'{escape(finding.rule_id)} · {escape(finding.feature_id)}</text>',
+                    "</g>",
+                )
+            )
+        rows.append("</g>")
         y += height + 38.0
     height = max(90.0, y + 10.0)
     return '<svg xmlns="http://www.w3.org/2000/svg" width="620" height="%g" viewBox="0 0 620 %g">%s</svg>' % (height, height, "".join(rows))
@@ -217,19 +265,20 @@ class PreviewDesignRuleAdapter:
                 params = feature.get("parameters")
                 if not isinstance(params, Mapping):
                     continue
+                feature_location = _feature_location(location, params)
                 wall = params.get("wall_thickness_mm")
                 if isinstance(wall, (int, float)) and float(wall) < float(profile["wall_min_mm"]):
                     findings.append(_finding(
                         "dfm.wall_thickness", "dfm", "high", part_id, feature_id,
                         f"壁厚低于当前规则集建议值 {profile['wall_min_mm']:g} mm。", {"wall_thickness_mm": wall, "minimum_mm": profile["wall_min_mm"]},
-                        "增加壁厚或确认采用适用的薄壁工艺。", location,
+                        "增加壁厚或确认采用适用的薄壁工艺。", feature_location,
                     ))
                 radius = params.get("radius_mm")
                 if isinstance(radius, (int, float)) and float(radius) < float(profile["fillet_min_mm"]):
                     findings.append(_finding(
                         "dfm.fillet_radius", "dfm", "medium", part_id, feature_id,
                         f"圆角半径低于当前规则集建议值 {profile['fillet_min_mm']:g} mm。", {"radius_mm": radius, "minimum_mm": profile["fillet_min_mm"]},
-                        "增加圆角半径并检查相邻壁厚。", location,
+                        "增加圆角半径并检查相邻壁厚。", feature_location,
                     ))
                 diameter = params.get("diameter_mm")
                 edge_distance = params.get("edge_distance_mm")
@@ -237,13 +286,13 @@ class PreviewDesignRuleAdapter:
                     findings.append(_finding(
                         "dfm.hole_edge_distance", "dfm", "high", part_id, feature_id,
                         f"孔边距低于当前规则集要求的 {profile['hole_edge_ratio']:g} 倍孔径。", {"diameter_mm": diameter, "edge_distance_mm": edge_distance, "minimum_ratio": profile["hole_edge_ratio"]},
-                        "增大孔边距或重新评估局部加强与工艺。", location,
+                        "增大孔边距或重新评估局部加强与工艺。", feature_location,
                     ))
                 if params.get("tool_access") is False:
                     findings.append(_finding(
                         "dfa.tool_access", "dfa", "high", part_id, feature_id,
                         "检测到刀具/装配工具不可达。", {"tool_access": False},
-                        "调整特征方向、装配顺序或增加工具访问空间。", location,
+                        "调整特征方向、装配顺序或增加工具访问空间。", feature_location,
                     ))
                 if feature.get("kind") == "create_gear":
                     bore = params.get("bore_diameter_mm")
@@ -251,7 +300,7 @@ class PreviewDesignRuleAdapter:
                         findings.append(_finding(
                             "dfm.gear_bore", "dfm", "high", part_id, feature_id,
                             "齿轮缺少有效中心孔参数，轴系装配接口尚未定义。",
-                            {"bore_diameter_mm": bore}, "补充中心孔和轴系配合，并重新评审。", location,
+                            {"bore_diameter_mm": bore}, "补充中心孔和轴系配合，并重新评审。", feature_location,
                         ))
                 if feature.get("kind") == "add_shaft_step":
                     step = params.get("diameter_mm")
@@ -260,7 +309,7 @@ class PreviewDesignRuleAdapter:
                         findings.append(_finding(
                             "dfm.shaft_step", "dfm", "high", part_id, feature_id,
                             "阶梯轴段直径不小于基体直径，无法形成有效轴肩。",
-                            {"diameter_mm": step, "base_diameter_mm": base}, "重新定义阶梯直径并确认轴肩过渡。", location,
+                            {"diameter_mm": step, "base_diameter_mm": base}, "重新定义阶梯直径并确认轴肩过渡。", feature_location,
                         ))
         profile_name = rule_set if not unknown_rule_set else _DEFAULT_RULE_SET
         final = tuple(_with_rule_context(item, rule_set, profile_name) for item in findings)
