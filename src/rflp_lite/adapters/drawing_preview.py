@@ -13,6 +13,7 @@ from rflp_lite.ports.cad import AnnotationResult
 
 _STANDARD = "GB/T 1804-m"
 _GDT_STANDARD = "ASME Y14.5"
+_GENERAL_TOLERANCE = "±0.20"
 
 
 def _rects_overlap(left: tuple[float, float, float, float], right: tuple[float, float, float, float]) -> bool:
@@ -175,6 +176,7 @@ class PreviewDrawingAdapter:
                 ):
                     annotations.append(_annotation(
                         part_id, f"{part_id}:{name}", "dimension", f"{value:g}",
+                        tolerance=_GENERAL_TOLERANCE,
                         anchor=anchor, used=used,
                         rationale="由参数化实体包络自动生成，2D/3D 共享该语义标注。",
                     ))
@@ -208,17 +210,32 @@ class PreviewDrawingAdapter:
                         tolerance="±0.10", anchor=anchor, used=used,
                         rationale="孔径与一般尺寸公差建议。",
                     ))
+                    annotations.append(_annotation(
+                        part_id, feature_id, "position", "位置度 ⌀0.20 | A", unit="mm", datum="A",
+                        standard=_GDT_STANDARD, anchor=(anchor[0] + 16.0, anchor[1] + 16.0),
+                        used=used, rationale="孔轴线相对装配基准 A 的位置度候选。",
+                    ))
                 if feature.get("kind") == "create_shell" and "wall_thickness_mm" in parameters:
                     annotations.append(_annotation(
                         part_id, feature_id, "wall_thickness", f"{float(parameters['wall_thickness_mm']):g}",
                         tolerance="±0.10", anchor=anchor, used=used,
                         rationale="壳体壁厚是强度、质量和制造审查的关键尺寸。",
                     ))
+                    annotations.append(_annotation(
+                        part_id, feature_id, "perpendicularity", "垂直度 0.20 | A", unit="mm", datum="A",
+                        standard=_GDT_STANDARD, anchor=(anchor[0] - 16.0, anchor[1] + 16.0),
+                        used=used, rationale="壳体安装面相对基准 A 的垂直度候选。",
+                    ))
                 if feature.get("kind") == "add_shaft_step" and "diameter_mm" in parameters:
                     annotations.append(_annotation(
                         part_id, feature_id, "shaft_step_diameter", f"⌀{float(parameters['diameter_mm']):g}",
                         tolerance="±0.05", anchor=anchor, used=used,
                         rationale="阶梯轴段直径用于装配定位与配合审查。",
+                    ))
+                    annotations.append(_annotation(
+                        part_id, feature_id, "cylindricity", "圆柱度 0.10", unit="mm",
+                        standard=_GDT_STANDARD, anchor=(anchor[0] + 16.0, anchor[1] - 16.0),
+                        used=used, rationale="阶梯轴回转表面的圆柱度候选。",
                     ))
                 if feature.get("kind") == "create_gear":
                     if "bore_diameter_mm" in parameters and float(parameters["bore_diameter_mm"]) > 0:
@@ -227,11 +244,21 @@ class PreviewDrawingAdapter:
                             tolerance="±0.05", anchor=anchor, used=used,
                             rationale="齿轮中心孔用于轴系装配配合审查。",
                         ))
+                        annotations.append(_annotation(
+                            part_id, feature_id, "gear_bore_position", "位置度 ⌀0.10 | A", unit="mm", datum="A",
+                            standard=_GDT_STANDARD, anchor=(anchor[0] + 16.0, anchor[1] + 16.0),
+                            used=used, rationale="齿轮中心孔相对基准 A 的同轴/位置度候选。",
+                        ))
                     if "module" in parameters and "teeth" in parameters:
                         annotations.append(_annotation(
                             part_id, feature_id, "gear_profile", f"m{float(parameters['module']):g} z{int(float(parameters['teeth']))}",
                             unit="1", anchor=anchor, used=used,
                             rationale="齿轮模数与齿数作为齿形候选的共享语义参数。",
+                        ))
+                        annotations.append(_annotation(
+                            part_id, feature_id, "runout", "圆跳动 0.15 | A", unit="mm", datum="A",
+                            standard=_GDT_STANDARD, anchor=(anchor[0] - 16.0, anchor[1] - 16.0),
+                            used=used, rationale="齿轮工作齿面相对基准 A 的回转精度候选。",
                         ))
         if any(item.status == "needs_review" for item in annotations):
             diagnostics.append("annotation placement collision requires review")

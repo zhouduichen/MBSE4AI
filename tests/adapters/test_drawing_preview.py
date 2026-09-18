@@ -31,6 +31,7 @@ def test_preview_drawing_emits_shared_annotation_svg_and_stable_hash():
     assert "bracket · side" in first.artifacts["drawing_svg"]
     assert "100 mm" in first.artifacts["drawing_svg"]
     assert "平面度 0.20 | A" in first.artifacts["drawing_svg"]
+    assert "±0.20" in first.artifacts["drawing_svg"]
     assert first.artifacts["source_kind"] == "development"
     assert first.artifacts["drawing_hash"] == second.artifacts["drawing_hash"]
 
@@ -62,5 +63,8 @@ def test_preview_drawing_annotates_profile_features():
     })
 
     kinds = {item.annotation_kind for item in result.annotations}
-    assert {"wall_thickness", "gear_bore_diameter", "gear_profile"} <= kinds
+    assert {
+        "wall_thickness", "perpendicularity", "gear_bore_diameter",
+        "gear_bore_position", "gear_profile", "runout",
+    } <= kinds
     assert all(item.views == ("top", "isometric") for item in result.annotations)
