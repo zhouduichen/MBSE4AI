@@ -39,9 +39,16 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     assert review["annotations"]
     assert review["artifacts"]["drawing_svg"].startswith("<svg")
     assert review["artifacts"]["drawing_hash"]
+    assert review["artifacts"]["risk_highlight_svg"].startswith("<svg")
+    listed_reviews = client.get("/projects/p1/cad/reviews")
+    assert listed_reviews.status_code == 200
+    assert listed_reviews.json()["reviews"][-1]["id"] == review["id"]
     applied = client.post(f"/projects/p1/cad/models/{model['id']}/apply").json()["apply"]
     assert applied["entity"]["kind"] == "physical_block"
     assert applied["entity"]["payload"]["design_review"]["id"] == review["id"]
     page = client.get("/ui/projects/p1/cad-design")
     assert page.status_code == 200
     assert "结构选型推荐" in page.text
+    assert "审查记录与风险高亮" in page.text
+    assert "风险高亮" in page.text
+    assert review["id"] in page.text

@@ -35,6 +35,27 @@
   </div>
 </section>
 
+<section class="card">
+  <div class="card-header"><div><h2>审查记录与风险高亮</h2><p>风险标记与 finding 来自同一份规则审查结果；确认、误报或关闭均保留审计记录，开发期预览不等同于制造批准。</p></div></div>
+  <div id="cad-reviews">
+    {% for review in reviews|reverse %}
+    <article class="list-card" data-review-id="{{ review.id }}">
+      <div class="list-card-header"><strong>{{ review.id }}</strong><span class="status-pill">{{ review.status }}</span></div>
+      <p class="muted">模型 {{ review.model_id }} · 规则集 {{ review.artifacts.rule_set or 'generic_preview' }} · finding {{ review.findings|length }} · evidence {{ review.artifacts.evidence_hash or '—' }}</p>
+      <div class="cad-review-previews">
+        {% if review.artifacts.drawing_svg %}<div><h3>二维标注预览</h3><div class="svg-preview">{{ review.artifacts.drawing_svg|safe }}</div></div>{% endif %}
+        {% if review.artifacts.risk_highlight_svg %}<div><h3>风险高亮</h3><div class="svg-preview">{{ review.artifacts.risk_highlight_svg|safe }}</div></div>{% endif %}
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Finding</th><th>严重度</th><th>类别 / 特征</th><th>说明</th><th>状态</th><th>决策</th></tr></thead><tbody>
+        {% for finding in review.findings %}
+        <tr><td><code>{{ finding.id }}</code><span class="table-secondary">{{ finding.rule_id }}</span></td><td>{{ finding.severity }}</td><td>{{ finding.category }} / {{ finding.feature_id }}</td><td>{{ finding.message }}<span class="table-secondary">建议：{{ finding.recommendation }}</span></td><td><span class="status-badge {{ finding.status }}">{{ finding.status }}</span></td><td>{% if finding.status == 'open' %}<div class="workbench-actions"><button class="button compact" data-finding-decision="confirm" data-review-id="{{ review.id }}" data-finding-id="{{ finding.id }}">确认</button><button class="button compact" data-finding-decision="false_positive" data-review-id="{{ review.id }}" data-finding-id="{{ finding.id }}">误报</button><button class="button compact danger" data-finding-decision="close" data-review-id="{{ review.id }}" data-finding-id="{{ finding.id }}">关闭</button></div>{% else %}—{% endif %}</td></tr>
+        {% else %}<tr><td colspan="6" class="table-empty">暂无设计规则 finding</td></tr>{% endfor %}
+      </tbody></table></div>
+    </article>
+    {% else %}<p class="muted">尚无审查记录；执行模型后点击“生成标注与 DFM/DFA 审查”。</p>{% endfor %}
+  </div>
+</section>
+
 <script>
 (() => {
   const projectId = {{ project_id|tojson }};
@@ -76,10 +97,20 @@
       } catch (error) { status.textContent = error.message; }
     };
   };
+  const renderReview = (review) => {
+    const artifacts = review.artifacts || {};
+    const findings = (review.findings || []).map((finding) => {
+      const actions = finding.status === 'open'
+        ? `<div class="workbench-actions"><button class="button compact" data-finding-decision="confirm" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">确认</button><button class="button compact" data-finding-decision="false_positive" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">误报</button><button class="button compact danger" data-finding-decision="close" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">关闭</button></div>`
+        : '—';
+      return `<tr><td><code>${escapeHtml(finding.id)}</code><span class="table-secondary">${escapeHtml(finding.rule_id)}</span></td><td>${escapeHtml(finding.severity)}</td><td>${escapeHtml(finding.category)} / ${escapeHtml(finding.feature_id)}</td><td>${escapeHtml(finding.message)}<span class="table-secondary">建议：${escapeHtml(finding.recommendation)}</span></td><td><span class="status-badge ${escapeHtml(finding.status)}">${escapeHtml(finding.status)}</span></td><td>${actions}</td></tr>`;
+    }).join('') || '<tr><td colspan="6" class="table-empty">暂无设计规则 finding</td></tr>';
+    chain.innerHTML = `<div class="callout info"><strong>设计审查：</strong>${escapeHtml(review.status)} · 规则集 ${escapeHtml(artifacts.rule_set || 'generic_preview')} · finding ${(review.findings || []).length} · evidence ${escapeHtml(artifacts.evidence_hash || '—')}</div><div class="cad-review-previews"><div><h3>二维标注预览</h3><div class="svg-preview">${artifacts.drawing_svg || ''}</div></div><div><h3>风险高亮</h3><div class="svg-preview">${artifacts.risk_highlight_svg || ''}</div></div></div><div class="table-wrap"><table><thead><tr><th>Finding</th><th>严重度</th><th>类别 / 特征</th><th>说明</th><th>状态</th><th>决策</th></tr></thead><tbody>${findings}</tbody></table></div>`;
+  };
   const renderModel = (model) => {
     chain.innerHTML = `<pre>${JSON.stringify(model, null, 2)}</pre><div class="actions"><button class="button" id="cad-apply-button">写入 ModelGraph</button><button class="button" id="cad-review-button">生成标注与 DFM/DFA 审查</button></div>`;
     document.querySelector('#cad-apply-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/apply`, {method: 'POST'}); status.textContent = `已写入 ${result.apply.entity.id}`; } catch (error) { status.textContent = error.message; } };
-    document.querySelector('#cad-review-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/review`, {method: 'POST'}); const drawing = result.review.artifacts?.drawing_svg || ''; chain.innerHTML += `<div class="callout info">二维图纸预览（development evidence，不是正式工程图）</div><div class="svg-preview">${drawing}</div><pre>${JSON.stringify(result.review, null, 2)}</pre>`; status.textContent = result.review.status; } catch (error) { status.textContent = error.message; } };
+    document.querySelector('#cad-review-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/review`, {method: 'POST'}); renderReview(result.review); status.textContent = result.review.status; } catch (error) { status.textContent = error.message; } };
   };
   document.querySelector('#cad-intent-submit').onclick = async () => {
     status.textContent = '分析中…';
@@ -89,6 +120,23 @@
       const result = await call(`/projects/${projectId}/cad/intent`, {method: 'POST', body: JSON.stringify({text: document.querySelector('#cad-intent-text').value, source_requirement_ids: sourceRequirementIds, profile_id: profileId})});
       renderDraft(result.draft); status.textContent = '完成';
     } catch (error) { status.textContent = error.message; }
+  };
+  document.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-finding-decision]');
+    if (!button) return;
+    button.disabled = true;
+    try {
+      const result = await call(`/projects/${projectId}/cad/reviews/${button.dataset.reviewId}/findings/${button.dataset.findingId}`, {method: 'POST', body: JSON.stringify({decision: button.dataset.findingDecision})});
+      const record = document.querySelector(`[data-review-id="${CSS.escape(button.dataset.reviewId)}"]`);
+      if (record) record.outerHTML = renderReviewCard(result.review);
+      else renderReview(result.review);
+      status.textContent = `已记录 finding 决策：${button.dataset.findingDecision}`;
+    } catch (error) { status.textContent = error.message; button.disabled = false; }
+  });
+  const renderReviewCard = (review) => {
+    const findings = (review.findings || []).map((finding) => `<tr><td><code>${escapeHtml(finding.id)}</code><span class="table-secondary">${escapeHtml(finding.rule_id)}</span></td><td>${escapeHtml(finding.severity)}</td><td>${escapeHtml(finding.category)} / ${escapeHtml(finding.feature_id)}</td><td>${escapeHtml(finding.message)}<span class="table-secondary">建议：${escapeHtml(finding.recommendation)}</span></td><td><span class="status-badge ${escapeHtml(finding.status)}">${escapeHtml(finding.status)}</span></td><td>${finding.status === 'open' ? `<div class="workbench-actions"><button class="button compact" data-finding-decision="confirm" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">确认</button><button class="button compact" data-finding-decision="false_positive" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">误报</button><button class="button compact danger" data-finding-decision="close" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">关闭</button></div>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="table-empty">暂无设计规则 finding</td></tr>';
+    const artifacts = review.artifacts || {};
+    return `<article class="list-card" data-review-id="${escapeHtml(review.id)}"><div class="list-card-header"><strong>${escapeHtml(review.id)}</strong><span class="status-pill">${escapeHtml(review.status)}</span></div><p class="muted">模型 ${escapeHtml(review.model_id)} · 规则集 ${escapeHtml(artifacts.rule_set || 'generic_preview')} · finding ${(review.findings || []).length} · evidence ${escapeHtml(artifacts.evidence_hash || '—')}</p><div class="cad-review-previews"><div><h3>二维标注预览</h3><div class="svg-preview">${artifacts.drawing_svg || ''}</div></div><div><h3>风险高亮</h3><div class="svg-preview">${artifacts.risk_highlight_svg || ''}</div></div></div><div class="table-wrap"><table><thead><tr><th>Finding</th><th>严重度</th><th>类别 / 特征</th><th>说明</th><th>状态</th><th>决策</th></tr></thead><tbody>${findings}</tbody></table></div></article>`;
   };
 })();
 </script>

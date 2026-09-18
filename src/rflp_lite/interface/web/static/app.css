@@ -237,6 +237,9 @@ td code { font-size: 11px; }
 tr:last-child td { border-bottom: none; }
 .table-secondary { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .mono-value { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
+.cad-review-previews { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 12px 0; }
+.cad-review-previews h3 { margin: 0 0 6px; font-size: 12px; }
+.cad-review-previews .svg-preview { min-height: 80px; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: #fbfcfe; }
 
 /* ---------- Lists & records ---------- */
 .compact-list { display: grid; gap: 6px; }
