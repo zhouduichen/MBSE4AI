@@ -1,0 +1,52 @@
+# Unified Engineering Product Flow Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Expose one application-level flow that turns natural-language or document requirements into a revision-bound R→F→L→P→V&V model, with optional concept-design and natural-language CAD handoffs, without auto-approving engineering changes.
+
+**Architecture:** Compose existing generation, concept, CAD, and deliverable services behind a thin `EngineeringProductFlowService`. The service owns orchestration and status translation only; existing domain contracts, persistence, approval gates, and deterministic offline adapters remain unchanged.
+
+**Tech Stack:** Python 3, dataclasses, existing SQLite repositories, Starlette/FastAPI-compatible web layer, pytest, Ruff, repository architecture verifier.
+
+## Global Constraints
+
+- Do not start a local server or run a local/remote LLM.
+- Keep tests offline and deterministic with `TestClient`, `VerticalRuleRuntime`, preview CAD, and temporary config/workspaces.
+- Do not auto-approve, execute, or apply concept/CAD changes.
+- Preserve unrelated working-tree changes and existing public contracts.
+
+## Task 1: Implement the application product-flow orchestrator
+
+- [ ] Create `src/rflp_lite/application/product_flow.py`.
+- [ ] Add an immutable `ProductFlowResult` with `status`, `generation`, `concept`, `cad`, `deliverable`, `revision`, and `snapshot_hash`, plus `as_dict()` using existing primitive conversion helpers.
+- [ ] Add `EngineeringProductFlowService.run(project_id, *, requirement_text=None, document_ids=(), include_concept=False, optimize_concept=True, cad_intent_text=None)`.
+- [ ] Delegate generation to the existing five-stage service; build a deliverable snapshot after generation and after any accepted draft/plan records are persisted.
+- [ ] Translate concept `InputRequired` to `needs_input` with the suggestion payload; translate CAD draft clarification to `needs_clarification`; translate a ready CAD plan to `needs_approval` without executing it.
+- [ ] Add `tests/application/test_product_flow.py` covering RFLP-only completion, concept input, CAD clarification, CAD approval, and revision/snapshot binding.
+- [ ] Run the focused application tests with isolated `RFLP_CONFIG_DIR` and preview CAD backend.
+
+## Task 2: Expose the flow through composition root and API
+
+- [ ] Add `V2Services.product_flow()` in `src/rflp_lite/bootstrap/v2.py`, composing existing project-scoped services.
+- [ ] Add `POST /projects/{project_id}/engineering-flow` in `src/rflp_lite/interface/web/resource_api.py` with explicit input parsing and the existing error mapping.
+- [ ] Add `tests/interface/web/test_product_flow_api.py` for document-backed completion, `needs_input`, `needs_clarification`, and `needs_approval` responses.
+- [ ] Keep API responses JSON-safe and avoid exposing provider internals.
+
+## Task 3: Prove document-to-product and deliverable binding
+
+- [ ] Extend `tests/e2e/test_local_product_acceptance.py` or add a focused product-flow acceptance test proving document ingestion, complete RFLP generation, traceability source/evidence links, and exported deliverable revision/hash consistency.
+- [ ] Reuse the existing document intelligence tests/fixtures for DOCX/PDF source-region behavior; only add coverage where it closes a product-flow gap.
+- [ ] Verify SysML export/re-import remains part of the acceptance path.
+
+## Task 4: Update product documentation and verify the repository
+
+- [ ] Update `README.md` with the one-entry product flow, status semantics, offline test command, and explicit approval boundary.
+- [ ] Run focused tests, the local product acceptance tests, Ruff, import-linter, and `scripts/verify_full.py` with isolated config and preview CAD.
+- [ ] Review the diff for scope, commit the plan and implementation, and push the resulting commit to the configured GitHub remote only after verification passes.
+
+## Completion evidence
+
+- A single offline API/application call can produce a complete R→F→L→P→V&V graph and a revision-bound deliverable.
+- Optional concept/CAD stages return actionable intermediate states instead of silently mutating engineering artifacts.
+- Document evidence, traceability, SysML round-trip, and deliverable hash/revision are covered by tests.
+- Repository architecture and full offline verification pass.
