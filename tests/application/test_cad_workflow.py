@@ -183,3 +183,33 @@ def test_design_rule_review_reports_profile_findings(tmp_path: Path):
 
     assert review["status"] == "needs_review"
     assert any(item["rule_id"] == "dfm.gear_bore" for item in review["findings"])
+
+
+def test_design_review_persists_rule_context_and_finding_summary(tmp_path: Path):
+    services = build_v2_services(tmp_path)
+    services.projects.create("p")
+    review = services.design_review("p").review(
+        "assembly-defect",
+        {
+            "design_review_context": {
+                "rule_set": "cnc_machined",
+                "assembly_interfaces": [{
+                    "part_id": "housing",
+                    "feature_id": "mounting-hole-1",
+                    "interface": "mounting",
+                    "required": True,
+                }],
+            },
+            "parts": [{
+                "id": "housing",
+                "material": "铝合金",
+                "bbox_mm": [120, 80, 60],
+                "features": [],
+            }],
+        },
+    )
+
+    assert review["status"] == "needs_review"
+    assert review["artifacts"]["rule_set"] == "cnc_machined"
+    assert review["artifacts"]["finding_summary"]["total"] >= 1
+    assert review["artifacts"]["evidence_hash"]

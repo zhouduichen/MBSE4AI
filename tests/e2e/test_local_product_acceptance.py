@@ -151,3 +151,38 @@ def test_local_cad_profiles_reach_modelgraph_and_review(tmp_path: Path):
     graph = services.model("profiles").graph("profiles")
     assert set(applied_ids) <= set(graph.entity_index)
     assert len([item for item in graph.entities if item.kind is EntityKind.PHYSICAL_BLOCK]) >= 3
+
+
+def test_local_design_review_rule_context_is_delivered_with_model_evidence(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("review-context", "规则上下文验收")
+    review = services.design_review("review-context").review(
+        "housing-review",
+        {
+            "design_review_context": {
+                "rule_set": "cnc_machined",
+                "assembly_interfaces": [{
+                    "part_id": "housing",
+                    "feature_id": "mounting-hole-1",
+                    "interface": "mounting",
+                    "required": True,
+                }],
+            },
+            "parts": [{
+                "id": "housing",
+                "material": "铝合金",
+                "bbox_mm": [120, 80, 60],
+                "features": [{
+                    "id": "shell",
+                    "kind": "create_shell",
+                    "parameters": {"wall_thickness_mm": 1.5},
+                }],
+            }],
+        },
+    )
+
+    assert review["status"] == "needs_review"
+    assert review["artifacts"]["rule_set"] == "cnc_machined"
+    assert review["artifacts"]["finding_summary"]["total"] >= 2
+    assert review["artifacts"]["evidence_hash"]
+    assert review["artifacts"]["risk_highlight_svg"].startswith("<svg")

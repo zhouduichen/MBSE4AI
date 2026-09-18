@@ -43,6 +43,8 @@
 - [结构选型驱动参数化 CAD 实施计划](plans/2026-09-19-structure-profile-cad-generation.md)
 - [通用自然语言 CAD Profile 设计](specs/2026-09-19-general-cad-profiles-design.md)
 - [通用自然语言 CAD Profile 实施计划](plans/2026-09-19-general-cad-profiles.md)
+- [DFM/DFA 规则上下文与风险摘要设计](specs/2026-09-19-design-review-rule-context-design.md)
+- [DFM/DFA 规则上下文与风险摘要实施计划](plans/2026-09-19-design-review-rule-context.md)
 - [离线需求隐含约束候选设计](specs/2026-09-19-offline-implicit-constraints-design.md)
 - [离线需求隐含约束实施计划](plans/2026-09-19-offline-implicit-constraints.md)
 

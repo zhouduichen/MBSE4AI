@@ -50,9 +50,14 @@ class DesignReviewService:
         if existing is not None:
             return {**existing, "idempotent": True}
         annotations = self.drawing.generate_annotations(model_payload)
+        rule_context = {}
+        model_context = model_payload.get("design_review_context")
+        if isinstance(model_context, Mapping):
+            rule_context.update(model_context)
+        rule_context["annotations"] = annotations.annotations
         findings = self.rules.review(
             model_payload,
-            {"annotations": annotations.annotations},
+            rule_context,
         )
         open_critical = any(
             item.severity in {"critical", "high"} and item.status == "open"

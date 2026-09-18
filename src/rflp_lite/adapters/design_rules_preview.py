@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Mapping, MutableMapping
+from dataclasses import replace
 from html import escape
 
 from rflp_lite.domain.canonical import canonical_hash
@@ -11,6 +13,24 @@ from rflp_lite.ports.cad import RuleReviewResult
 
 
 _VERSION = "dfm-dfa-preview-1.0"
+_DEFAULT_RULE_SET = "generic_preview"
+_RULE_PROFILES = {
+    "generic_preview": {
+        "wall_min_mm": 1.5,
+        "fillet_min_mm": 0.5,
+        "hole_edge_ratio": 1.5,
+    },
+    "cnc_machined": {
+        "wall_min_mm": 2.0,
+        "fillet_min_mm": 1.0,
+        "hole_edge_ratio": 2.0,
+    },
+    "additive_preview": {
+        "wall_min_mm": 1.0,
+        "fillet_min_mm": 0.3,
+        "hole_edge_ratio": 1.2,
+    },
+}
 
 
 def _finding(
@@ -37,6 +57,97 @@ def _finding(
         evidence=tuple((str(key), value) for key, value in evidence.items()),
         recommendation=recommendation,
     )
+
+
+def _review_context(model: Mapping[str, object], context: Mapping[str, object] | None):
+    merged: MutableMapping[str, object] = {}
+    model_context = model.get("design_review_context")
+    if isinstance(model_context, Mapping):
+        merged.update(model_context)
+    if isinstance(context, Mapping):
+        merged.update(context)
+    requested = str(merged.get("rule_set", _DEFAULT_RULE_SET)).strip() or _DEFAULT_RULE_SET
+    profile = _RULE_PROFILES.get(requested)
+    return requested, profile or _RULE_PROFILES[_DEFAULT_RULE_SET], profile is None, merged
+
+
+def _assembly_findings(
+    model: Mapping[str, object], context: Mapping[str, object], rule_set: str
+) -> list[DesignFinding]:
+    raw = context.get("assembly_interfaces")
+    if raw is None:
+        return []
+    if not isinstance(raw, (list, tuple)):
+        return [_finding(
+            "dfa.assembly_interface", "dfa", "high", "assembly", "assembly",
+            "装配接口声明不是列表，无法完成装配可达性检查。",
+            {"assembly_interfaces": raw, "rule_set": rule_set},
+            "将装配接口声明为包含 part_id、feature_id 和 interface 的列表。",
+        )]
+    parts = {
+        str(part.get("id", "")): part
+        for part in model.get("parts", ())
+        if isinstance(part, Mapping) and str(part.get("id", ""))
+    }
+    findings: list[DesignFinding] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, Mapping):
+            findings.append(_finding(
+                "dfa.assembly_interface", "dfa", "high", "assembly", f"interface-{index}",
+                "装配接口记录格式无效。", {"interface_record": item, "rule_set": rule_set},
+                "补充 part_id、feature_id、interface 和 required 字段。",
+            ))
+            continue
+        if item.get("required", True) is False:
+            continue
+        part_id = str(item.get("part_id", "")).strip()
+        feature_id = str(item.get("feature_id", "")).strip()
+        interface = str(item.get("interface", "")).strip()
+        part = parts.get(part_id)
+        features = part.get("features", ()) if isinstance(part, Mapping) else ()
+        feature_ids = {
+            str(feature.get("id", ""))
+            for feature in features
+            if isinstance(feature, Mapping)
+        }
+        missing = not part_id or not feature_id or not interface or part is None or feature_id not in feature_ids
+        if not missing:
+            continue
+        bbox = part.get("bbox_mm", ()) if isinstance(part, Mapping) else ()
+        location = tuple(float(value) for value in bbox) if isinstance(bbox, (list, tuple)) else ()
+        findings.append(_finding(
+            "dfa.assembly_interface", "dfa", "high", part_id or "assembly", feature_id or f"interface-{index}",
+            "必需装配接口在当前模型中缺失或未定义。",
+            {
+                "part_id": part_id,
+                "feature_id": feature_id,
+                "interface": interface,
+                "required": True,
+                "rule_set": rule_set,
+            },
+            "补充对应安装/定位/连接特征，并重新执行装配审查。",
+            location,
+        ))
+    return findings
+
+
+def _with_rule_context(finding: DesignFinding, rule_set: str, profile_name: str) -> DesignFinding:
+    evidence = {"rule_set": rule_set, "rule_profile": profile_name}
+    evidence.update(dict(finding.evidence))
+    evidence_items = tuple((str(key), value) for key, value in evidence.items())
+    return replace(
+        finding,
+        id=f"finding-{canonical_hash((finding.rule_id, finding.part_id, finding.feature_id, evidence_items))[:16]}",
+        evidence=evidence_items,
+    )
+
+
+def _finding_summary(findings: tuple[DesignFinding, ...]) -> Mapping[str, object]:
+    return {
+        "total": len(findings),
+        "by_severity": dict(sorted(Counter(item.severity for item in findings).items())),
+        "by_category": dict(sorted(Counter(item.category for item in findings).items())),
+    }
 
 
 def _highlight_svg(model: Mapping[str, object], findings: tuple[DesignFinding, ...]) -> str:
@@ -69,6 +180,15 @@ class PreviewDesignRuleAdapter:
 
     def review(self, model: Mapping[str, object], context: Mapping[str, object] | None = None) -> RuleReviewResult:
         findings: list[DesignFinding] = []
+        rule_set, profile, unknown_rule_set, review_context = _review_context(model, context)
+        if unknown_rule_set:
+            findings.append(_finding(
+                "ruleset.unknown", "ruleset", "high", "model", "model",
+                f"未识别的设计规则集：{rule_set}。当前仅能提供开发期参考检查。",
+                {"requested_rule_set": rule_set},
+                "选择已注册的 generic_preview、cnc_machined 或 additive_preview 规则集。",
+            ))
+        findings.extend(_assembly_findings(model, review_context, rule_set))
         parts = model.get("parts", ())
         for part in parts if isinstance(parts, (list, tuple)) else ():
             if not isinstance(part, Mapping):
@@ -98,25 +218,25 @@ class PreviewDesignRuleAdapter:
                 if not isinstance(params, Mapping):
                     continue
                 wall = params.get("wall_thickness_mm")
-                if isinstance(wall, (int, float)) and float(wall) < 1.5:
+                if isinstance(wall, (int, float)) and float(wall) < float(profile["wall_min_mm"]):
                     findings.append(_finding(
                         "dfm.wall_thickness", "dfm", "high", part_id, feature_id,
-                        "壁厚低于开发期最小制造建议值 1.5 mm。", {"wall_thickness_mm": wall, "minimum_mm": 1.5},
+                        f"壁厚低于当前规则集建议值 {profile['wall_min_mm']:g} mm。", {"wall_thickness_mm": wall, "minimum_mm": profile["wall_min_mm"]},
                         "增加壁厚或确认采用适用的薄壁工艺。", location,
                     ))
                 radius = params.get("radius_mm")
-                if isinstance(radius, (int, float)) and float(radius) < 0.5:
+                if isinstance(radius, (int, float)) and float(radius) < float(profile["fillet_min_mm"]):
                     findings.append(_finding(
                         "dfm.fillet_radius", "dfm", "medium", part_id, feature_id,
-                        "圆角半径低于开发期刀具/应力集中建议值 0.5 mm。", {"radius_mm": radius, "minimum_mm": 0.5},
+                        f"圆角半径低于当前规则集建议值 {profile['fillet_min_mm']:g} mm。", {"radius_mm": radius, "minimum_mm": profile["fillet_min_mm"]},
                         "增加圆角半径并检查相邻壁厚。", location,
                     ))
                 diameter = params.get("diameter_mm")
                 edge_distance = params.get("edge_distance_mm")
-                if isinstance(diameter, (int, float)) and isinstance(edge_distance, (int, float)) and float(edge_distance) < 1.5 * float(diameter):
+                if isinstance(diameter, (int, float)) and isinstance(edge_distance, (int, float)) and float(edge_distance) < float(profile["hole_edge_ratio"]) * float(diameter):
                     findings.append(_finding(
                         "dfm.hole_edge_distance", "dfm", "high", part_id, feature_id,
-                        "孔边距低于孔径 1.5 倍的开发期建议值。", {"diameter_mm": diameter, "edge_distance_mm": edge_distance},
+                        f"孔边距低于当前规则集要求的 {profile['hole_edge_ratio']:g} 倍孔径。", {"diameter_mm": diameter, "edge_distance_mm": edge_distance, "minimum_ratio": profile["hole_edge_ratio"]},
                         "增大孔边距或重新评估局部加强与工艺。", location,
                     ))
                 if params.get("tool_access") is False:
@@ -142,11 +262,21 @@ class PreviewDesignRuleAdapter:
                             "阶梯轴段直径不小于基体直径，无法形成有效轴肩。",
                             {"diameter_mm": step, "base_diameter_mm": base}, "重新定义阶梯直径并确认轴肩过渡。", location,
                         ))
-        final = tuple(findings)
+        profile_name = rule_set if not unknown_rule_set else _DEFAULT_RULE_SET
+        final = tuple(_with_rule_context(item, rule_set, profile_name) for item in findings)
+        summary = _finding_summary(final)
+        evidence_hash = canonical_hash([item.as_dict() for item in final])
         return RuleReviewResult(
             final,
             (),
-            {"risk_highlight_svg": _highlight_svg(model, final), "source_kind": "development"},
+            {
+                "risk_highlight_svg": _highlight_svg(model, final),
+                "source_kind": "development",
+                "rule_set": rule_set,
+                "rule_version": _VERSION,
+                "finding_summary": summary,
+                "evidence_hash": evidence_hash,
+            },
         )
 
 
