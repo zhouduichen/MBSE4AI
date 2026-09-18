@@ -111,6 +111,15 @@ class DesignReviewService:
     def reviews(self) -> tuple[dict[str, Any], ...]:
         return self.store.records("design_review")
 
+    def annotations(self) -> tuple[dict[str, Any], ...]:
+        return self.store.records("design_annotation")
+
+    def get_annotation(self, annotation_id: str) -> dict[str, Any]:
+        record = self.store.latest("design_annotation", annotation_id)
+        if record is None:
+            raise NotFoundError(f"design annotation not found: {annotation_id}")
+        return record
+
     def get_review(self, review_id: str) -> dict[str, Any]:
         record = self.store.latest("design_review", review_id)
         if record is None:

@@ -47,6 +47,9 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     annotation_record = annotation.json()["annotation"]
     assert annotation_record["id"].startswith("design-annotation-")
     assert annotation_record["annotations"]
+    listed_annotations = client.get("/projects/p1/cad/annotations")
+    assert listed_annotations.status_code == 200
+    assert listed_annotations.json()["annotations"][-1]["id"] == annotation_record["id"]
     review = client.post(f"/projects/p1/cad/models/{model['id']}/review").json()["review"]
     assert review["annotations"]
     assert review["artifacts"]["drawing_svg"].startswith("<svg")

@@ -928,6 +928,14 @@ def list_cad_reviews(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.get("/projects/{project_id}/cad/annotations")
+def list_cad_annotations(request: Request, project_id: str):
+    try:
+        return {"status": "ok", "annotations": list(_services(request).design_review(project_id).annotations())}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/cad/reviews/{review_id}/findings/{finding_id}")
 async def update_cad_finding(request: Request, project_id: str, review_id: str, finding_id: str):
     try:
