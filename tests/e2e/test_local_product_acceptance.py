@@ -165,6 +165,31 @@ def test_document_requirements_drive_concept_layout_without_example_defaults(tmp
     assert applied["entity"]["payload"]["source_requirement_ids"] == suggestion["source_requirement_ids"]
 
 
+def test_unified_product_flow_binds_document_model_sysml_and_deliverable(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("flow", "统一产品流验收")
+    ingested = services.projects.ingest("flow", SOURCE)
+
+    result = services.product_flow("flow").run(
+        "flow",
+        document_ids=(ingested["document_id"],),
+    )
+
+    assert result.status == "completed"
+    package = result.deliverable
+    assert package["revision"] == result.revision
+    assert package["snapshot_hash"] == result.snapshot_hash
+    assert package["artifacts"]["sysml"]["content"].startswith("package")
+    requirement_rows = package["artifacts"]["requirements"]["content"]["rows"]
+    assert len(requirement_rows) == 4
+    assert all(item["source_count"] for item in requirement_rows)
+    assert package["artifacts"]["traceability"]["content"]["metrics"]["complete_count"] == 4
+    assert all(
+        entity.meta.source_ids and entity.meta.evidence_ids
+        for entity in services.model("flow").graph("flow").entities
+        if entity.kind is EntityKind.REQUIREMENT
+    )
+
 def test_concept_layout_context_flows_into_cad_intent_and_modelgraph(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("handoff", "概念布局到详细设计上下文验收")

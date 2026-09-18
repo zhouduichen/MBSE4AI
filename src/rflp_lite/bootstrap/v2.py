@@ -26,6 +26,7 @@ from rflp_lite.application.engineering_tools import (
 )
 from rflp_lite.application.model_service import ModelService
 from rflp_lite.application.model_generation import ModelGenerationService
+from rflp_lite.application.product_flow import EngineeringProductFlowService
 from rflp_lite.application.project_service import ProjectService
 from rflp_lite.application.project_context import ProjectContextService
 from rflp_lite.application.requirement_input import RequirementInputService
@@ -261,6 +262,19 @@ class V2Services:
         return EngineeringDeliverableService(
             self.model(project_id),
             evidence_repository=self.repository(project_id),
+        )
+
+    def product_flow(
+        self,
+        project_id: str,
+        *,
+        profile_id: str | None = None,
+    ) -> EngineeringProductFlowService:
+        return EngineeringProductFlowService(
+            self.generation(project_id, profile_id=profile_id),
+            self.concept_design(project_id),
+            self.cad_design(project_id, profile_id=profile_id),
+            self.deliverables(project_id),
         )
 
     def review(self, project_id: str) -> ReviewService:

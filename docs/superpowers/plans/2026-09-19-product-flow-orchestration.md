@@ -17,32 +17,32 @@
 
 ## Task 1: Implement the application product-flow orchestrator
 
-- [ ] Create `src/rflp_lite/application/product_flow.py`.
-- [ ] Add an immutable `ProductFlowResult` with `status`, `generation`, `concept`, `cad`, `deliverable`, `revision`, and `snapshot_hash`, plus `as_dict()` using existing primitive conversion helpers.
-- [ ] Add `EngineeringProductFlowService.run(project_id, *, requirement_text=None, document_ids=(), include_concept=False, optimize_concept=True, cad_intent_text=None)`.
-- [ ] Delegate generation to the existing five-stage service; build a deliverable snapshot after generation and after any accepted draft/plan records are persisted.
-- [ ] Translate concept `InputRequired` to `needs_input` with the suggestion payload; translate CAD draft clarification to `needs_clarification`; translate a ready CAD plan to `needs_approval` without executing it.
-- [ ] Add `tests/application/test_product_flow.py` covering RFLP-only completion, concept input, CAD clarification, CAD approval, and revision/snapshot binding.
-- [ ] Run the focused application tests with isolated `RFLP_CONFIG_DIR` and preview CAD backend.
+- [x] Create `src/rflp_lite/application/product_flow.py`.
+- [x] Add an immutable `ProductFlowResult` with `status`, `generation`, `concept`, `cad`, `deliverable`, `revision`, and `snapshot_hash`, plus `as_dict()` using existing primitive conversion helpers.
+- [x] Add `EngineeringProductFlowService.run(project_id, *, requirement_text=None, document_ids=(), include_concept=False, optimize_concept=True, cad_intent_text=None)`.
+- [x] Delegate generation to the existing five-stage service; build a deliverable snapshot after generation and after any accepted draft/plan records are persisted.
+- [x] Translate concept `InputRequired` to `needs_input` with the suggestion payload; translate CAD draft clarification to `needs_clarification`; translate a ready CAD plan to `needs_approval` without executing it.
+- [x] Add `tests/application/test_product_flow.py` covering RFLP-only completion, concept input, CAD clarification, CAD approval, and revision/snapshot binding.
+- [x] Run the focused application tests with isolated `RFLP_CONFIG_DIR` and preview CAD backend.
 
 ## Task 2: Expose the flow through composition root and API
 
-- [ ] Add `V2Services.product_flow()` in `src/rflp_lite/bootstrap/v2.py`, composing existing project-scoped services.
-- [ ] Add `POST /projects/{project_id}/engineering-flow` in `src/rflp_lite/interface/web/resource_api.py` with explicit input parsing and the existing error mapping.
-- [ ] Add `tests/interface/web/test_product_flow_api.py` for document-backed completion, `needs_input`, `needs_clarification`, and `needs_approval` responses.
-- [ ] Keep API responses JSON-safe and avoid exposing provider internals.
+- [x] Add `V2Services.product_flow()` in `src/rflp_lite/bootstrap/v2.py`, composing existing project-scoped services.
+- [x] Add `POST /projects/{project_id}/engineering-flow` in `src/rflp_lite/interface/web/resource_api.py` with explicit input parsing and the existing error mapping.
+- [x] Add `tests/interface/web/test_product_flow_api.py` for document-backed completion, `needs_input`, `needs_clarification`, and `needs_approval` responses.
+- [x] Keep API responses JSON-safe and avoid exposing provider internals.
 
 ## Task 3: Prove document-to-product and deliverable binding
 
-- [ ] Extend `tests/e2e/test_local_product_acceptance.py` or add a focused product-flow acceptance test proving document ingestion, complete RFLP generation, traceability source/evidence links, and exported deliverable revision/hash consistency.
-- [ ] Reuse the existing document intelligence tests/fixtures for DOCX/PDF source-region behavior; only add coverage where it closes a product-flow gap.
-- [ ] Verify SysML export/re-import remains part of the acceptance path.
+- [x] Extend `tests/e2e/test_local_product_acceptance.py` with a focused product-flow acceptance test proving document ingestion, complete RFLP generation, traceability source/evidence links, and exported deliverable revision/hash consistency.
+- [x] Reuse the existing document intelligence tests/fixtures for DOCX/PDF source-region behavior; only add coverage where it closes a product-flow gap.
+- [x] Verify SysML export/re-import remains part of the acceptance path through the existing local product acceptance suite.
 
 ## Task 4: Update product documentation and verify the repository
 
-- [ ] Update `README.md` with the one-entry product flow, status semantics, offline test command, and explicit approval boundary.
-- [ ] Run focused tests, the local product acceptance tests, Ruff, import-linter, and `scripts/verify_full.py` with isolated config and preview CAD.
-- [ ] Review the diff for scope, commit the plan and implementation, and push the resulting commit to the configured GitHub remote only after verification passes.
+- [x] Update `README.md` with the one-entry product flow, status semantics, offline test command, and explicit approval boundary.
+- [x] Run focused tests, the local product acceptance tests, Ruff, import-linter, and `scripts/verify_full.py` with isolated config and preview CAD.
+- [ ] Review the diff for scope, commit the implementation, and push the resulting commit to the configured GitHub remote only after verification passes.
 
 ## Completion evidence
 

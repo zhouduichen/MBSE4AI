@@ -33,6 +33,19 @@ python3 -m venv .venv
 .venv/bin/ai4mbse --workspace-root .local-workspaces model export campus-demo --format sysml > campus-demo.sysml
 ```
 
+统一产品流 API 将同一请求收敛为“输入 → R→F→L→P→V&V → 交付包”，并可选择继续到总体设计和自然语言 CAD：
+
+```json
+POST /projects/{id}/engineering-flow
+{
+  "requirement_text": "系统应在校园内完成配送，并允许运营人员人工接管",
+  "include_concept": false,
+  "cad_intent_text": "生成铝合金支架，长100毫米，宽50毫米，高10毫米"
+}
+```
+
+返回的 `flow` 同时包含五阶段生成、`model.sysml`/追溯/V&V 交付物及同一 `revision`/`snapshot_hash`。`completed` 表示纵向模型已生成；`needs_input`、`needs_clarification` 和 `needs_approval` 分别表示总体设计缺参、CAD 意图需澄清或 CAD 计划等待人工审批。该入口不会自动应用概念候选，也不会批准或执行 CAD 计划。
+
 使用已保存的远程 SSH/Tailscale LLM Profile 做本次真实 LLM 生成（不会启动本机模型，也不会切换 active profile）：
 
 ```bash
@@ -147,6 +160,8 @@ Controller 还提供有界的“自动推进安全动作”入口：它可以连
 本地产品纵向验收只使用离线规则 Runtime，不启动服务器、不连接 SSH，也不调用本机或远程模型：
 
 ```bash
+RFLP_CONFIG_DIR="$(mktemp -d)" AI4MBSE_CAD_BACKEND=preview ./.venv/bin/python -m pytest -q \
+  tests/application/test_product_flow.py tests/interface/web/test_product_flow_api.py
 ./.venv/bin/python -m pytest -q tests/e2e/test_local_product_acceptance.py
 ```
 

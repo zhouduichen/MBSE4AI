@@ -1003,6 +1003,33 @@ async def run_analysis(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.post("/projects/{project_id}/engineering-flow")
+async def run_engineering_product_flow(request: Request, project_id: str):
+    """Run RFLP and optional downstream design stages to their review boundary."""
+
+    try:
+        payload = await _json_object(request)
+        raw_documents = payload.get("document_ids", ())
+        raw_sources = payload.get("source_requirement_ids", ())
+        if not isinstance(raw_documents, (list, tuple)):
+            raise ContractViolation("document_ids must be an array")
+        if not isinstance(raw_sources, (list, tuple)):
+            raise ContractViolation("source_requirement_ids must be an array")
+        profile_id = str(payload.get("profile_id", "")).strip() or None
+        result = _services(request).product_flow(project_id, profile_id=profile_id).run(
+            project_id,
+            requirement_text=str(payload.get("requirement_text", "")).strip() or None,
+            document_ids=tuple(str(item) for item in raw_documents if str(item).strip()),
+            include_concept=bool(payload.get("include_concept", False)),
+            optimize_concept=bool(payload.get("optimize_concept", True)),
+            cad_intent_text=str(payload.get("cad_intent_text", "")).strip() or None,
+            source_requirement_ids=tuple(str(item) for item in raw_sources if str(item).strip()),
+        )
+        return {"status": "ok", "flow": result.as_dict()}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/analysis/runs", status_code=202)
 async def start_async_generation(request: Request, project_id: str):
     try:
