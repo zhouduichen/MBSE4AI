@@ -1597,6 +1597,7 @@ def cad_design_page(request: Request, project_id: str):
             "drafts": [item.as_dict() for item in cad.drafts()],
             "plans": list(cad.plans()),
             "models": list(cad.models()),
+            "annotations": list(services.design_review(project_id).annotations()),
             "reviews": list(services.design_review(project_id).reviews()),
         },
     )

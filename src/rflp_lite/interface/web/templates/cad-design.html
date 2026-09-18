@@ -27,6 +27,20 @@
 </section>
 
 <section class="card">
+  <div class="card-header"><div><h2>独立标注结果</h2><p>可先读取二维/三维共享标注，再决定是否进入 DFM/DFA 规则审查。</p></div></div>
+  <div id="cad-annotations">
+    {% for annotation in annotations|reverse %}
+    <article class="list-card" data-annotation-id="{{ annotation.id }}">
+      <div class="list-card-header"><strong>{{ annotation.id }}</strong><span class="status-pill">{{ annotation.source_kind }}</span></div>
+      <p class="muted">模型 {{ annotation.model_id }} · 标注 {{ annotation.annotations|length }} 项 · 输入 {{ annotation.input_hash }}</p>
+      {% if annotation.artifacts.drawing_svg %}<div class="svg-preview">{{ annotation.artifacts.drawing_svg|safe }}</div>{% endif %}
+      <div class="compact-list">{% for item in annotation.annotations %}<article><span><strong>{{ item.annotation_kind }}</strong><small>{{ item.part_id }} / {{ item.target_feature_id }} · {{ item.value }}{% if item.tolerance %} · {{ item.tolerance }}{% endif %}</small></span><span class="status-badge {{ 'candidate' if item.status == 'candidate' else 'failed' }}">{{ item.status }}</span></article>{% else %}<small>暂无标注</small>{% endfor %}</div>
+    </article>
+    {% else %}<p class="muted">尚无独立标注；执行模型后可先生成标注，再进入完整审查。</p>{% endfor %}
+  </div>
+</section>
+
+<section class="card">
   <div class="card-header"><div><h2>已有模型与审查</h2><p>模型、标注和 DFM/DFA 审查结果保留在项目审计链中；真实后端会登记 FCStd/STEP 下载入口。</p></div></div>
   <div id="cad-models">
     {% for model in models %}
@@ -120,8 +134,9 @@
   };
   const renderModel = (model) => {
     const artifactLinks = `<a class="button" href="/projects/${encodeURIComponent(projectId)}/cad/models/${encodeURIComponent(model.id)}/artifacts/obj">下载 OBJ</a><a class="button" href="/projects/${encodeURIComponent(projectId)}/cad/models/${encodeURIComponent(model.id)}/artifacts/scad">下载 OpenSCAD</a>`;
-    chain.innerHTML = `<pre>${JSON.stringify(model, null, 2)}</pre><div class="actions">${model.model_payload?.obj ? artifactLinks : ''}<button class="button" id="cad-apply-button">写入 ModelGraph</button><button class="button" id="cad-review-button">生成标注与 DFM/DFA 审查</button></div>`;
+    chain.innerHTML = `<pre>${JSON.stringify(model, null, 2)}</pre><div class="actions">${model.model_payload?.obj ? artifactLinks : ''}<button class="button" id="cad-apply-button">写入 ModelGraph</button><button class="button" id="cad-annotation-button">仅生成标注</button><button class="button" id="cad-review-button">生成标注与 DFM/DFA 审查</button></div>`;
     document.querySelector('#cad-apply-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/apply`, {method: 'POST'}); status.textContent = `已写入 ${result.apply.entity.id}`; } catch (error) { status.textContent = error.message; } };
+    document.querySelector('#cad-annotation-button').onclick = async () => { try { await call(`/projects/${projectId}/cad/models/${model.id}/annotations`, {method: 'POST'}); status.textContent = '独立标注已保存'; window.setTimeout(() => window.location.reload(), 250); } catch (error) { status.textContent = error.message; } };
     document.querySelector('#cad-review-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/review`, {method: 'POST'}); renderReview(result.review); status.textContent = result.review.status; } catch (error) { status.textContent = error.message; } };
   };
   document.querySelector('#cad-intent-submit').onclick = async () => {

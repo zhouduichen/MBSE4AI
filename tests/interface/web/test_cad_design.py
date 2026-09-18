@@ -67,7 +67,9 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     assert page.status_code == 200
     assert "结构选型推荐" in page.text
     assert "审查记录与风险高亮" in page.text
+    assert "独立标注结果" in page.text
     assert "风险高亮" in page.text
+    assert annotation_record["id"] in page.text
     assert review["id"] in page.text
     assert "下载 OBJ" in page.text
     assert "下载 OpenSCAD" in page.text
