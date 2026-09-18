@@ -812,7 +812,10 @@ async def create_cad_plan(request: Request, project_id: str):
         draft_id = str(payload.get("draft_id", "")).strip()
         if not draft_id:
             raise ContractViolation("draft_id is required")
-        plan = _services(request).cad_design(project_id).create_plan(draft_id)
+        plan = _services(request).cad_design(project_id).create_plan(
+            draft_id,
+            selected_structure_option_id=str(payload.get("selected_structure_option_id", "")),
+        )
         return {"status": "ok", "plan": plan}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)

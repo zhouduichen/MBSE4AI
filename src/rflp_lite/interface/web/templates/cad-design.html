@@ -47,12 +47,21 @@
     if (!response.ok) throw new Error(payload.message || '请求失败');
     return payload;
   };
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>\"']/g, (character) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;'}[character]));
+  const renderStructureOptions = (draft) => {
+    const options = Array.isArray(draft.structure_options) ? draft.structure_options : [];
+    if (!options.length) return '';
+    const optionRows = options.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)} · ${escapeHtml(item.category)}</option>`).join('');
+    const details = options.map((item) => `<li><strong>${escapeHtml(item.label)}</strong>：${escapeHtml(item.rationale)} <span class="muted">适用：${escapeHtml(item.applicability)}</span></li>`).join('');
+    return `<div class="callout info"><strong>结构选型推荐</strong><ul>${details}</ul><label class="field compact-field" for="cad-structure-option">生成计划时的结构选择<select id="cad-structure-option"><option value="">不预选（保留推荐，不视为批准）</option>${optionRows}</select></label></div>`;
+  };
   const renderDraft = (draft) => {
-    chain.innerHTML = `<pre>${JSON.stringify(draft, null, 2)}</pre><div class="actions"><button class="button primary" id="cad-plan-button">生成执行计划</button></div>`;
+    chain.innerHTML = `<pre>${JSON.stringify(draft, null, 2)}</pre>${renderStructureOptions(draft)}<div class="actions"><button class="button primary" id="cad-plan-button">生成执行计划</button></div>`;
     summary.textContent = draft.status === 'ready' ? '意图已就绪，可生成待审批计划' : '存在澄清项，计划只能预览，不能审批执行';
     document.querySelector('#cad-plan-button').onclick = async () => {
       try {
-        const planned = await call(`/projects/${projectId}/cad/plan`, {method: 'POST', body: JSON.stringify({draft_id: draft.draft_id})});
+        const selectedStructureOptionId = document.querySelector('#cad-structure-option')?.value || '';
+        const planned = await call(`/projects/${projectId}/cad/plan`, {method: 'POST', body: JSON.stringify({draft_id: draft.draft_id, selected_structure_option_id: selectedStructureOptionId})});
         renderPlan(planned.plan);
       } catch (error) { status.textContent = error.message; }
     };

@@ -72,8 +72,10 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
         "生成铝合金支架，长100毫米，宽50毫米，高10毫米",
     )
     assert draft.intent.source_requirement_ids == tuple(item.id for item in requirements)
-    plan = cad.create_plan(draft.draft_id)
+    selected = draft.payload["structure_options"][0]["id"]
+    plan = cad.create_plan(draft.draft_id, selected_structure_option_id=selected)
     assert plan["status"] == "ready"
+    assert plan["selected_structure_option_id"] == selected
     assert plan["preview"]["schema_version"] == "parametric-cad-preview.v1"
     cad.approve_plan(plan["id"])
     model = cad.execute_plan(plan["id"])
@@ -97,6 +99,7 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
 
     applied = cad.apply_model(model["id"])
     assert applied["entity"]["kind"] == EntityKind.PHYSICAL_BLOCK.value
+    assert applied["entity"]["payload"]["selected_structure_option_id"] == selected
     assert applied["entity"]["payload"]["design_review"]["id"] == review["id"]
     assert applied["entity"]["payload"]["design_review"]["annotations"] == review["annotations"]
     detail_graph = services.model("acceptance").graph("acceptance")

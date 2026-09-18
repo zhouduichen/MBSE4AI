@@ -37,6 +37,15 @@ def _intent_from_payload(payload: Mapping[str, Any]) -> DesignIntent:
             for item in raw_parameters
             if isinstance(item, Mapping) and item.get("name")
         )
+    structure_options = tuple(
+        {
+            str(key): str(value)
+            for key, value in item.items()
+            if key in {"id", "label", "category", "applicability", "rationale", "status"}
+        }
+        for item in raw.get("structure_options", ())
+        if isinstance(item, Mapping) and item.get("id")
+    )
     return DesignIntent(
         id=str(raw.get("id", payload.get("draft_id", "intent-unknown"))),
         statement=str(raw.get("statement", "")),
@@ -49,6 +58,7 @@ def _intent_from_payload(payload: Mapping[str, Any]) -> DesignIntent:
         source_requirement_ids=tuple(str(item) for item in raw.get("source_requirement_ids", ())),
         confidence=float(raw.get("confidence", 0.0)),
         provenance=str(raw.get("provenance", "rule")),
+        structure_options=structure_options,
     )
 
 
@@ -110,6 +120,7 @@ def _plan_from_payload(payload: Mapping[str, Any]) -> CadExecutionPlan:
         preview_hash=str(payload.get("preview_hash", "")),
         model_context_ids=tuple(str(item) for item in payload.get("model_context_ids", ())),
         source_requirement_ids=tuple(str(item) for item in payload.get("source_requirement_ids", ())),
+        selected_structure_option_id=str(payload.get("selected_structure_option_id", "")),
     )
 
 
@@ -225,10 +236,14 @@ class CadWorkflowService:
             raise NotFoundError(f"design intent draft not found: {draft_id}")
         return _draft_from_payload(raw)
 
-    def create_plan(self, draft_id: str) -> dict[str, Any]:
+    def create_plan(self, draft_id: str, *, selected_structure_option_id: str = "") -> dict[str, Any]:
         draft = self.get_draft(draft_id)
+        selected_option_id = str(selected_structure_option_id).strip()
+        known_option_ids = {str(item.get("id", "")) for item in draft.intent.structure_options}
+        if selected_option_id and selected_option_id not in known_option_ids:
+            raise ContractViolation(f"unknown structure option: {selected_option_id}")
         operations = _plan_operations(draft.intent)
-        plan_id = f"cad-plan-{canonical_hash((self.project_id, draft.intent.id, operations))[:16]}"
+        plan_id = f"cad-plan-{canonical_hash((self.project_id, draft.intent.id, operations, selected_option_id))[:16]}"
         status = "needs_clarification" if any(item.severity == "high" for item in draft.clarifications) else "ready"
         plan = CadExecutionPlan(
             id=plan_id,
@@ -238,6 +253,7 @@ class CadWorkflowService:
             status=status,
             approval_status="pending",
             source_requirement_ids=draft.intent.source_requirement_ids,
+            selected_structure_option_id=selected_option_id,
         )
         preview: CadOperationResult | None = None
         diagnostics: tuple[str, ...] = ()
@@ -256,6 +272,7 @@ class CadWorkflowService:
                 preview_hash=preview.model.artifact_hash,
                 model_context_ids=plan.model_context_ids,
                 source_requirement_ids=plan.source_requirement_ids,
+                selected_structure_option_id=plan.selected_structure_option_id,
             )
         record = {
             **plan.as_dict(),
@@ -293,6 +310,7 @@ class CadWorkflowService:
             preview_hash=plan.preview_hash,
             model_context_ids=plan.model_context_ids,
             source_requirement_ids=plan.source_requirement_ids,
+            selected_structure_option_id=plan.selected_structure_option_id,
         )
         updated = {**record, **approved.as_dict(), "approval_event": "approved"}
         self.store.save("cad_execution_plan", updated)
@@ -313,6 +331,7 @@ class CadWorkflowService:
             "plan_id": plan.id,
             "plan_hash": plan.plan_hash,
             "intent_id": plan.intent_id,
+            "selected_structure_option_id": plan.selected_structure_option_id,
             "model": result.model.as_dict(),
             "model_payload": to_primitive(result.model_payload),
             "diagnostics": list(result.diagnostics),
@@ -349,6 +368,7 @@ class CadWorkflowService:
             "cad_model_reference": dict(reference),
             "cad_model_payload": model_record.get("model_payload", {}),
             "source_requirement_ids": list(intent.source_requirement_ids),
+            "selected_structure_option_id": str(model_record.get("selected_structure_option_id", "")),
         }
         if review is not None:
             design_payload["design_review"] = dict(review)

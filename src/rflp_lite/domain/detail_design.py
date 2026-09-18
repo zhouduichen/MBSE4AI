@@ -24,6 +24,7 @@ class DesignIntent:
     source_requirement_ids: tuple[str, ...] = ()
     confidence: float = 0.0
     provenance: str = "rule"
+    structure_options: tuple[dict[str, str], ...] = ()
 
     @property
     def input_hash(self) -> str:
@@ -42,6 +43,7 @@ class DesignIntent:
             "source_requirement_ids": list(self.source_requirement_ids),
             "confidence": self.confidence,
             "provenance": self.provenance,
+            "structure_options": [dict(item) for item in self.structure_options],
             "input_hash": self.input_hash,
         }
 
@@ -89,6 +91,7 @@ class CadExecutionPlan:
     preview_hash: str = ""
     model_context_ids: tuple[str, ...] = ()
     source_requirement_ids: tuple[str, ...] = ()
+    selected_structure_option_id: str = ""
 
     @property
     def plan_hash(self) -> str:
@@ -105,6 +108,7 @@ class CadExecutionPlan:
             "preview_hash": self.preview_hash,
             "model_context_ids": list(self.model_context_ids),
             "source_requirement_ids": list(self.source_requirement_ids),
+            "selected_structure_option_id": self.selected_structure_option_id,
             "plan_hash": self.plan_hash,
         }
 

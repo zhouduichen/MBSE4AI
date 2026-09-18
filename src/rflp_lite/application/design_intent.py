@@ -59,9 +59,124 @@ def _target(text: str) -> tuple[str, str]:
     return "part", "待确认零件"
 
 
+def _structure_options(target_kind: str) -> tuple[dict[str, str], ...]:
+    options: dict[str, tuple[dict[str, str], ...]] = {
+        "bracket": (
+            {
+                "id": "bracket-gusseted-plate",
+                "label": "加筋板式支架",
+                "category": "板式加筋",
+                "applicability": "适合质量敏感且需要提高弯曲刚度的支撑连接。",
+                "rationale": "通过腹板与加强筋提高刚度，通常比实心块更轻。",
+                "status": "recommendation",
+            },
+            {
+                "id": "bracket-machined-block",
+                "label": "整体机加工块式支架",
+                "category": "整体块式",
+                "applicability": "适合尺寸紧凑、批量较小或需要连续安装基准的支架。",
+                "rationale": "结构简单且基准连续，便于快速形成参数化实体和后续加工审查。",
+                "status": "recommendation",
+            },
+        ),
+        "base": (
+            {
+                "id": "base-ribbed-plate",
+                "label": "加筋底板式底座",
+                "category": "板式加筋",
+                "applicability": "适合需要扩大安装面并控制整体质量的底座。",
+                "rationale": "安装面明确，可通过加强筋改善底板局部刚度。",
+                "status": "recommendation",
+            },
+            {
+                "id": "base-machined-block",
+                "label": "整体块式底座",
+                "category": "整体块式",
+                "applicability": "适合空间受限、承载路径直接且需要较少零件的底座。",
+                "rationale": "零件数量少、连接界面少，适合早期参数化设计。",
+                "status": "recommendation",
+            },
+        ),
+        "housing": (
+            {
+                "id": "housing-split-shell",
+                "label": "分体壳式壳体",
+                "category": "分体壳体",
+                "applicability": "适合需要内部装配、维护或分次加工的壳体。",
+                "rationale": "便于布置内部部件和拆装维护，但需要评审分型面与密封。",
+                "status": "recommendation",
+            },
+            {
+                "id": "housing-machined-shell",
+                "label": "整体机加工壳体",
+                "category": "整体壳体",
+                "applicability": "适合结构紧凑、接口基准稳定且内部维护要求较低的壳体。",
+                "rationale": "基准统一、接口连续，适合小批量和高精度接口场景。",
+                "status": "recommendation",
+            },
+        ),
+        "connector": (
+            {
+                "id": "connector-flanged",
+                "label": "法兰式连接件",
+                "category": "法兰连接",
+                "applicability": "适合需要明确安装面、螺栓孔阵列或可拆卸连接的接口。",
+                "rationale": "安装基准和连接孔阵列清晰，便于接口定义与审查。",
+                "status": "recommendation",
+            },
+            {
+                "id": "connector-machined-block",
+                "label": "整体块式连接件",
+                "category": "整体连接",
+                "applicability": "适合空间紧凑且连接界面数量较少的连接件。",
+                "rationale": "几何和接口关系直接，适合在尺寸信息完整时快速参数化。",
+                "status": "recommendation",
+            },
+        ),
+        "shaft": (
+            {
+                "id": "shaft-stepped",
+                "label": "阶梯轴",
+                "category": "轴类回转体",
+                "applicability": "适合承载件、轴承位或多个直径段需要定位的轴。",
+                "rationale": "可通过直径段和轴肩表达装配定位，但需补充载荷与配合。",
+                "status": "recommendation",
+            },
+            {
+                "id": "shaft-solid",
+                "label": "等径实心轴",
+                "category": "轴类回转体",
+                "applicability": "适合接口简单、直径基本一致且暂不需要轴肩定位的轴。",
+                "rationale": "参数少、生成稳定，适合信息不完整时作为基础候选。",
+                "status": "recommendation",
+            },
+        ),
+        "gear": (
+            {
+                "id": "gear-spur",
+                "label": "直齿圆柱齿轮",
+                "category": "齿轮传动",
+                "applicability": "适合平行轴、结构简单且暂未提出低噪声要求的传动。",
+                "rationale": "参数和制造边界清晰，适合作为齿轮概念设计基线。",
+                "status": "recommendation",
+            },
+            {
+                "id": "gear-helical",
+                "label": "斜齿圆柱齿轮",
+                "category": "齿轮传动",
+                "applicability": "适合需要更平稳啮合或承载能力比较的平行轴传动。",
+                "rationale": "啮合连续性更好，但会引入轴向力和更高的参数约束。",
+                "status": "recommendation",
+            },
+        ),
+    }
+    return options.get(target_kind, ())
+
+
 def _fallback(text: str) -> dict[str, Any]:
     target_kind, target_name = _target(text)
     parameters = _parameter_matches(text)
+    structure_options = _structure_options(target_kind)
     material_match = re.search(r"(铝合金|铝|钢|不锈钢|钛合金|碳纤维|塑料)", text)
     material = material_match.group(1) if material_match else ""
     questions: list[dict[str, Any]] = []
@@ -75,6 +190,10 @@ def _fallback(text: str) -> dict[str, Any]:
     recommendations = []
     if not material:
         recommendations.append("未指定材料；支架类零件可优先比较铝合金与钢的强度、质量和可制造性。")
+    recommendations.extend(
+        f"结构选型推荐：{item['label']}（{item['rationale']}）"
+        for item in structure_options
+    )
     return {
         "schema_version": "design-intent-draft.v1",
         "statement": text,
@@ -85,6 +204,7 @@ def _fallback(text: str) -> dict[str, Any]:
         "connections": [],
         "clarifications": questions,
         "recommendations": recommendations,
+        "structure_options": [dict(item) for item in structure_options],
         "diagnostics": ["使用确定性意图解析；未启动本地模型。"],
     }
 
@@ -102,6 +222,15 @@ def _intent(payload: Mapping[str, Any], project_id: str, provenance: str) -> Des
         if isinstance(item, Mapping) and item.get("name") and isinstance(item.get("value"), (int, float))
     )
     source = tuple(str(item) for item in payload.get("source_requirement_ids", ()) if str(item).strip())
+    structure_options = tuple(
+        {
+            str(key): str(value)
+            for key, value in item.items()
+            if key in {"id", "label", "category", "applicability", "rationale", "status"}
+        }
+        for item in payload.get("structure_options", ())
+        if isinstance(item, Mapping) and item.get("id")
+    )
     identity = (
         project_id,
         payload["statement"],
@@ -110,6 +239,7 @@ def _intent(payload: Mapping[str, Any], project_id: str, provenance: str) -> Des
         payload.get("material", ""),
         params,
         source,
+        structure_options,
     )
     return DesignIntent(
         id=f"intent-{canonical_hash(identity)[:16]}",
@@ -119,6 +249,7 @@ def _intent(payload: Mapping[str, Any], project_id: str, provenance: str) -> Des
         connection_requirements=tuple(str(item) for item in payload.get("connections", ())),
         source_requirement_ids=source, confidence=0.72 if provenance == "rule" else 0.85,
         provenance=provenance,
+        structure_options=structure_options,
     )
 
 

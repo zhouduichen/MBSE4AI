@@ -29,6 +29,9 @@ def test_cad_plan_execute_review_and_apply_are_idempotent(tmp_path: Path):
     draft = cad.create_intent("生成铝合金支架，长100毫米，宽50毫米，高10毫米")
     plan = cad.create_plan(draft.draft_id)
     assert plan["status"] == "ready"
+    assert len(draft.payload["structure_options"]) >= 2
+    assert {item["status"] for item in draft.payload["structure_options"]} == {"recommendation"}
+    assert plan["selected_structure_option_id"] == ""
     assert plan["preview"]["schema_version"] == "parametric-cad-preview.v1"
     with pytest.raises(ContractViolation):
         cad.execute_plan(plan["id"])
@@ -51,6 +54,28 @@ def test_cad_plan_execute_review_and_apply_are_idempotent(tmp_path: Path):
     applied = cad.apply_model(model["id"])
     assert applied["entity"]["kind"] == EntityKind.PHYSICAL_BLOCK.value
     assert cad.apply_model(model["id"])["idempotent"] is True
+
+
+def test_structure_option_selection_is_validated_and_traced(tmp_path: Path):
+    services = build_v2_services(tmp_path)
+    services.projects.create("p")
+    cad = services.cad_design("p")
+
+    draft = cad.create_intent("生成铝合金支架，长100毫米，宽50毫米，高10毫米")
+    selected = draft.payload["structure_options"][0]["id"]
+    plan = cad.create_plan(draft.draft_id, selected_structure_option_id=selected)
+    assert plan["selected_structure_option_id"] == selected
+    assert plan["intent"]["structure_options"][0]["id"] == selected
+    with pytest.raises(ContractViolation):
+        cad.create_plan(draft.draft_id, selected_structure_option_id="not-an-option")
+
+    cad.approve_plan(plan["id"])
+    model = cad.execute_plan(plan["id"])
+    assert model["selected_structure_option_id"] == selected
+    applied = cad.apply_model(model["id"])
+    payload = applied["entity"]["payload"]
+    assert payload["selected_structure_option_id"] == selected
+    assert payload["design_intent"]["structure_options"][0]["id"] == selected
 
 
 def test_design_rule_review_reports_feature_location_and_version(tmp_path: Path):

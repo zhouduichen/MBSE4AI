@@ -43,6 +43,22 @@
       }
     },
     "recommendations": {"type": "array", "items": {"type": "string", "maxLength": 500}},
+    "structure_options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "category", "applicability", "rationale", "status"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 120},
+          "label": {"type": "string", "minLength": 1, "maxLength": 240},
+          "category": {"type": "string", "minLength": 1, "maxLength": 120},
+          "applicability": {"type": "string", "minLength": 1, "maxLength": 500},
+          "rationale": {"type": "string", "minLength": 1, "maxLength": 500},
+          "status": {"const": "recommendation"}
+        }
+      }
+    },
     "diagnostics": {"type": "array", "items": {"type": "string", "maxLength": 500}}
   }
 }

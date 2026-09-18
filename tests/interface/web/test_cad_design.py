@@ -23,8 +23,14 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     assert draft_response.status_code == 200
     draft = draft_response.json()["draft"]
     assert draft["source_requirement_ids"] == [requirement["id"]]
-    plan = client.post("/projects/p1/cad/plan", json={"draft_id": draft["draft_id"]}).json()["plan"]
+    assert len(draft["structure_options"]) >= 2
+    selected = draft["structure_options"][0]["id"]
+    plan = client.post(
+        "/projects/p1/cad/plan",
+        json={"draft_id": draft["draft_id"], "selected_structure_option_id": selected},
+    ).json()["plan"]
     assert plan["status"] == "ready"
+    assert plan["selected_structure_option_id"] == selected
     assert client.post(f"/projects/p1/cad/plans/{plan['id']}/execute").status_code == 422
     assert client.post(f"/projects/p1/cad/plans/{plan['id']}/approve").status_code == 200
 
@@ -36,4 +42,6 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     applied = client.post(f"/projects/p1/cad/models/{model['id']}/apply").json()["apply"]
     assert applied["entity"]["kind"] == "physical_block"
     assert applied["entity"]["payload"]["design_review"]["id"] == review["id"]
-    assert client.get("/ui/projects/p1/cad-design").status_code == 200
+    page = client.get("/ui/projects/p1/cad-design")
+    assert page.status_code == 200
+    assert "结构选型推荐" in page.text

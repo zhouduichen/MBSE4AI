@@ -300,7 +300,8 @@ def test_concept_and_detail_design_records_are_included_in_deliverables(tmp_path
 
     cad = services.cad_design("p1")
     draft = cad.create_intent("生成铝合金支架，长100毫米，宽50毫米，高10毫米")
-    plan = cad.create_plan(draft.draft_id)
+    selected = draft.payload["structure_options"][0]["id"]
+    plan = cad.create_plan(draft.draft_id, selected_structure_option_id=selected)
     cad.approve_plan(plan["id"])
     model = cad.execute_plan(plan["id"])
     review = services.design_review("p1").review(model["id"], model["model_payload"])
@@ -314,7 +315,11 @@ def test_concept_and_detail_design_records_are_included_in_deliverables(tmp_path
     assert concept_run["evaluation_summary"]["complete_candidate_count"] == concept_run["evaluation_summary"]["candidate_count"]
     assert dict(concept_run["evaluations"][0]["validity"])["validity_status"] == "not_declared"
     assert package["artifacts"]["detail_design"]["content"]["cad_models"]
-    assert package["artifacts"]["detail_design"]["content"]["design_reviews"][-1]["artifacts"]["drawing_svg"].startswith("<svg")
+    detail_content = package["artifacts"]["detail_design"]["content"]
+    assert detail_content["design_intent_drafts"][-1]["structure_options"][0]["id"] == selected
+    assert detail_content["cad_execution_plans"][-1]["selected_structure_option_id"] == selected
+    assert detail_content["cad_models"][-1]["selected_structure_option_id"] == selected
+    assert detail_content["design_reviews"][-1]["artifacts"]["drawing_svg"].startswith("<svg")
     archive_bytes, _ = services.deliverables("p1").export_zip("p1")
     with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
         assert {"concept-design.json", "detail-design.json"} <= set(archive.namelist())
