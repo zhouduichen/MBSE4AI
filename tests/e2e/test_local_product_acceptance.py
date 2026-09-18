@@ -59,17 +59,17 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
     )
 
     envelope = json.loads((CONCEPT_ROOT / "fixed-wing-envelope.json").read_text(encoding="utf-8"))
-    envelope["source_requirement_ids"] = [requirements[0].id]
+    envelope["source_requirement_ids"] = []
     concept = services.concept_design("acceptance").run(envelope, optimize=False)
     assert 3 <= len(concept.candidates) <= 5
     assert len(concept.evaluations) == len(concept.candidates) * 3
-    assert concept.envelope.source_requirement_ids == (requirements[0].id,)
+    assert concept.envelope.source_requirement_ids == tuple(item.id for item in requirements)
 
     cad = services.cad_design("acceptance")
     draft = cad.create_intent(
         "生成铝合金支架，长100毫米，宽50毫米，高10毫米",
-        source_requirement_ids=(requirements[0].id,),
     )
+    assert draft.intent.source_requirement_ids == tuple(item.id for item in requirements)
     plan = cad.create_plan(draft.draft_id)
     assert plan["status"] == "ready"
     assert plan["preview"]["schema_version"] == "parametric-cad-preview.v1"

@@ -76,6 +76,8 @@ Jiayu-intern 的 SSH 转发、Profile JSON 和一次性 CASE-04 验收命令见
 
 详细设计开发切片位于 `/ui/projects/<project-id>/cad-design`：输入“生成铝合金支架，长100毫米，宽50毫米，高10毫米”这类意图后，系统会给出澄清问题（若信息不完整），生成可审查的 CAD 操作计划，并严格按“预览 → 审批 → 执行”创建参数化工件。默认是离线 preview；显式设置 `AI4MBSE_CAD_BACKEND=freecad-remote` 后，操作计划会通过 SSH 在远程 FreeCAD headless 中生成真实 `.FCStd`/`.step`，重新读取校验实体、回传到项目 `.rflp/cad_artifacts`，并可通过页面下载。执行结果可回写为 `PhysicalBlock` 并与来源 Requirement 建立 `satisfiedBy` 关系；随后可生成共享 2D/3D 语义标注、基准 A、基础 GD&T 建议、风险高亮 SVG 和带特征位置证据的 DFM/DFA finding。CAD 意图仍遵循“未显式选择远程 Profile 时不调用本机模型”的约束。
 
+当总体布局或 CAD 意图没有显式传入来源需求时，系统会从当前 ModelGraph 选择未拒绝的根 Requirement 自动建立来源范围；显式选择仍优先。这样需求分析后的概念候选和详细设计 PhysicalBlock 不再依赖手工复制需求 ID，且保留完整 R→设计对象的追溯关系。
+
 已有 SysML v2 子集模型也可以在 Web Analysis 页面上传，导入同一份 Typed ModelGraph；导入后可以继续生成下游层、Review、编辑并导出完整工程交付包。
 
 Golden fixture 也可以作为完整 23-task 生命周期的离线回归输入：

@@ -14,7 +14,12 @@ ROOT = Path("src/rflp_lite/resources/examples/concept-design")
 def test_concept_design_api_generates_evaluates_and_applies(tmp_path):
     client = TestClient(create_app(tmp_path / "workspaces"))
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    requirement = client.post(
+        "/projects/p1/requirements",
+        json={"text": "系统应满足总体布局约束"},
+    ).json()["requirement"]
     envelope = json.loads((ROOT / "fixed-wing-envelope.json").read_text(encoding="utf-8"))
+    envelope["source_requirement_ids"] = []
 
     response = client.post(
         "/projects/p1/concept-design/run",
@@ -25,6 +30,7 @@ def test_concept_design_api_generates_evaluates_and_applies(tmp_path):
     assert 3 <= len(run["candidates"]) <= 5
     assert len(run["evaluations"]) == len(run["candidates"]) * 3
     assert run["formal_status"] == "development"
+    assert run["envelope"]["source_requirement_ids"] == [requirement["id"]]
 
     applied = client.post(
         f"/projects/p1/concept-design/{run['id']}/apply",
@@ -32,4 +38,5 @@ def test_concept_design_api_generates_evaluates_and_applies(tmp_path):
     )
     assert applied.status_code == 200
     assert applied.json()["apply"]["entity"]["kind"] == "physical_block"
+    assert applied.json()["apply"]["entity"]["payload"]["source_requirement_ids"] == [requirement["id"]]
     assert client.get("/ui/projects/p1/concept-design").status_code == 200

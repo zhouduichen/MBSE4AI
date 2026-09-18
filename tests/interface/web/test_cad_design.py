@@ -8,6 +8,10 @@ from rflp_lite.interface.web.app import create_app
 def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     client = TestClient(create_app(tmp_path / "workspaces"))
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
+    requirement = client.post(
+        "/projects/p1/requirements",
+        json={"text": "系统应支持详细结构设计"},
+    ).json()["requirement"]
 
     draft_response = client.post(
         "/projects/p1/cad/intent",
@@ -18,6 +22,7 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     )
     assert draft_response.status_code == 200
     draft = draft_response.json()["draft"]
+    assert draft["source_requirement_ids"] == [requirement["id"]]
     plan = client.post("/projects/p1/cad/plan", json={"draft_id": draft["draft_id"]}).json()["plan"]
     assert plan["status"] == "ready"
     assert client.post(f"/projects/p1/cad/plans/{plan['id']}/execute").status_code == 422

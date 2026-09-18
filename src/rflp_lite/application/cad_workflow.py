@@ -7,6 +7,7 @@ from typing import Any
 
 from rflp_lite.application.detail_design_store import DetailDesignStore
 from rflp_lite.application.design_intent import DesignIntentDraft, DesignIntentService
+from rflp_lite.application.requirement_scope import root_requirement_ids
 from rflp_lite.domain.canonical import canonical_hash, to_primitive
 from rflp_lite.domain.detail_design import (
     CadExecutionPlan,
@@ -204,10 +205,13 @@ class CadWorkflowService:
         *,
         source_requirement_ids: tuple[str, ...] = (),
     ) -> DesignIntentDraft:
+        effective_source_ids = source_requirement_ids or root_requirement_ids(
+            self.repository.load_graph(self.project_id)
+        )
         draft = self.intent_service.create_draft(
             self.project_id,
             text,
-            source_requirement_ids=source_requirement_ids,
+            source_requirement_ids=effective_source_ids,
         )
         self.store.save("design_intent_draft", draft.as_dict())
         return draft

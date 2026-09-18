@@ -16,6 +16,7 @@ from rflp_lite.application.concept_design_service import (
 from rflp_lite.application.concept_store import ConceptStore
 from rflp_lite.application.discipline_batch import validate_evaluator_profile
 from rflp_lite.application.domain_packs import load_domain_pack
+from rflp_lite.application.requirement_scope import root_requirement_ids
 from rflp_lite.application.scheme_library import import_scheme_rows
 from rflp_lite.domain.canonical import to_primitive
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
@@ -73,10 +74,15 @@ class ConceptDesignProjectService:
         normalized_pack = dict(pack) if isinstance(pack, Mapping) else _default_pack()
         scheme_records = tuple(schemes) if schemes is not None else _default_schemes(normalized_pack, self.scheme_reader)
         profile = dict(evaluator_profile) if evaluator_profile is not None else _default_profile()
+        effective_envelope = dict(envelope) if isinstance(envelope, Mapping) else envelope
+        if isinstance(effective_envelope, dict) and not effective_envelope.get("source_requirement_ids"):
+            effective_envelope["source_requirement_ids"] = list(
+                root_requirement_ids(self.repository.load_graph(self.project_id))
+            )
         result = run_concept_design(
             normalized_pack,
             profile,
-            envelope,
+            effective_envelope,
             scheme_records,
             self.registry_factory(),
             self.store,
