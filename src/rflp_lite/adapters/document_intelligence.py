@@ -25,6 +25,7 @@ from rflp_lite.ports.document_intelligence import (
 MAX_DOCUMENT_BYTES = 50 * 1024 * 1024
 MAX_DOCUMENT_PAGES = 500
 SUPPORTED_DOCUMENT_SUFFIXES = {".txt", ".md", ".markdown", ".docx", ".pdf"}
+_PDF_RENDER_SCALE = 2.0
 
 
 def _region_id(artifact_id: str, page: int | None, locator: str, text: str) -> str:
@@ -69,6 +70,16 @@ def _is_duplicate_region(
         and _overlapping_boxes(region.bbox, bbox)
         for region in regions
     )
+
+
+def _ocr_bbox_to_pdf_points(
+    bbox: tuple[float, float, float, float], render_scale: float
+) -> tuple[float, float, float, float]:
+    """Convert OCR pixels from the rendered page back to PDF point space."""
+
+    if render_scale <= 0:
+        return bbox
+    return tuple(float(value) / render_scale for value in bbox)  # type: ignore[return-value]
 
 
 class LocalDocumentParser(DocumentParserPort):
@@ -193,7 +204,9 @@ class LocalDocumentParser(DocumentParserPort):
                     raise AdapterFailure(
                         "scanned PDF requires pypdfium2 and RapidOCR; install the 'documents' extra"
                     ) from exc
-                image = pypdfium2.PdfDocument(content)[number - 1].render(scale=2).to_pil()
+                image = pypdfium2.PdfDocument(content)[number - 1].render(
+                    scale=_PDF_RENDER_SCALE
+                ).to_pil()
                 if hasattr(self.ocr, "recognize"):
                     recognized = self.ocr.recognize(image, page=number)  # type: ignore[attr-defined]
                 else:
@@ -201,6 +214,7 @@ class LocalDocumentParser(DocumentParserPort):
                 for line_number, item in enumerate(recognized or (), 1):
                     text, bbox = item[0], item[1]
                     confidence = float(item[2]) if len(item) > 2 else 0.8
+                    page_bbox = _ocr_bbox_to_pdf_points(bbox, _PDF_RENDER_SCALE)
                     ocr_region = DocumentRegion(
                         _region_id(artifact.id, number, f"ocr-{line_number}", text),
                         artifact.id,
@@ -208,10 +222,10 @@ class LocalDocumentParser(DocumentParserPort):
                         "ocr",
                         f"page-{number}/ocr-{line_number}",
                         text,
-                        bbox,
+                        page_bbox,
                         confidence,
                     )
-                    if not _is_duplicate_region(text, bbox, regions):
+                    if not _is_duplicate_region(text, page_bbox, regions):
                         regions.append(ocr_region)
         finally:
             document.close()

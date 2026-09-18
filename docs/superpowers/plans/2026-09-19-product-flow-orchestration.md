@@ -57,3 +57,9 @@
 - [x] Extend `POST /projects/{project_id}/engineering-flow` to accept the same field; preserve the existing clarification/approval states and unknown-option error behavior.
 - [x] Add application/API coverage proving `bracket-gusseted-plate` produces `add_rib` operations and an omitted selection does not choose a structure implicitly.
 - [x] Update the design contract and README example, run the isolated focused tests and full offline verification, then commit and push.
+
+## Follow-up slice: preserve PDF source-region fidelity during hybrid OCR
+
+- [x] Normalize OCR bounding boxes from the fixed PDF render scale back to PDF point coordinates before constructing `DocumentRegion`.
+- [x] Use the normalized box for duplicate suppression so sparse text PDFs do not create duplicate requirement evidence.
+- [x] Add an offline minimal-PDF/fake-OCR regression test and run the document adapter checks without a server or model.
