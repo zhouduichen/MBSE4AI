@@ -35,6 +35,13 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     assert client.post(f"/projects/p1/cad/plans/{plan['id']}/approve").status_code == 200
 
     model = client.post(f"/projects/p1/cad/plans/{plan['id']}/execute").json()["model"]
+    obj = client.get(f"/projects/p1/cad/models/{model['id']}/artifacts/obj")
+    scad = client.get(f"/projects/p1/cad/models/{model['id']}/artifacts/scad")
+    assert obj.status_code == 200
+    assert "v " in obj.text
+    assert scad.status_code == 200
+    assert "translate" in scad.text
+    assert "cube" in scad.text
     review = client.post(f"/projects/p1/cad/models/{model['id']}/review").json()["review"]
     assert review["annotations"]
     assert review["artifacts"]["drawing_svg"].startswith("<svg")
@@ -52,6 +59,8 @@ def test_cad_design_api_exposes_review_gated_vertical_slice(tmp_path):
     assert "审查记录与风险高亮" in page.text
     assert "风险高亮" in page.text
     assert review["id"] in page.text
+    assert "下载 OBJ" in page.text
+    assert "下载 OpenSCAD" in page.text
 
 
 def test_cad_design_page_exposes_clarification_loop(tmp_path):

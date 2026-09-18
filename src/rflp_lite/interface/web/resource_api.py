@@ -860,13 +860,28 @@ def apply_cad_model(request: Request, project_id: str, model_id: str):
 @resource_api.get("/projects/{project_id}/cad/models/{model_id}/artifacts/{artifact_name}")
 def download_cad_artifact(request: Request, project_id: str, model_id: str, artifact_name: str):
     try:
-        suffixes = {"fcstd": ("fcstd", "application/octet-stream"), "step": ("step", "application/step")}
+        suffixes = {
+            "fcstd": ("fcstd", "application/octet-stream"),
+            "step": ("step", "application/step"),
+            "obj": ("obj", "model/obj"),
+            "scad": ("open_scad_source", "text/plain"),
+        }
         suffix, media_type = suffixes.get(artifact_name.casefold(), ("", ""))
         if not suffix:
-            raise ContractViolation("artifact_name must be fcstd or step")
+            raise ContractViolation("artifact_name must be fcstd, step, obj or scad")
         services = _services(request)
         model = services.cad_design(project_id).get_model(model_id)
         payload = model.get("model_payload", {})
+        if suffix in {"obj", "open_scad_source"}:
+            content = payload.get(suffix) if isinstance(payload, Mapping) else None
+            if not isinstance(content, str) or not content.strip():
+                raise NotFoundError("CAD preview artifact is not available")
+            filename_suffix = "scad" if suffix == "open_scad_source" else suffix
+            return Response(
+                content=content,
+                media_type=media_type,
+                headers={"Content-Disposition": f'attachment; filename="{model_id}.{filename_suffix}"'},
+            )
         raw_path = payload.get("artifacts", {}).get(suffix) if isinstance(payload, Mapping) else None
         path = Path(str(raw_path)).resolve()
         root = (services.projects.path(project_id) / ".rflp" / "cad_artifacts").resolve()

@@ -30,7 +30,7 @@
   <div class="card-header"><div><h2>已有模型与审查</h2><p>模型、标注和 DFM/DFA 审查结果保留在项目审计链中；真实后端会登记 FCStd/STEP 下载入口。</p></div></div>
   <div id="cad-models">
     {% for model in models %}
-    <article class="list-card"><div class="list-card-header"><strong>{{ model.id }}</strong><span class="status-pill">{{ model.model.status }}</span></div><pre>{{ model.model_payload|tojson(indent=2) }}</pre>{% if model.model_payload.artifacts %}<div class="actions"><a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/fcstd">下载 FCStd</a><a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/step">下载 STEP</a></div>{% endif %}</article>
+    <article class="list-card"><div class="list-card-header"><strong>{{ model.id }}</strong><span class="status-pill">{{ model.model.status }}</span></div><pre>{{ model.model_payload|tojson(indent=2) }}</pre><div class="actions">{% if model.model_payload.obj %}<a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/obj">下载 OBJ</a>{% endif %}{% if model.model_payload.open_scad_source %}<a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/scad">下载 OpenSCAD</a>{% endif %}{% if model.model_payload.artifacts %}<a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/fcstd">下载 FCStd</a><a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/step">下载 STEP</a>{% endif %}</div></article>
     {% else %}<p class="muted">尚无已执行模型。</p>{% endfor %}
   </div>
 </section>
@@ -119,7 +119,8 @@
     chain.innerHTML = `<div class="callout info"><strong>设计审查：</strong>${escapeHtml(review.status)} · 规则集 ${escapeHtml(artifacts.rule_set || 'generic_preview')} · finding ${(review.findings || []).length} · evidence ${escapeHtml(artifacts.evidence_hash || '—')}</div><div class="cad-review-previews"><div><h3>二维标注预览</h3><div class="svg-preview">${artifacts.drawing_svg || ''}</div></div><div><h3>风险高亮</h3><div class="svg-preview">${artifacts.risk_highlight_svg || ''}</div></div></div><div class="table-wrap"><table><thead><tr><th>Finding</th><th>严重度</th><th>类别 / 特征</th><th>说明</th><th>状态</th><th>决策</th></tr></thead><tbody>${findings}</tbody></table></div>`;
   };
   const renderModel = (model) => {
-    chain.innerHTML = `<pre>${JSON.stringify(model, null, 2)}</pre><div class="actions"><button class="button" id="cad-apply-button">写入 ModelGraph</button><button class="button" id="cad-review-button">生成标注与 DFM/DFA 审查</button></div>`;
+    const artifactLinks = `<a class="button" href="/projects/${encodeURIComponent(projectId)}/cad/models/${encodeURIComponent(model.id)}/artifacts/obj">下载 OBJ</a><a class="button" href="/projects/${encodeURIComponent(projectId)}/cad/models/${encodeURIComponent(model.id)}/artifacts/scad">下载 OpenSCAD</a>`;
+    chain.innerHTML = `<pre>${JSON.stringify(model, null, 2)}</pre><div class="actions">${model.model_payload?.obj ? artifactLinks : ''}<button class="button" id="cad-apply-button">写入 ModelGraph</button><button class="button" id="cad-review-button">生成标注与 DFM/DFA 审查</button></div>`;
     document.querySelector('#cad-apply-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/apply`, {method: 'POST'}); status.textContent = `已写入 ${result.apply.entity.id}`; } catch (error) { status.textContent = error.message; } };
     document.querySelector('#cad-review-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/review`, {method: 'POST'}); renderReview(result.review); status.textContent = result.review.status; } catch (error) { status.textContent = error.message; } };
   };
