@@ -131,6 +131,29 @@ def _number(parameters: Mapping[str, Any], name: str) -> float | None:
     return float(value) if float(value) > 0 else None
 
 
+def _context_model_ids(graph, source_requirement_ids: tuple[str, ...]) -> tuple[str, ...]:
+    source_ids = {str(item) for item in source_requirement_ids if str(item).strip()}
+    selected: list[str] = []
+    approved: list[str] = []
+    for entity in graph.entities:
+        if entity.kind is not EntityKind.PHYSICAL_BLOCK or entity.meta.status is EntityStatus.DEPRECATED:
+            continue
+        raw_sources = entity.payload.get("source_requirement_ids", ())
+        model_sources = (
+            {str(item) for item in raw_sources if str(item).strip()}
+            if isinstance(raw_sources, (list, tuple, set))
+            else set()
+        )
+        if source_ids and source_ids.intersection(model_sources):
+            selected.append(entity.id)
+            if entity.meta.status in {EntityStatus.ACCEPTED, EntityStatus.LOCKED}:
+                approved.append(entity.id)
+        elif not source_ids and entity.meta.status in {EntityStatus.ACCEPTED, EntityStatus.LOCKED}:
+            selected.append(entity.id)
+            approved.append(entity.id)
+    return tuple(sorted(dict.fromkeys(approved or selected)))
+
+
 _RIBBED_STRUCTURE_OPTIONS = frozenset({"bracket-gusseted-plate", "base-ribbed-plate"})
 _BLOCK_STRUCTURE_OPTIONS = frozenset({"bracket-machined-block", "base-machined-block"})
 
@@ -352,13 +375,14 @@ class CadWorkflowService:
         *,
         source_requirement_ids: tuple[str, ...] = (),
     ) -> DesignIntentDraft:
-        effective_source_ids = source_requirement_ids or root_requirement_ids(
-            self.repository.load_graph(self.project_id)
-        )
+        graph = self.repository.load_graph(self.project_id)
+        effective_source_ids = source_requirement_ids or root_requirement_ids(graph)
+        context_model_ids = _context_model_ids(graph, effective_source_ids)
         draft = self.intent_service.create_draft(
             self.project_id,
             text,
             source_requirement_ids=effective_source_ids,
+            context_model_ids=context_model_ids,
         )
         self.store.save("design_intent_draft", draft.as_dict())
         return draft
@@ -389,6 +413,7 @@ class CadWorkflowService:
             status=status,
             approval_status="pending",
             source_requirement_ids=draft.intent.source_requirement_ids,
+            model_context_ids=draft.intent.context_model_ids,
             selected_structure_option_id=selected_option_id,
         )
         preview: CadOperationResult | None = None
@@ -504,6 +529,7 @@ class CadWorkflowService:
             "cad_model_reference": dict(reference),
             "cad_model_payload": model_record.get("model_payload", {}),
             "source_requirement_ids": list(intent.source_requirement_ids),
+            "context_model_ids": list(intent.context_model_ids),
             "selected_structure_option_id": str(model_record.get("selected_structure_option_id", "")),
         }
         if review is not None:

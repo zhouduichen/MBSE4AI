@@ -154,6 +154,40 @@ def test_document_requirements_drive_concept_layout_without_example_defaults(tmp
     assert applied["entity"]["payload"]["source_requirement_ids"] == suggestion["source_requirement_ids"]
 
 
+def test_concept_layout_context_flows_into_cad_intent_and_modelgraph(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("handoff", "概念布局到详细设计上下文验收")
+    services.projects.ingest("handoff", CONCEPT_SOURCE)
+    services.generation("handoff").generate("handoff")
+
+    suggestion = services.concept_design("handoff").suggest_input()
+    concept = services.concept_design("handoff").run(
+        suggestion["envelope"],
+        optimize=False,
+    )
+    concept_applied = services.concept_design("handoff").apply_candidate(
+        concept.candidates[0].id,
+        concept.id,
+    )
+    concept_entity_id = concept_applied["entity"]["id"]
+
+    cad = services.cad_design("handoff")
+    draft = cad.create_intent("生成铝合金支架，长100毫米，宽50毫米，高10毫米")
+    assert draft.intent.context_model_ids == (concept_entity_id,)
+
+    plan = cad.create_plan(draft.draft_id)
+    assert plan["model_context_ids"] == [concept_entity_id]
+    cad.approve_plan(plan["id"])
+    model = cad.execute_plan(plan["id"])
+    review = services.design_review("handoff").review(model["id"], model["model_payload"])
+    applied = cad.apply_model(model["id"])
+
+    assert applied["entity"]["payload"]["context_model_ids"] == [concept_entity_id]
+    assert applied["entity"]["payload"]["design_intent"]["context_model_ids"] == [concept_entity_id]
+    assert review["annotations"]
+    assert review["artifacts"]["risk_highlight_svg"].startswith("<svg")
+
+
 def test_local_cad_profiles_reach_modelgraph_and_review(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("profiles", "通用 CAD profile 验收")

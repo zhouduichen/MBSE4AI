@@ -55,6 +55,8 @@
 - [需求到概念指标包络比较语义规范化实施计划](plans/2026-09-19-concept-input-comparator-normalization.md)
 - [需求驱动概念布局运行入口设计](specs/2026-09-19-requirement-driven-concept-run-design.md)
 - [需求驱动概念布局运行实施计划](plans/2026-09-19-requirement-driven-concept-run.md)
+- [概念布局到 CAD 详细设计上下文设计](specs/2026-09-19-concept-to-cad-context-design.md)
+- [概念布局到 CAD 上下文实施计划](plans/2026-09-19-concept-to-cad-context.md)
 
 ## Superseded
 

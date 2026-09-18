@@ -223,6 +223,7 @@ def _fallback(text: str) -> dict[str, Any]:
         "parameters": parameters,
         "material": material,
         "connections": [],
+        "context_model_ids": [],
         "clarifications": questions,
         "recommendations": recommendations,
         "structure_options": [dict(item) for item in structure_options],
@@ -243,6 +244,7 @@ def _intent(payload: Mapping[str, Any], project_id: str, provenance: str) -> Des
         if isinstance(item, Mapping) and item.get("name") and isinstance(item.get("value"), (int, float))
     )
     source = tuple(str(item) for item in payload.get("source_requirement_ids", ()) if str(item).strip())
+    context_models = tuple(str(item) for item in payload.get("context_model_ids", ()) if str(item).strip())
     structure_options = tuple(
         {
             str(key): str(value)
@@ -259,6 +261,7 @@ def _intent(payload: Mapping[str, Any], project_id: str, provenance: str) -> Des
         payload["target_name"],
         payload.get("material", ""),
         params,
+        context_models,
         source,
         structure_options,
     )
@@ -268,6 +271,7 @@ def _intent(payload: Mapping[str, Any], project_id: str, provenance: str) -> Des
         target_name=str(payload["target_name"]), parameters=params,
         material=str(payload.get("material", "")),
         connection_requirements=tuple(str(item) for item in payload.get("connections", ())),
+        context_model_ids=context_models,
         source_requirement_ids=source, confidence=0.72 if provenance == "rule" else 0.85,
         provenance=provenance,
         structure_options=structure_options,
@@ -325,18 +329,32 @@ class DesignIntentService:
         self.provider_id = provider_id
         self.model_id = model_id
 
-    def create_draft(self, project_id: str, text: str, *, source_requirement_ids: tuple[str, ...] = ()) -> DesignIntentDraft:
+    def create_draft(
+        self,
+        project_id: str,
+        text: str,
+        *,
+        source_requirement_ids: tuple[str, ...] = (),
+        context_model_ids: tuple[str, ...] = (),
+    ) -> DesignIntentDraft:
         clean = " ".join(str(text).split()).strip()
         if not clean:
             raise ContractViolation("design intent text is required")
-        input_hash = canonical_hash({"project_id": project_id, "text": clean, "source_requirement_ids": source_requirement_ids})
+        input_hash = canonical_hash({
+            "project_id": project_id,
+            "text": clean,
+            "source_requirement_ids": source_requirement_ids,
+            "context_model_ids": context_model_ids,
+        })
         payload, provenance, diagnostics = self._generate(clean, input_hash)
         payload["source_requirement_ids"] = list(source_requirement_ids)
+        payload["context_model_ids"] = list(context_model_ids)
         try:
             payload = _validated(payload)
         except jsonschema.ValidationError as exc:
             payload = _fallback(clean)
             payload["source_requirement_ids"] = list(source_requirement_ids)
+            payload["context_model_ids"] = list(context_model_ids)
             diagnostics = (*diagnostics, f"structured design intent rejected: {exc.message}")
             provenance = "rule"
         intent = _intent(payload, project_id, provenance)
