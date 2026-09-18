@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from html import escape
 
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.detail_design import DesignFinding
@@ -36,6 +37,30 @@ def _finding(
         evidence=tuple((str(key), value) for key, value in evidence.items()),
         recommendation=recommendation,
     )
+
+
+def _highlight_svg(model: Mapping[str, object], findings: tuple[DesignFinding, ...]) -> str:
+    rows: list[str] = []
+    y = 28.0
+    parts = model.get("parts", ())
+    for part in parts if isinstance(parts, (list, tuple)) else ():
+        if not isinstance(part, Mapping):
+            continue
+        part_id = str(part.get("id", "part"))
+        bbox = part.get("bbox_mm", ())
+        if not isinstance(bbox, (list, tuple)) or len(bbox) != 3:
+            continue
+        width = max(80.0, min(float(bbox[0]), 520.0))
+        height = max(40.0, min(float(bbox[1]), 240.0))
+        count = sum(item.part_id == part_id and item.severity in {"high", "critical"} for item in findings)
+        color = "#d64545" if count else "#4b8bca"
+        rows.append(f'<rect x="36" y="{y:g}" width="{width:g}" height="{height:g}" fill="none" stroke="{color}" stroke-width="3"/>')
+        rows.append(f'<text x="36" y="{y - 7:g}" font-size="12">{escape(part_id)}</text>')
+        if count:
+            rows.append(f'<text x="44" y="{y + 18:g}" fill="{color}" font-size="11">risk: {count}</text>')
+        y += height + 38.0
+    height = max(90.0, y + 10.0)
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="620" height="%g" viewBox="0 0 620 %g">%s</svg>' % (height, height, "".join(rows))
 
 
 class PreviewDesignRuleAdapter:
@@ -100,7 +125,12 @@ class PreviewDesignRuleAdapter:
                         "检测到刀具/装配工具不可达。", {"tool_access": False},
                         "调整特征方向、装配顺序或增加工具访问空间。", location,
                     ))
-        return RuleReviewResult(tuple(findings), ())
+        final = tuple(findings)
+        return RuleReviewResult(
+            final,
+            (),
+            {"risk_highlight_svg": _highlight_svg(model, final), "source_kind": "development"},
+        )
 
 
 __all__ = ["PreviewDesignRuleAdapter"]

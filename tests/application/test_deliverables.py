@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 from pathlib import Path
 
@@ -12,6 +13,9 @@ from rflp_lite.domain.entities import EntityKind, EntityStatus, make_entity
 from rflp_lite.domain.model import AddEntity, Patch, Relate
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.runtime.rule_based import VerticalRuleRuntime
+
+
+CONCEPT_ROOT = Path("src/rflp_lite/resources/examples/concept-design")
 
 
 def _services(tmp_path: Path):
@@ -287,3 +291,25 @@ def test_zip_is_stable_and_sysml_round_trips(tmp_path: Path):
     assert {(item.source_id, item.predicate, item.target_id) for item in restored.relations} == {
         (item.source_id, item.predicate, item.target_id) for item in graph.relations
     }
+
+
+def test_concept_and_detail_design_records_are_included_in_deliverables(tmp_path: Path):
+    services = _services(tmp_path)
+    envelope = json.loads((CONCEPT_ROOT / "fixed-wing-envelope.json").read_text(encoding="utf-8"))
+    services.concept_design("p1").run(envelope, optimize=False)
+
+    cad = services.cad_design("p1")
+    draft = cad.create_intent("生成铝合金支架，长100毫米，宽50毫米，高10毫米")
+    plan = cad.create_plan(draft.draft_id)
+    cad.approve_plan(plan["id"])
+    model = cad.execute_plan(plan["id"])
+    review = services.design_review("p1").review(model["id"], model["model_payload"])
+    assert review["annotations"]
+
+    package = services.deliverables("p1").build("p1")
+    assert {"concept_design", "detail_design"} <= set(package["artifacts"])
+    assert package["artifacts"]["concept_design"]["content"]["concept_runs"]
+    assert package["artifacts"]["detail_design"]["content"]["cad_models"]
+    archive_bytes, _ = services.deliverables("p1").export_zip("p1")
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+        assert {"concept-design.json", "detail-design.json"} <= set(archive.namelist())

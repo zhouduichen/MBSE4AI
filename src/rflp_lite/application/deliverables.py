@@ -5,6 +5,7 @@ from __future__ import annotations
 from io import BytesIO
 import zipfile
 from collections.abc import Mapping
+from typing import Any
 
 from rflp_lite.application.projections.assurance import build_assurance_view
 from rflp_lite.application.projections.requirements import build_requirements_view
@@ -69,6 +70,7 @@ class EngineeringDeliverableService:
             "vv_plan": _artifact("vv-plan-v1", vv_plan, graph),
             "architecture_report": _artifact("architecture-report-v1", architecture_report, graph),
         }
+        artifacts.update(_design_artifacts(self.evidence_repository, graph))
         manifest = {
             "format": DELIVERABLE_FORMAT,
             "project_id": graph.project_id,
@@ -110,9 +112,19 @@ class EngineeringDeliverableService:
             "architecture-report.json": _json_bytes(architecture_report),
             "architecture-report.md": _architecture_markdown(architecture_report).encode("utf-8"),
         }
+        for name, artifact in artifacts.items():
+            member = _artifact_path(name)
+            if member not in contents:
+                contents[member] = _json_bytes(artifact["content"])
+        members = list(REQUIRED_MEMBERS)
+        members.extend(
+            _artifact_path(name)
+            for name in artifacts
+            if _artifact_path(name) not in members
+        )
         output = BytesIO()
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
-            for member in REQUIRED_MEMBERS:
+            for member in members:
                 info = zipfile.ZipInfo(member, date_time=_ZIP_TIMESTAMP)
                 info.compress_type = zipfile.ZIP_STORED
                 info.external_attr = 0o600 << 16
@@ -141,7 +153,51 @@ def _artifact_path(name: str) -> str:
         "traceability": "traceability.json",
         "vv_plan": "vv-plan.json",
         "architecture_report": "architecture-report.json",
+        "concept_design": "concept-design.json",
+        "detail_design": "detail-design.json",
     }[name]
+
+
+def _audit_records(repository, project_id: str, prefix: str) -> tuple[dict[str, Any], ...]:
+    list_events = getattr(repository, "list_audit_events", None)
+    if not callable(list_events):
+        return ()
+    records: list[dict[str, Any]] = []
+    for event in list_events(project_id):
+        if not str(event.get("kind", "")).startswith(prefix):
+            continue
+        payload = event.get("payload")
+        record = payload.get("record") if isinstance(payload, Mapping) else None
+        if isinstance(record, Mapping):
+            records.append(dict(record))
+    return tuple(records)
+
+
+def _design_artifacts(repository, graph: ModelGraph) -> dict[str, Mapping[str, object]]:
+    concept_keys = ("concept_runs", "layout_candidates", "discipline_evaluations", "optimization_runs")
+    detail_keys = ("design_intent_drafts", "cad_execution_plans", "cad_models", "design_reviews", "finding_updates")
+    concept = {
+        key: list(_audit_records(repository, graph.project_id, f"concept.record.{key.removesuffix('s')}"))
+        for key in concept_keys
+    }
+    detail = {
+        key: list(_audit_records(repository, graph.project_id, f"detail_design.record.{key.removesuffix('s')}"))
+        for key in detail_keys
+    }
+    artifacts: dict[str, Mapping[str, object]] = {}
+    if any(concept.values()):
+        artifacts["concept_design"] = _artifact(
+            "concept-design-v1",
+            {"project_id": graph.project_id, "records": concept, **concept},
+            graph,
+        )
+    if any(detail.values()):
+        artifacts["detail_design"] = _artifact(
+            "detail-design-v1",
+            {"project_id": graph.project_id, "records": detail, **detail},
+            graph,
+        )
+    return artifacts
 
 
 def _model_content(
