@@ -42,7 +42,7 @@
 
 - [x] Update `README.md` with the one-entry product flow, status semantics, offline test command, and explicit approval boundary.
 - [x] Run focused tests, the local product acceptance tests, Ruff, import-linter, and `scripts/verify_full.py` with isolated config and preview CAD.
-- [ ] Review the diff for scope, commit the implementation, and push the resulting commit to the configured GitHub remote only after verification passes.
+- [x] Review the diff for scope, commit the implementation, and push the resulting commit to the configured GitHub remote only after verification passes.
 
 ## Completion evidence
 
