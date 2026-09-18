@@ -12,6 +12,7 @@ from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 
 from rflp_lite.domain.entities import EntityKind
+from rflp_lite.domain.canonical import to_primitive
 from rflp_lite.domain.errors import AdapterFailure, ConcurrentModificationError, ContractViolation, InputRequired, NotFoundError, RflpError
 from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.application.model_export import graph_sysml
@@ -680,6 +681,64 @@ async def apply_requirements_use_case_draft(request: Request, project_id: str):
                 raise ContractViolation("draft or draft_id is required")
             draft = service.get_draft(draft_id)
         result = service.apply_draft(draft)
+        return {"status": "ok", "apply": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/concept-design/run")
+async def run_concept_design(request: Request, project_id: str):
+    """Generate, evaluate and rank 3–5 concept-layout candidates."""
+
+    try:
+        payload = await _json_object(request)
+        envelope = payload.get("envelope", payload.get("indicator_envelope"))
+        if not isinstance(envelope, Mapping):
+            raise ContractViolation("envelope must be an object")
+        pack = payload.get("pack")
+        profile = payload.get("evaluator_profile")
+        result = _services(request).concept_design(project_id).run(
+            envelope,
+            pack=pack if isinstance(pack, Mapping) else None,
+            evaluator_profile=profile if isinstance(profile, Mapping) else None,
+            optimize=bool(payload.get("optimize", True)),
+        )
+        return {"status": "ok", "run": to_primitive(result)}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/concept-design")
+def get_concept_design(request: Request, project_id: str):
+    try:
+        result = _services(request).concept_design(project_id).latest()
+        return {"status": "ok", "run": to_primitive(result) if result is not None else None}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/concept-design/{run_id}/review")
+async def review_concept_design(request: Request, project_id: str, run_id: str):
+    try:
+        payload = await _json_object(request)
+        candidate_id = str(payload.get("candidate_id", "")).strip()
+        decision = str(payload.get("decision", "")).strip()
+        if not candidate_id:
+            raise ContractViolation("candidate_id is required")
+        review = _services(request).concept_design(project_id).review(candidate_id, decision, run_id)
+        return {"status": "ok", "review": review}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/concept-design/{run_id}/apply")
+async def apply_concept_design(request: Request, project_id: str, run_id: str):
+    try:
+        payload = await _json_object(request)
+        candidate_id = str(payload.get("candidate_id", "")).strip()
+        if not candidate_id:
+            raise ContractViolation("candidate_id is required")
+        result = _services(request).concept_design(project_id).apply_candidate(candidate_id, run_id)
         return {"status": "ok", "apply": result}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)

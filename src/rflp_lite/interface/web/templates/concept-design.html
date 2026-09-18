@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}总体设计与布局 · AI4MBSE{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">M3 / M4</p>
+    <h1>总体设计与布局</h1>
+    <p class="lede">指标包络 → 历史方案检索 → 3–5 套布局候选 → 气动/结构/重量批量评估 → 优化反馈。</p>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>指标包络</h2><p>首个领域包为固定翼；内置评估器明确标记为开发证据。</p></div></div>
+  <textarea id="concept-envelope" rows="15" spellcheck="false">{
+  "id": "FW-E-WEB",
+  "status": "candidate",
+  "source_requirement_ids": [],
+  "parameters": {"mass_kg": 560, "payload_kg": 180, "wing_area_m2": 24, "span_m": 13, "fuselage_length_m": 9, "cruise_speed_mps": 66, "section_modulus_m3": 0.032, "allowable_stress_pa": 205000000, "cg_x_m": 2.7},
+  "bounds": {"mass_kg": {"minimum": 500, "maximum": 650}, "payload_kg": {"minimum": 150, "maximum": 220}, "wing_area_m2": {"minimum": 20, "maximum": 30}, "span_m": {"minimum": 11, "maximum": 16}}
+}</textarea>
+  <div class="actions"><button class="button primary" id="concept-run">生成并评估候选</button><span class="muted" id="concept-status"></span></div>
+</section>
+
+<section class="card" id="concept-results">
+  <div class="card-header"><div><h2>候选与多学科结果</h2><p id="concept-summary">{% if run %}已加载 {{ run.candidates|length }} 套候选{% else %}尚未运行{% endif %}</p></div></div>
+  <div id="concept-cards">
+  {% if run %}
+    {% for candidate in run.candidates %}
+    <article class="list-card">
+      <div class="list-card-header"><strong>{{ candidate.id }}</strong><span class="status-pill">{{ candidate.status }}</span></div>
+      <p>可行：{{ candidate.feasible }} · 参考方案：{{ candidate.reference_ids|join(', ') }}</p>
+      <details><summary>参数与草图</summary><pre>{{ candidate.parameters|tojson(indent=2) }}</pre><div class="svg-preview">{{ candidate.svg|safe }}</div></details>
+      <button class="button" data-apply="{{ candidate.id }}" data-run="{{ run.id }}">应用到 ModelGraph</button>
+    </article>
+    {% endfor %}
+  {% endif %}
+  </div>
+</section>
+
+<script>
+(() => {
+  const projectId = {{ project_id|tojson }};
+  const status = document.querySelector('#concept-status');
+  const summary = document.querySelector('#concept-summary');
+  const cards = document.querySelector('#concept-cards');
+  const render = (run) => {
+    summary.textContent = `${run.candidates.length} 套候选，${run.evaluations.length} 条学科评估，正式状态：${run.formal_status}`;
+    cards.innerHTML = run.candidates.map(candidate => `<article class="list-card"><div class="list-card-header"><strong>${candidate.id}</strong><span class="status-pill">${candidate.status}</span></div><p>可行：${candidate.feasible} · 参考方案：${(candidate.reference_ids || []).join(', ')}</p><details><summary>参数与草图</summary><pre>${JSON.stringify(candidate.parameters, null, 2)}</pre><div class="svg-preview">${candidate.svg}</div></details><button class="button" data-apply="${candidate.id}" data-run="${run.id}">应用到 ModelGraph</button></article>`).join('');
+  };
+  document.querySelector('#concept-run').addEventListener('click', async () => {
+    status.textContent = '运行中…';
+    try {
+      const envelope = JSON.parse(document.querySelector('#concept-envelope').value);
+      const response = await fetch(`/projects/${projectId}/concept-design/run`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({envelope, optimize: true})});
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || '总体设计运行失败');
+      render(payload.run); status.textContent = '完成';
+    } catch (error) { status.textContent = error.message; }
+  });
+  cards.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-apply]');
+    if (!button) return;
+    button.disabled = true;
+    const response = await fetch(`/projects/${projectId}/concept-design/${button.dataset.run}/apply`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({candidate_id: button.dataset.apply})});
+    const payload = await response.json();
+    status.textContent = response.ok ? `已应用到 ${payload.apply.entity.id}` : (payload.message || '应用失败');
+    button.disabled = false;
+  });
+})();
+</script>
+{% endblock %}

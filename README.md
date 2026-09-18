@@ -156,4 +156,4 @@ Controller 还提供有界的“自动推进安全动作”入口：它可以连
 
 ## 边界
 
-Core 不包含旧版智能发现、Concept/MDO、Project Bridge、测试执行沙箱、仿真、旧 Baseline/TaskContract/Job 体系或 MLflow 适配器。它们不再作为隐式依赖存在；如未来需要，应以独立插件或独立研究包接入。
+Core 已包含当前版的 M3/M4 概念布局切片：总体设计页面和 `/projects/{id}/concept-design/run` 可基于固定翼领域包检索历史方案、生成 3–5 套可行概念布局、输出确定性二维 SVG，并并行执行气动/结构/重量重心开发评估及帕累托反馈；内置评估器不冒充正式仿真证据，客户批准的真实工具仍通过适配器接入。旧版智能发现、Project Bridge、测试执行沙箱、旧 Baseline/TaskContract/Job 体系或 MLflow 适配器仍不作为隐式依赖存在。

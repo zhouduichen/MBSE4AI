@@ -12,6 +12,7 @@ from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 
 from rflp_lite.domain.canonical import canonical_hash
+from rflp_lite.domain.canonical import to_primitive
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.application.model_generation import build_traceability_summary
@@ -1511,6 +1512,21 @@ def requirements_use_case_page(request: Request, project_id: str):
             "model_profiles": profiles,
             "active_profile_id": str(profile_snapshot.get("active_id") or ""),
             "active": "requirements-use-case",
+        },
+    )
+
+
+@resource_pages.get("/ui/projects/{project_id}/concept-design", name="concept_design_page")
+def concept_design_page(request: Request, project_id: str):
+    services = _v2(request)
+    latest = services.concept_design(project_id).latest()
+    return templates.TemplateResponse(
+        request=request,
+        name="concept-design.html",
+        context={
+            "project_id": project_id,
+            "active": "concept-design",
+            "run": to_primitive(latest) if latest is not None else None,
         },
     )
 

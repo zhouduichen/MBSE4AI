@@ -84,6 +84,8 @@
 | 统一追溯投影 | `resolve_requirement_trace` 成为 Generation Summary、Traceability/Coverage/RFLP、`/trace` 和 `traceability.json` 的共同逐需求语义来源；ready-only 目标、V&V scope、缺口、主路径和覆盖率在各入口保持一致，并保留 SysML/ModelGraph 编辑回读 |
 | 可执行 V&V 计划闭环 | V&V prompt、结构化 Schema、语义校核、离线/生命周期运行时、Methodology、Assurance 页面和 `vv-plan` 交付物共享九字段计划契约；来源 `evidence_ids` 与实际 `execution_evidence_ids` 分离，计划完整不宣称执行通过 |
 | 候选状态与完成度隔离 | 候选实体保留在 Review、架构候选和约束分析上下文中，但只有 validated/accepted/locked 实体参与 Methodology 完成度与覆盖统计；候选 Physical 仍可触发冲突检测和 Trade Study |
+| 总体布局候选生成（2.1） | 版本化声明式领域包、JSON/CSV 历史方案导入、加权相似检索、确定性 3–5 套满足硬约束的候选、来源/差异/约束余量、俯视/侧视概念 SVG；可将人工选择候选写入现有 `PhysicalBlock` |
+| 多学科快速评估（2.2） | 气动、结构、重量/重心三个适配器有界并行执行；保留输入/输出哈希、适配器版本、缓存、失败隔离、代理有效域门禁、帕累托排序和有界优化反馈；内置计算器固定标记为 development evidence |
 
 ## 历史 Harness 验收边界
 
@@ -112,7 +114,7 @@ Methodology Engine v1 的边界是确定性反馈；Systems Engineering Controll
 
 ## 明确边界
 
-本版本聚焦可复现的需求到模型垂直链路。旧版智能发现、Concept/MDO、Project Bridge、测试执行沙箱、仿真、旧 Baseline/TaskContract/Job 和 MLflow 已退出 Core；当前 Core 只提供受限的工程工具注册与结果接入端口，复杂文档版面、多人权限、CAD/真实工程仿真仍需后续独立适配器。
+本版本已将 2.1/2.2 的概念布局与多学科快速评估切片接回 Core：当前固定翼领域包使用声明式参数、确定性 SVG 和内置低阶分析器完成开发联调，正式工程结论仍需客户批准的真实工具或验证合格代理模型。三维 CAD、二维/三维 PMI/GD&T、DFM/DFA、测试执行沙箱和高保真仿真仍需后续独立适配器。
 
 Track B 需要显式配置 profile，不能在无密钥 CI 中默认运行：
 

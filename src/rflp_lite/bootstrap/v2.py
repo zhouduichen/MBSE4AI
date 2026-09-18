@@ -7,7 +7,9 @@ from collections.abc import Sequence
 from typing import Mapping
 
 from rflp_lite.adapters.document_intelligence import LocalDocumentParser
+from rflp_lite.adapters.disciplines import discipline_registry
 from rflp_lite.adapters.llm_client import test_connection as test_llm_connection
+from rflp_lite.adapters.scheme_sources import read_scheme_rows
 from rflp_lite.application.analysis_service import AnalysisService
 from rflp_lite.application.deliverables import EngineeringDeliverableService
 from rflp_lite.application.evidence_service import EvidenceService
@@ -21,6 +23,7 @@ from rflp_lite.application.project_service import ProjectService
 from rflp_lite.application.project_context import ProjectContextService
 from rflp_lite.application.requirement_input import RequirementInputService
 from rflp_lite.application.requirements_use_case import RequirementsUseCaseService
+from rflp_lite.application.concept_project_service import ConceptDesignProjectService
 from rflp_lite.application.render_service import RenderService
 from rflp_lite.application.review_service import ReviewService
 from rflp_lite.application.settings_service import SettingsService
@@ -150,6 +153,14 @@ class V2Services:
 
     def context(self, project_id: str) -> ProjectContextService:
         return ProjectContextService(self.repository(project_id), project_id)
+
+    def concept_design(self, project_id: str) -> ConceptDesignProjectService:
+        return ConceptDesignProjectService(
+            self.repository(project_id),
+            project_id,
+            registry_factory=discipline_registry,
+            scheme_reader=read_scheme_rows,
+        )
 
     def evidence(self, project_id: str) -> EvidenceService:
         repository = self.repository(project_id)
