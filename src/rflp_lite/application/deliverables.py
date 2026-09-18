@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from rflp_lite.application.projections.assurance import build_assurance_view
+from rflp_lite.application.projections.behavior import build_behavior_view
 from rflp_lite.application.projections.requirements import build_requirements_view
 from rflp_lite.application.projections.rflp import build_rflp_view
 from rflp_lite.application.projections.traceability import build_traceability_view
@@ -27,6 +28,7 @@ REQUIRED_MEMBERS = (
     "evidence.json",
     "model.sysml",
     "requirements.json",
+    "behavior.json",
     "rflp.json",
     "rflp.svg",
     "traceability.json",
@@ -49,6 +51,7 @@ class EngineeringDeliverableService:
         graph = self.model_service.graph(project_id)
         issues = tuple(self.model_service.issues(project_id))
         requirements = dict(build_requirements_view(graph, issues))
+        behavior = dict(build_behavior_view(graph, issues))
         rflp = dict(build_rflp_view(graph, issues))
         traceability = dict(build_traceability_view(graph, issues))
         assurance = dict(build_assurance_view(graph, issues))
@@ -64,6 +67,7 @@ class EngineeringDeliverableService:
             "evidence": _artifact("evidence-json-v1", evidence, graph),
             "sysml": _artifact("sysml-v2-subset", graph_to_sysml(graph), graph),
             "requirements": _artifact("requirements-view-v1", requirements, graph),
+            "behavior": _artifact("behavior-view-v1", behavior, graph),
             "rflp": _artifact("rflp-view-v1", rflp, graph),
             "rflp_svg": _artifact("rflp-svg-v1", render_rflp_svg(rflp), graph),
             "traceability": _artifact("traceability-view-v1", traceability, graph),
@@ -104,6 +108,7 @@ class EngineeringDeliverableService:
             "evidence.json": _json_bytes(artifacts["evidence"]["content"]),
             "model.sysml": str(artifacts["sysml"]["content"]).encode("utf-8"),
             "requirements.json": _json_bytes(artifacts["requirements"]["content"]),
+            "behavior.json": _json_bytes(artifacts["behavior"]["content"]),
             "rflp.json": _json_bytes(artifacts["rflp"]["content"]),
             "rflp.svg": str(artifacts["rflp_svg"]["content"]).encode("utf-8"),
             "traceability.json": _json_bytes(artifacts["traceability"]["content"]),
@@ -148,6 +153,7 @@ def _artifact_path(name: str) -> str:
         "evidence": "evidence.json",
         "sysml": "model.sysml",
         "requirements": "requirements.json",
+        "behavior": "behavior.json",
         "rflp": "rflp.json",
         "rflp_svg": "rflp.svg",
         "traceability": "traceability.json",

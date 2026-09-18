@@ -160,7 +160,7 @@ def test_build_contains_all_required_artifacts(tmp_path: Path):
 
     assert package["format"] == "ai4mbse.engineering-deliverable.v1"
     assert set(package["artifacts"]) == {
-        "model", "evidence", "sysml", "requirements", "rflp", "rflp_svg", "traceability",
+        "model", "evidence", "sysml", "requirements", "behavior", "rflp", "rflp_svg", "traceability",
         "vv_plan", "architecture_report",
     }
     assert package["revision"] == package["artifacts"]["traceability"]["content"]["revision"]
@@ -281,7 +281,7 @@ def test_zip_is_stable_and_sysml_round_trips(tmp_path: Path):
     assert first == second
     with zipfile.ZipFile(io.BytesIO(first)) as archive:
         assert set(archive.namelist()) == {
-            "manifest.json", "model.json", "evidence.json", "model.sysml", "requirements.json",
+            "manifest.json", "model.json", "evidence.json", "model.sysml", "requirements.json", "behavior.json",
             "rflp.json", "rflp.svg", "traceability.json", "vv-plan.json", "vv-plan.md",
             "architecture-report.json", "architecture-report.md",
         }

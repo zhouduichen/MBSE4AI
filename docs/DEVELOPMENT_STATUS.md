@@ -60,7 +60,7 @@
 | MBSE 对象纵向覆盖 | 默认五阶段显式生成 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase；VerificationCase/ValidationCase 统一包含 method、verification_objective、precondition、test_condition、input、stimulus、procedure、expected_result、pass_criteria，方法学报告分别检查风险覆盖、缓解关系、计划完整度和执行证据 |
 | 分层 ModelGraph 工作台 | MBSE 模型页按 System Definition、Functional、Logical、Physical、V&V 展示真实实体，并复用 Review/CAS API 支持编辑、接受、拒绝、锁定、解锁和重新分析 |
 | Review 后继续生成 | 用户确认实体后可从其下一层继续生成至 V&V；使用独立 continuation Run，锁定实体只读，V&V 返回无下游状态 |
-| 统一工程交付包 | 同一 ModelGraph revision 输出 model/evidence/SysML/RFLP JSON+SVG/Requirements/Traceability/V&V Plan/Architecture Report；存在对应审计记录时额外输出 `concept-design.json` 与 `detail-design.json`，固化候选布局、学科评估、优化运行、CAD 模型、标注和 DFM/DFA Review；`evidence.json` 固化项目级证据记录与 evidence hash，被模型补丁引用的证据会同步物化为 `Evidence` 节点，提供 JSON、固定成员 ZIP 和 SysML 回读证据 |
+| 统一工程交付包 | 同一 ModelGraph revision 输出 model/evidence/SysML/Requirements/Behavior/RFLP JSON+SVG/Traceability/V&V Plan/Architecture Report；Behavior 固化 Use Case、Operational Scenario、Activity 和 Sequence Diagram Framework；存在对应审计记录时额外输出 `concept-design.json` 与 `detail-design.json`，固化候选布局、学科评估、优化运行、CAD 模型、标注和 DFM/DFA Review；`evidence.json` 固化项目级证据记录与 evidence hash，被模型补丁引用的证据会同步物化为 `Evidence` 节点，提供 JSON、固定成员 ZIP 和 SysML 回读证据 |
 | 23-task 纵向追溯回接 | 后置 functional/technical/reverse requirement 自动回接 Function 与 V&V；校园配送 fixture 交付包验证 7/7 需求完整追溯 |
 | 已有 SysML 模型输入 | Web Analysis 支持上传 `.sysml`，通过同一解析器导入 ModelGraph；任意非弃用实体组成的局部模型都可作为分析种子，冲突 ID 在写入前拒绝，并可继续生成、编辑和导出 |
 | 用户目标与历史项目输入 | `project goal`、Web `/projects/{id}/goal` 和 Analysis 页面可把目标写入 System mission/objectives 及候选 Requirement；Controller Tool Layer 通过只读跨项目 FTS 检索历史项目模型、文档区域和证据，并将命中结果作为当前项目 Evidence 使用 |

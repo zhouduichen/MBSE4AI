@@ -9,7 +9,7 @@ AI4MBSE Harness 产品版本为 `0.2.0`，方法论协议版本为 `v2.1`。它�
 
 ModelGraph 是模型唯一真源。产品主入口按五个纵向阶段调用 Runtime，把 Requirements、Functional、Logical、Physical 和 V&V 逐步写入同一张可编辑图；每个阶段内部复用版本化的方法论任务、结构化输出、Patch、Validator 和 CAS。23-task 生命周期作为显式 `analyze run` / `mode=pipeline` 兼容与研究入口保留。两条入口都显式生成 System、Stakeholder、Lifecycle stage/transition、Scenario、Concern、State、Hazard 和 FailureMode，不把它们藏在阶段 payload 中。SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。
 
-五阶段生成入口在写入 ModelGraph 后，会通过 Methodology Engine 和 Systems Engineering Controller 统一投影 Traceability、工程 findings/metrics 和下一步动作；显式 `mode=pipeline` 的旧 23-task 入口则通过只读 Pipeline Report 获得同样的工程投影。`POST /projects/{id}/analysis` 未指定模式时、以及 Analysis 工作台主按钮，默认进入五阶段生成；所有结果和工程交付包都绑定同一 revision/snapshot hash。报告计算不创建 Run/Patch、不改变模型，也不额外调用 LLM。这样产品交付关注的是一份可继续编辑、可追溯并可导出 SysML 的完整工程结果，而不是只返回任务执行台账。
+五阶段生成入口在写入 ModelGraph 后，会通过 Methodology Engine 和 Systems Engineering Controller 统一投影 Traceability、工程 findings/metrics 和下一步动作；显式 `mode=pipeline` 的旧 23-task 入口则通过只读 Pipeline Report 获得同样的工程投影。`POST /projects/{id}/analysis` 未指定模式时、以及 Analysis 工作台主按钮，默认进入五阶段生成；所有结果和工程交付包都绑定同一 revision/snapshot hash。完整交付包还包含 `behavior.json`，固化 Use Case、Operational Scenario、Activity、Sequence Diagram Framework 和可编辑实体 ID。报告计算不创建 Run/Patch、不改变模型，也不额外调用 LLM。这样产品交付关注的是一份可继续编辑、可追溯并可导出 SysML 的完整工程结果，而不是只返回任务执行台账。
 
 ## 安装
 

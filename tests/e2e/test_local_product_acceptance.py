@@ -103,7 +103,8 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
     )
     assert restored_physical.payload["design_review"]["findings"] == review["findings"]
     package = services.deliverables("acceptance").build("acceptance")
-    assert {"sysml", "traceability", "concept_design", "detail_design"} <= set(package["artifacts"])
+    assert {"sysml", "behavior", "traceability", "concept_design", "detail_design"} <= set(package["artifacts"])
+    assert package["artifacts"]["behavior"]["content"]["sequence_diagrams"]
     archive_bytes, _ = services.deliverables("acceptance").export_zip("acceptance")
     with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
-        assert {"model.sysml", "concept-design.json", "detail-design.json"} <= set(archive.namelist())
+        assert {"model.sysml", "behavior.json", "concept-design.json", "detail-design.json"} <= set(archive.namelist())
