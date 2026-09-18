@@ -58,6 +58,68 @@ def test_cad_plan_execute_review_and_apply_are_idempotent(tmp_path: Path):
     assert cad.apply_model(model["id"])["idempotent"] is True
 
 
+def test_design_review_decision_updates_applied_physical_block(tmp_path: Path):
+    services = build_v2_services(tmp_path)
+    services.projects.create("p")
+    cad = services.cad_design("p")
+    draft = cad.create_intent("生成铝合金支架，长100毫米，宽50毫米，高10毫米")
+    plan = cad.create_plan(draft.draft_id)
+    cad.approve_plan(plan["id"])
+    model = cad.execute_plan(plan["id"])
+
+    payload = dict(model["model_payload"])
+    parts = list(payload["parts"])
+    part = dict(parts[0])
+    part["features"] = [
+        *part.get("features", ()),
+        {
+            "id": "review-hole",
+            "kind": "add_hole",
+            "parameters": {
+                "diameter_mm": 10,
+                "edge_distance_mm": 5,
+                "tool_access": False,
+            },
+        },
+    ]
+    payload["parts"] = [part, *parts[1:]]
+    cad.store.save("cad_model", {**model, "model_payload": payload})
+
+    review = services.design_review("p").review(model["id"], payload)
+    applied = cad.apply_model(model["id"])
+    finding = next(item for item in review["findings"] if item["rule_id"] == "dfa.tool_access")
+
+    updated = review
+    for item in review["findings"]:
+        if item["severity"] in {"high", "critical"}:
+            updated = services.design_review("p").update_finding(
+                review["id"], item["id"], "false_positive"
+            )
+
+    graph_entity = services.model("p").graph("p").entity_index[applied["entity"]["id"]]
+    updated_finding = next(
+        item for item in graph_entity.payload["design_review"]["findings"]
+        if item["id"] == finding["id"]
+    )
+    package = services.deliverables("p").build("p")
+    delivered_review = package["artifacts"]["detail_design"]["content"]["design_reviews"][-1]
+
+    assert updated_finding["status"] == "false_positive"
+    assert updated["status"] == "passed"
+    assert next(item for item in delivered_review["findings"] if item["id"] == finding["id"])["status"] == "false_positive"
+
+    current_graph = services.model("p").graph("p")
+    services.review("p").lock_entity(
+        "p",
+        applied["entity"]["id"],
+        expected_revision=current_graph.revision,
+    )
+    with pytest.raises(ContractViolation):
+        services.design_review("p").update_finding(
+            review["id"], finding["id"], "closed"
+        )
+
+
 def test_structure_option_selection_is_validated_and_traced(tmp_path: Path):
     services = build_v2_services(tmp_path)
     services.projects.create("p")

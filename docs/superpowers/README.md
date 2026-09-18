@@ -57,6 +57,8 @@
 - [需求驱动概念布局运行实施计划](plans/2026-09-19-requirement-driven-concept-run.md)
 - [概念布局到 CAD 详细设计上下文设计](specs/2026-09-19-concept-to-cad-context-design.md)
 - [概念布局到 CAD 上下文实施计划](plans/2026-09-19-concept-to-cad-context.md)
+- [设计审查决策同步 ModelGraph 设计](specs/2026-09-19-design-review-decision-sync-design.md)
+- [设计审查决策同步实施计划](plans/2026-09-19-design-review-decision-sync.md)
 
 ## Superseded
 

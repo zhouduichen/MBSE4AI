@@ -7,7 +7,9 @@ from typing import Any
 
 from rflp_lite.application.detail_design_store import DetailDesignStore
 from rflp_lite.domain.canonical import canonical_hash, to_primitive
+from rflp_lite.domain.entities import EntityKind, EntityStatus
 from rflp_lite.domain.errors import ContractViolation, NotFoundError
+from rflp_lite.domain.model import Patch, UpdateEntity
 from rflp_lite.ports.cad import DesignRulePort, DrawingPort
 
 
@@ -111,6 +113,9 @@ class DesignReviewService:
             for item in findings
         )
         updated = {**record, "findings": findings, "status": "needs_review" if still_open else "passed"}
+        revision = self._sync_applied_model(updated)
+        if revision is not None:
+            updated["model_revision"] = revision.sequence
         self.store.save("design_review", updated)
         self.store.save(
             "finding_update",
@@ -121,6 +126,49 @@ class DesignReviewService:
             {"review_id": review_id, "finding_id": finding_id, "status": status},
         )
         return updated
+
+    def _sync_applied_model(self, review: Mapping[str, object]):
+        graph = self.repository.load_graph(self.project_id)
+        review_id = str(review.get("id", ""))
+        model_id = str(review.get("model_id", ""))
+        matches = []
+        for entity in graph.entities:
+            if entity.kind is not EntityKind.PHYSICAL_BLOCK:
+                continue
+            existing = entity.payload.get("design_review")
+            if not isinstance(existing, Mapping):
+                continue
+            if str(existing.get("id", "")) == review_id or str(existing.get("model_id", "")) == model_id:
+                matches.append(entity)
+        if not matches:
+            return None
+        locked = [item.id for item in matches if item.meta.status is EntityStatus.LOCKED]
+        if locked:
+            raise ContractViolation(
+                "design review cannot update locked PhysicalBlock: "
+                + ", ".join(sorted(locked))
+            )
+        patch = Patch.create(
+            self.project_id,
+            "review.edit",
+            tuple(
+                UpdateEntity(item.id, {"payload": {"design_review": dict(review)}})
+                for item in matches
+            ),
+            f"同步设计审查决策 {review_id}",
+            graph.revision,
+        )
+        revision = self.repository.append_patch(self.project_id, patch, graph.revision)
+        self.store.record_audit(
+            "cad.design_review_model_synced",
+            {
+                "review_id": review_id,
+                "model_id": model_id,
+                "entity_ids": [item.id for item in matches],
+                "revision": revision.sequence,
+            },
+        )
+        return revision
 
 
 __all__ = ["DesignReviewService"]
