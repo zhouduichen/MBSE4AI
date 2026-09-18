@@ -530,6 +530,8 @@ def _resolve_repair_issue(request: Request, project_id: str, issue_id: str, anal
 def _error(exc: Exception) -> JSONResponse:
     from rflp_lite.domain.errors import ConflictError
     status = 404 if isinstance(exc, NotFoundError) else 409 if isinstance(exc, (ConcurrentModificationError, ConflictError)) else 422
+    if isinstance(exc, InputRequired) and exc.details:
+        return JSONResponse({"status": "needs_input", "input": to_primitive(exc.details)}, status_code=422)
     return JSONResponse({"status": "failed", "error": type(exc).__name__, "message": str(exc)}, status_code=status)
 
 
@@ -710,17 +712,24 @@ async def run_concept_design(request: Request, project_id: str):
 
     try:
         payload = await _json_object(request)
-        envelope = payload.get("envelope", payload.get("indicator_envelope"))
-        if not isinstance(envelope, Mapping):
-            raise ContractViolation("envelope must be an object")
+        service = _services(request).concept_design(project_id)
         pack = payload.get("pack")
         profile = payload.get("evaluator_profile")
-        result = _services(request).concept_design(project_id).run(
-            envelope,
-            pack=pack if isinstance(pack, Mapping) else None,
-            evaluator_profile=profile if isinstance(profile, Mapping) else None,
-            optimize=bool(payload.get("optimize", True)),
-        )
+        optimize = bool(payload.get("optimize", True))
+        if bool(payload.get("from_requirements", False)):
+            if pack is not None or profile is not None:
+                raise ContractViolation("from_requirements does not accept pack or evaluator_profile overrides")
+            result = service.run_from_requirements(optimize=optimize)
+        else:
+            envelope = payload.get("envelope", payload.get("indicator_envelope"))
+            if not isinstance(envelope, Mapping):
+                raise ContractViolation("envelope must be an object")
+            result = service.run(
+                envelope,
+                pack=pack if isinstance(pack, Mapping) else None,
+                evaluator_profile=profile if isinstance(profile, Mapping) else None,
+                optimize=optimize,
+            )
         return {"status": "ok", "run": to_primitive(result)}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)

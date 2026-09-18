@@ -21,7 +21,7 @@ from rflp_lite.application.requirement_scope import root_requirement_ids
 from rflp_lite.application.scheme_library import import_scheme_rows
 from rflp_lite.domain.canonical import to_primitive
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
-from rflp_lite.domain.errors import ContractViolation, NotFoundError
+from rflp_lite.domain.errors import ContractViolation, InputRequired, NotFoundError
 from rflp_lite.domain.model import AddEntity, Patch, Relate
 from rflp_lite.domain.relations import RelationPredicate
 
@@ -94,6 +94,19 @@ class ConceptDesignProjectService:
 
     def suggest_input(self) -> Mapping[str, object]:
         return suggest_indicator_envelope(self.repository.load_graph(self.project_id), _default_pack())
+
+    def run_from_requirements(self, *, optimize: bool = True) -> ConceptRunResult:
+        suggestion = self.suggest_input()
+        if suggestion.get("status") != "ready":
+            missing = ", ".join(str(item) for item in suggestion.get("missing_parameters", ()))
+            raise InputRequired(
+                f"concept design input is incomplete; missing parameters: {missing}",
+                details=suggestion,
+            )
+        envelope = suggestion.get("envelope")
+        if not isinstance(envelope, Mapping):
+            raise ContractViolation("concept design input suggestion has no envelope")
+        return self.run(envelope, optimize=optimize)
 
     def latest(self) -> ConceptRunResult | None:
         raw = self.store.concept_runs()

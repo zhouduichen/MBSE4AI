@@ -14,6 +14,7 @@ from rflp_lite.runtime.rule_based import VerticalRuleRuntime
 
 CONCEPT_ROOT = Path("src/rflp_lite/resources/examples/concept-design")
 SOURCE = Path("tests/fixtures/requirements_use_case_acceptance.txt")
+CONCEPT_SOURCE = Path("tests/fixtures/fixed_wing_concept_acceptance.txt")
 
 
 def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path):
@@ -122,6 +123,35 @@ def test_local_product_chain_from_document_to_engineering_package(tmp_path: Path
     archive_bytes, _ = services.deliverables("acceptance").export_zip("acceptance")
     with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
         assert {"model.sysml", "behavior.json", "concept-design.json", "detail-design.json"} <= set(archive.namelist())
+
+
+def test_document_requirements_drive_concept_layout_without_example_defaults(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("fixed-wing", "固定翼需求驱动总体设计")
+    ingested = services.projects.ingest("fixed-wing", CONCEPT_SOURCE)
+
+    generated = services.generation("fixed-wing").generate("fixed-wing")
+    suggestion = services.concept_design("fixed-wing").suggest_input()
+
+    assert ingested["document_id"]
+    assert generated.status == "completed"
+    assert suggestion["status"] == "ready"
+    assert suggestion["missing_parameters"] == []
+    assert suggestion["envelope"]["parameters"]["mass_kg"] == 560.0
+    assert len(suggestion["evidence"]) == 9
+
+    result = services.concept_design("fixed-wing").run(
+        suggestion["envelope"],
+        optimize=False,
+    )
+
+    assert 3 <= len(result.candidates) <= 5
+    assert len(result.evaluations) == len(result.candidates) * 3
+    applied = services.concept_design("fixed-wing").apply_candidate(
+        result.candidates[0].id,
+        result.id,
+    )
+    assert applied["entity"]["payload"]["source_requirement_ids"] == suggestion["source_requirement_ids"]
 
 
 def test_local_cad_profiles_reach_modelgraph_and_review(tmp_path: Path):

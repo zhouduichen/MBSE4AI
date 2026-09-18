@@ -20,6 +20,10 @@ class ContractViolation(RflpError):
 class InputRequired(ContractViolation):
     """Raised when analysis is requested before user/project input exists."""
 
+    def __init__(self, message: str, *, details: Mapping[str, object] | None = None):
+        self.details = dict(details or {})
+        super().__init__(message)
+
 
 class AdapterFailure(RflpError):
     """Raised when an adapter fails at a controlled boundary."""

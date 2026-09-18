@@ -15,10 +15,10 @@
   "id": "FW-E-WEB",
   "status": "candidate",
   "source_requirement_ids": [],
-  "parameters": {"mass_kg": 560, "payload_kg": 180, "wing_area_m2": 24, "span_m": 13, "fuselage_length_m": 9, "cruise_speed_mps": 66, "section_modulus_m3": 0.032, "allowable_stress_pa": 205000000, "cg_x_m": 2.7},
-  "bounds": {"mass_kg": {"minimum": 500, "maximum": 650}, "payload_kg": {"minimum": 150, "maximum": 220}, "wing_area_m2": {"minimum": 20, "maximum": 30}, "span_m": {"minimum": 11, "maximum": 16}}
+  "parameters": {},
+  "bounds": {}
 }</textarea>
-  <div class="actions"><button class="button" id="concept-suggest">从 ModelGraph 提取指标</button><button class="button primary" id="concept-run">生成并评估候选</button><span class="muted" id="concept-status"></span></div>
+  <div class="actions"><button class="button" id="concept-suggest">从 ModelGraph 提取指标</button><button class="button primary" id="concept-run-from-requirements">按需求生成并评估</button><button class="button" id="concept-run">按当前 envelope 运行</button><span class="muted" id="concept-status"></span></div>
 </section>
 
 <section class="card" id="concept-results">
@@ -66,15 +66,27 @@
     summary.textContent = `${run.candidates.length} 套候选，${run.evaluations.length} 条学科评估，正式状态：${run.formal_status}`;
     cards.innerHTML = run.candidates.map(candidate => `<article class="list-card"><div class="list-card-header"><strong>${candidate.id}</strong><span class="status-pill">${candidate.status}</span></div><p>可行：${candidate.feasible} · 参考方案：${(candidate.reference_ids || []).join(', ')}</p><details><summary>参数与草图</summary><pre>${JSON.stringify(candidate.parameters, null, 2)}</pre><div class="svg-preview">${candidate.svg}</div></details>${renderEvaluations(run, candidate.id)}<button class="button" data-apply="${candidate.id}" data-run="${run.id}">应用到 ModelGraph</button></article>`).join('') + renderOptimization(run);
   };
-  document.querySelector('#concept-run').addEventListener('click', async () => {
+  const runConcept = async (body) => {
     status.textContent = '运行中…';
     try {
-      const envelope = JSON.parse(document.querySelector('#concept-envelope').value);
-      const response = await fetch(`/projects/${projectId}/concept-design/run`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({envelope, optimize: true})});
+      const response = await fetch(`/projects/${projectId}/concept-design/run`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message || '总体设计运行失败');
+      if (!response.ok) {
+        if (payload.status === 'needs_input' && payload.input) {
+          document.querySelector('#concept-envelope').value = JSON.stringify(payload.input.envelope, null, 2);
+          const missing = (payload.input.missing_parameters || []).join('、');
+          throw new Error(`需求缺少参数：${missing}`);
+        }
+        throw new Error(payload.message || '总体设计运行失败');
+      }
       render(payload.run); status.textContent = '完成';
     } catch (error) { status.textContent = error.message; }
+  };
+  document.querySelector('#concept-run-from-requirements').addEventListener('click', async () => {
+    await runConcept({from_requirements: true, optimize: true});
+  });
+  document.querySelector('#concept-run').addEventListener('click', async () => {
+    await runConcept({envelope: JSON.parse(document.querySelector('#concept-envelope').value), optimize: true});
   });
   document.querySelector('#concept-suggest').addEventListener('click', async () => {
     status.textContent = '正在读取需求约束…';
@@ -82,12 +94,8 @@
       const response = await fetch(`/projects/${projectId}/concept-design/input`);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || '指标提取失败');
-      const current = JSON.parse(document.querySelector('#concept-envelope').value);
       const suggested = payload.input.envelope;
-      current.source_requirement_ids = suggested.source_requirement_ids || [];
-      current.parameters = {...(current.parameters || {}), ...(suggested.parameters || {})};
-      current.bounds = {...(current.bounds || {}), ...(suggested.bounds || {})};
-      document.querySelector('#concept-envelope').value = JSON.stringify(current, null, 2);
+      document.querySelector('#concept-envelope').value = JSON.stringify(suggested, null, 2);
       const missing = payload.input.missing_parameters || [];
       status.textContent = missing.length ? `已提取约束；还缺 ${missing.join('、')}` : '指标包络已就绪';
     } catch (error) { status.textContent = error.message; }

@@ -53,6 +53,8 @@
 - [Intake-aware 结构化 LLM 纵向主链实施计划](plans/2026-09-19-intake-aware-vertical-acceptance.md)
 - [需求到概念指标包络比较语义规范化设计](specs/2026-09-19-concept-input-comparator-normalization-design.md)
 - [需求到概念指标包络比较语义规范化实施计划](plans/2026-09-19-concept-input-comparator-normalization.md)
+- [需求驱动概念布局运行入口设计](specs/2026-09-19-requirement-driven-concept-run-design.md)
+- [需求驱动概念布局运行实施计划](plans/2026-09-19-requirement-driven-concept-run.md)
 
 ## Superseded
 
