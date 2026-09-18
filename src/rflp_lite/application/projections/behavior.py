@@ -34,15 +34,14 @@ def _requirement_ids_for_entity(graph: ModelGraph, entity: Entity) -> list[str]:
         and index.get(relation.source_id) is not None
         and index[relation.source_id].kind is EntityKind.REQUIREMENT
     )
-    if explicit:
-        return list(dict.fromkeys(explicit))
     raw_payload_ids = entity.payload.get("requirement_ids", ())
     payload_ids = (raw_payload_ids,) if isinstance(raw_payload_ids, str) else raw_payload_ids
-    return list(dict.fromkeys(
+    payload_requirement_ids = [
         str(value)
         for value in (payload_ids or ())
         if str(value) in index and index[str(value)].kind is EntityKind.REQUIREMENT
-    ))
+    ]
+    return list(dict.fromkeys((*explicit, *payload_requirement_ids)))
 
 
 def _mermaid_text(value: object, default: str = "") -> str:
@@ -100,6 +99,19 @@ def _scenario_steps(graph: ModelGraph, scenario: Entity) -> tuple[tuple[Entity, 
         })
     steps.sort(key=lambda item: (int(item["order"]), str(item["activity_id"])))
     return activity_items, steps
+
+
+def _scenario_requirement_ids(
+    graph: ModelGraph,
+    scenario: Entity,
+    activity_items: tuple[Entity, ...],
+) -> list[str]:
+    """Combine scenario and activity requirement links for diagram traceability."""
+
+    requirement_ids = set(_requirement_ids_for_entity(graph, scenario))
+    for activity in activity_items:
+        requirement_ids.update(_requirement_ids_for_entity(graph, activity))
+    return sorted(requirement_ids)
 
 
 def _sequence_diagrams(graph: ModelGraph) -> list[Mapping[str, object]]:
@@ -202,7 +214,7 @@ def _sequence_diagrams(graph: ModelGraph) -> list[Mapping[str, object]]:
         diagrams.append({
             "scenario_id": scenario.id,
             "scenario_name": scenario.meta.name,
-            "requirement_ids": _requirement_ids_for_entity(graph, scenario),
+            "requirement_ids": _scenario_requirement_ids(graph, scenario, activity_items),
             "diagram_kind": "sequence",
             "format": "mermaid",
             "participants": participants,
@@ -228,6 +240,7 @@ def _activity_diagrams(graph: ModelGraph) -> list[Mapping[str, object]]:
         transitions: list[Mapping[str, object]] = []
         lines = ["flowchart TD", "  start((开始))"]
         previous_id = "start"
+        finish_id = "finish"
         for index, step in enumerate(steps, start=1):
             node_id = str(step["activity_id"]) or f"activity_{index}"
             node_id = re.sub(r"[^A-Za-z0-9_]", "_", node_id) or f"activity_{index}"
@@ -262,20 +275,20 @@ def _activity_diagrams(graph: ModelGraph) -> list[Mapping[str, object]]:
             lines.append(f'  {decision_id}{{"{_flowchart_text(condition, "分支")}"}}')
             lines.append(f"  {previous_id} --> {decision_id}")
             lines.append(f'  {decision_id} -->|是| {action_id}["{_flowchart_text(action, "执行分支")}"]')
-            lines.append(f"  {decision_id} -->|否| end")
+            lines.append(f"  {decision_id} -->|否| {finish_id}")
             transitions.extend((
                 {"source_id": previous_id, "target_id": decision_id, "guard": ""},
                 {"source_id": decision_id, "target_id": action_id, "guard": condition},
-                {"source_id": decision_id, "target_id": "end", "guard": f"非：{condition}"},
+                {"source_id": decision_id, "target_id": finish_id, "guard": f"非：{condition}"},
             ))
             branches.append({"id": decision_id, "condition": condition, "action": action})
         if not branches:
-            lines.append(f"  {previous_id} --> end")
-        lines.append("  end((结束))")
+            lines.append(f"  {previous_id} --> {finish_id}")
+        lines.append(f"  {finish_id}((结束))")
         diagrams.append({
             "scenario_id": scenario.id,
             "scenario_name": scenario.meta.name,
-            "requirement_ids": _requirement_ids_for_entity(graph, scenario),
+            "requirement_ids": _scenario_requirement_ids(graph, scenario, activity_items),
             "diagram_kind": "activity",
             "format": "mermaid",
             "nodes": nodes,

@@ -63,6 +63,7 @@ def test_behavior_projection_exposes_explicit_requirement_links() -> None:
     activity_diagram = view["activity_diagrams"][0]
     assert activity_diagram["format"] == "mermaid"
     assert "flowchart TD" in activity_diagram["mermaid"]
+    assert "finish((结束))" in activity_diagram["mermaid"]
     assert activity_diagram["requirement_ids"] == [requirement_id]
     assert activity_diagram["editable_entity_ids"][-1] == next(
         item.id for item in graph.entities if item.kind is EntityKind.ACTIVITY
@@ -77,3 +78,27 @@ def test_behavior_projection_reads_legacy_requirement_payload_without_fabricatin
 
     assert view["use_cases"][0]["requirement_ids"] == [requirement_id]
     assert not any(row["source"] == requirement_id for row in view["relations"])
+
+
+def test_behavior_diagrams_union_scenario_and_activity_requirement_links() -> None:
+    graph, requirement_id = _behavior_graph(explicit_requirement_links=False)
+    activity = next(item for item in graph.entities if item.kind is EntityKind.ACTIVITY)
+    second_requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应保留异常记录",
+        {"statement": "系统应保留异常记录"},
+    )
+    graph = ModelGraph(
+        graph.project_id,
+        (*graph.entities, second_requirement),
+        (
+            *graph.relations,
+            Relation("r-activity-2", second_requirement.id, RelationPredicate.DERIVED_FROM, activity.id),
+        ),
+    )
+
+    view = build_behavior_view(graph)
+
+    expected = {requirement_id, second_requirement.id}
+    assert expected <= set(view["sequence_diagrams"][0]["requirement_ids"])
+    assert expected <= set(view["activity_diagrams"][0]["requirement_ids"])
