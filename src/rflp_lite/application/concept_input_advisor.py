@@ -11,8 +11,12 @@ from rflp_lite.domain.model import ModelGraph
 
 
 _NUMBER = r"(?P<value>\d+(?:\.\d+)?)"
-_MAX = r"(?:不得超过|不超过|最多|上限|不高于|不大于|<=|≤)"
-_MIN = r"(?:不得少于|不少于|至少|下限|不低于|不小于|>=|≥)"
+_MAX_PHRASES = ("不得超过", "不超过", "最多", "上限", "不高于", "不大于", "<=", "≤")
+_MIN_PHRASES = ("不得少于", "不少于", "至少", "下限", "不低于", "不小于", ">=", "≥")
+_MAX = rf"(?:{'|'.join(map(re.escape, _MAX_PHRASES))})"
+_MIN = rf"(?:{'|'.join(map(re.escape, _MIN_PHRASES))})"
+_MAX_OPERATORS = frozenset(item.casefold() for item in _MAX_PHRASES)
+_MIN_OPERATORS = frozenset(item.casefold() for item in _MIN_PHRASES)
 _UNITS = {
     "kg": ("kg", "千克", "公斤"),
     "m": ("m", "米"),
@@ -53,6 +57,15 @@ def _convert(value: float, unit: str, target: str) -> float:
     return value * _SCALES.get((unit, target), 1.0)
 
 
+def _normalize_operator(value: object) -> str:
+    operator = str(value or "").strip().casefold()
+    if operator in _MAX_OPERATORS:
+        return "max"
+    if operator in _MIN_OPERATORS:
+        return "min"
+    return "exact"
+
+
 def _statement_values(statement: str, aliases: tuple[str, ...], unit: str) -> tuple[tuple[str, float], ...]:
     unit_values = _UNITS.get(unit, (unit,)) if unit != "1" else (r"",)
     alias_pattern = "|".join(re.escape(item) for item in aliases)
@@ -63,7 +76,7 @@ def _statement_values(statement: str, aliases: tuple[str, ...], unit: str) -> tu
     values: list[tuple[str, float]] = []
     for match in pattern.finditer(statement):
         raw_unit = str(match.groupdict().get("unit") or unit)
-        values.append((str(match.groupdict().get("operator") or "exact"), _convert(float(match["value"]), raw_unit, unit)))
+        values.append((_normalize_operator(match.groupdict().get("operator")), _convert(float(match["value"]), raw_unit, unit)))
     return tuple(values)
 
 

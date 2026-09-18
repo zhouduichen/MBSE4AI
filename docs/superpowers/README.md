@@ -51,6 +51,8 @@
 - [离线需求实体与属性捕获实施计划](plans/2026-09-19-offline-entity-attribute-capture.md)
 - [Intake-aware 结构化 LLM 纵向主链设计](specs/2026-09-19-intake-aware-vertical-acceptance-design.md)
 - [Intake-aware 结构化 LLM 纵向主链实施计划](plans/2026-09-19-intake-aware-vertical-acceptance.md)
+- [需求到概念指标包络比较语义规范化设计](specs/2026-09-19-concept-input-comparator-normalization-design.md)
+- [需求到概念指标包络比较语义规范化实施计划](plans/2026-09-19-concept-input-comparator-normalization.md)
 
 ## Superseded
 
