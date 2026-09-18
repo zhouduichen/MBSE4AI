@@ -52,6 +52,56 @@ def _mermaid_text(value: object, default: str = "") -> str:
     return re.sub(r"\s+", " ", text).replace('"', "'").strip() or default
 
 
+def _flowchart_text(value: object, default: str = "") -> str:
+    """Keep labels from changing Mermaid flowchart structure."""
+
+    return (
+        _mermaid_text(value, default)
+        .replace("[", "(")
+        .replace("]", ")")
+        .replace("{", "(")
+        .replace("}", ")")
+        .replace(";", ",")
+    )
+
+
+def _scenario_steps(graph: ModelGraph, scenario: Entity) -> tuple[tuple[Entity, ...], list[Mapping[str, object]]]:
+    """Return graph-backed activity entities and their normalized scenario steps."""
+
+    activity_items = tuple(sorted(
+        (
+            item
+            for item in graph.entities
+            if item.kind is EntityKind.ACTIVITY
+            and str(item.payload.get("scenario_id", "")) == scenario.id
+        ),
+        key=lambda item: (int(item.payload.get("order", 0) or 0), item.id),
+    ))
+    raw_steps = activity_items or tuple(scenario.payload.get("steps", ()) or ())
+    steps: list[Mapping[str, object]] = []
+    for index, raw_step in enumerate(raw_steps, start=1):
+        if hasattr(raw_step, "payload"):
+            payload = raw_step.payload
+        elif isinstance(raw_step, Mapping):
+            payload = raw_step
+        elif isinstance(raw_step, str):
+            payload = {"action": raw_step}
+        else:
+            payload = {}
+        if not isinstance(payload, Mapping):
+            continue
+        activity_id = raw_step.id if hasattr(raw_step, "id") else ""
+        steps.append({
+            "order": int(payload.get("order", index) or index),
+            "activity_id": activity_id,
+            "actor_id": str(payload.get("actor_id", "") or ""),
+            "action": str(payload.get("action", "") or "").strip() or "活动",
+            "guard": str(payload.get("guard", "") or "").strip(),
+        })
+    steps.sort(key=lambda item: (int(item["order"]), str(item["activity_id"])))
+    return activity_items, steps
+
+
 def _sequence_diagrams(graph: ModelGraph) -> list[Mapping[str, object]]:
     """Project recorded scenario/activity data into an editable sequence view.
 
@@ -74,37 +124,7 @@ def _sequence_diagrams(graph: ModelGraph) -> list[Mapping[str, object]]:
         (item for item in graph.entities if item.kind is EntityKind.OPERATIONAL_SCENARIO),
         key=lambda item: item.id,
     ):
-        activity_items = sorted(
-            (
-                item
-                for item in graph.entities
-                if item.kind is EntityKind.ACTIVITY
-                and str(item.payload.get("scenario_id", "")) == scenario.id
-            ),
-            key=lambda item: (int(item.payload.get("order", 0) or 0), item.id),
-        )
-        raw_steps = activity_items or list(scenario.payload.get("steps", ()) or ())
-        steps: list[Mapping[str, object]] = []
-        for index, raw_step in enumerate(raw_steps, start=1):
-            if hasattr(raw_step, "payload"):
-                payload = raw_step.payload
-            elif isinstance(raw_step, Mapping):
-                payload = raw_step
-            elif isinstance(raw_step, str):
-                payload = {"action": raw_step}
-            else:
-                payload = {}
-            if not isinstance(payload, Mapping):
-                continue
-            activity_id = raw_step.id if hasattr(raw_step, "id") else ""
-            steps.append({
-                "order": int(payload.get("order", index) or index),
-                "activity_id": activity_id,
-                "actor_id": str(payload.get("actor_id", "") or ""),
-                "action": str(payload.get("action", "") or "").strip() or "活动",
-                "guard": str(payload.get("guard", "") or "").strip(),
-            })
-        steps.sort(key=lambda item: (int(item["order"]), str(item["activity_id"])))
+        activity_items, steps = _scenario_steps(graph, scenario)
 
         actor_ids: list[str] = []
         for raw_id in list(scenario.payload.get("actor_ids", ()) or ()) + [
@@ -194,6 +214,79 @@ def _sequence_diagrams(graph: ModelGraph) -> list[Mapping[str, object]]:
     return diagrams
 
 
+def _activity_diagrams(graph: ModelGraph) -> list[Mapping[str, object]]:
+    """Project operational activities into editable Mermaid activity diagrams."""
+
+    diagrams: list[Mapping[str, object]] = []
+    scenarios = sorted(
+        (item for item in graph.entities if item.kind is EntityKind.OPERATIONAL_SCENARIO),
+        key=lambda item: item.id,
+    )
+    for scenario in scenarios:
+        activity_items, steps = _scenario_steps(graph, scenario)
+        nodes: list[Mapping[str, object]] = []
+        transitions: list[Mapping[str, object]] = []
+        lines = ["flowchart TD", "  start((开始))"]
+        previous_id = "start"
+        for index, step in enumerate(steps, start=1):
+            node_id = str(step["activity_id"]) or f"activity_{index}"
+            node_id = re.sub(r"[^A-Za-z0-9_]", "_", node_id) or f"activity_{index}"
+            label = _flowchart_text(step["action"], "活动")
+            if step["guard"]:
+                label += f"<br/>守卫：{_flowchart_text(step['guard'])}"
+            lines.append(f'  {node_id}["{label}"]')
+            lines.append(f"  {previous_id} --> {node_id}")
+            transitions.append({"source_id": previous_id, "target_id": node_id, "guard": step["guard"]})
+            nodes.append({
+                "id": node_id,
+                "entity_id": str(step["activity_id"]),
+                "order": step["order"],
+                "action": step["action"],
+                "guard": step["guard"],
+            })
+            previous_id = node_id
+
+        branches: list[Mapping[str, object]] = []
+        for index, branch in enumerate(scenario.payload.get("branches", ()) or (), start=1):
+            if isinstance(branch, Mapping):
+                condition = str(branch.get("condition", "")).strip()
+                action = str(branch.get("action", "")).strip()
+            elif isinstance(branch, str):
+                condition, action = branch.strip(), ""
+            else:
+                continue
+            if not condition and not action:
+                continue
+            decision_id = f"decision_{index}"
+            action_id = f"branch_{index}"
+            lines.append(f'  {decision_id}{{"{_flowchart_text(condition, "分支")}"}}')
+            lines.append(f"  {previous_id} --> {decision_id}")
+            lines.append(f'  {decision_id} -->|是| {action_id}["{_flowchart_text(action, "执行分支")}"]')
+            lines.append(f"  {decision_id} -->|否| end")
+            transitions.extend((
+                {"source_id": previous_id, "target_id": decision_id, "guard": ""},
+                {"source_id": decision_id, "target_id": action_id, "guard": condition},
+                {"source_id": decision_id, "target_id": "end", "guard": f"非：{condition}"},
+            ))
+            branches.append({"id": decision_id, "condition": condition, "action": action})
+        if not branches:
+            lines.append(f"  {previous_id} --> end")
+        lines.append("  end((结束))")
+        diagrams.append({
+            "scenario_id": scenario.id,
+            "scenario_name": scenario.meta.name,
+            "requirement_ids": _requirement_ids_for_entity(graph, scenario),
+            "diagram_kind": "activity",
+            "format": "mermaid",
+            "nodes": nodes,
+            "transitions": transitions,
+            "branches": branches,
+            "mermaid": "\n".join(lines),
+            "editable_entity_ids": [scenario.id, *(item.id for item in activity_items)],
+        })
+    return diagrams
+
+
 def build_behavior_view(graph: ModelGraph, issues: tuple[Mapping[str, object], ...] = ()) -> Mapping[str, object]:
     issue_index = issues_by_entity(issues)
     entity_ids = {item.id for item in graph.entities if item.kind in _RELATION_KINDS}
@@ -237,6 +330,7 @@ def build_behavior_view(graph: ModelGraph, issues: tuple[Mapping[str, object], .
         "relations": relations,
         "scenarios": scenarios,
         "sequence_diagrams": _sequence_diagrams(graph),
+        "activity_diagrams": _activity_diagrams(graph),
         "use_cases": use_cases,
         "incomplete": incomplete,
     }

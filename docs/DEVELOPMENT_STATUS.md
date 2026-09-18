@@ -62,7 +62,7 @@
 | MBSE 对象纵向覆盖 | 默认五阶段显式生成 Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase；VerificationCase/ValidationCase 统一包含 method、verification_objective、precondition、test_condition、input、stimulus、procedure、expected_result、pass_criteria，方法学报告分别检查风险覆盖、缓解关系、计划完整度和执行证据 |
 | 分层 ModelGraph 工作台 | MBSE 模型页按 System Definition、Functional、Logical、Physical、V&V 展示真实实体，并复用 Review/CAS API 支持编辑、接受、拒绝、锁定、解锁和重新分析 |
 | Review 后继续生成 | 用户确认实体后可从其下一层继续生成至 V&V；使用独立 continuation Run，锁定实体只读，V&V 返回无下游状态 |
-| 统一工程交付包 | 同一 ModelGraph revision 输出 model/evidence/SysML/Requirements/Behavior/RFLP JSON+SVG/Traceability/V&V Plan/Architecture Report；Behavior 固化 Use Case、Operational Scenario、Activity 和 Sequence Diagram Framework；存在对应审计记录时额外输出 `concept-design.json` 与 `detail-design.json`，固化候选布局、学科评估、优化运行、CAD 模型、标注和 DFM/DFA Review；`evidence.json` 固化项目级证据记录与 evidence hash，被模型补丁引用的证据会同步物化为 `Evidence` 节点，提供 JSON、固定成员 ZIP 和 SysML 回读证据 |
+| 统一工程交付包 | 同一 ModelGraph revision 输出 model/evidence/SysML/Requirements/Behavior/RFLP JSON+SVG/Traceability/V&V Plan/Architecture Report；Behavior 固化 Use Case、Operational Scenario、Activity、Activity Diagram 和 Sequence Diagram Framework；存在对应审计记录时额外输出 `concept-design.json` 与 `detail-design.json`，固化候选布局、学科评估、优化运行、CAD 模型、标注和 DFM/DFA Review；`evidence.json` 固化项目级证据记录与 evidence hash，被模型补丁引用的证据会同步物化为 `Evidence` 节点，提供 JSON、固定成员 ZIP 和 SysML 回读证据 |
 | 23-task 纵向追溯回接 | 后置 functional/technical/reverse requirement 自动回接 Function 与 V&V；校园配送 fixture 交付包验证 7/7 需求完整追溯 |
 | 已有 SysML 模型输入 | Web Analysis 支持上传 `.sysml`，通过同一解析器导入 ModelGraph；任意非弃用实体组成的局部模型都可作为分析种子，冲突 ID 在写入前拒绝，并可继续生成、编辑和导出 |
 | 用户目标与历史项目输入 | `project goal`、Web `/projects/{id}/goal` 和 Analysis 页面可把目标写入 System mission/objectives 及候选 Requirement；Controller Tool Layer 通过只读跨项目 FTS 检索历史项目模型、文档区域和证据，并将命中结果作为当前项目 Evidence 使用 |
@@ -85,7 +85,7 @@
 | 追溯语义闭环 | 同一 canonical scope resolver 校验需求来源、功能、逻辑、物理及 V&V 载荷；技术需求支持来源链与直接物理候选，作用域失配会同时阻断 Assurance 完成检查并生成可回流的工程问题 |
 | 统一需求输入边界 | 五阶段生成与 23-task pipeline 共享 `InputPreparationService`→`RequirementsUseCaseService`→CAS；文本/文档可组合输入，重复 statement 复用节点并通过 CAS 合并全部 Source Region/evidence provenance，多条需求保持独立下游追溯 |
 | Pipeline 文档直通验收 | `project ingest` 后直接执行 `analyze run` 或 Web `mode=pipeline` 会自动生成 Requirement、Use Case、Operational Scenario、Activity，再完成 23-task 生命周期与追溯；不需要手动应用 IntakeDraft |
-| 行为时序投影（1.2） | Behavior API/UI 从 ModelGraph 中的 Operational Scenario/Activity 确定性生成参与者、消息、守卫、分支和 Mermaid Sequence Diagram；保留 scenario/activity ID，并在 Use Case、Scenario、Sequence Diagram 及关系列表中暴露 Requirement 反查 ID；编辑源实体后可重新读取，不新增同步图实体或模型调用 |
+| 行为图投影（1.2） | Behavior API/UI 从 ModelGraph 中的 Operational Scenario/Activity 确定性生成 Activity Diagram 与 Sequence Diagram；活动图保留顺序、守卫、分支、Mermaid flowchart 和可编辑实体 ID，时序图保留参与者、消息、守卫、分支和 Mermaid 文本；两类图及关系列表均暴露 Requirement 反查 ID，编辑源实体后可重新读取，不新增同步图实体或模型调用 |
 | 指标包络建议与 MDO 展示（2.1/2.2） | `/concept-design/input` 从根 Requirement 的显式约束生成可编辑 envelope 草案和证据/缺口列表；中文 `max/min/exact` 比较表达已统一规范化，`run` 支持 `from_requirements` 直接消费完整需求，单侧缺参仍返回 `needs_input` 且不使用示例默认值；总体设计页展示每个候选的气动、结构、重量/重心结果以及 Pareto/优化反馈 |
 | 统一追溯投影 | `resolve_requirement_trace` 成为 Generation Summary、Traceability/Coverage/RFLP、`/trace` 和 `traceability.json` 的共同逐需求语义来源；ready-only 目标、V&V scope、缺口、主路径和覆盖率在各入口保持一致，并保留 SysML/ModelGraph 编辑回读 |
 | 可执行 V&V 计划闭环 | V&V prompt、结构化 Schema、语义校核、离线/生命周期运行时、Methodology、Assurance 页面和 `vv-plan` 交付物共享九字段计划契约；来源 `evidence_ids` 与实际 `execution_evidence_ids` 分离，计划完整不宣称执行通过 |

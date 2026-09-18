@@ -70,6 +70,11 @@ def test_requirements_use_case_api_and_behavior_page_form_a_vertical_slice(tmp_p
     assert "sequenceDiagram" in sequence_diagrams[0]["mermaid"]
     assert sequence_diagrams[0]["editable_entity_ids"]
     assert requirement_ids <= set(sequence_diagrams[0]["requirement_ids"])
+    activity_diagrams = behavior_payload["activity_diagrams"]
+    assert activity_diagrams
+    assert activity_diagrams[0]["format"] == "mermaid"
+    assert "flowchart TD" in activity_diagrams[0]["mermaid"]
+    assert requirement_ids <= set(activity_diagrams[0]["requirement_ids"])
 
     use_case = behavior_payload["use_cases"][0]
     use_case_payload = dict(use_case["payload"])
@@ -113,6 +118,7 @@ def test_requirements_use_case_api_and_behavior_page_form_a_vertical_slice(tmp_p
     assert "Use Case Framework" in behavior.text
     assert "Operational Scenario Framework" in behavior.text
     assert "Sequence Diagram Framework" in behavior.text
+    assert "Activity Diagram Framework" in behavior.text
     assert "操作员" in behavior.text
     assert "来源需求" in behavior.text
     assert "直接编辑" in behavior.text

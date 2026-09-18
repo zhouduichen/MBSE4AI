@@ -60,6 +60,13 @@ def test_behavior_projection_exposes_explicit_requirement_links() -> None:
     scenario = view["scenarios"][0]
     assert scenario["requirement_ids"] == [requirement_id]
     assert view["sequence_diagrams"][0]["requirement_ids"] == [requirement_id]
+    activity_diagram = view["activity_diagrams"][0]
+    assert activity_diagram["format"] == "mermaid"
+    assert "flowchart TD" in activity_diagram["mermaid"]
+    assert activity_diagram["requirement_ids"] == [requirement_id]
+    assert activity_diagram["editable_entity_ids"][-1] == next(
+        item.id for item in graph.entities if item.kind is EntityKind.ACTIVITY
+    )
     assert EntityKind.REQUIREMENT.value not in view["records"]
 
 

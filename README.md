@@ -9,7 +9,7 @@ AI4MBSE Harness 产品版本为 `0.2.0`，方法论协议版本为 `v2.1`。它�
 
 ModelGraph 是模型唯一真源。产品主入口按五个纵向阶段调用 Runtime，把 Requirements、Functional、Logical、Physical 和 V&V 逐步写入同一张可编辑图；每个阶段内部复用版本化的方法论任务、结构化输出、Patch、Validator 和 CAS。23-task 生命周期作为显式 `analyze run` / `mode=pipeline` 兼容与研究入口保留。两条入口都显式生成 System、Stakeholder、Lifecycle stage/transition、Scenario、Concern、State、Hazard 和 FailureMode，不把它们藏在阶段 payload 中。SQLite 保存项目、文档区域、证据、运行、步骤、Patch、Revision 和 Issue。
 
-五阶段生成入口在写入 ModelGraph 后，会通过 Methodology Engine 和 Systems Engineering Controller 统一投影 Traceability、工程 findings/metrics 和下一步动作；显式 `mode=pipeline` 的旧 23-task 入口则通过只读 Pipeline Report 获得同样的工程投影。`POST /projects/{id}/analysis` 未指定模式时、以及 Analysis 工作台主按钮，默认进入五阶段生成；所有结果和工程交付包都绑定同一 revision/snapshot hash。完整交付包还包含 `behavior.json`，固化 Use Case、Operational Scenario、Activity、Sequence Diagram Framework 和可编辑实体 ID。报告计算不创建 Run/Patch、不改变模型，也不额外调用 LLM。这样产品交付关注的是一份可继续编辑、可追溯并可导出 SysML 的完整工程结果，而不是只返回任务执行台账。
+五阶段生成入口在写入 ModelGraph 后，会通过 Methodology Engine 和 Systems Engineering Controller 统一投影 Traceability、工程 findings/metrics 和下一步动作；显式 `mode=pipeline` 的旧 23-task 入口则通过只读 Pipeline Report 获得同样的工程投影。`POST /projects/{id}/analysis` 未指定模式时、以及 Analysis 工作台主按钮，默认进入五阶段生成；所有结果和工程交付包都绑定同一 revision/snapshot hash。完整交付包还包含 `behavior.json`，固化 Use Case、Operational Scenario、Activity、Activity Diagram、Sequence Diagram Framework 和可编辑实体 ID。报告计算不创建 Run/Patch、不改变模型，也不额外调用 LLM。这样产品交付关注的是一份可继续编辑、可追溯并可导出 SysML 的完整工程结果，而不是只返回任务执行台账。
 
 ## 安装
 
@@ -88,7 +88,7 @@ Jiayu-intern 的 SSH 转发、Profile JSON 和一次性 CASE-04 验收命令见
 
 `analyze generate`、`analyze run` 和 Web `/analysis` 现在共享同一个结构化需求/用例摄取边界：文本或已上传的 TXT、Markdown、DOCX、PDF 先生成带来源、约束来源、置信度和澄清问题的 `IntakeDraft`，经现有 CAS 写入候选 ModelGraph 后再继续五阶段或 23-task R→F→L→P→V&V。离线模式明确标记为 `degraded`/`RULE`，不会伪装成 LLM 结果；除显式数值约束外，有限词典规则还会捕获系统平台/任务域/运行环境、stakeholder 和 concern 属性，生成低置信度 `derived` 结果并显示“需人工确认”，不会自动批准。之后同一请求会产出 Use Case、Operational Scenario、Activity、完整追溯、SysML 和交付包。需求分析工作台 `/ui/projects/<project-id>/requirements-use-case` 仍保留为需要人工逐稿审查时的独立 M1/M2 入口。
 
-行为工作台 `/ui/projects/<project-id>/behavior` 会从已写入的 Operational Scenario/Activity 确定性投影 Sequence Diagram Framework：参与者、消息顺序、守卫、分支、Mermaid 文本和可编辑实体 ID 均来自同一份 ModelGraph；Use Case、Scenario、Sequence Diagram 和关系列表同时保留来源 Requirement ID，可从行为结果反查需求；通过工作台编辑源实体后重新读取即可刷新，不额外调用 LLM。
+行为工作台 `/ui/projects/<project-id>/behavior` 会从已写入的 Operational Scenario/Activity 确定性投影 Activity Diagram 和 Sequence Diagram Framework：活动图保留顺序、守卫、分支、Mermaid flowchart 和可编辑实体 ID，时序图保留参与者、消息顺序、守卫、分支和 Mermaid 文本；所有结果均来自同一份 ModelGraph。Use Case、Scenario、Activity Diagram、Sequence Diagram 和关系列表同时保留来源 Requirement ID，可从行为结果反查需求；通过工作台编辑源实体后重新读取即可刷新，不额外调用 LLM。
 
 总体设计页的“从 ModelGraph 提取指标”会调用 `/projects/<project-id>/concept-design/input`，把需求中的显式质量、尺寸、速度等约束回填到可编辑指标包络；中文“不超过/不少于/为”等比较词会分别规范化为 `max`/`min`/`exact`，并保留逐条证据，缺失必填参数仍明确显示。`POST /projects/<project-id>/concept-design/run` 也支持 `{"from_requirements": true}`，完整需求可直接进入 2.1/2.2，缺参则返回 `needs_input`，不会用固定翼示例值补齐。生成后页面按候选展示气动、结构、重量/重心评估指标、状态、适用域/批准诊断、候选完成度、Pareto 候选和优化停止原因。`concept-design.json` 同步保存每条评估的输入参数、有效域状态、验证数据集、误差/批准信息和候选级优化反馈。
 
