@@ -382,6 +382,34 @@ def test_vertical_repair_preserves_requirement_batch_scope():
     assert "第 2/3 个需求批次" in messages[0]["content"]
 
 
+def test_r_repair_preserves_narrow_slice_scope():
+    repair_request = GenerationRequest(
+        lens_id="vertical.requirements",
+        system_prompt="只返回 TaskProposal",
+        user_payload={
+            "context": {"entities": []},
+            "requirement_worklist": [],
+            "r_slice": {
+                "slice_kind": "r_backbone_behavior",
+                "allowed_kinds": ["use_case", "activity"],
+                "slice_index": 2,
+                "slice_count": 4,
+            },
+        },
+        response_schema={"type": "object"},
+    )
+
+    messages = OpenAICompatibleModel._repair_messages(repair_request, "失效响应")
+    envelope = json.loads(messages[1]["content"])
+
+    assert envelope["input"]["r_slice"] == {
+        "slice_count": 4,
+        "slice_index": 2,
+        "slice_kind": "r_backbone_behavior",
+        "allowed_kinds": ["use_case", "activity"],
+    }
+
+
 def test_wide_vertical_batch_routes_structural_failure_to_runtime_split():
     calls = []
     wide_request = GenerationRequest(

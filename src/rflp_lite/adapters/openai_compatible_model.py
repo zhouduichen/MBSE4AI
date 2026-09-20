@@ -152,6 +152,10 @@ def _repair_input(request: GenerationRequest) -> Mapping[str, object]:
         "task_id",
         "methodology_version",
         "requirement_worklist",
+        # Preserve the R narrow-batch boundary during structural repair.  A
+        # repair that forgets the current slice can regenerate the full R
+        # graph and immediately hit the remote output limit again.
+        "r_slice",
         # Preserve the vertical runtime's batch boundary during repair.  If
         # this metadata is dropped, a malformed batch retry may regenerate the
         # whole worklist and exceed the provider's output budget.
