@@ -870,6 +870,16 @@ class OpenAICompatibleModel:
             )
         except (TypeError, ValueError):
             self.vertical_functional_batch_size = 1
+        try:
+            self.vertical_logical_batch_size = max(
+                1,
+                min(
+                    32,
+                    int(self._config.get("vertical_logical_batch_size", 1)),
+                ),
+            )
+        except (TypeError, ValueError):
+            self.vertical_logical_batch_size = 1
         default_vv_batch_size = (
             1
             if str(self._config.get("model_location", "local")).casefold() == "remote"

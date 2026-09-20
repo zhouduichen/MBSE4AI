@@ -556,15 +556,19 @@ class CompleteVerticalModel(ScriptedModel):
             relation(requirement_id, "satisfiedBy", "function-1")
             relation("function-1", "exchangesWith", "flow-1")
         elif request.lens_id == "vertical.logical":
+            scope = requirement_id[-8:]
+            logical_ref = f"logical-{scope}"
+            interface_ref = f"interface-{scope}"
+            state_ref = f"state-{scope}"
             entity(
-                "logical-1", "logical_component", "配送控制组件",
+                logical_ref, "logical_component", f"配送控制组件-{scope}",
                 {
                     "responsibility": "协调配送功能、状态和人工接管",
                     "partition_basis": "按配送控制职责形成逻辑分区",
                     "functional_flow_ids": [
                         item["id"] for item in by_kind.get(EntityKind.FUNCTIONAL_FLOW.value, [])
                     ],
-                    "shared_state_ids": ["state-1"],
+                    "shared_state_ids": [state_ref],
                     "dependencies": [],
                     "cohesion": "high",
                     "coupling": "low",
@@ -572,27 +576,27 @@ class CompleteVerticalModel(ScriptedModel):
                 },
             )
             entity(
-                "interface-1", "interface", "配送任务交互接口",
+                interface_ref, "interface", f"配送任务交互接口-{scope}",
                 {
                     "protocol": "logical-message",
                     "exchanges": ["task_request", "task_status", "handover"],
-                    "connected_component_ids": ["logical-1"],
+                    "connected_component_ids": [logical_ref],
                 },
             )
             entity(
-                "state-1", "state", "配送任务状态",
+                state_ref, "state", f"配送任务状态-{scope}",
                 {
                     "values": ["待受理", "执行中", "人工接管", "完成", "失败"],
                     "transitions": ["待受理->执行中", "执行中->完成", "执行中->人工接管"],
-                    "owner_id": "logical-1",
+                    "owner_id": logical_ref,
                 },
             )
             function_ids = [item["id"] for item in by_kind.get(EntityKind.FUNCTION.value, [])]
             for function_id in function_ids:
-                relation(function_id, "allocatedTo", "logical-1")
-                relation(function_id, "exchangesWith", "interface-1")
-            relation("logical-1", "connectedTo", "interface-1")
-            relation("logical-1", "decomposes", "state-1")
+                relation(function_id, "allocatedTo", logical_ref)
+                relation(function_id, "exchangesWith", interface_ref)
+            relation(logical_ref, "connectedTo", interface_ref)
+            relation(logical_ref, "decomposes", state_ref)
         elif request.lens_id == "vertical.physical":
             logical = by_kind[EntityKind.LOGICAL_COMPONENT.value][0]
             functions = by_kind.get(EntityKind.FUNCTION.value, [])
@@ -1241,8 +1245,12 @@ class ThreeRequirementStructuredModel(TwoRequirementFeedbackModel):
 
     def __init__(self):
         super().__init__()
+        # Keep downstream fixture calls aligned with the new per-Requirement
+        # Logical slices; the production runtime still owns its P/V&V policy.
+        self.vertical_batch_size = 1
         self.requirement_worklists = []
         self.functional_worklists = []
+        self.logical_worklists = []
 
     def complete_json(self, request):
         self.requirement_worklists.append(
@@ -1254,6 +1262,10 @@ class ThreeRequirementStructuredModel(TwoRequirementFeedbackModel):
                 request.user_payload.get("requirement_worklist", [])
             )
             return replace(recorded, payload=self._multi_requirement_functional(request))
+        if request.lens_id == "vertical.logical":
+            self.logical_worklists.append(
+                request.user_payload.get("requirement_worklist", [])
+            )
         if request.lens_id == "vertical.verification_validation":
             return replace(recorded, payload=self._assurance_proposal(request))
         return replace(recorded, payload=CompleteVerticalModel._proposal(self, request))
@@ -1358,6 +1370,11 @@ class FiveRequirementBatchedStructuredModel(ThreeRequirementStructuredModel):
 
     supports_requirement_batching = True
 
+    def __init__(self):
+        super().__init__()
+        self.vertical_batch_size = 1
+        self.vertical_vv_batch_size = 2
+
     def complete_json(self, request):
         if request.lens_id != "vertical.verification_validation":
             return super().complete_json(request)
@@ -1439,6 +1456,40 @@ def test_structured_runtime_generates_three_requirement_vertical_model(tmp_path:
         worklist[0]["requirement_id"]
         for worklist in model.functional_worklists
     } == {item.id for item in requirements}
+    assert len(model.logical_worklists) == 3
+    assert all(len(worklist) == 1 for worklist in model.logical_worklists)
+    assert {
+        worklist[0]["requirement_id"]
+        for worklist in model.logical_worklists
+    } == {item.id for item in requirements}
+    assert len(tuple(
+        item for item in graph.entities if item.kind is EntityKind.LOGICAL_COMPONENT
+    )) == 3
+    assert len(tuple(
+        item for item in graph.entities if item.kind is EntityKind.INTERFACE
+    )) == 3
+    assert len(tuple(
+        item for item in graph.entities if item.kind is EntityKind.STATE
+    )) == 3
+    assert sum(
+        1
+        for relation in graph.relations
+        if relation.predicate is RelationPredicate.ALLOCATED_TO
+        and graph.entity_index[relation.source_id].kind is EntityKind.FUNCTION
+        and graph.entity_index[relation.target_id].kind is EntityKind.LOGICAL_COMPONENT
+    ) == 3
+    assert sum(
+        1
+        for relation in graph.relations
+        if relation.predicate is RelationPredicate.CONNECTED_TO
+    ) == 3
+    assert sum(
+        1
+        for relation in graph.relations
+        if relation.predicate is RelationPredicate.DECOMPOSES
+        and graph.entity_index[relation.source_id].kind is EntityKind.LOGICAL_COMPONENT
+        and graph.entity_index[relation.target_id].kind is EntityKind.STATE
+    ) == 3
     assert sum(
         1
         for relation in graph.relations

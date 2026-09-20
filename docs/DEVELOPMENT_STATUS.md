@@ -76,6 +76,7 @@
 | 大输入 V&V 批处理 | 配置的 OpenAI-compatible Runtime 对 V&V 按配置批大小生成并合并结构化 Patch；独立批次可并行请求，5 条需求形成 10 个 V&V Case、完整追溯、SysML 往返和可编辑 revision；任一批失败不提交部分结果；仍不等同于真实远程 Provider 稳定性 |
 | 大输入 RFLP 批处理 | 配置的 OpenAI-compatible Runtime 对 Functional、Logical、Physical 与 V&V 统一支持按 Requirement 分批；同阶段独立批次可并行，批次只携带当前 Requirement、typed targets、System 和一跳关系邻居，全部 Proposal 合并后才进入既有 Validator/CAS 边界，避免大输入只处理上下文前缀或触发 Provider 超窗 |
 | Functional 单需求窄批次 | `vertical.functional` 对支持批处理的 Provider 为每条 Requirement 建立独立请求，生成真实 Function/FunctionalFlow/FunctionalScenario，保留 `source_requirement_ids` 与 `Requirement→satisfiedBy→Function`；三需求结构化纵向夹具已验证 3 个独立 F 请求并继续完成 L/P/V&V，Logical/Physical/V&V 批大小保持不变；该证据仍是离线结构化验收，不等同于真实远端 Provider 稳定性 |
+| Logical 单需求窄批次 | `vertical.logical` 对支持批处理的 Provider 为每条 Requirement 建立独立请求，按当前 Function 生成 LogicalComponent/Interface/State，并保留 `Function→allocatedTo→LogicalComponent`、`connectedTo`、`decomposes` typed 追溯；三需求结构化纵向夹具已验证 3 个独立 L 请求、3 个逻辑组件、3 个接口和 3 个状态，并继续完成 P/V&V；该证据仍是离线结构化验收，不等同于真实远端 Provider 稳定性 |
 | 完整纵向 Requirement worklist | 纵向结构化 Runtime 不再静默截断超过 24 条的 Requirement；支持批处理的 Provider 按完整 worklist 分批，所有需求在进入 Compiler/CAS 前均保留逐条覆盖 |
 | 逐需求纵向覆盖反馈 | Functional、Logical、Physical、Verification/Validation 阶段逐条解析活动 Requirement 的覆盖链，输出精确缺失 ID；反馈轮只修复当前阶段缺口，并在 Analysis 工作台显示逐条覆盖结论；远程默认不重复调用每个批次 |
 | 上下文可见性追溯 | worklist 保留完整图上的 `current` 追溯，同时标注 `available_current` 与 `unavailable_current`；结构化 LLM 只能引用当前 Context 可见的 canonical ID，延后目标进入后续继续分析 |

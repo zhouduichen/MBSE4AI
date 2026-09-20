@@ -137,6 +137,16 @@ class StructuredModelRuntime:
             )
         except (TypeError, ValueError):
             self.vertical_functional_batch_size = 1
+        try:
+            self.vertical_logical_batch_size = max(
+                1,
+                min(
+                    32,
+                    int(getattr(model, "vertical_logical_batch_size", 1)),
+                ),
+            )
+        except (TypeError, ValueError):
+            self.vertical_logical_batch_size = 1
         self.vertical_batch_output_token_budget = max(
             256,
             int(
@@ -222,6 +232,8 @@ class StructuredModelRuntime:
             batch_size = self.vertical_batch_size
             if request.task_id == "vertical.functional":
                 batch_size = self.vertical_functional_batch_size
+            elif request.task_id == "vertical.logical":
+                batch_size = self.vertical_logical_batch_size
             elif request.task_id == _VV_BATCH_TASK:
                 batch_size = self.vertical_vv_batch_size
             batches = _requirement_batches(
@@ -233,7 +245,7 @@ class StructuredModelRuntime:
             batch_descriptors = _batch_descriptors(request, batches, self.model)
             include_batch_metadata = (
                 len(batch_descriptors) > 1
-                or request.task_id == "vertical.functional"
+                or request.task_id in {"vertical.functional", "vertical.logical"}
             )
             batch_payloads = tuple(
                 _scope_batch_payload(
@@ -1419,6 +1431,23 @@ def _batch_instruction(task_id: str, meta: object) -> str:
                 "关系，禁止引用其它批次 Requirement。"
                 "功能名称描述可观察系统行为，不要把传感器、芯片、数据库或物理零件当作 Function。"
             )
+        if task_id == "vertical.logical":
+            requirement_ids = meta.get("requirement_ids")
+            target_hint = (
+                str(requirement_ids[0])
+                if isinstance(requirement_ids, (list, tuple)) and requirement_ids
+                else "当前批次"
+            )
+            return (
+                f"当前是 Logical 第 {index}/{count} 个需求批次，只处理一个 canonical "
+                f"Requirement：{target_hint}。"
+                "只为当前 Requirement 的可见 Function 形成逻辑架构切片；"
+                "logical_component.payload.function_id 必须引用当前 Function 的 canonical ID 或本批 local_ref，"
+                "不得引用其它 Requirement 的 Function。Interface 的 payload.connected_component_ids 必须是本批"
+                "实际生成或当前上下文可见的 LogicalComponent ID；State 的 owner_id 必须是其所属"
+                "LogicalComponent ID，且 state.payload.owner_id 必须形成 decomposes 关系。保留功能依赖、功能流和架构分区依据，"
+                "不要把具体传感器、芯片、数据库或厂商零件写成 LogicalComponent。"
+            )
         return (
             f"当前是 {task_id} 第 {index}/{count} 个需求批次。"
             "只处理 requirement_worklist 中的 canonical Requirement；"
@@ -1588,10 +1617,23 @@ def _requirement_batches(
         request.task_id == "vertical.functional"
         and len(entries) > 1
     )
+    should_split_logical = (
+        request.task_id == "vertical.logical"
+        and len(entries) > 1
+    )
     should_split_large_batch = len(entries) > _VERTICAL_BATCH_THRESHOLD
+    should_split_configured_singleton = (
+        int(batch_size) == 1
+        and len(entries) > 1
+    )
     if not (
         request.task_id in _VERTICAL_BATCH_TASKS
-        and (should_split_functional or should_split_large_batch)
+        and (
+            should_split_functional
+            or should_split_logical
+            or should_split_large_batch
+            or should_split_configured_singleton
+        )
         and getattr(model, "supports_requirement_batching", False) is True
     ):
         return (entries,)

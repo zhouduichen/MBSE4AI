@@ -105,12 +105,13 @@ def test_requirements_prompt_scopes_closure_to_one_requirement():
 
 def test_logical_prompt_requires_typed_interface_and_state_ownership():
     model = CapturingModel()
+    requirement = make_entity(EntityKind.REQUIREMENT, "系统应完成任务")
     context = ContextBundle(
         "p1",
         "vertical.logical",
         3,
         (
-            make_entity(EntityKind.REQUIREMENT, "系统应完成任务"),
+            requirement,
             make_entity(EntityKind.FUNCTION, "执行任务"),
             make_entity(EntityKind.LOGICAL_COMPONENT, "任务控制"),
         ),
@@ -120,6 +121,9 @@ def test_logical_prompt_requires_typed_interface_and_state_ownership():
     StructuredModelRuntime(model).execute(request)
 
     prompt = model.requests[0].system_prompt
+    assert requirement.id in prompt
+    assert "当前是 Logical 第" in prompt
+    assert "logical_component.payload.function_id" in prompt
     assert "payload.owner_id" in prompt
     assert "payload.connected_component_ids" in prompt
 
