@@ -70,7 +70,10 @@ class ScriptedModel:
                 "verification_case", "validation_case", "hazard", "failure_mode",
             },
         }
-        if required_by_lens.get(request.lens_id, set()) <= set(by_kind):
+        if (
+            required_by_lens.get(request.lens_id, set()) <= set(by_kind)
+            and not isinstance(request.user_payload.get("r_slice"), dict)
+        ):
             payload["assumptions"] = ["脚本模型用于测试结构化边界"]
             payload["open_questions"] = []
             payload["decision_records"] = [{
@@ -160,7 +163,111 @@ class ScriptedModel:
             "decision": "按照阶段契约产生结构化模型",
             "basis": [],
         }]
-        return GenerationResponse(request.lens_id, payload, "input", "output", False, "fake", "scripted")
+        return GenerationResponse(
+            request.lens_id,
+            self._scope_r_proposal(request, payload),
+            "input",
+            "output",
+            False,
+            "fake",
+            "scripted",
+        )
+
+    @staticmethod
+    def _scope_r_proposal(request, payload):
+        metadata = request.user_payload.get("r_slice")
+        if request.lens_id != "vertical.requirements" or not isinstance(metadata, dict):
+            return payload
+        context_entities = request.user_payload["context"]["entities"]
+        by_kind = {}
+        for item in context_entities:
+            by_kind.setdefault(item["kind"], []).append(item)
+        if metadata.get("slice_kind") == "r_requirement":
+            relations = []
+            requirement_id = metadata["requirement_ids"][0]
+
+            def relate_to(kind, predicate):
+                values = by_kind.get(kind, [])
+                if values:
+                    relations.append({
+                        "source_ref": requirement_id,
+                        "predicate": predicate,
+                        "target_ref": values[0]["id"],
+                        "evidence_ids": [],
+                    })
+
+            relate_to(EntityKind.CONCERN.value, RelationPredicate.DERIVED_FROM.value)
+            relate_to(EntityKind.USE_CASE.value, RelationPredicate.DERIVED_FROM.value)
+            relate_to(EntityKind.ACTIVITY.value, RelationPredicate.DERIVED_FROM.value)
+            use_cases = by_kind.get(EntityKind.USE_CASE.value, [])
+            activities = by_kind.get(EntityKind.ACTIVITY.value, [])
+            if use_cases and activities:
+                relations.append({
+                    "source_ref": use_cases[0]["id"],
+                    "predicate": RelationPredicate.DECOMPOSES.value,
+                    "target_ref": activities[0]["id"],
+                    "evidence_ids": [],
+                })
+            return {
+                **payload,
+                "entities": [],
+                "relations": relations,
+                "updates": [],
+                "deprecations": [],
+            }
+        allowed_kinds = set(str(item) for item in metadata.get("allowed_kinds", ()))
+        entities = [
+            item for item in payload["entities"]
+            if item["kind"] in allowed_kinds
+        ]
+        local_refs = {item["local_ref"] for item in entities}
+        context_ids = {item["id"] for item in context_entities}
+        allowed_predicates = {
+            RelationPredicate.HAS_CONCERN.value,
+            RelationPredicate.PARTICIPATES_IN.value,
+            RelationPredicate.OCCURS_IN.value,
+            RelationPredicate.DERIVED_FROM.value,
+            RelationPredicate.DECOMPOSES.value,
+        }
+        relations = [
+            item for item in payload["relations"]
+            if item["predicate"] in allowed_predicates
+            and item["source_ref"] in local_refs | context_ids
+            and item["target_ref"] in local_refs | context_ids
+        ]
+        if metadata.get("slice_kind") == "r_backbone_operational":
+            stakeholders = by_kind.get(EntityKind.STAKEHOLDER.value, [])
+            concerns = [
+                item for item in entities
+                if item["kind"] == EntityKind.CONCERN.value
+            ]
+            if stakeholders and concerns:
+                relations.append({
+                    "source_ref": stakeholders[0]["id"],
+                    "predicate": RelationPredicate.HAS_CONCERN.value,
+                    "target_ref": concerns[0]["local_ref"],
+                    "evidence_ids": [],
+                })
+        if metadata.get("slice_kind") == "r_backbone_behavior":
+            stakeholders = by_kind.get(EntityKind.STAKEHOLDER.value, [])
+            scenarios = [
+                item for item in entities
+                if item["kind"] == EntityKind.OPERATIONAL_SCENARIO.value
+            ]
+            if stakeholders and scenarios:
+                relations.append({
+                    "source_ref": stakeholders[0]["id"],
+                    "predicate": RelationPredicate.PARTICIPATES_IN.value,
+                    "target_ref": scenarios[0]["local_ref"],
+                    "evidence_ids": [],
+                })
+        return {
+            **payload,
+            "entities": entities,
+            "relations": relations,
+            "updates": [],
+            "deprecations": [],
+        }
 
 
 class TransportFailingVerticalRuntime:
@@ -398,7 +505,9 @@ class CompleteVerticalModel(ScriptedModel):
                 "activity-1", "activity", "受理并完成配送活动",
                 {
                     "steps": ["受理任务", "执行配送", "反馈结果"],
-                    "branches": ["人工接管"],
+                    "branches": [
+                        "normal", "failure", "alternative", "boundary", "exception",
+                    ],
                     "goal": "完成配送并反馈任务状态",
                 },
             )
@@ -630,7 +739,7 @@ class CompleteVerticalModel(ScriptedModel):
                         "physical_candidate_ids": [item["id"] for item in physicals],
                     },
                 })
-        return payload
+        return self._scope_r_proposal(request, payload)
 
     @staticmethod
     def _controller_decision(request):
@@ -1321,6 +1430,7 @@ def test_structured_runtime_generates_three_requirement_vertical_model(tmp_path:
         [item["requirement_id"] for item in worklist]
         == [item.id for item in requirements]
         for worklist in model.requirement_worklists
+        if len(worklist) == len(requirements)
     )
 
     exported = graph_to_sysml(graph)
@@ -1472,6 +1582,8 @@ def test_structured_runtime_generates_complete_editable_vertical_model(tmp_path:
     assert all(stage.attempts == 1 for stage in result.stage_results)
     assert result.traceability.end_to_end_complete_count == 1
     assert model.calls == [
+        "vertical.requirements",
+        "vertical.requirements",
         "vertical.requirements",
         "vertical.functional",
         "vertical.logical",
@@ -1976,6 +2088,7 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
     assert model.calls == [
         "vertical.requirements",
         "vertical.requirements",
+        "vertical.requirements",
         "vertical.functional",
         "vertical.functional",
         "vertical.logical",
@@ -1986,7 +2099,8 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
         "vertical.verification_validation",
     ]
     assert all(stage.attempts >= 1 for stage in result.stage_results)
-    assert all(stage.attempts == 2 for stage in result.stage_results)
+    assert result.stage_results[0].attempts == 1
+    assert all(stage.attempts == 2 for stage in result.stage_results[1:])
     assert all(
         item["attempts"] == stage.attempts
         for item, stage in zip(result.as_dict()["stage_results"], result.stage_results)
@@ -2014,6 +2128,7 @@ def test_generation_uses_structured_llm_runtime_for_all_five_stages(tmp_path: Pa
         for check in functional_guidance["stage_completion"]["checks"]
     )
     assert [item["task_id"] for item in model.methodology_guidances] == [
+        "vertical.requirements",
         "vertical.requirements",
         "vertical.requirements",
         "vertical.functional",
@@ -2077,6 +2192,7 @@ def test_structured_runtime_retries_one_stage_with_latest_graph_and_guidance(tmp
     assert result.stage_results[1].completion_issue_codes == ()
     assert model.functional_context_revisions == [2, 3]
     assert model.calls == [
+        "vertical.requirements",
         "vertical.requirements",
         "vertical.requirements",
         "vertical.functional",
@@ -2290,6 +2406,7 @@ def test_vertical_generation_bounds_stage_context_to_configured_window(tmp_path:
     assert model.calls == [
         "vertical.requirements",
         "vertical.requirements",
+        "vertical.requirements",
         "vertical.functional",
         "vertical.functional",
         "vertical.logical",
@@ -2336,15 +2453,16 @@ def test_configured_vertical_generation_bridges_remaining_completion_gaps(tmp_pa
 
     assert result.traceability.complete_count == 1
     assert all(item.status == "completed" for item in result.stage_results)
-    assert all(item.attempts == 2 for item in result.stage_results)
+    assert result.stage_results[0].attempts == 1
+    assert all(item.attempts == 2 for item in result.stage_results[1:])
     assert all(
         "completion_bridge=vertical-rule" in item.diagnostics
-        for item in result.stage_results
+        for item in result.stage_results[1:]
     )
     assert sum(
         event["kind"] == "model_generation.completion_bridge"
         for event in services.repository("robot").list_audit_events("robot")
-    ) == 5
+    ) == 4
 
 
 def test_configured_vertical_generation_can_skip_remote_feedback_and_still_bridge(tmp_path: Path):
@@ -2375,11 +2493,14 @@ def test_configured_vertical_generation_can_skip_remote_feedback_and_still_bridg
     assert result.traceability.complete_count == 1
     assert all(item.status == "completed" for item in result.stage_results)
     assert all(item.attempts == 1 for item in result.stage_results)
+    assert "completion_bridge=vertical-rule" not in result.stage_results[0].diagnostics
     assert all(
         "completion_bridge=vertical-rule" in item.diagnostics
-        for item in result.stage_results
+        for item in result.stage_results[1:]
     )
     assert model.calls == [
+        "vertical.requirements",
+        "vertical.requirements",
         "vertical.requirements",
         "vertical.functional",
         "vertical.logical",
@@ -2451,7 +2572,7 @@ def test_completion_bridge_repairs_missing_requirement_semantics(tmp_path: Path)
     assert result.traceability.complete_count == 1
     assert result.stage_results[0].status == "completed"
     assert requirement.payload["obligation"] == "系统应"
-    assert "completion_bridge=vertical-rule" in result.stage_results[0].diagnostics
+    assert "completion_bridge=vertical-rule" not in result.stage_results[0].diagnostics
 
 
 def test_generation_attaches_read_only_controller_proposal(tmp_path: Path):

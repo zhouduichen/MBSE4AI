@@ -17,7 +17,12 @@ from rflp_lite.methodology.registries import RetryPolicy
 from rflp_lite.methodology.tasks import task_catalog
 from rflp_lite.methodology.trace_rules import vv_scope_matches
 from rflp_lite.methodology.vertical_generation import stage_task
-from rflp_lite.runtime.structured_model import StructuredModelRuntime, _sanitize_vertical_proposal
+from rflp_lite.runtime.structured_model import (
+    StructuredModelRuntime,
+    _r_slice_contract,
+    _r_stage_slices,
+    _sanitize_vertical_proposal,
+)
 from rflp_lite.runtime.rule_based import RuleRuntime
 from rflp_lite.ports.generative_model import GenerationResponse
 
@@ -312,8 +317,120 @@ def test_vertical_runtime_exposes_canonical_requirement_worklist():
     ]
 
 
+def test_r_stage_slices_backbone_then_one_requirement_closure_per_requirement():
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求 {index}",
+            {"statement": f"系统应完成任务 {index}"},
+        )
+        for index in range(5)
+    )
+    request = TaskExecutionRequest(
+        "vertical.requirements",
+        "v2.1",
+        ContextBundle("p1", "vertical.requirements", 3, requirements),
+        (),
+        {"output_kinds": [kind.value for kind in EntityKind]},
+        3000,
+    )
+    payload = {
+        "context": {"entities": [], "relations": []},
+        "requirement_worklist": [
+            {
+                "requirement_id": requirement.id,
+                "statement": requirement.payload["statement"],
+                "missing": ["use_case", "activity"],
+            }
+            for requirement in requirements
+        ],
+    }
+
+    slices = _r_stage_slices(request, payload)
+
+    assert [item["r_slice"]["slice_kind"] for item in slices] == [
+        "r_backbone_operational",
+        "r_backbone_behavior",
+        "r_requirement",
+        "r_requirement",
+        "r_requirement",
+        "r_requirement",
+        "r_requirement",
+    ]
+    assert [
+        item["r_slice"]["requirement_ids"] for item in slices[2:]
+    ] == [[requirement.id] for requirement in requirements]
+    assert all(
+        "requirement" not in item["r_slice"]["allowed_kinds"]
+        for item in slices[:2]
+    )
+
+
+def test_r_requirement_slice_contract_forbids_new_entities_and_scopes_update():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应支持人工接管",
+        {"statement": "系统应支持人工接管"},
+    )
+    request = TaskExecutor(FakeModel()).request(
+        stage_task("requirements"),
+        ContextBundle("p1", "vertical.requirements", 3, (requirement,)),
+        "v2.1",
+    )
+    payload = {
+        "r_slice": {
+            "slice_kind": "r_requirement",
+            "allowed_kinds": [],
+            "requirement_ids": [requirement.id],
+        },
+    }
+
+    contract = _r_slice_contract(request.output_contract, payload)
+    properties = contract["properties"]
+    assert properties["entities"]["maxItems"] == 0
+    assert properties["updates"]["items"]["properties"]["entity_id"] == {
+        "const": requirement.id,
+    }
+    assert properties["relations"]["items"]["properties"]["predicate"]["enum"] == [
+        "decomposes", "derivedFrom",
+    ]
+
+
 def test_vertical_runtime_keeps_entities_when_relation_reference_is_unresolvable():
-    model = FakeModel({
+    class RScopedModel(FakeModel):
+        def complete_json(self, request):
+            payload = dict(self.payload)
+            kind_schema = (
+                request.response_schema
+                .get("properties", {})
+                .get("entities", {})
+                .get("items", {})
+                .get("properties", {})
+                .get("kind", {})
+            )
+            entity_schema = request.response_schema.get("properties", {}).get("entities", {})
+            if entity_schema.get("maxItems") == 0:
+                payload.update(entities=[], relations=[])
+                return GenerationResponse(
+                    request.lens_id, payload, "input", "output", False, "fake", "fake-model"
+                )
+            allowed = set(kind_schema.get("enum", ()))
+            if allowed:
+                entities = [
+                    item for item in payload["entities"]
+                    if item["kind"] in allowed
+                ]
+                refs = {item["local_ref"] for item in entities}
+                relations = [
+                    item for item in payload["relations"]
+                    if item["source_ref"] in refs or item["target_ref"] in refs
+                ]
+                payload.update(entities=entities, relations=relations)
+            return GenerationResponse(
+                request.lens_id, payload, "input", "output", False, "fake", "fake-model"
+            )
+
+    model = RScopedModel({
         "entities": [
             {
                 "local_ref": "system-1",
@@ -360,6 +477,153 @@ def test_vertical_runtime_keeps_entities_when_relation_reference_is_unresolvable
     assert result.patch is not None
     assert sum(isinstance(operation, AddEntity) for operation in result.patch.operations) == 2
     assert not any(isinstance(operation, Relate) for operation in result.patch.operations)
+
+
+def test_r_stage_closures_use_canonical_entities_from_the_working_graph():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应支持人工接管",
+        {"statement": "系统应支持人工接管"},
+    )
+
+    class WorkingGraphModel:
+        def __init__(self):
+            self.calls = []
+
+        def complete_json(self, request):
+            self.calls.append(request)
+            metadata = request.user_payload["r_slice"]
+            slice_kind = metadata["slice_kind"]
+            entities = []
+            relations = []
+            if slice_kind == "r_backbone_operational":
+                entities = [{
+                    "local_ref": "concern-local",
+                    "kind": EntityKind.CONCERN.value,
+                    "name": "人工接管可控",
+                    "payload": {"topic": "人工接管"},
+                }]
+            elif slice_kind == "r_backbone_behavior":
+                assert any(
+                    item["kind"] == EntityKind.CONCERN.value
+                    for item in request.user_payload["context"]["entities"]
+                )
+                entities = [{
+                    "local_ref": "use-case-local",
+                    "kind": EntityKind.USE_CASE.value,
+                    "name": "人工接管",
+                    "payload": {"goal": "完成人工接管"},
+                }]
+            else:
+                context_entities = request.user_payload["context"]["entities"]
+                use_case = next(
+                    item for item in context_entities
+                    if item["kind"] == EntityKind.USE_CASE.value
+                )
+                requirement_id = metadata["requirement_ids"][0]
+                relations = [{
+                    "source_ref": requirement_id,
+                    "predicate": RelationPredicate.DERIVED_FROM.value,
+                    "target_ref": use_case["id"],
+                    "evidence_ids": [],
+                }]
+            return GenerationResponse(
+                request.lens_id,
+                {
+                    "entities": entities,
+                    "relations": relations,
+                    "updates": [],
+                    "deprecations": [],
+                    "reason": slice_kind,
+                },
+                "input",
+                f"output-{len(self.calls)}",
+                False,
+                "fake",
+                "fake-model",
+            )
+
+    model = WorkingGraphModel()
+    task = stage_task("requirements")
+    context = ContextBundle("p1", task.id, 7, (requirement,))
+    result = StructuredModelRuntime(model).execute(
+        TaskExecutor(model).request(task, context, "v2.1")
+    )
+
+    assert result.patch is not None
+    assert result.patch.expected_revision == 7
+    assert any(
+        isinstance(operation, AddEntity)
+        and operation.entity.kind is EntityKind.USE_CASE
+        for operation in result.patch.operations
+    )
+    assert any(
+        isinstance(operation, Relate)
+        and operation.source_id == requirement.id
+        and operation.predicate is RelationPredicate.DERIVED_FROM
+        and operation.target_id.startswith("use_case-")
+        for operation in result.patch.operations
+    )
+    assert [
+        request.user_payload["r_slice"]["slice_kind"]
+        for request in model.calls
+    ] == [
+        "r_backbone_operational",
+        "r_backbone_behavior",
+        "r_requirement",
+    ]
+
+
+def test_r_stage_failure_keeps_the_write_boundary_and_stops_closures():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应支持人工接管",
+        {"statement": "系统应支持人工接管"},
+    )
+
+    class FailingBackboneModel:
+        def __init__(self):
+            self.calls = []
+
+        def complete_json(self, request):
+            slice_kind = request.user_payload["r_slice"]["slice_kind"]
+            self.calls.append(slice_kind)
+            if slice_kind == "r_backbone_behavior":
+                raise StructuredOutputFailure(
+                    "backbone response truncated",
+                    code="truncated",
+                    provider_id="fake",
+                    model_id="fake-model",
+                    finish_reason="length",
+                )
+            return GenerationResponse(
+                request.lens_id,
+                {
+                    "entities": [],
+                    "relations": [],
+                    "updates": [],
+                    "deprecations": [],
+                    "reason": "没有可安全补充的运营骨架",
+                },
+                "input",
+                "output",
+                False,
+                "fake",
+                "fake-model",
+            )
+
+    model = FailingBackboneModel()
+    task = stage_task("requirements")
+    request = TaskExecutor(model).request(
+        task,
+        ContextBundle("p1", task.id, 11, (requirement,)),
+        "v2.1",
+    )
+
+    with pytest.raises(StructuredOutputFailure, match="r_slice_failed=r_backbone_behavior"):
+        StructuredModelRuntime(model).execute(request)
+
+    assert model.calls == ["r_backbone_operational", "r_backbone_behavior"]
 
 
 def test_vertical_runtime_compacts_model_context_but_keeps_typed_payload_fields():

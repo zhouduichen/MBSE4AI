@@ -14,8 +14,17 @@ from rflp_lite.domain.errors import (
     ContractViolation,
     ProposalCompileFailure,
     StructuredOutputFailure,
+    TransportFailure,
 )
-from rflp_lite.domain.model import AddEntity, Deprecate, Patch, Relate, UpdateEntity
+from rflp_lite.domain.model import (
+    AddEntity,
+    Deprecate,
+    ModelGraph,
+    Patch,
+    Relate,
+    UpdateEntity,
+    apply_patch,
+)
 from rflp_lite.domain.relations import RelationPredicate, validate_endpoint_kinds
 from rflp_lite.methodology.contracts import StepStatus, TaskExecutionRequest, TaskExecutionResponse
 from rflp_lite.methodology.proposal_compiler import (
@@ -24,6 +33,7 @@ from rflp_lite.methodology.proposal_compiler import (
     compile_task_proposal,
     parse_task_proposal,
 )
+from rflp_lite.methodology.policy import PatchPolicy
 from rflp_lite.ports.generative_model import (
     GenerationRequest,
     GenerationResponse,
@@ -39,6 +49,39 @@ _VERTICAL_BATCH_TASKS = frozenset({
     "vertical.physical",
     _VV_BATCH_TASK,
 })
+_R_STAGE_KINDS = (
+    "system",
+    "stakeholder",
+    "concern",
+    "lifecycle_stage",
+    "lifecycle_transition",
+    "scenario_hypothesis",
+    "use_case",
+    "operational_scenario",
+    "activity",
+    "requirement",
+)
+_R_BACKBONE_GROUPS = (
+    (
+        "r_backbone_operational",
+        (
+            "system",
+            "stakeholder",
+            "concern",
+            "lifecycle_stage",
+            "lifecycle_transition",
+        ),
+    ),
+    (
+        "r_backbone_behavior",
+        (
+            "scenario_hypothesis",
+            "use_case",
+            "operational_scenario",
+            "activity",
+        ),
+    ),
+)
 _VERTICAL_BATCH_THRESHOLD = 3
 # Two requirements per provider call keeps a legitimate RFLP slice small while
 # avoiding a five-call serial bottleneck for ordinary CASE-04-sized inputs.
@@ -68,6 +111,9 @@ class _CompiledProposal:
     patch: Patch | None
     compiler_repaired: bool = False
     batch_fallback: bool = False
+    slice_kind: str = ""
+    slice_index: int = 0
+    slice_count: int = 0
 
 
 class StructuredModelRuntime:
@@ -156,55 +202,58 @@ class StructuredModelRuntime:
                 request.context_bundle
             )
         contract = _output_schema(request.output_contract)
-        batches = _requirement_batches(
-            request,
-            payload.get("requirement_worklist", []),
-            self.model,
-            batch_size=(
-                self.vertical_vv_batch_size
-                if request.task_id == _VV_BATCH_TASK
-                else self.vertical_batch_size
-            ),
-        )
-        batch_descriptors = _batch_descriptors(request, batches, self.model)
-        batch_payloads = tuple(
-            _scope_batch_payload(
+        if request.task_id == "vertical.requirements":
+            compiled = self._execute_r_stage(request, payload, contract)
+        else:
+            batches = _requirement_batches(
                 request,
-                {
-                    **payload,
-                    **(
-                        {"requirement_worklist": list(batch)}
-                        if "requirement_worklist" in payload
-                        else {}
-                    ),
-                    **(
-                        {
-                            "requirement_batch": {
-                                "index": index,
-                                "count": len(batch_descriptors),
-                                "is_first": index == 1,
-                                "requirement_ids": [
-                                    str(item.get("requirement_id", ""))
-                                    for item in batch
-                                    if isinstance(item, Mapping)
-                                    and str(item.get("requirement_id", ""))
-                                ],
-                                **(
-                                    {"case_kind": case_kind}
-                                    if case_kind
-                                    else {}
-                                ),
-                            }
-                        }
-                        if len(batch_descriptors) > 1
-                        else {}
-                    ),
-                },
-                batch,
+                payload.get("requirement_worklist", []),
+                self.model,
+                batch_size=(
+                    self.vertical_vv_batch_size
+                    if request.task_id == _VV_BATCH_TASK
+                    else self.vertical_batch_size
+                ),
             )
-            for index, (batch, case_kind) in enumerate(batch_descriptors, start=1)
-        )
-        compiled = self._complete_batches(request, contract, batch_payloads)
+            batch_descriptors = _batch_descriptors(request, batches, self.model)
+            batch_payloads = tuple(
+                _scope_batch_payload(
+                    request,
+                    {
+                        **payload,
+                        **(
+                            {"requirement_worklist": list(batch)}
+                            if "requirement_worklist" in payload
+                            else {}
+                        ),
+                        **(
+                            {
+                                "requirement_batch": {
+                                    "index": index,
+                                    "count": len(batch_descriptors),
+                                    "is_first": index == 1,
+                                    "requirement_ids": [
+                                        str(item.get("requirement_id", ""))
+                                        for item in batch
+                                        if isinstance(item, Mapping)
+                                        and str(item.get("requirement_id", ""))
+                                    ],
+                                    **(
+                                        {"case_kind": case_kind}
+                                        if case_kind
+                                        else {}
+                                    ),
+                                }
+                            }
+                            if len(batch_descriptors) > 1
+                            else {}
+                        ),
+                    },
+                    batch,
+                )
+                for index, (batch, case_kind) in enumerate(batch_descriptors, start=1)
+            )
+            compiled = self._complete_batches(request, contract, batch_payloads)
         response, proposal, patch, compiler_repaired = _merge_compiled(
             request, compiled
         )
@@ -226,6 +275,12 @@ class StructuredModelRuntime:
                 f"batch={index}/{len(compiled)}"
                 for index in range(1, len(compiled) + 1)
             )
+        if request.task_id == "vertical.requirements":
+            diagnostics.extend(
+                "r_slice=" + (item.slice_kind or "legacy")
+                + f"[{item.slice_index}/{item.slice_count}]"
+                for item in compiled
+            )
         if any(item.batch_fallback for item in compiled):
             diagnostics.append("batch_fallback=single_requirement")
         if request.task_id in LIFECYCLE_TASKS:
@@ -245,6 +300,70 @@ class StructuredModelRuntime:
             open_questions=proposal.open_questions,
             decision_records=proposal.decision_records,
         )
+
+    def _execute_r_stage(
+        self,
+        request: TaskExecutionRequest,
+        payload: Mapping[str, object],
+        contract: Mapping[str, object],
+    ) -> tuple[_CompiledProposal, ...]:
+        """Complete R backbone slices before independent Requirement closures."""
+
+        slices = _r_stage_slices(request, payload)
+        if not any(isinstance(item.get("r_slice"), Mapping) for item in slices):
+            return self._complete_batches(request, contract, slices)
+        working_graph = ModelGraph(
+            request.context_bundle.project_id,
+            request.context_bundle.entities,
+            request.context_bundle.relations,
+            request.context_bundle.revision,
+        )
+        compiled: list[_CompiledProposal] = []
+        backbone = [
+            item for item in slices
+            if item["r_slice"]["slice_kind"] != "r_requirement"
+        ]
+        closures = [
+            item for item in slices
+            if item["r_slice"]["slice_kind"] == "r_requirement"
+        ]
+        for slice_payload in backbone:
+            current_request = _request_for_working_graph(request, working_graph)
+            current_payload = _r_payload_for_request(current_request, slice_payload)
+            try:
+                item = self._complete_batch(
+                    current_request,
+                    contract,
+                    current_payload,
+                )
+            except (StructuredOutputFailure, ProposalCompileFailure, TransportFailure) as exc:
+                raise _annotate_r_slice_failure(exc, current_payload) from exc
+            compiled.append(item)
+            if item.patch is not None:
+                working_graph = apply_patch(
+                    working_graph,
+                    _rebase_patch(item.patch, working_graph.revision),
+                )
+        if closures:
+            current_request = _request_for_working_graph(request, working_graph)
+            closure_payloads = tuple(
+                _r_payload_for_request(current_request, item)
+                for item in closures
+            )
+            try:
+                compiled.extend(
+                    self._complete_batches(current_request, contract, closure_payloads)
+                )
+            except (StructuredOutputFailure, ProposalCompileFailure, TransportFailure) as exc:
+                failed_payload = next(
+                    (
+                        item for item in closure_payloads
+                        if isinstance(item.get("r_slice"), Mapping)
+                    ),
+                    closure_payloads[0] if closure_payloads else {},
+                )
+                raise _annotate_r_slice_failure(exc, failed_payload) from exc
+        return tuple(compiled)
 
     def _complete_batches(
         self,
@@ -320,12 +439,23 @@ class StructuredModelRuntime:
     ) -> _CompiledProposal:
         effective_request = request
         case_kind = _vv_case_kind(payload)
+        full_contract = request.output_contract
         if case_kind:
-            full_contract = _vv_case_contract(request.output_contract, case_kind)
+            full_contract = _vv_case_contract(full_contract, case_kind)
+        if request.task_id == "vertical.requirements" and isinstance(
+            payload.get("r_slice"), Mapping
+        ):
+            full_contract = _r_slice_contract(full_contract, payload)
+        if case_kind or isinstance(payload.get("r_slice"), Mapping):
             effective_contract = _output_schema(full_contract)
             effective_request = replace(
                 request,
                 output_contract=full_contract,
+                patch_policy=(
+                    _r_slice_patch_policy(request, payload)
+                    if isinstance(payload.get("r_slice"), Mapping)
+                    else request.patch_policy
+                ),
             )
         else:
             effective_contract = contract
@@ -424,12 +554,18 @@ class StructuredModelRuntime:
                 ) from second_error
             response = replace(repair_response, repaired=True)
             compiler_repaired = True
+        slice_metadata = payload.get("r_slice")
+        if not isinstance(slice_metadata, Mapping):
+            slice_metadata = {}
         return _CompiledProposal(
             response,
             proposal,
             patch,
             compiler_repaired,
             batch_fallback,
+            str(slice_metadata.get("slice_kind", "")),
+            int(slice_metadata.get("slice_index", 0) or 0),
+            int(slice_metadata.get("slice_count", 0) or 0),
         )
 
 
@@ -1072,6 +1208,7 @@ def _requirements_instruction(
 
     if request.task_id != "vertical.requirements":
         return ""
+    slice_metadata = payload.get("r_slice")
     context = payload.get("context")
     if not isinstance(context, Mapping):
         return ""
@@ -1103,6 +1240,33 @@ def _requirements_instruction(
         "。本轮必须优先修复这些检查指出的缺口。"
         if failed_checks else ""
     )
+    if isinstance(slice_metadata, Mapping):
+        slice_kind = str(slice_metadata.get("slice_kind", ""))
+        allowed_kinds = tuple(
+            str(kind) for kind in slice_metadata.get("allowed_kinds", ())
+        )
+        if slice_kind == "r_requirement":
+            requirement_ids = tuple(
+                str(item) for item in slice_metadata.get("requirement_ids", ())
+            )
+            return (
+                "当前是 R Requirement closure slice；只处理指定 canonical Requirement："
+                + ", ".join(requirement_ids)
+                + "。entities 必须为空；只允许对该 Requirement 使用 updates，或补充"
+                " Requirement→Concern/UseCase/Activity 的 derivedFrom、UseCase→Activity 的"
+                " decomposes 关系。不得新增任何实体、更新其它 Requirement、反转关系方向，"
+                "也不得声称已覆盖不在当前上下文中的对象。"
+                + check_hint
+            )
+        return (
+            "当前是 R backbone slice；本轮只允许生成以下类型："
+            + ", ".join(allowed_kinds)
+            + "。不要生成 Requirement，也不要重复已有类型；先形成可复用的 canonical"
+            " operational/behavior backbone，再由后续 Requirement closure 建立追溯。"
+            "关系只能使用当前契约允许的 hasConcern、participatesIn、occursIn、derivedFrom、"
+            "decomposes，并保持 source_ref→target_ref 方向正确。"
+            + check_hint
+        )
     if not missing:
         return (
             "已有 R 层类型都已存在；只用最小 updates/relations 修复语义，不要新增实体。"
@@ -1131,7 +1295,8 @@ def _requirements_instruction(
         "R关系只允许四种端点模板：hasConcern=stakeholder/system→concern，"
         "participatesIn=stakeholder→operational_scenario，"
         "occursIn=activity/operational_scenario→lifecycle_stage，"
-        "derivedFrom=operational_scenario→use_case 或 requirement→concern/activity；"
+        "derivedFrom=operational_scenario→use_case 或 requirement→concern/use_case/activity；"
+        "decomposes=use_case→activity；"
         "stakeholder→use_case 不能使用 participatesIn；"
         "Requirement 的 level 只能是 stakeholder/system/functional/technical，type 只能是 "
         "functional/performance/interface/safety/constraint；"
@@ -1154,7 +1319,7 @@ _STRUCTURED_RULES = (
     "unavailable_current 仅表示完整图中的延后追溯，不能引用、更新或声称本轮已经修复；无法在当前上下文完成的部分写入 open_questions；"
     "如果 requirement_worklist.truncated 为 true，只处理 items 中明确提供且在 context 中可见的 Requirement，不得声称已覆盖 omitted_requirement_ids；"
     "R层关系方向必须严格：hasConcern 为 stakeholder/system→concern，participatesIn 为 stakeholder→operational_scenario，"
-    "occursIn 为 activity/operational_scenario→lifecycle_stage，derivedFrom 可为 operational_scenario→use_case 或 requirement→concern/activity；不要反转 source_ref 和 target_ref；"
+        "occursIn 为 activity/operational_scenario→lifecycle_stage，derivedFrom 可为 operational_scenario→use_case 或 requirement→concern/use_case/activity，decomposes 为 use_case→activity；不要反转 source_ref 和 target_ref；"
     "复用已有 Requirement、Function、LogicalComponent、PhysicalBlock 和 V&V Case 的 canonical id，只补缺失的 typed 实体或关系；"
     "无法由当前上下文证明的缺口写入 open_questions，不得把不完整覆盖声称为完成；"
     "不要返回 operations、Patch ID、revision、status、producer 或 kind/value/path 更新 DSL；不要解释。"
@@ -1346,6 +1511,321 @@ def _requirement_batches(
     return tuple(
         entries[start : start + max(1, effective_batch_size)]
         for start in range(0, len(entries), max(1, effective_batch_size))
+    )
+
+
+def _r_stage_slices(
+    request: TaskExecutionRequest,
+    payload: Mapping[str, object],
+) -> tuple[Mapping[str, object], ...]:
+    """Plan bounded R backbone and one-Requirement closure payloads."""
+
+    if request.task_id != "vertical.requirements":
+        return (payload,)
+    worklist = tuple(
+        item
+        for item in payload.get("requirement_worklist", ())
+        if isinstance(item, Mapping) and str(item.get("requirement_id", "")).strip()
+    )
+    present_kinds = {
+        item.kind.value
+        for item in request.context_bundle.entities
+        if item.meta.status is not EntityStatus.DEPRECATED
+    }
+    missing_kinds = set(_R_STAGE_KINDS) - present_kinds
+    requirement_index = [
+        {
+            key: item[key]
+            for key in ("requirement_id", "statement", "missing")
+            if key in item
+        }
+        for item in worklist
+    ]
+    planned: list[Mapping[str, object]] = []
+    for slice_kind, group in _R_BACKBONE_GROUPS:
+        allowed_kinds = tuple(kind for kind in group if kind in missing_kinds)
+        if not allowed_kinds:
+            continue
+        planned.append({
+            **dict(payload),
+            "requirement_worklist": [],
+            "requirement_index": requirement_index,
+            "r_slice": {
+                "slice_kind": slice_kind,
+                "allowed_kinds": list(allowed_kinds),
+                "requirement_ids": [],
+            },
+        })
+    for item in worklist:
+        requirement_id = str(item["requirement_id"])
+        planned.append({
+            **dict(payload),
+            "requirement_worklist": [dict(item)],
+            "r_slice": {
+                "slice_kind": "r_requirement",
+                "allowed_kinds": [],
+                "requirement_ids": [requirement_id],
+            },
+        })
+    if not planned:
+        return (payload,)
+    count = len(planned)
+    return tuple(
+        {
+            **item,
+            "r_slice": {
+                **dict(item["r_slice"]),
+                "slice_index": index,
+                "slice_count": count,
+            },
+        }
+        for index, item in enumerate(planned, start=1)
+    )
+
+
+def _annotate_r_slice_failure(
+    error: Exception,
+    payload: Mapping[str, object],
+) -> Exception:
+    """Keep the failing R slice visible in the existing failure evidence."""
+
+    metadata = payload.get("r_slice")
+    if not isinstance(metadata, Mapping):
+        return error
+    label = (
+        f"{metadata.get('slice_kind', 'unknown')}"
+        f"[{metadata.get('slice_index', '?')}/{metadata.get('slice_count', '?')}]"
+    )
+    message = f"r_slice_failed={label}: {error}"
+    common = {
+        "code": getattr(error, "code", "r_slice_failed"),
+        "raw_response": getattr(error, "raw_response", ""),
+        "initial_raw_response": getattr(error, "initial_raw_response", ""),
+        "schema_hash": getattr(error, "schema_hash", ""),
+        "retry_count": getattr(error, "retry_count", 0),
+        "provider_id": getattr(error, "provider_id", ""),
+        "model_id": getattr(error, "model_id", ""),
+    }
+    if isinstance(error, StructuredOutputFailure):
+        return StructuredOutputFailure(
+            message,
+            **common,
+            finish_reason=getattr(error, "finish_reason", ""),
+            usage=getattr(error, "usage", {}),
+        )
+    if isinstance(error, ProposalCompileFailure):
+        return ProposalCompileFailure(
+            message,
+            **common,
+            finish_reason=getattr(error, "finish_reason", ""),
+            usage=getattr(error, "usage", {}),
+        )
+    if isinstance(error, TransportFailure):
+        return TransportFailure(
+            message,
+            **common,
+        )
+    return error
+
+
+def _r_slice_contract(
+    contract: Mapping[str, object],
+    payload: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Narrow the R proposal schema to one bounded slice."""
+
+    metadata = payload.get("r_slice")
+    if not isinstance(metadata, Mapping):
+        return contract
+    result = deepcopy(dict(contract))
+    slice_kind = str(metadata.get("slice_kind", ""))
+    allowed_kinds = [str(item) for item in metadata.get("allowed_kinds", ())]
+    result["output_kinds"] = allowed_kinds
+    payload_schemas = result.get("x-payload-schemas")
+    if isinstance(payload_schemas, Mapping):
+        payload_kinds = (
+            {EntityKind.REQUIREMENT.value}
+            if slice_kind == "r_requirement"
+            else set(allowed_kinds)
+        )
+        result["x-payload-schemas"] = {
+            kind: deepcopy(schema)
+            for kind, schema in payload_schemas.items()
+            if kind in payload_kinds
+        }
+    properties = result.get("properties")
+    if not isinstance(properties, Mapping):
+        return result
+    properties = deepcopy(dict(properties))
+    entities = properties.get("entities")
+    if isinstance(entities, Mapping):
+        entities = deepcopy(dict(entities))
+        entities["maxItems"] = len(allowed_kinds)
+        entity_item = entities.get("items")
+        if isinstance(entity_item, Mapping):
+            entity_item = deepcopy(dict(entity_item))
+            entity_properties = dict(entity_item.get("properties", {}))
+            if allowed_kinds:
+                entity_properties["kind"] = {
+                    "enum": allowed_kinds,
+                }
+            entity_item["properties"] = entity_properties
+            entities["items"] = entity_item
+        properties["entities"] = entities
+    relations = properties.get("relations")
+    if isinstance(relations, Mapping):
+        relations = deepcopy(dict(relations))
+        relation_item = relations.get("items")
+        if isinstance(relation_item, Mapping):
+            relation_item = deepcopy(dict(relation_item))
+            relation_properties = dict(relation_item.get("properties", {}))
+            predicates = (
+                {"derivedFrom", "decomposes"}
+                if slice_kind == "r_requirement"
+                else {
+                    "hasConcern",
+                    "participatesIn",
+                    "occursIn",
+                    "derivedFrom",
+                    "decomposes",
+                }
+            )
+            relation_properties["predicate"] = {
+                "enum": sorted(predicates),
+            }
+            if slice_kind == "r_requirement" and metadata.get("requirement_ids"):
+                relation_item["oneOf"] = [
+                    {
+                        "properties": {
+                            "predicate": {"const": "derivedFrom"},
+                            "source_ref": {
+                                "const": str(metadata["requirement_ids"][0]),
+                            },
+                        },
+                    },
+                    {
+                        "properties": {
+                            "predicate": {"const": "decomposes"},
+                        },
+                    },
+                ]
+            relation_item["properties"] = relation_properties
+            relations["items"] = relation_item
+        relations["maxItems"] = 16 if slice_kind == "r_requirement" else 32
+        properties["relations"] = relations
+    if slice_kind == "r_requirement":
+        updates = properties.get("updates")
+        if isinstance(updates, Mapping):
+            updates = deepcopy(dict(updates))
+            updates["maxItems"] = 1
+            update_item = updates.get("items")
+            if isinstance(update_item, Mapping):
+                update_item = deepcopy(dict(update_item))
+                update_properties = dict(update_item.get("properties", {}))
+                requirement_ids = metadata.get("requirement_ids", ())
+                if requirement_ids:
+                    update_properties["entity_id"] = {
+                        "const": str(requirement_ids[0]),
+                    }
+                update_item["properties"] = update_properties
+                updates["items"] = update_item
+            properties["updates"] = updates
+        deprecations = properties.get("deprecations")
+        if isinstance(deprecations, Mapping):
+            deprecations = deepcopy(dict(deprecations))
+            deprecations["maxItems"] = 0
+            properties["deprecations"] = deprecations
+    result["properties"] = properties
+    return result
+
+
+def _r_slice_patch_policy(
+    request: TaskExecutionRequest,
+    payload: Mapping[str, object],
+) -> PatchPolicy:
+    """Restrict compiler write authority to the current R slice."""
+
+    metadata = payload.get("r_slice")
+    if not isinstance(metadata, Mapping):
+        return request.patch_policy
+    allowed_kinds = frozenset(
+        EntityKind(str(item))
+        for item in metadata.get("allowed_kinds", ())
+    )
+    if metadata.get("slice_kind") == "r_requirement":
+        # The provider-facing schema forbids entity additions. Keep the
+        # Requirement kind in the compiler policy so updates to the existing
+        # canonical Requirement remain in scope without reopening the broad R
+        # write policy.
+        allowed_kinds = frozenset({EntityKind.REQUIREMENT})
+    predicates = (
+        frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.DECOMPOSES})
+        if metadata.get("slice_kind") == "r_requirement"
+        else frozenset({
+            RelationPredicate.HAS_CONCERN,
+            RelationPredicate.PARTICIPATES_IN,
+            RelationPredicate.OCCURS_IN,
+            RelationPredicate.DERIVED_FROM,
+            RelationPredicate.DECOMPOSES,
+        })
+    )
+    return replace(
+        request.patch_policy,
+        writable_kinds=allowed_kinds,
+        allowed_predicates=predicates,
+    )
+
+
+def _request_for_working_graph(
+    request: TaskExecutionRequest,
+    graph: ModelGraph,
+) -> TaskExecutionRequest:
+    context = replace(
+        request.context_bundle,
+        revision=graph.revision,
+        entities=graph.entities,
+        relations=graph.relations,
+    )
+    return replace(request, context_bundle=context)
+
+
+def _r_payload_for_request(
+    request: TaskExecutionRequest,
+    payload: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Refresh compact context after a temporary R slice is compiled."""
+
+    context = request.context_bundle
+    context_payload = {
+        "project_id": context.project_id,
+        "revision": context.revision,
+        "token_estimate": context.token_estimate,
+        "entities": [
+            _model_entity(item, compact=True)
+            for item in context.entities
+        ],
+        "relations": [
+            _model_relation(item, compact=True)
+            for item in context.relations
+        ],
+    }
+    return {
+        **dict(payload),
+        "context": context_payload,
+        "context_hash": canonical_hash(context),
+    }
+
+
+def _rebase_patch(patch: Patch, expected_revision: int) -> Patch:
+    """Keep a compiled temporary patch at the original CAS boundary."""
+
+    return Patch(
+        patch.id,
+        patch.project_id,
+        patch.task_id,
+        patch.operations,
+        patch.reason,
+        expected_revision,
     )
 
 

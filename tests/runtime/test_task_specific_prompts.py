@@ -69,8 +69,38 @@ def test_requirements_prompt_closes_a_single_missing_activity():
 
     StructuredModelRuntime(model).execute(request)
 
-    assert "Activity 是当前唯一的闭合缺口" in model.requests[0].system_prompt
-    assert "normal、failure、alternative、boundary、exception" in model.requests[0].system_prompt
+    prompts = [item.system_prompt for item in model.requests]
+    assert any("R backbone slice" in prompt for prompt in prompts)
+    assert any("Activity" in prompt for prompt in prompts)
+    assert any("normal、failure、alternative、boundary、exception" in prompt for prompt in prompts)
+    assert all("不要使用 decomposes" not in prompt for prompt in prompts)
+
+
+def test_requirements_prompt_scopes_closure_to_one_requirement():
+    model = CapturingModel()
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应支持人工接管",
+        {"statement": "系统应支持人工接管"},
+    )
+    context = ContextBundle(
+        "p1",
+        "vertical.requirements",
+        3,
+        (requirement,),
+    )
+    request = TaskExecutor(model).request(stage_task("requirements"), context, "v2.1")
+
+    StructuredModelRuntime(model).execute(request)
+
+    closure_prompt = next(
+        item.system_prompt
+        for item in model.requests
+        if "R Requirement closure slice" in item.system_prompt
+    )
+    assert "entities 必须为空" in closure_prompt
+    assert "Requirement→Concern/UseCase/Activity" in closure_prompt
+    assert "UseCase→Activity" in closure_prompt
 
 
 def test_logical_prompt_requires_typed_interface_and_state_ownership():
