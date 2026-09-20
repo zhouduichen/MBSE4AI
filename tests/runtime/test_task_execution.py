@@ -1539,7 +1539,7 @@ def test_structured_runtime_batches_large_rflp_worklist(stage):
     ordered_requirements = tuple(sorted(requirements, key=lambda item: item.id))
     expected_batches = (
         tuple((item,) for item in ordered_requirements)
-        if stage in {"functional", "logical"}
+        if stage in {"functional", "logical", "physical"}
         else (
             ordered_requirements[:2],
             ordered_requirements[2:4],
@@ -1567,6 +1567,7 @@ def test_structured_runtime_batches_large_rflp_worklist(stage):
         (
             "当前是 Functional 第" if stage == "functional"
             else "当前是 Logical 第" if stage == "logical"
+            else "当前是 Physical 第" if stage == "physical"
             else f"当前是 vertical.{stage} 第"
         ) in call.system_prompt
         for call in model.calls

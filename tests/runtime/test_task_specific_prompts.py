@@ -128,6 +128,30 @@ def test_logical_prompt_requires_typed_interface_and_state_ownership():
     assert "payload.connected_component_ids" in prompt
 
 
+def test_physical_prompt_scopes_logical_allocation_to_one_requirement():
+    model = CapturingModel()
+    requirement = make_entity(EntityKind.REQUIREMENT, "系统应完成任务")
+    context = ContextBundle(
+        "p1",
+        "vertical.physical",
+        3,
+        (
+            requirement,
+            make_entity(EntityKind.FUNCTION, "执行任务"),
+            make_entity(EntityKind.LOGICAL_COMPONENT, "任务控制"),
+        ),
+    )
+    request = TaskExecutor(model).request(stage_task("physical"), context, "v2.1")
+
+    StructuredModelRuntime(model).execute(request)
+
+    prompt = model.requests[0].system_prompt
+    assert requirement.id in prompt
+    assert "当前是 Physical 第" in prompt
+    assert "source_logical_ids" in prompt
+    assert "LogicalComponent→allocatedTo→PhysicalBlock" in prompt
+
+
 def test_functional_prompt_scopes_single_requirement_and_typed_trace():
     model = CapturingModel()
     requirement = make_entity(

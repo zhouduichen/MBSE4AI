@@ -147,6 +147,16 @@ class StructuredModelRuntime:
             )
         except (TypeError, ValueError):
             self.vertical_logical_batch_size = 1
+        try:
+            self.vertical_physical_batch_size = max(
+                1,
+                min(
+                    32,
+                    int(getattr(model, "vertical_physical_batch_size", 1)),
+                ),
+            )
+        except (TypeError, ValueError):
+            self.vertical_physical_batch_size = 1
         self.vertical_batch_output_token_budget = max(
             256,
             int(
@@ -234,6 +244,8 @@ class StructuredModelRuntime:
                 batch_size = self.vertical_functional_batch_size
             elif request.task_id == "vertical.logical":
                 batch_size = self.vertical_logical_batch_size
+            elif request.task_id == "vertical.physical":
+                batch_size = self.vertical_physical_batch_size
             elif request.task_id == _VV_BATCH_TASK:
                 batch_size = self.vertical_vv_batch_size
             batches = _requirement_batches(
@@ -245,7 +257,11 @@ class StructuredModelRuntime:
             batch_descriptors = _batch_descriptors(request, batches, self.model)
             include_batch_metadata = (
                 len(batch_descriptors) > 1
-                or request.task_id in {"vertical.functional", "vertical.logical"}
+                or request.task_id in {
+                    "vertical.functional",
+                    "vertical.logical",
+                    "vertical.physical",
+                }
             )
             batch_payloads = tuple(
                 _scope_batch_payload(
@@ -1448,6 +1464,22 @@ def _batch_instruction(task_id: str, meta: object) -> str:
                 "LogicalComponent ID，且 state.payload.owner_id 必须形成 decomposes 关系。保留功能依赖、功能流和架构分区依据，"
                 "不要把具体传感器、芯片、数据库或厂商零件写成 LogicalComponent。"
             )
+        if task_id == "vertical.physical":
+            requirement_ids = meta.get("requirement_ids")
+            target_hint = (
+                str(requirement_ids[0])
+                if isinstance(requirement_ids, (list, tuple)) and requirement_ids
+                else "当前批次"
+            )
+            return (
+                f"当前是 Physical 第 {index}/{count} 个需求批次，只处理一个 canonical "
+                f"Requirement：{target_hint}。"
+                "只为当前 Requirement 的可见 LogicalComponent/Function 传播约束并生成物理候选；"
+                "physical_block.payload.logical_id 或 source_logical_ids 必须引用当前 Logical 的 canonical ID "
+                "或本批 local_ref，source_function_ids、source_requirement_ids 和 impact_chain 也只能引用当前切片。"
+                "必须保留 LogicalComponent→allocatedTo→PhysicalBlock；允许多个切片复用同一共享资源，"
+                "但禁止引用其它批次的 Logical 或 Requirement，不要臆造供应商、型号或测量结果。"
+            )
         return (
             f"当前是 {task_id} 第 {index}/{count} 个需求批次。"
             "只处理 requirement_worklist 中的 canonical Requirement；"
@@ -1621,6 +1653,10 @@ def _requirement_batches(
         request.task_id == "vertical.logical"
         and len(entries) > 1
     )
+    should_split_physical = (
+        request.task_id == "vertical.physical"
+        and len(entries) > 1
+    )
     should_split_large_batch = len(entries) > _VERTICAL_BATCH_THRESHOLD
     should_split_configured_singleton = (
         int(batch_size) == 1
@@ -1631,6 +1667,7 @@ def _requirement_batches(
         and (
             should_split_functional
             or should_split_logical
+            or should_split_physical
             or should_split_large_batch
             or should_split_configured_singleton
         )

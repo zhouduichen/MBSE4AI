@@ -1251,6 +1251,7 @@ class ThreeRequirementStructuredModel(TwoRequirementFeedbackModel):
         self.requirement_worklists = []
         self.functional_worklists = []
         self.logical_worklists = []
+        self.physical_worklists = []
 
     def complete_json(self, request):
         self.requirement_worklists.append(
@@ -1264,6 +1265,10 @@ class ThreeRequirementStructuredModel(TwoRequirementFeedbackModel):
             return replace(recorded, payload=self._multi_requirement_functional(request))
         if request.lens_id == "vertical.logical":
             self.logical_worklists.append(
+                request.user_payload.get("requirement_worklist", [])
+            )
+        if request.lens_id == "vertical.physical":
+            self.physical_worklists.append(
                 request.user_payload.get("requirement_worklist", [])
             )
         if request.lens_id == "vertical.verification_validation":
@@ -1489,6 +1494,19 @@ def test_structured_runtime_generates_three_requirement_vertical_model(tmp_path:
         if relation.predicate is RelationPredicate.DECOMPOSES
         and graph.entity_index[relation.source_id].kind is EntityKind.LOGICAL_COMPONENT
         and graph.entity_index[relation.target_id].kind is EntityKind.STATE
+    ) == 3
+    assert len(model.physical_worklists) == 3
+    assert all(len(worklist) == 1 for worklist in model.physical_worklists)
+    assert {
+        worklist[0]["requirement_id"]
+        for worklist in model.physical_worklists
+    } == {item.id for item in requirements}
+    assert sum(
+        1
+        for relation in graph.relations
+        if relation.predicate is RelationPredicate.ALLOCATED_TO
+        and graph.entity_index[relation.source_id].kind is EntityKind.LOGICAL_COMPONENT
+        and graph.entity_index[relation.target_id].kind is EntityKind.PHYSICAL_BLOCK
     ) == 3
     assert sum(
         1
