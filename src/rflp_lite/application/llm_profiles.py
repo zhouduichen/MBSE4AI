@@ -289,6 +289,34 @@ def normalize_profile(payload: object) -> dict[str, object]:
     )
     if vertical_batch_output_tokens is None:
         vertical_batch_output_tokens = 3072
+    vertical_functional_batch_size = _optional_int(
+        payload,
+        ("vertical_functional_batch_size",),
+        minimum=1,
+        maximum=32,
+        label="LLM functional batch size",
+    )
+    vertical_logical_batch_size = _optional_int(
+        payload,
+        ("vertical_logical_batch_size",),
+        minimum=1,
+        maximum=32,
+        label="LLM logical batch size",
+    )
+    vertical_physical_batch_size = _optional_int(
+        payload,
+        ("vertical_physical_batch_size",),
+        minimum=1,
+        maximum=32,
+        label="LLM physical batch size",
+    )
+    vertical_vv_batch_size = _optional_int(
+        payload,
+        ("vertical_vv_batch_size",),
+        minimum=1,
+        maximum=32,
+        label="LLM V&V batch size",
+    )
     max_parallel_requests = _optional_int(
         payload,
         ("max_parallel_requests",),
@@ -348,6 +376,26 @@ def normalize_profile(payload: object) -> dict[str, object]:
         "r_backbone_single_kind": r_backbone_single_kind,
         "vertical_batch_size": vertical_batch_size,
         "vertical_batch_output_tokens": vertical_batch_output_tokens,
+        **(
+            {"vertical_functional_batch_size": vertical_functional_batch_size}
+            if vertical_functional_batch_size is not None
+            else {}
+        ),
+        **(
+            {"vertical_logical_batch_size": vertical_logical_batch_size}
+            if vertical_logical_batch_size is not None
+            else {}
+        ),
+        **(
+            {"vertical_physical_batch_size": vertical_physical_batch_size}
+            if vertical_physical_batch_size is not None
+            else {}
+        ),
+        **(
+            {"vertical_vv_batch_size": vertical_vv_batch_size}
+            if vertical_vv_batch_size is not None
+            else {}
+        ),
         "max_parallel_requests": max_parallel_requests,
         "think": think,
         "chat_template_kwargs": (

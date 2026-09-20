@@ -262,6 +262,23 @@ def test_llm_profile_can_disable_remote_completion_loops_and_vv_case_splitting()
     assert profile["vertical_vv_case_splitting"] is False
 
 
+def test_llm_profile_preserves_vertical_stage_batch_sizes() -> None:
+    profile = normalize_profile({
+        **_payload(),
+        "id": "batched-remote",
+        "model_location": "remote",
+        "vertical_functional_batch_size": 2,
+        "vertical_logical_batch_size": 2,
+        "vertical_physical_batch_size": 2,
+        "vertical_vv_batch_size": 2,
+    })
+
+    assert profile["vertical_functional_batch_size"] == 2
+    assert profile["vertical_logical_batch_size"] == 2
+    assert profile["vertical_physical_batch_size"] == 2
+    assert profile["vertical_vv_batch_size"] == 2
+
+
 def test_llm_profile_defaults_remote_parallelism_lower_than_local() -> None:
     remote = normalize_profile({
         **_payload(),
