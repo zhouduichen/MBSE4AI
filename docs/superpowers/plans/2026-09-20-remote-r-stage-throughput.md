@@ -147,6 +147,46 @@ git commit -m "test: record remote R throughput boundary"
 git push origin codex/web-audit-2026-08-18
 ```
 
+### Task 4: Recover one remote transport failure inside a parallel stage
+
+**Files:**
+- Modify: `src/rflp_lite/runtime/structured_model.py:555-620`
+- Test: `tests/runtime/test_task_execution.py`
+
+**Interfaces:**
+- Consumes: a `TransportFailure` returned by one parallel batch and the original batch payload.
+- Produces: one serial retry for that payload; no patch is merged until every batch succeeds.
+
+- [ ] **Step 1: Write the failing test**
+
+Add a parallel fake provider whose first call for one functional batch raises `TransportFailure` and whose serial retry returns a valid empty proposal. Assert the batch is called twice, all other batches are retained, and the stage result still has one deterministic merged result.
+
+- [ ] **Step 2: Run the focused test to verify it fails**
+
+Run: `./.venv/bin/python -m pytest tests/runtime/test_task_execution.py -k transport_retry -q`
+
+Expected: FAIL because `_complete_batches` currently raises a parallel transport failure immediately.
+
+- [ ] **Step 3: Implement the bounded retry**
+
+In the ordered result-merge loop, retry only `TransportFailure` from a parallel-capable model once through `_complete_batch` with the original request and payload. Let a second transport failure or any semantic/compile failure raise normally. Do not append a partial patch before all batches have returned successfully.
+
+- [ ] **Step 4: Run the focused and full runtime tests**
+
+```bash
+./.venv/bin/python -m pytest tests/runtime/test_task_execution.py -q
+./.venv/bin/ruff check src tests scripts
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/rflp_lite/runtime/structured_model.py tests/runtime/test_task_execution.py docs/superpowers/plans/2026-09-20-remote-r-stage-throughput.md
+git commit -m "fix: retry one failed remote vertical batch"
+```
+
 ## Self-review
 
 - Scope is one subsystem: remote R-stage throughput and its provider boundary.

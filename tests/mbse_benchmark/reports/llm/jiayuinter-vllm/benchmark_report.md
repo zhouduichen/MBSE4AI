@@ -8,9 +8,9 @@ Track status: **EXPLICIT**
 
 FINAL STATUS: **REJECTED**
 
-Score: **45.0 / 100**
+Score: **44.0 / 100**
 
-Current Capability Score: **45.0 / 100**
+Current Capability Score: **44.0 / 100**
 
 Full Target Capability Score: **100.0 / 100**
 
@@ -18,7 +18,7 @@ P0: **2 / 6 passed**
 
 ## 2. Tested System
 
-- commit: `42707fdbd5d3d47b58041ab0567028b89f29d595`
+- commit: `5b1d13728cf33ccf1658c1494a803a916e276300`
 - branch: `codex/web-audit-2026-08-18`
 - entrypoint: `build_v2_services -> ProjectService -> ModelGenerationService.generate -> five-stage vertical path`
 - runtime/provider: `configured-llm`
@@ -27,7 +27,7 @@ P0: **2 / 6 passed**
 - prompt hash: `a76a988bfaf4c43899ad27b3b7303160aeeb156994d08a86c78b1bf3cf411686`
 - task spec hash: `21a7bd79ed630c767d67beb22668364a5791c54ec7869c907334cd56345f5a59`
 - case/repeat: `CASE-04` / `1`
-- test date: `2026-09-20T15:10:14.450339+00:00`
+- test date: `2026-09-20T15:40:27.047766+00:00`
 - configuration: `explicit LLM profile; isolated workspace; provider credentials are not written to reports`
 
 ## 3. Benchmark Results
@@ -37,9 +37,9 @@ P0: **2 / 6 passed**
 | T1 | PASS |  |  |
 | T2 | PASS |  |  |
 | T3 | PASS |  |  |
-| T4 | PASS |  |  |
+| T4 | FAIL |  | requirement_quality |
 | T5 | PASS |  |  |
-| T6 | FAIL |  | requirement_use_case_traceability |
+| T6 | PASS |  |  |
 | T7 | FAIL |  | use_case_activity_consistency |
 | T8 | PASS |  |  |
 | T9 | PASS |  |  |
@@ -63,7 +63,7 @@ P0: **2 / 6 passed**
 | lifecycle_coverage | 1.000 | 0.90 |
 | scenario_recall | 1.000 | 0.85 |
 | requirement_validity | 1.000 | 0.90 |
-| requirement_atomicity | 1.000 | 0.85 |
+| requirement_atomicity | 0.800 | 0.85 |
 | requirement_verifiability | 1.000 | 0.90 |
 | upstream_traceability | 1.000 | 0.95 |
 | use_case_activity_consistency | 0.000 | 0.90 |
@@ -91,7 +91,7 @@ CASE-04: 0.0 end-to-end coverage
 
 ## 7. Requirement Quality
 
-CASE-04: validity=1.0, atomicity=1.0, verifiability=1.0
+CASE-04: validity=1.0, atomicity=0.8, verifiability=1.0
 
 ## 8. Cross-stage Consistency
 
@@ -112,7 +112,7 @@ CASE-04: iteration_signal=False
 - [P0] case-04 T15: trace breaks between upstream behavior and downstream architecture/verification
 - [P1] CASE-04 T20: fewer than three runs were available
 - [P1] case-04 T13: activity details are not converted to verification scenarios
-- [P1] case-04 T6: requirements have no Use Case link
+- [P1] case-04 T4: requirement fields are vague, compound, unverifiable, or unproven
 - [P1] case-04 T7: use cases or activities do not link to requirements
 
 ## 12. Recommended Fix Order
@@ -124,7 +124,7 @@ CASE-04: iteration_signal=False
 | P0 | end_to_end_traceability | trace breaks between upstream behavior and downstream architecture/verification | current workflow | Repair the earliest broken relation and rerun downstream phases. | restores measurable MBSE coverage |
 | P1 | regression | fewer than three runs were available | current workflow | Run the case three times in isolated workspaces. | restores measurable MBSE coverage |
 | P1 | activity_to_test_case | activity details are not converted to verification scenarios | current workflow | Generate normal, failure, boundary, and exception verification scenarios from Activity branches. | restores measurable MBSE coverage |
-| P1 | requirement_use_case_traceability | requirements have no Use Case link | current workflow | Populate explicit Requirement ↔ Use Case relations. | restores measurable MBSE coverage |
+| P1 | requirement_quality | requirement fields are vague, compound, unverifiable, or unproven | current workflow | Normalize atomic shall-statements with source and verification criteria. | restores measurable MBSE coverage |
 | P1 | use_case_activity_consistency | use cases or activities do not link to requirements | current workflow | Populate explicit Use Case ↔ Activity relations and branch payloads. | restores measurable MBSE coverage |
 
 ## 13. Final Acceptance Decision
@@ -142,7 +142,7 @@ CASE-04: iteration_signal=False
 | rflp_trace_coverage | 0.0 |
 | gate_detection | 0.0 |
 | repair_recovery | 0.0 |
-| cas_lock_protection | 0.0 |
+| cas_lock_protection | 1.0 |
 | closure_manifest | 0.0 |
 | audit_completeness | 1.0 |
 | repeat_minimum | 1 |
@@ -153,13 +153,13 @@ This baseline uses the same input and configured model without methodology workf
 
 | Metric | Observed |
 | ------ | -------: |
-| requirement_precision | 1.0 |
-| requirement_recall | 1.0 |
-| requirement_atomicity | 1.0 |
-| requirement_verifiability | 1.0 |
+| requirement_precision | 0.0 |
+| requirement_recall | 0.0 |
+| requirement_atomicity | 0.0 |
+| requirement_verifiability | 0.0 |
 | unsupported_numeric_claim_rate | 0.0 |
 | trace_accuracy | 0.0 |
 | RFLP_coverage | 0.0 |
-| evidence_faithfulness | 1.0 |
-| verification_quality | 1.0 |
+| evidence_faithfulness | 0.0 |
+| verification_quality | 0.0 |
 | hallucinated_entity_rate | 0.0 |

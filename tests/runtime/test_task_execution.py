@@ -1918,6 +1918,55 @@ def test_structured_runtime_parallelizes_batches_only_for_capable_models():
     assert len(model.thread_ids) >= 2
 
 
+def test_structured_runtime_retries_one_failed_parallel_transport_batch():
+    class RetryParallelModel(BatchedVerticalModel):
+        supports_parallel_requirement_batching = True
+
+        def __init__(self, failed_requirement_id):
+            super().__init__()
+            self.max_parallel_requests = 3
+            self.failed_requirement_id = failed_requirement_id
+            self.attempts = {}
+
+        def complete_json(self, request):
+            requirement_id = request.user_payload["requirement_worklist"][0][
+                "requirement_id"
+            ]
+            attempt = self.attempts.get(requirement_id, 0) + 1
+            self.attempts[requirement_id] = attempt
+            if requirement_id == self.failed_requirement_id and attempt == 1:
+                self.calls.append(request)
+                raise TransportFailure(
+                    "transient batch reset",
+                    code="network_error",
+                    provider_id="fake",
+                    model_id="fake-model",
+                )
+            return super().complete_json(request)
+
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求 {index}",
+            {"statement": f"系统应满足需求 {index}"},
+        )
+        for index in range(5)
+    )
+    model = RetryParallelModel(requirements[0].id)
+    request = TaskExecutor(model).request(
+        stage_task("functional"),
+        ContextBundle("p1", "vertical.functional", 3, requirements),
+        "v2.1",
+    )
+
+    result = StructuredModelRuntime(model).execute(request)
+
+    assert result.patch is None
+    assert model.attempts[requirements[0].id] == 2
+    assert len(model.calls) == 6
+    assert set(model.attempts) == {item.id for item in requirements}
+
+
 def test_structured_runtime_rejects_merged_vv_patch_over_effective_limit():
     model = BatchedVvModel()
     requirements = tuple(

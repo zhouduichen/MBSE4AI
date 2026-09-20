@@ -593,6 +593,16 @@ class StructuredModelRuntime:
                 continue
             if failure is None:
                 raise RuntimeError("batch completion returned no result")
+            if (
+                isinstance(failure, TransportFailure)
+                and getattr(self.model, "supports_parallel_requirement_batching", False)
+                is True
+            ):
+                try:
+                    result.append(self._complete_batch(request, contract, payload))
+                except Exception as retry_failure:
+                    raise retry_failure from failure
+                continue
             if not isinstance(failure, (StructuredOutputFailure, ProposalCompileFailure)):
                 raise failure
             split_payloads = _split_requirement_batch(request, payload)
