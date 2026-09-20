@@ -583,6 +583,35 @@ def test_vertical_payload_normalizes_structured_logical_reasoning():
     assert logical_payload["architecture_reasoning"] == {"basis": "控制权转移需要隔离"}
 
 
+def test_vertical_payload_maps_physical_feasibility_status() -> None:
+    schema = output_contract(stage_task("physical"))
+    payload = {
+        "entities": [{
+            "local_ref": "physical-1",
+            "kind": "physical_block",
+            "name": "返航执行单元",
+            "payload": {
+                "candidate_type": "controller",
+                "feasibility": "feasible",
+            },
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "选择物理候选",
+    }
+
+    normalized = OpenAICompatibleModel._parse_and_validate(
+        json.dumps(payload, ensure_ascii=False),
+        schema,
+        normalize_vertical=True,
+    )
+
+    assert normalized["entities"][0]["payload"]["feasibility"] == {
+        "status": "feasible"
+    }
+
+
 def test_vertical_payload_maps_partition_basis_to_logical_rationale() -> None:
     schema = output_contract(stage_task("logical"))
     payload = {

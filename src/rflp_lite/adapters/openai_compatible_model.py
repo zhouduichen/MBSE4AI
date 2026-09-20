@@ -581,6 +581,9 @@ def _normalize_vertical_entity_payload(
         for field in ("candidate_type", "selection_rationale"):
             if isinstance(source.get(field), Mapping):
                 source[field] = _wire_text(source[field])
+        feasibility = source.get("feasibility")
+        if feasibility is not None and not isinstance(feasibility, Mapping):
+            source["feasibility"] = {"status": str(feasibility).strip()}
         if "selection_rationale" not in source:
             rationale = source.get("rationale") or source.get("feasibility_reasoning")
             if isinstance(rationale, Mapping):
