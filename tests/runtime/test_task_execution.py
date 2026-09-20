@@ -366,6 +366,46 @@ def test_r_stage_slices_backbone_then_one_requirement_closure_per_requirement():
     )
 
 
+def test_r_stage_slices_can_split_remote_backbone_by_entity_kind():
+    request = TaskExecutionRequest(
+        "vertical.requirements",
+        "v2.1",
+        ContextBundle("p1", "vertical.requirements", 3, ()),
+        (),
+        {"output_kinds": [kind.value for kind in EntityKind]},
+        3000,
+    )
+    payload = {
+        "context": {"entities": [], "relations": []},
+        "requirement_worklist": [
+            {
+                "requirement_id": "req-1",
+                "statement": "系统应支持人工接管",
+                "missing": ["use_case", "activity"],
+            }
+        ],
+    }
+
+    slices = _r_stage_slices(request, payload, single_kind=True)
+
+    backbone = [
+        item["r_slice"]
+        for item in slices
+        if item["r_slice"]["slice_kind"] != "r_requirement"
+    ]
+    assert [item["allowed_kinds"] for item in backbone] == [
+        ["system"],
+        ["stakeholder"],
+        ["concern"],
+        ["lifecycle_stage"],
+        ["lifecycle_transition"],
+        ["scenario_hypothesis"],
+        ["use_case"],
+        ["operational_scenario"],
+        ["activity"],
+    ]
+
+
 def test_r_requirement_slice_contract_forbids_new_entities_and_scopes_update():
     requirement = make_entity(
         EntityKind.REQUIREMENT,

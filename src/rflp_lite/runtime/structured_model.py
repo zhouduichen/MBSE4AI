@@ -309,7 +309,11 @@ class StructuredModelRuntime:
     ) -> tuple[_CompiledProposal, ...]:
         """Complete R backbone slices before independent Requirement closures."""
 
-        slices = _r_stage_slices(request, payload)
+        slices = _r_stage_slices(
+            request,
+            payload,
+            single_kind=bool(getattr(self.model, "r_backbone_single_kind", False)),
+        )
         if not any(isinstance(item.get("r_slice"), Mapping) for item in slices):
             return self._complete_batches(request, contract, slices)
         working_graph = ModelGraph(
@@ -1561,6 +1565,8 @@ def _requirement_batches(
 def _r_stage_slices(
     request: TaskExecutionRequest,
     payload: Mapping[str, object],
+    *,
+    single_kind: bool = False,
 ) -> tuple[Mapping[str, object], ...]:
     """Plan bounded R backbone and one-Requirement closure payloads."""
 
@@ -1590,16 +1596,22 @@ def _r_stage_slices(
         allowed_kinds = tuple(kind for kind in group if kind in missing_kinds)
         if not allowed_kinds:
             continue
-        planned.append({
-            **dict(payload),
-            "requirement_worklist": [],
-            "requirement_index": requirement_index,
-            "r_slice": {
-                "slice_kind": slice_kind,
-                "allowed_kinds": list(allowed_kinds),
-                "requirement_ids": [],
-            },
-        })
+        backbone_kinds = (
+            tuple((kind,) for kind in allowed_kinds)
+            if single_kind
+            else (allowed_kinds,)
+        )
+        for backbone_kind in backbone_kinds:
+            planned.append({
+                **dict(payload),
+                "requirement_worklist": [],
+                "requirement_index": requirement_index,
+                "r_slice": {
+                    "slice_kind": slice_kind,
+                    "allowed_kinds": list(backbone_kind),
+                    "requirement_ids": [],
+                },
+            })
     for item in worklist:
         requirement_id = str(item["requirement_id"])
         planned.append({
