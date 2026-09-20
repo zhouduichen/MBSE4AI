@@ -82,6 +82,10 @@ _R_BACKBONE_GROUPS = (
         ),
     ),
 )
+# A remote single-kind slice must still be able to return several peers (for
+# example, multiple Concerns or lifecycle stages).  Keep that peer batch
+# bounded without collapsing back to the original mixed-kind envelope.
+_R_SINGLE_KIND_MAX_ITEMS = 8
 _VERTICAL_BATCH_THRESHOLD = 3
 # Two requirements per provider call keeps a legitimate RFLP slice small while
 # avoiding a five-call serial bottleneck for ordinary CASE-04-sized inputs.
@@ -1735,7 +1739,11 @@ def _r_slice_contract(
     entities = properties.get("entities")
     if isinstance(entities, Mapping):
         entities = deepcopy(dict(entities))
-        entities["maxItems"] = len(allowed_kinds)
+        entities["maxItems"] = (
+            _R_SINGLE_KIND_MAX_ITEMS
+            if len(allowed_kinds) == 1 and slice_kind != "r_requirement"
+            else len(allowed_kinds)
+        )
         entity_item = entities.get("items")
         if isinstance(entity_item, Mapping):
             entity_item = deepcopy(dict(entity_item))

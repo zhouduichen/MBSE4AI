@@ -367,13 +367,10 @@ def test_r_stage_slices_backbone_then_one_requirement_closure_per_requirement():
 
 
 def test_r_stage_slices_can_split_remote_backbone_by_entity_kind():
-    request = TaskExecutionRequest(
-        "vertical.requirements",
-        "v2.1",
+    request = TaskExecutor(FakeModel()).request(
+        stage_task("requirements"),
         ContextBundle("p1", "vertical.requirements", 3, ()),
-        (),
-        {"output_kinds": [kind.value for kind in EntityKind]},
-        3000,
+        "v2.1",
     )
     payload = {
         "context": {"entities": [], "relations": []},
@@ -404,6 +401,15 @@ def test_r_stage_slices_can_split_remote_backbone_by_entity_kind():
         ["operational_scenario"],
         ["activity"],
     ]
+    concern_slice = next(
+        item for item in slices
+        if item["r_slice"]["allowed_kinds"] == ["concern"]
+    )
+    concern_contract = _r_slice_contract(
+        request.output_contract,
+        concern_slice,
+    )
+    assert concern_contract["properties"]["entities"]["maxItems"] == 8
 
 
 def test_r_requirement_slice_contract_forbids_new_entities_and_scopes_update():
