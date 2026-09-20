@@ -555,6 +555,7 @@ def test_vertical_payload_normalizes_structured_logical_reasoning():
                 "partition_basis": {"function_ids": ["function-1"]},
                 "shared_state": [{"id": "state-1", "name": "接管中"}],
                 "safety_isolation": {"level": "high"},
+                "alternative_partitions": [{"name": "shared_coordinator", "score": 82}],
                 "architecture_rationale": {"basis": "控制权转移需要隔离"},
             },
         }],
@@ -576,6 +577,9 @@ def test_vertical_payload_normalizes_structured_logical_reasoning():
     assert logical_payload["shared_state"] == ["接管中"]
     assert logical_payload["shared_state_ids"] == ["state-1"]
     assert logical_payload["safety_isolation"] == [{"level": "high"}]
+    assert logical_payload["alternative_partitions"] == [
+        '{"name": "shared_coordinator", "score": 82}'
+    ]
     assert logical_payload["architecture_reasoning"] == {"basis": "控制权转移需要隔离"}
 
 

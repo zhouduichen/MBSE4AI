@@ -520,6 +520,12 @@ def _normalize_vertical_entity_payload(
         ):
             if field in source:
                 source[field] = _wire_string_list(source[field])
+        alternative_partitions = source.get("alternative_partitions")
+        if isinstance(alternative_partitions, (list, tuple)):
+            source["alternative_partitions"] = [
+                _wire_text(item) if isinstance(item, Mapping) else str(item)
+                for item in alternative_partitions
+            ]
         shared_state = source.get("shared_state")
         if isinstance(shared_state, (list, tuple)):
             existing_state_ids = source.get("shared_state_ids")
