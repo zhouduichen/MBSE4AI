@@ -1236,9 +1236,13 @@ class TwoRequirementFeedbackModel(CompleteVerticalModel):
 class ThreeRequirementStructuredModel(TwoRequirementFeedbackModel):
     """Structured model double that covers every input requirement in one run."""
 
+    supports_requirement_batching = True
+    supports_parallel_requirement_batching = True
+
     def __init__(self):
         super().__init__()
         self.requirement_worklists = []
+        self.functional_worklists = []
 
     def complete_json(self, request):
         self.requirement_worklists.append(
@@ -1246,6 +1250,9 @@ class ThreeRequirementStructuredModel(TwoRequirementFeedbackModel):
         )
         recorded = ScriptedModel.complete_json(self, request)
         if request.lens_id == "vertical.functional":
+            self.functional_worklists.append(
+                request.user_payload.get("requirement_worklist", [])
+            )
             return replace(recorded, payload=self._multi_requirement_functional(request))
         if request.lens_id == "vertical.verification_validation":
             return replace(recorded, payload=self._assurance_proposal(request))
@@ -1287,6 +1294,7 @@ class ThreeRequirementStructuredModel(TwoRequirementFeedbackModel):
                         "inputs": ["需求输入"],
                         "outputs": ["可追踪结果"],
                         "decomposition": ["解析需求", "执行功能", "反馈结果"],
+                        "source_requirement_ids": [requirement["id"]],
                     },
                     "confidence": 0.95,
                     "source_ids": [],
@@ -1425,6 +1433,17 @@ def test_structured_runtime_generates_three_requirement_vertical_model(tmp_path:
     assert len(tuple(
         item for item in graph.entities if item.kind is EntityKind.FUNCTION
     )) == 3
+    assert len(model.functional_worklists) == 3
+    assert all(len(worklist) == 1 for worklist in model.functional_worklists)
+    assert {
+        worklist[0]["requirement_id"]
+        for worklist in model.functional_worklists
+    } == {item.id for item in requirements}
+    assert sum(
+        1
+        for relation in graph.relations
+        if relation.predicate is RelationPredicate.SATISFIED_BY
+    ) == 3
     assert all(resolve_requirement_trace(graph, item.id).complete for item in requirements)
     assert all(
         [item["requirement_id"] for item in worklist]

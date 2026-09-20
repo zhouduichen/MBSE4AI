@@ -1584,9 +1584,14 @@ def _requirement_batches(
     if not isinstance(worklist, (list, tuple)):
         return ((),)
     entries = tuple(item for item in worklist if isinstance(item, Mapping))
+    should_split_functional = (
+        request.task_id == "vertical.functional"
+        and len(entries) > 1
+    )
+    should_split_large_batch = len(entries) > _VERTICAL_BATCH_THRESHOLD
     if not (
         request.task_id in _VERTICAL_BATCH_TASKS
-        and len(entries) > _VERTICAL_BATCH_THRESHOLD
+        and (should_split_functional or should_split_large_batch)
         and getattr(model, "supports_requirement_batching", False) is True
     ):
         return (entries,)
