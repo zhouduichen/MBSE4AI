@@ -621,6 +621,202 @@ def test_r_stage_closures_use_canonical_entities_from_the_working_graph():
     ]
 
 
+def test_r_stage_parallelizes_independent_backbones_before_requirement_closure():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应支持人工接管",
+        {"statement": "系统应支持人工接管"},
+    )
+
+    class ParallelBackboneModel:
+        supports_parallel_requirement_batching = True
+        max_parallel_requests = 2
+
+        def __init__(self):
+            self.calls = []
+            self._lock = threading.Lock()
+            self._barrier = threading.Barrier(2)
+            self._active = 0
+            self.max_active = 0
+
+        def complete_json(self, request):
+            metadata = request.user_payload["r_slice"]
+            slice_kind = metadata["slice_kind"]
+            with self._lock:
+                self.calls.append(slice_kind)
+            if slice_kind == "r_requirement":
+                return GenerationResponse(
+                    request.lens_id,
+                    {
+                        "entities": [],
+                        "relations": [],
+                        "updates": [],
+                        "deprecations": [],
+                        "reason": "需求已具备运行上下文",
+                    },
+                    "input",
+                    f"output-{len(self.calls)}",
+                    False,
+                    "fake",
+                    "fake-model",
+                )
+            with self._lock:
+                self._active += 1
+                self.max_active = max(self.max_active, self._active)
+            try:
+                self._barrier.wait(timeout=2)
+            finally:
+                with self._lock:
+                    self._active -= 1
+            if slice_kind == "r_backbone_operational":
+                entities = [{
+                    "local_ref": "system-local",
+                    "kind": EntityKind.SYSTEM.value,
+                    "name": "任务系统",
+                    "payload": {
+                        "mission": "完成任务",
+                        "system_boundary": {"inside": [], "outside": []},
+                        "objectives": [],
+                        "environment_assumptions": [],
+                        "exclusions": [],
+                        "open_questions": [],
+                    },
+                }]
+            else:
+                entities = [{
+                    "local_ref": "scenario-local",
+                    "kind": EntityKind.SCENARIO_HYPOTHESIS.value,
+                    "name": "人工接管场景",
+                    "payload": {"category": "normal", "text": "执行人工接管"},
+                }]
+            return GenerationResponse(
+                request.lens_id,
+                {
+                    "entities": entities,
+                    "relations": [],
+                    "updates": [],
+                    "deprecations": [],
+                    "reason": slice_kind,
+                },
+                "input",
+                f"output-{len(self.calls)}",
+                False,
+                "fake",
+                "fake-model",
+            )
+
+    model = ParallelBackboneModel()
+    task = stage_task("requirements")
+    request = TaskExecutor(model).request(
+        task,
+        ContextBundle("p1", task.id, 11, (requirement,)),
+        "v2.1",
+    )
+
+    result = StructuredModelRuntime(model).execute(request)
+
+    assert result.patch is not None
+    assert model.max_active == 2
+    assert set(model.calls[:2]) == {
+        "r_backbone_operational",
+        "r_backbone_behavior",
+    }
+    assert model.calls[2:] == ["r_requirement"]
+    added_kinds = [
+        operation.entity.kind
+        for operation in result.patch.operations
+        if isinstance(operation, AddEntity)
+    ]
+    assert added_kinds == [EntityKind.SYSTEM, EntityKind.SCENARIO_HYPOTHESIS]
+
+
+def test_r_stage_parallel_backbone_failure_falls_back_after_successful_peer():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应支持人工接管",
+        {"statement": "系统应支持人工接管"},
+    )
+
+    class FallbackBackboneModel:
+        supports_parallel_requirement_batching = True
+        max_parallel_requests = 2
+
+        def __init__(self):
+            self.calls = []
+
+        def complete_json(self, request):
+            metadata = request.user_payload["r_slice"]
+            slice_kind = metadata["slice_kind"]
+            self.calls.append(slice_kind)
+            if slice_kind == "r_backbone_behavior":
+                raise StructuredOutputFailure(
+                    "mixed backbone rejected",
+                    code="schema_validation",
+                    provider_id="fake",
+                    model_id="fake-model",
+                )
+            if slice_kind.startswith("r_backbone_behavior:"):
+                kind = metadata["allowed_kinds"][0]
+                entities = [{
+                    "local_ref": "scenario-local",
+                    "kind": kind,
+                    "name": "人工接管场景",
+                    "payload": {"category": "normal", "text": "执行人工接管"},
+                }] if kind == EntityKind.SCENARIO_HYPOTHESIS.value else []
+            elif slice_kind == "r_backbone_operational":
+                entities = [{
+                    "local_ref": "concern-local",
+                    "kind": EntityKind.CONCERN.value,
+                    "name": "人工接管可控",
+                    "payload": {"topic": "人工接管"},
+                }]
+            else:
+                entities = []
+            return GenerationResponse(
+                request.lens_id,
+                {
+                    "entities": entities,
+                    "relations": [],
+                    "updates": [],
+                    "deprecations": [],
+                    "reason": slice_kind,
+                },
+                "input",
+                f"output-{len(self.calls)}",
+                False,
+                "fake",
+                "fake-model",
+            )
+
+    model = FallbackBackboneModel()
+    task = stage_task("requirements")
+    request = TaskExecutor(model).request(
+        task,
+        ContextBundle("p1", task.id, 11, (requirement,)),
+        "v2.1",
+    )
+
+    result = StructuredModelRuntime(model).execute(request)
+
+    assert result.patch is not None
+    assert set(model.calls[:2]) == {
+        "r_backbone_operational",
+        "r_backbone_behavior",
+    }
+    assert model.calls[2:6] == [
+        "r_backbone_behavior:scenario_hypothesis",
+        "r_backbone_behavior:use_case",
+        "r_backbone_behavior:operational_scenario",
+        "r_backbone_behavior:activity",
+    ]
+    assert model.calls[-1] == "r_requirement"
+    assert {
+        operation.entity.kind
+        for operation in result.patch.operations
+        if isinstance(operation, AddEntity)
+    } == {EntityKind.CONCERN, EntityKind.SCENARIO_HYPOTHESIS}
+
+
 def test_r_stage_failure_keeps_the_write_boundary_and_stops_closures():
     requirement = make_entity(
         EntityKind.REQUIREMENT,

@@ -378,67 +378,13 @@ class StructuredModelRuntime:
             item for item in slices
             if item["r_slice"]["slice_kind"] == "r_requirement"
         ]
-        for slice_payload in backbone:
-            current_request = _request_for_working_graph(request, working_graph)
-            current_payload = _r_payload_for_request(current_request, slice_payload)
-            try:
-                item = self._complete_batch(
-                    current_request,
-                    contract,
-                    current_payload,
-                )
-            except (StructuredOutputFailure, ProposalCompileFailure) as exc:
-                metadata = current_payload.get("r_slice")
-                allowed_kinds = (
-                    tuple(str(item) for item in metadata.get("allowed_kinds", ()))
-                    if isinstance(metadata, Mapping)
-                    else ()
-                )
-                if len(allowed_kinds) > 1:
-                    for offset, kind in enumerate(allowed_kinds):
-                        narrowed_payload = _r_payload_for_request(
-                            _request_for_working_graph(request, working_graph),
-                            _narrow_r_backbone_payload(
-                                current_payload,
-                                kind,
-                                offset,
-                                len(allowed_kinds),
-                            ),
-                        )
-                        try:
-                            narrowed_item = self._complete_batch(
-                                current_request,
-                                contract,
-                                narrowed_payload,
-                            )
-                        except (
-                            StructuredOutputFailure,
-                            ProposalCompileFailure,
-                            TransportFailure,
-                        ) as narrowed_error:
-                            raise _annotate_r_slice_failure(
-                                narrowed_error,
-                                narrowed_payload,
-                            ) from narrowed_error
-                        compiled.append(narrowed_item)
-                        if narrowed_item.patch is not None:
-                            working_graph = apply_patch(
-                                working_graph,
-                                _rebase_patch(
-                                    narrowed_item.patch,
-                                    working_graph.revision,
-                                ),
-                            )
-                    continue
-                raise _annotate_r_slice_failure(exc, current_payload) from exc
-            except TransportFailure as exc:
-                raise _annotate_r_slice_failure(exc, current_payload) from exc
-            compiled.append(item)
-            if item.patch is not None:
-                working_graph = apply_patch(
-                    working_graph,
-                    _rebase_patch(item.patch, working_graph.revision),
-                )
+        backbone_compiled, working_graph = self._complete_r_backbones(
+            request,
+            contract,
+            backbone,
+            working_graph,
+        )
+        compiled.extend(backbone_compiled)
         if closures:
             current_request = _request_for_working_graph(request, working_graph)
             closure_payloads = tuple(
@@ -459,6 +405,145 @@ class StructuredModelRuntime:
                 )
                 raise _annotate_r_slice_failure(exc, failed_payload) from exc
         return tuple(compiled)
+
+    def _complete_r_backbones(
+        self,
+        request: TaskExecutionRequest,
+        contract: Mapping[str, object],
+        backbone: list[Mapping[str, object]],
+        working_graph: ModelGraph,
+    ) -> tuple[tuple[_CompiledProposal, ...], ModelGraph]:
+        if (
+            len(backbone) < 2
+            or getattr(self.model, "supports_parallel_requirement_batching", False)
+            is not True
+        ):
+            return self._complete_r_backbones_sequential(
+                request,
+                contract,
+                backbone,
+                working_graph,
+            )
+        snapshot_request = _request_for_working_graph(request, working_graph)
+        payloads = tuple(
+            _r_payload_for_request(snapshot_request, item)
+            for item in backbone
+        )
+
+        def complete(payload: Mapping[str, object]):
+            try:
+                return self._complete_batch(snapshot_request, contract, payload), None
+            except Exception as exc:  # Preserve the failure for deterministic fallback.
+                return None, exc
+
+        with ThreadPoolExecutor(
+            max_workers=min(self.max_parallel_requests, len(payloads)),
+            thread_name_prefix="rflp-llm-r-backbone",
+        ) as executor:
+            outcomes = tuple(executor.map(complete, payloads))
+
+        compiled: list[_CompiledProposal] = []
+        for payload, (item, failure) in zip(payloads, outcomes):
+            if item is not None:
+                compiled.append(item)
+                if item.patch is not None:
+                    working_graph = apply_patch(
+                        working_graph,
+                        _rebase_patch(item.patch, working_graph.revision),
+                    )
+                continue
+            if failure is None:
+                raise RuntimeError("R backbone completion returned no result")
+            if not isinstance(failure, (StructuredOutputFailure, ProposalCompileFailure)):
+                if isinstance(failure, TransportFailure):
+                    raise _annotate_r_slice_failure(failure, payload) from failure
+                raise failure
+            fallback, working_graph = self._fallback_r_backbone(
+                request,
+                contract,
+                payload,
+                working_graph,
+                failure,
+            )
+            compiled.extend(fallback)
+        return tuple(compiled), working_graph
+
+    def _complete_r_backbones_sequential(
+        self,
+        request: TaskExecutionRequest,
+        contract: Mapping[str, object],
+        backbone: list[Mapping[str, object]],
+        working_graph: ModelGraph,
+    ) -> tuple[tuple[_CompiledProposal, ...], ModelGraph]:
+        compiled: list[_CompiledProposal] = []
+        for payload in backbone:
+            current_request = _request_for_working_graph(request, working_graph)
+            current_payload = _r_payload_for_request(current_request, payload)
+            try:
+                item = self._complete_batch(current_request, contract, current_payload)
+            except (StructuredOutputFailure, ProposalCompileFailure) as exc:
+                fallback, working_graph = self._fallback_r_backbone(
+                    request,
+                    contract,
+                    current_payload,
+                    working_graph,
+                    exc,
+                )
+                compiled.extend(fallback)
+                continue
+            except TransportFailure as exc:
+                raise _annotate_r_slice_failure(exc, current_payload) from exc
+            compiled.append(item)
+            if item.patch is not None:
+                working_graph = apply_patch(
+                    working_graph,
+                    _rebase_patch(item.patch, working_graph.revision),
+                )
+        return tuple(compiled), working_graph
+
+    def _fallback_r_backbone(
+        self,
+        request: TaskExecutionRequest,
+        contract: Mapping[str, object],
+        payload: Mapping[str, object],
+        working_graph: ModelGraph,
+        original_error: Exception,
+    ) -> tuple[tuple[_CompiledProposal, ...], ModelGraph]:
+        metadata = payload.get("r_slice")
+        allowed_kinds = (
+            tuple(str(item) for item in metadata.get("allowed_kinds", ()))
+            if isinstance(metadata, Mapping)
+            else ()
+        )
+        if len(allowed_kinds) <= 1:
+            raise _annotate_r_slice_failure(original_error, payload) from original_error
+        compiled: list[_CompiledProposal] = []
+        for offset, kind in enumerate(allowed_kinds):
+            current_request = _request_for_working_graph(request, working_graph)
+            narrowed_payload = _r_payload_for_request(
+                current_request,
+                _narrow_r_backbone_payload(
+                    payload,
+                    kind,
+                    offset,
+                    len(allowed_kinds),
+                ),
+            )
+            try:
+                item = self._complete_batch(current_request, contract, narrowed_payload)
+            except (
+                StructuredOutputFailure,
+                ProposalCompileFailure,
+                TransportFailure,
+            ) as exc:
+                raise _annotate_r_slice_failure(exc, narrowed_payload) from exc
+            compiled.append(item)
+            if item.patch is not None:
+                working_graph = apply_patch(
+                    working_graph,
+                    _rebase_patch(item.patch, working_graph.revision),
+                )
+        return tuple(compiled), working_graph
 
     def _complete_batches(
         self,
