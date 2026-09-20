@@ -18,7 +18,7 @@ P0: **2 / 6 passed**
 
 ## 2. Tested System
 
-- commit: `02d87baaea8a46685d8846b0964d7bdfa1a7f6f3`
+- commit: `b7413537236d0e9bcb9951a442dc17d7b3feeab0`
 - branch: `codex/web-audit-2026-08-18`
 - entrypoint: `build_v2_services -> ProjectService -> ModelGenerationService.generate -> five-stage vertical path`
 - runtime/provider: `configured-llm`
@@ -27,7 +27,7 @@ P0: **2 / 6 passed**
 - prompt hash: `a76a988bfaf4c43899ad27b3b7303160aeeb156994d08a86c78b1bf3cf411686`
 - task spec hash: `21a7bd79ed630c767d67beb22668364a5791c54ec7869c907334cd56345f5a59`
 - case/repeat: `CASE-04` / `1`
-- test date: `2026-09-20T11:13:19.513884+00:00`
+- test date: `2026-09-20T14:50:55.810263+00:00`
 - configuration: `explicit LLM profile; isolated workspace; provider credentials are not written to reports`
 
 ## 3. Benchmark Results
