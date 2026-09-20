@@ -1033,6 +1033,8 @@ async def run_engineering_product_flow(request: Request, project_id: str):
             cad_intent_text=str(payload.get("cad_intent_text", "")).strip() or None,
             selected_structure_option_id=str(payload.get("selected_structure_option_id", "")).strip(),
             source_requirement_ids=tuple(str(item) for item in raw_sources if str(item).strip()),
+            complete_design=bool(payload.get("complete_design", False)),
+            selected_concept_candidate_id=str(payload.get("selected_concept_candidate_id", "")).strip(),
         )
         return {"status": "ok", "flow": result.as_dict()}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:

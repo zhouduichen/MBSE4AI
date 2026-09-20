@@ -274,6 +274,7 @@ class V2Services:
             self.generation(project_id, profile_id=profile_id),
             self.concept_design(project_id),
             self.cad_design(project_id, profile_id=profile_id),
+            self.design_review(project_id),
             self.deliverables(project_id),
         )
 

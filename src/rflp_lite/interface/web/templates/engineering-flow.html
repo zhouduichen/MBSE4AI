@@ -23,7 +23,9 @@
       <label class="field compact-field" for="engineering-structure-option">结构选型 ID（可选）<input id="engineering-structure-option" placeholder="例如 bracket-gusseted-plate"></label>
       <label class="field compact-field" for="engineering-profile">本次生成使用的模型<select id="engineering-profile"><option value="">离线规则 / 已有默认配置</option>{% for profile in model_profiles %}<option value="{{ profile.id }}"{% if profile.id == active_profile_id %} selected{% endif %}>{{ profile.label or profile.id }} · {{ profile.model }}</option>{% endfor %}</select></label>
     </div>
-    <div class="actions"><button class="button primary" type="submit">运行统一工程流</button><span class="muted" id="engineering-flow-status">不会自动批准或执行下游工程变更</span></div>
+    <label class="checkbox-control"><input id="engineering-complete-design" type="checkbox"> <span>完成概念到详细设计回写<small>显式执行候选应用、CAD 计划、标注和 DFM/DFA 审查；结果仍保留 review 状态</small></span></label>
+    <label class="field compact-field" for="engineering-concept-candidate">概念候选 ID（可选）<input id="engineering-concept-candidate" placeholder="留空时选 Pareto front 第一候选"></label>
+    <div class="actions"><button class="button primary" type="submit">运行统一工程流</button><span class="muted" id="engineering-flow-status">默认不会自动批准或执行下游工程变更</span></div>
   </form>
 </section>
 
@@ -80,6 +82,8 @@
       optimize_concept: document.querySelector('#engineering-optimize-concept').checked,
       cad_intent_text: document.querySelector('#engineering-cad-intent').value.trim() || null,
       selected_structure_option_id: document.querySelector('#engineering-structure-option').value.trim(),
+      complete_design: document.querySelector('#engineering-complete-design').checked,
+      selected_concept_candidate_id: document.querySelector('#engineering-concept-candidate').value.trim(),
       profile_id: document.querySelector('#engineering-profile').value,
     };
     try {

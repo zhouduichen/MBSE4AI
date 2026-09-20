@@ -233,6 +233,34 @@ def test_unified_product_flow_carries_concept_and_cad_to_reviewed_delivery(tmp_p
     assert final_package["artifacts"]["detail_design"]["content"]["design_reviews"][-1]["id"] == review["id"]
 
 
+def test_unified_product_flow_can_complete_concept_to_cad_writeback(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
+    services.projects.create("complete-flow", "一键完成设计链验收")
+    ingested = services.projects.ingest("complete-flow", CONCEPT_SOURCE)
+
+    result = services.product_flow("complete-flow").run(
+        "complete-flow",
+        document_ids=(ingested["document_id"],),
+        include_concept=True,
+        optimize_concept=False,
+        cad_intent_text="生成铝合金支架，长100毫米，宽50毫米，高10毫米",
+        complete_design=True,
+    )
+
+    assert result.status in {"completed", "completed_with_warnings"}
+    assert result.concept["apply"]["entity"]["kind"] == EntityKind.PHYSICAL_BLOCK.value
+    assert result.concept["selected_candidate_id"]
+    assert result.cad["model"]["model_payload"]["parts"]
+    assert result.cad["review"]["artifacts"]["drawing_svg"].startswith("<svg")
+    assert result.cad["apply"]["entity"]["payload"]["context_model_ids"] == [
+        result.concept["apply"]["entity"]["id"]
+    ]
+
+    package = result.deliverable
+    assert package["artifacts"]["detail_design"]["content"]["cad_models"]
+    assert package["artifacts"]["detail_design"]["content"]["design_reviews"]
+
+
 def test_concept_layout_context_flows_into_cad_intent_and_modelgraph(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces", runtime=VerticalRuleRuntime())
     services.projects.create("handoff", "概念布局到详细设计上下文验收")

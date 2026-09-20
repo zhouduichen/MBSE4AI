@@ -94,6 +94,25 @@ def test_product_flow_carries_explicit_structure_selection_into_cad_plan(tmp_pat
     assert [item["operation"] for item in plan["operations"]].count("add_rib") == 2
 
 
+def test_product_flow_complete_design_executes_cad_and_applies_model(tmp_path: Path):
+    services = _services(tmp_path)
+
+    result = services.product_flow("p1").run(
+        "p1",
+        requirement_text="系统应支持详细结构设计",
+        cad_intent_text="生成铝合金支架，长100毫米，宽50毫米，高10毫米",
+        complete_design=True,
+    )
+
+    assert result.status in {"completed", "completed_with_warnings"}
+    assert result.cad["status"] in {"completed", "completed_with_warnings"}
+    assert result.cad["plan"]["approval_status"] == "approved"
+    assert result.cad["model"]["model_payload"]["parts"]
+    assert result.cad["review"]["annotations"]
+    assert result.cad["apply"]["entity"]["kind"] == "physical_block"
+    assert result.deliverable["artifacts"]["detail_design"]["content"]["design_reviews"]
+
+
 def test_product_flow_stops_downstream_when_generation_fails(tmp_path: Path):
     class FailedRequirementsRuntime(VerticalRuleRuntime):
         def execute(self, request):

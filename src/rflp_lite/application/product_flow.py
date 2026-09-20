@@ -39,14 +39,17 @@ class ProductFlowResult:
 class EngineeringProductFlowService:
     """Compose the existing RFLP, concept, CAD and delivery services.
 
-    This service deliberately stops at review boundaries.  Concept candidates
-    are not applied and CAD plans are not approved or executed here.
+    By default this service stops at review boundaries.  An explicit
+    ``complete_design`` request can carry the selected downstream records
+    through the existing apply/approve/execute services and still returns the
+    review evidence and warnings.
     """
 
-    def __init__(self, generation, concept, cad, deliverables) -> None:
+    def __init__(self, generation, concept, cad, design_review, deliverables) -> None:
         self.generation = generation
         self.concept = concept
         self.cad = cad
+        self.design_review = design_review
         self.deliverables = deliverables
 
     def run(
@@ -60,6 +63,8 @@ class EngineeringProductFlowService:
         cad_intent_text: str | None = None,
         selected_structure_option_id: str = "",
         source_requirement_ids: Sequence[str] = (),
+        complete_design: bool = False,
+        selected_concept_candidate_id: str = "",
     ) -> ProductFlowResult:
         """Run the product chain and return its current human-review boundary."""
 
@@ -102,6 +107,20 @@ class EngineeringProductFlowService:
                     "status": "completed",
                     "run": to_primitive(concept_result),
                 }
+                if complete_design:
+                    selected_candidate_id = _select_concept_candidate(
+                        concept_result,
+                        selected_concept_candidate_id,
+                    )
+                    applied = self.concept.apply_candidate(
+                        selected_candidate_id,
+                        concept_result.id,
+                    )
+                    concept = {
+                        **concept,
+                        "selected_candidate_id": selected_candidate_id,
+                        "apply": to_primitive(applied),
+                    }
 
         if status in {"completed", "completed_with_warnings"} and cad_intent_text and str(cad_intent_text).strip():
             draft = self.cad.create_intent(
@@ -122,12 +141,20 @@ class EngineeringProductFlowService:
                     draft.draft_id,
                     selected_structure_option_id=str(selected_structure_option_id).strip(),
                 )
-                cad = {
-                    "status": "needs_approval" if plan.get("status") == "ready" else "needs_clarification",
-                    "draft": draft_payload,
-                    "plan": to_primitive(plan),
-                }
-                status = str(cad["status"])
+                if complete_design and plan.get("status") == "ready":
+                    cad, status = _complete_cad_design(
+                        self.cad,
+                        self.design_review,
+                        draft_payload,
+                        plan,
+                    )
+                else:
+                    cad = {
+                        "status": "needs_approval" if plan.get("status") == "ready" else "needs_clarification",
+                        "draft": draft_payload,
+                        "plan": to_primitive(plan),
+                    }
+                    status = str(cad["status"])
 
         deliverable = _mapping(self.deliverables.build(project_id))
         revision = int(deliverable.get("revision", generation.get("revision", 0)) or 0)
@@ -147,6 +174,43 @@ class EngineeringProductFlowService:
 def _mapping(value: Any) -> Mapping[str, object]:
     raw = to_primitive(value)
     return dict(raw) if isinstance(raw, Mapping) else {}
+
+
+def _select_concept_candidate(result, requested_id: str) -> str:
+    candidates = tuple(result.candidates)
+    if not candidates:
+        raise InputRequired("concept design produced no candidate layout")
+    requested = str(requested_id).strip()
+    if requested:
+        if not any(item.id == requested for item in candidates):
+            raise InputRequired(
+                f"selected concept candidate is not in the current run: {requested}"
+            )
+        return requested
+    front_ids = tuple(
+        str(item)
+        for item in result.evaluation_summary.get("front_candidate_ids", ())
+    )
+    return next((item.id for item in candidates if item.id in front_ids), candidates[0].id)
+
+
+def _complete_cad_design(cad, design_review, draft_payload, plan):
+    approved = cad.approve_plan(str(plan["id"]))
+    model = cad.execute_plan(str(plan["id"]))
+    review = design_review.review(str(model["id"]), model["model_payload"])
+    applied = cad.apply_model(str(model["id"]))
+    warning = str(review.get("status", "needs_review")) != "passed"
+    return (
+        {
+            "status": "completed_with_warnings" if warning else "completed",
+            "draft": draft_payload,
+            "plan": to_primitive(approved),
+            "model": to_primitive(model),
+            "review": to_primitive(review),
+            "apply": to_primitive(applied),
+        },
+        "completed_with_warnings" if warning else "completed",
+    )
 
 
 __all__ = ["EngineeringProductFlowService", "ProductFlowResult"]
