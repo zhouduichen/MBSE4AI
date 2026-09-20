@@ -74,8 +74,11 @@ def test_openai_compatible_remote_model_uses_mixed_r_backbone_by_default():
     })
 
     assert remote.r_backbone_single_kind is False
+    assert remote.supports_parallel_r_backbone is True
     assert compatibility.r_backbone_single_kind is True
+    assert compatibility.supports_parallel_r_backbone is True
     assert local.r_backbone_single_kind is False
+    assert local.supports_parallel_r_backbone is False
     assert remote.automatic_vertical_stage_feedback is False
     assert remote.automatic_vertical_stage_completion_bridge is False
     assert remote.automatic_operational_completion is True

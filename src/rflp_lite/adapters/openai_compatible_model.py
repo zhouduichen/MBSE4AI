@@ -825,6 +825,10 @@ class OpenAICompatibleModel:
             if isinstance(configured_single_kind, bool)
             else False
         )
+        self.supports_parallel_r_backbone = (
+            str(self._config.get("model_location", "local")).casefold()
+            == "remote"
+        )
         configured_feedback = self._config.get("vertical_feedback")
         if not isinstance(configured_feedback, bool):
             configured_feedback = str(

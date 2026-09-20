@@ -69,7 +69,7 @@ git commit -m "perf: use mixed remote R backbone slices by default"
 - Test: `tests/runtime/test_task_execution.py`
 
 **Interfaces:**
-- Consumes: `supports_parallel_requirement_batching`, `max_parallel_requests`, `_request_for_working_graph`, `_rebase_patch`.
+- Consumes: `supports_parallel_r_backbone`, `max_parallel_requests`, `_request_for_working_graph`, `_rebase_patch`.
 - Produces: `_complete_r_backbone_slices(...)` behavior that returns compiled proposals in declared slice order and applies any fallback after successful peers are merged.
 
 - [ ] **Step 1: Write failing tests**
@@ -84,7 +84,7 @@ Expected: FAIL because the current loop executes each backbone serially.
 
 - [ ] **Step 3: Implement the bounded parallel helper**
 
-Use a `ThreadPoolExecutor` only when the provider advertises parallel batching and there are at least two backbone slices. Submit each initial backbone request against the same pre-backbone graph, collect results in slice order, then apply successful patches with `_rebase_patch`. For failures, run the existing one-kind fallback sequentially against the updated graph; preserve `_annotate_r_slice_failure` and stop before closures if fallback fails.
+Use a `ThreadPoolExecutor` only when the provider advertises `supports_parallel_r_backbone` and there are at least two backbone slices. Submit each initial backbone request against the same pre-backbone graph, collect results in slice order, then apply successful patches with `_rebase_patch`. Providers without this explicit capability keep the dependency-safe serial path. For failures, run the existing one-kind fallback sequentially against the updated graph; preserve `_annotate_r_slice_failure` and stop before closures if fallback fails.
 
 - [ ] **Step 4: Keep closure parallelism and stage boundary unchanged**
 

@@ -630,6 +630,7 @@ def test_r_stage_parallelizes_independent_backbones_before_requirement_closure()
 
     class ParallelBackboneModel:
         supports_parallel_requirement_batching = True
+        supports_parallel_r_backbone = True
         max_parallel_requests = 2
 
         def __init__(self):
@@ -739,6 +740,7 @@ def test_r_stage_parallel_backbone_failure_falls_back_after_successful_peer():
 
     class FallbackBackboneModel:
         supports_parallel_requirement_batching = True
+        supports_parallel_r_backbone = True
         max_parallel_requests = 2
 
         def __init__(self):

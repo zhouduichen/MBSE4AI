@@ -415,7 +415,7 @@ class StructuredModelRuntime:
     ) -> tuple[tuple[_CompiledProposal, ...], ModelGraph]:
         if (
             len(backbone) < 2
-            or getattr(self.model, "supports_parallel_requirement_batching", False)
+            or getattr(self.model, "supports_parallel_r_backbone", False)
             is not True
         ):
             return self._complete_r_backbones_sequential(
