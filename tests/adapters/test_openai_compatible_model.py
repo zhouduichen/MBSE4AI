@@ -80,7 +80,7 @@ def test_openai_compatible_remote_model_uses_mixed_r_backbone_by_default():
     assert remote.automatic_vertical_stage_completion_bridge is False
     assert remote.automatic_operational_completion is True
     assert remote.vertical_batch_size == 2
-    assert remote.vertical_functional_batch_size == 1
+    assert remote.vertical_functional_batch_size == 2
     assert remote.vertical_logical_batch_size == 1
     assert remote.vertical_physical_batch_size == 1
     assert remote.vertical_vv_batch_size == 1
