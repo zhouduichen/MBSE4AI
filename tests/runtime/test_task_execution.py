@@ -588,7 +588,7 @@ def test_r_stage_failure_keeps_the_write_boundary_and_stops_closures():
         def complete_json(self, request):
             slice_kind = request.user_payload["r_slice"]["slice_kind"]
             self.calls.append(slice_kind)
-            if slice_kind == "r_backbone_behavior":
+            if slice_kind.startswith("r_backbone_behavior"):
                 raise StructuredOutputFailure(
                     "backbone response truncated",
                     code="truncated",
@@ -623,7 +623,11 @@ def test_r_stage_failure_keeps_the_write_boundary_and_stops_closures():
     with pytest.raises(StructuredOutputFailure, match="r_slice_failed=r_backbone_behavior"):
         StructuredModelRuntime(model).execute(request)
 
-    assert model.calls == ["r_backbone_operational", "r_backbone_behavior"]
+    assert model.calls == [
+        "r_backbone_operational",
+        "r_backbone_behavior",
+        "r_backbone_behavior:scenario_hypothesis",
+    ]
 
 
 def test_vertical_runtime_compacts_model_context_but_keeps_typed_payload_fields():

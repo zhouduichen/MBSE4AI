@@ -336,7 +336,51 @@ class StructuredModelRuntime:
                     contract,
                     current_payload,
                 )
-            except (StructuredOutputFailure, ProposalCompileFailure, TransportFailure) as exc:
+            except (StructuredOutputFailure, ProposalCompileFailure) as exc:
+                metadata = current_payload.get("r_slice")
+                allowed_kinds = (
+                    tuple(str(item) for item in metadata.get("allowed_kinds", ()))
+                    if isinstance(metadata, Mapping)
+                    else ()
+                )
+                if len(allowed_kinds) > 1:
+                    for offset, kind in enumerate(allowed_kinds):
+                        narrowed_payload = _r_payload_for_request(
+                            _request_for_working_graph(request, working_graph),
+                            _narrow_r_backbone_payload(
+                                current_payload,
+                                kind,
+                                offset,
+                                len(allowed_kinds),
+                            ),
+                        )
+                        try:
+                            narrowed_item = self._complete_batch(
+                                current_request,
+                                contract,
+                                narrowed_payload,
+                            )
+                        except (
+                            StructuredOutputFailure,
+                            ProposalCompileFailure,
+                            TransportFailure,
+                        ) as narrowed_error:
+                            raise _annotate_r_slice_failure(
+                                narrowed_error,
+                                narrowed_payload,
+                            ) from narrowed_error
+                        compiled.append(narrowed_item)
+                        if narrowed_item.patch is not None:
+                            working_graph = apply_patch(
+                                working_graph,
+                                _rebase_patch(
+                                    narrowed_item.patch,
+                                    working_graph.revision,
+                                ),
+                            )
+                    continue
+                raise _annotate_r_slice_failure(exc, current_payload) from exc
+            except TransportFailure as exc:
                 raise _annotate_r_slice_failure(exc, current_payload) from exc
             compiled.append(item)
             if item.patch is not None:
@@ -1626,6 +1670,25 @@ def _annotate_r_slice_failure(
             **common,
         )
     return error
+
+
+def _narrow_r_backbone_payload(
+    payload: Mapping[str, object],
+    kind: str,
+    offset: int,
+    count: int,
+) -> Mapping[str, object]:
+    """Retry a wide backbone slice as one shared kind after truncation."""
+
+    metadata = payload.get("r_slice")
+    if not isinstance(metadata, Mapping):
+        return payload
+    narrowed = dict(metadata)
+    narrowed["slice_kind"] = f"{metadata.get('slice_kind', 'r_backbone')}:{kind}"
+    narrowed["allowed_kinds"] = [kind]
+    narrowed["slice_index"] = int(metadata.get("slice_index", 0) or 0) + offset
+    narrowed["slice_count"] = int(metadata.get("slice_count", count) or count)
+    return {**dict(payload), "r_slice": narrowed}
 
 
 def _r_slice_contract(
