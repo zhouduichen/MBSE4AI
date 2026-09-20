@@ -72,6 +72,11 @@ def test_openai_compatible_remote_model_uses_mixed_r_backbone_by_default():
         "model_location": "remote",
         "vertical_feedback": True,
     })
+    first_pass = OpenAICompatibleModel({
+        "model": "remote",
+        "model_location": "remote",
+        "automatic_operational_completion": False,
+    })
 
     assert remote.r_backbone_single_kind is False
     assert remote.supports_parallel_r_backbone is True
@@ -82,6 +87,7 @@ def test_openai_compatible_remote_model_uses_mixed_r_backbone_by_default():
     assert remote.automatic_vertical_stage_feedback is False
     assert remote.automatic_vertical_stage_completion_bridge is False
     assert remote.automatic_operational_completion is True
+    assert first_pass.automatic_operational_completion is False
     assert remote.vertical_batch_size == 2
     assert remote.vertical_functional_batch_size == 2
     assert remote.vertical_logical_batch_size == 1

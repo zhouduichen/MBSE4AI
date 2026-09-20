@@ -848,8 +848,14 @@ class OpenAICompatibleModel:
         self.supports_vv_case_splitting = (
             str(self._config.get("model_location", "local")).casefold() == "remote"
         )
+        configured_operational_completion = self._config.get(
+            "automatic_operational_completion"
+        )
         self.automatic_operational_completion = (
-            str(self._config.get("model_location", "local")).casefold() == "remote"
+            configured_operational_completion
+            if isinstance(configured_operational_completion, bool)
+            else str(self._config.get("model_location", "local")).casefold()
+            == "remote"
         )
         try:
             self.vertical_batch_size = max(
