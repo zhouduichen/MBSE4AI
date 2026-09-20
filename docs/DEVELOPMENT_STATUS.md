@@ -1,6 +1,6 @@
 # 开发状态
 
-**更新时间：** 2026-09-19
+**更新时间：** 2026-09-20
 **产品版本：** rflp-lite 0.2.0
 **方法论协议：** v2.1
 
@@ -94,6 +94,23 @@
 | 设计来源自动回接（2.1/3.1） | 概念布局与 CAD 意图在未显式选取来源时自动读取当前 ModelGraph 的根 Requirement；CAD 意图还自动带入来源需求下已接受/锁定的 PhysicalBlock 上下文，并沿 `DesignIntent.context_model_ids`→`CadExecutionPlan.model_context_ids`→回写实体保持 2.1→3.1 追溯；显式来源保持优先，应用后通过 `satisfiedBy`/来源载荷保留需求→设计对象追溯 |
 | 详细设计开发切片（3.1–3.3） | 设计意图与澄清、稳定 ID 的结构选型推荐及用户选择、支架/底座、壳体、阶梯轴和齿轮 profile 到 allowlisted 参数化操作的编译、CAD 操作计划、预览/审批/执行门、远程 FreeCAD headless 实体生成与 FCStd/STEP 回读、几何摘要、共享 2D/3D 标注/基准/GD&T 候选、厂商无关二维图纸 SVG 预览、风险高亮 SVG、带规则集/装配接口/风险摘要/evidence hash 的 DFM/DFA finding；finding 决策通过 CAS Patch 同步已应用的 PhysicalBlock 与交付包，锁定实体保持写保护；推荐不会自动成为批准事实，preview 图纸与规则结果仍是 development evidence，正式制造结论仍需客户标准和规则库 |
 | 多学科快速评估（2.2） | 气动、结构、重量/重心三个适配器有界并行执行；保留输入/输出哈希、适配器版本、缓存、失败隔离、代理有效域门禁、帕累托排序和有界优化反馈；每条评估额外固化输入参数、有效域状态、验证数据集、误差/批准诊断，候选摘要记录完成度和失败学科；内置计算器固定标记为 development evidence |
+
+## 2026-09-20 真实远程纵向验收记录
+
+本日使用 `Jiayu-intern` 的 SSH 转发 vLLM（模型 `qwen3.5-controller`）进行
+`CASE-04`，没有在开发机启动模型。以下结果必须分开理解：
+
+| 路径 | 结果 | 证据边界 |
+|---|---:|---|
+| 纯远端 Provider、`vertical_completion_bridge=false` | 45/100，P0 2/6 | Requirements 生成期间远端 Controller 被 GPU scheduler handoff 停止；Functional、Logical、Physical、V&V 未启动，不能证明五阶段 Provider 链完成 |
+| 远端配置 + 显式 typed completion bridge | 90/100，P0 4/6 | ModelGraph 70 entities/156 relations，端到端追溯 1.0；五个阶段均记录 `offline:vertical-runtime`，属于混合闭环，不是纯 LLM 五阶段验收 |
+| 远程 FreeCAD 3.1–3.3 | PASS | 真实 FCStd/STEP 生成、回读、标注/风险审查、PhysicalBlock 回写和交付下载通过 |
+| 离线 R→F→L→P→V&V + 2.1/2.2 + 远程 FreeCAD | PASS | 一次完整混合产品交付链通过；不替代纯远端 LLM 证据 |
+
+两次远端报告和 ModelGraph/audit/run ledger 已提交到 GitHub：混合验收为
+`a0c1b65`，纯 Provider 中断证据为 `15ffa22`。当前纯 Provider 五阶段验收仍需
+远端 Controller 保持一轮完整 GPU lease；不得把 completion bridge 结果记作
+Provider 成功。
 
 ## 历史 Harness 验收边界
 
