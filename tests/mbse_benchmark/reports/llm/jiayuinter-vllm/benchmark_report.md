@@ -18,7 +18,7 @@ P0: **2 / 6 passed**
 
 ## 2. Tested System
 
-- commit: `b7413537236d0e9bcb9951a442dc17d7b3feeab0`
+- commit: `42707fdbd5d3d47b58041ab0567028b89f29d595`
 - branch: `codex/web-audit-2026-08-18`
 - entrypoint: `build_v2_services -> ProjectService -> ModelGenerationService.generate -> five-stage vertical path`
 - runtime/provider: `configured-llm`
@@ -27,7 +27,7 @@ P0: **2 / 6 passed**
 - prompt hash: `a76a988bfaf4c43899ad27b3b7303160aeeb156994d08a86c78b1bf3cf411686`
 - task spec hash: `21a7bd79ed630c767d67beb22668364a5791c54ec7869c907334cd56345f5a59`
 - case/repeat: `CASE-04` / `1`
-- test date: `2026-09-20T14:50:55.810263+00:00`
+- test date: `2026-09-20T15:10:14.450339+00:00`
 - configuration: `explicit LLM profile; isolated workspace; provider credentials are not written to reports`
 
 ## 3. Benchmark Results
@@ -153,13 +153,13 @@ This baseline uses the same input and configured model without methodology workf
 
 | Metric | Observed |
 | ------ | -------: |
-| requirement_precision | 0.0 |
-| requirement_recall | 0.0 |
-| requirement_atomicity | 0.0 |
-| requirement_verifiability | 0.0 |
+| requirement_precision | 1.0 |
+| requirement_recall | 1.0 |
+| requirement_atomicity | 1.0 |
+| requirement_verifiability | 1.0 |
 | unsupported_numeric_claim_rate | 0.0 |
 | trace_accuracy | 0.0 |
 | RFLP_coverage | 0.0 |
-| evidence_faithfulness | 0.0 |
-| verification_quality | 0.0 |
+| evidence_faithfulness | 1.0 |
+| verification_quality | 1.0 |
 | hallucinated_entity_rate | 0.0 |
