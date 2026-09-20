@@ -256,6 +256,18 @@ def normalize_profile(payload: object) -> dict[str, object]:
         vertical_completion_bridge = model_location != "remote"
     if not isinstance(vertical_completion_bridge, bool):
         raise InvariantViolation("LLM vertical_completion_bridge 必须是布尔值")
+    automatic_operational_completion = payload.get(
+        "automatic_operational_completion"
+    )
+    if automatic_operational_completion is None:
+        automatic_operational_completion = model_location == "remote"
+    if not isinstance(automatic_operational_completion, bool):
+        raise InvariantViolation("LLM automatic_operational_completion 必须是布尔值")
+    vertical_vv_case_splitting = payload.get("vertical_vv_case_splitting")
+    if vertical_vv_case_splitting is None:
+        vertical_vv_case_splitting = model_location == "remote"
+    if not isinstance(vertical_vv_case_splitting, bool):
+        raise InvariantViolation("LLM vertical_vv_case_splitting 必须是布尔值")
     r_backbone_single_kind = payload.get("r_backbone_single_kind") is True
     vertical_batch_size = _optional_int(
         payload,
@@ -331,6 +343,8 @@ def normalize_profile(payload: object) -> dict[str, object]:
         "reasoning_effort": reasoning_effort.strip() if isinstance(reasoning_effort, str) else None,
         "vertical_feedback": vertical_feedback,
         "vertical_completion_bridge": vertical_completion_bridge,
+        "automatic_operational_completion": automatic_operational_completion,
+        "vertical_vv_case_splitting": vertical_vv_case_splitting,
         "r_backbone_single_kind": r_backbone_single_kind,
         "vertical_batch_size": vertical_batch_size,
         "vertical_batch_output_tokens": vertical_batch_output_tokens,

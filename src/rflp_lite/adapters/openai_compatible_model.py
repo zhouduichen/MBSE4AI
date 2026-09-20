@@ -845,8 +845,12 @@ class OpenAICompatibleModel:
         self.automatic_vertical_stage_completion_bridge = (
             configured_bridge if isinstance(configured_bridge, bool) else True
         )
+        configured_vv_case_splitting = self._config.get("vertical_vv_case_splitting")
         self.supports_vv_case_splitting = (
-            str(self._config.get("model_location", "local")).casefold() == "remote"
+            configured_vv_case_splitting
+            if isinstance(configured_vv_case_splitting, bool)
+            else str(self._config.get("model_location", "local")).casefold()
+            == "remote"
         )
         configured_operational_completion = self._config.get(
             "automatic_operational_completion"

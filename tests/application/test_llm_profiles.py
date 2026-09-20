@@ -232,6 +232,8 @@ def test_remote_profile_defaults_to_mixed_r_backbone_and_allows_compatibility_mo
     assert opted_in["vertical_feedback"] is True
     assert remote["vertical_completion_bridge"] is False
     assert local["vertical_completion_bridge"] is True
+    assert remote["automatic_operational_completion"] is True
+    assert remote["vertical_vv_case_splitting"] is True
     assert remote["r_backbone_single_kind"] is False
     assert compatibility["r_backbone_single_kind"] is True
 
@@ -245,6 +247,19 @@ def test_llm_profile_can_disable_vertical_completion_bridge() -> None:
     })
 
     assert profile["vertical_completion_bridge"] is False
+
+
+def test_llm_profile_can_disable_remote_completion_loops_and_vv_case_splitting() -> None:
+    profile = normalize_profile({
+        **_payload(),
+        "id": "first-pass-remote",
+        "model_location": "remote",
+        "automatic_operational_completion": False,
+        "vertical_vv_case_splitting": False,
+    })
+
+    assert profile["automatic_operational_completion"] is False
+    assert profile["vertical_vv_case_splitting"] is False
 
 
 def test_llm_profile_defaults_remote_parallelism_lower_than_local() -> None:

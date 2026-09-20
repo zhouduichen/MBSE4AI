@@ -76,6 +76,7 @@ def test_openai_compatible_remote_model_uses_mixed_r_backbone_by_default():
         "model": "remote",
         "model_location": "remote",
         "automatic_operational_completion": False,
+        "vertical_vv_case_splitting": False,
     })
 
     assert remote.r_backbone_single_kind is False
@@ -88,6 +89,8 @@ def test_openai_compatible_remote_model_uses_mixed_r_backbone_by_default():
     assert remote.automatic_vertical_stage_completion_bridge is False
     assert remote.automatic_operational_completion is True
     assert first_pass.automatic_operational_completion is False
+    assert remote.supports_vv_case_splitting is True
+    assert first_pass.supports_vv_case_splitting is False
     assert remote.vertical_batch_size == 2
     assert remote.vertical_functional_batch_size == 2
     assert remote.vertical_logical_batch_size == 1
