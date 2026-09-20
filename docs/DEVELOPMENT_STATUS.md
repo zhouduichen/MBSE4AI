@@ -102,13 +102,14 @@
 
 | 路径 | 结果 | 证据边界 |
 |---|---:|---|
+| 纯远端 Provider、稳定 API、`vertical_completion_bridge=false` | 55/100，P0 3/6 | 远端 Controller 保持在线并完成多轮 `POST /v1/chat/completions 200`；Requirements 响应在 `finish_reason=length` 下被截断，结构化 JSON 修复失败，Functional、Logical、Physical、V&V 未启动，因此仍不能证明五阶段 Provider 链完成 |
 | 纯远端 Provider、`vertical_completion_bridge=false` | 45/100，P0 2/6 | Requirements 生成期间远端 Controller 被 GPU scheduler handoff 停止；Functional、Logical、Physical、V&V 未启动，不能证明五阶段 Provider 链完成 |
 | 远端配置 + 显式 typed completion bridge | 90/100，P0 4/6 | ModelGraph 70 entities/156 relations，端到端追溯 1.0；五个阶段均记录 `offline:vertical-runtime`，属于混合闭环，不是纯 LLM 五阶段验收 |
 | 远程 FreeCAD 3.1–3.3 | PASS | 真实 FCStd/STEP 生成、回读、标注/风险审查、PhysicalBlock 回写和交付下载通过 |
 | 离线 R→F→L→P→V&V + 2.1/2.2 + 远程 FreeCAD | PASS | 一次完整混合产品交付链通过；不替代纯远端 LLM 证据 |
 
-两次远端报告和 ModelGraph/audit/run ledger 已提交到 GitHub：混合验收为
-`a0c1b65`，纯 Provider 中断证据为 `15ffa22`。当前纯 Provider 五阶段验收仍需
+三次远端报告和 ModelGraph/audit/run ledger 已提交到 GitHub：混合验收为
+`a0c1b65`，纯 Provider 中断证据为 `15ffa22`，本次稳定 API 但输出截断证据随后随本次提交发布。当前纯 Provider 五阶段验收仍需
 远端 Controller 保持一轮完整 GPU lease；不得把 completion bridge 结果记作
 Provider 成功。
 

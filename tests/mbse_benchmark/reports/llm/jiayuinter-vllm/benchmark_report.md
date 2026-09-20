@@ -8,17 +8,17 @@ Track status: **EXPLICIT**
 
 FINAL STATUS: **REJECTED**
 
-Score: **45.0 / 100**
+Score: **55.0 / 100**
 
-Current Capability Score: **45.0 / 100**
+Current Capability Score: **55.0 / 100**
 
 Full Target Capability Score: **100.0 / 100**
 
-P0: **2 / 6 passed**
+P0: **3 / 6 passed**
 
 ## 2. Tested System
 
-- commit: `a0c1b6559963e1705473b13151e48791340256ad`
+- commit: `e4b6f4b3af566e05d9d01bb96a9b6ea81d205c14`
 - branch: `codex/web-audit-2026-08-18`
 - entrypoint: `build_v2_services -> ProjectService -> ModelGenerationService.generate -> five-stage vertical path`
 - runtime/provider: `configured-llm`
@@ -27,7 +27,7 @@ P0: **2 / 6 passed**
 - prompt hash: `a76a988bfaf4c43899ad27b3b7303160aeeb156994d08a86c78b1bf3cf411686`
 - task spec hash: `21a7bd79ed630c767d67beb22668364a5791c54ec7869c907334cd56345f5a59`
 - case/repeat: `CASE-04` / `1`
-- test date: `2026-09-20T04:58:50.244464+00:00`
+- test date: `2026-09-20T05:35:35.825810+00:00`
 - configuration: `explicit LLM profile; isolated workspace; provider credentials are not written to reports`
 
 ## 3. Benchmark Results
@@ -50,7 +50,7 @@ P0: **2 / 6 passed**
 | T14 | FAIL |  | verification_coverage |
 | T15 | FAIL |  | end_to_end_traceability |
 | T16 | PASS |  |  |
-| T17 | FAIL |  | iteration |
+| T17 | PASS |  |  |
 | T18 | NOT_IMPLEMENTED |  |  |
 | T19 | PASS |  |  |
 | T20 | BLOCKED |  | regression |
@@ -83,7 +83,7 @@ P0: **2 / 6 passed**
 - PASS: P0-03 upstream trace is not broadly broken
 - PASS: P0-04 no false satisfied architecture
 - FAIL: P0-05 verification traces requirements
-- FAIL: P0-06 failure feedback/iteration exists
+- PASS: P0-06 failure feedback/iteration exists
 
 ## 6. Traceability Analysis
 
@@ -103,11 +103,10 @@ CASE-05 was not selected.
 
 ## 10. Iteration Test
 
-CASE-04: iteration_signal=False
+CASE-04: iteration_signal=True
 
 ## 11. Critical Problems
 
-- [P0] CASE-04 T17: no failure feedback or targeted iteration evidence is recorded
 - [P0] case-04 T14: verification cases are absent, orphaned, or not linked to requirements
 - [P0] case-04 T15: trace breaks between upstream behavior and downstream architecture/verification
 - [P1] CASE-04 T20: fewer than three runs were available
@@ -119,7 +118,6 @@ CASE-04: iteration_signal=False
 
 | Priority | Problem | Reason | Affected Module | Suggested Fix | Expected Benefit |
 | -------- | ------- | ------ | --------------- | ------------- | --------------- |
-| P0 | iteration | no failure feedback or targeted iteration evidence is recorded | current workflow | Persist failure-to-requirement impact and rerun the smallest affected stage. | restores measurable MBSE coverage |
 | P0 | verification_coverage | verification cases are absent, orphaned, or not linked to requirements | current workflow | Link every verification case to a requirement and retain its pass/fail criterion. | restores measurable MBSE coverage |
 | P0 | end_to_end_traceability | trace breaks between upstream behavior and downstream architecture/verification | current workflow | Repair the earliest broken relation and rerun downstream phases. | restores measurable MBSE coverage |
 | P1 | regression | fewer than three runs were available | current workflow | Run the case three times in isolated workspaces. | restores measurable MBSE coverage |
@@ -141,8 +139,8 @@ CASE-04: iteration_signal=False
 | graph_hash_determinism | 1.0 |
 | rflp_trace_coverage | 0.0 |
 | gate_detection | 0.0 |
-| repair_recovery | 0.0 |
-| cas_lock_protection | 0.0 |
+| repair_recovery | 1.0 |
+| cas_lock_protection | 1.0 |
 | closure_manifest | 0.0 |
 | audit_completeness | 1.0 |
 | repeat_minimum | 1 |
@@ -153,13 +151,13 @@ This baseline uses the same input and configured model without methodology workf
 
 | Metric | Observed |
 | ------ | -------: |
-| requirement_precision | 0.0 |
-| requirement_recall | 0.0 |
-| requirement_atomicity | 0.0 |
-| requirement_verifiability | 0.0 |
+| requirement_precision | 1.0 |
+| requirement_recall | 1.0 |
+| requirement_atomicity | 1.0 |
+| requirement_verifiability | 1.0 |
 | unsupported_numeric_claim_rate | 0.0 |
 | trace_accuracy | 0.0 |
 | RFLP_coverage | 0.0 |
-| evidence_faithfulness | 0.0 |
-| verification_quality | 0.0 |
+| evidence_faithfulness | 1.0 |
+| verification_quality | 1.0 |
 | hallucinated_entity_rate | 0.0 |
