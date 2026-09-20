@@ -572,11 +572,41 @@ def test_vertical_payload_normalizes_structured_logical_reasoning():
 
     logical_payload = normalized["entities"][0]["payload"]
     assert logical_payload["partition_basis"] == '{"function_ids": ["function-1"]}'
+    assert logical_payload["architecture_rationale"] == "控制权转移需要隔离"
     assert logical_payload["shared_state"] == ["接管中"]
     assert logical_payload["shared_state_ids"] == ["state-1"]
     assert logical_payload["safety_isolation"] == [{"level": "high"}]
-    assert logical_payload["architecture_rationale"] == "控制权转移需要隔离"
     assert logical_payload["architecture_reasoning"] == {"basis": "控制权转移需要隔离"}
+
+
+def test_vertical_payload_maps_partition_basis_to_logical_rationale() -> None:
+    schema = output_contract(stage_task("logical"))
+    payload = {
+        "entities": [{
+            "local_ref": "logical-1",
+            "kind": "logical_component",
+            "name": "安全接管逻辑单元",
+            "payload": {
+                "responsibility": "执行安全接管",
+                "partition_basis": {"function_ids": ["function-1"]},
+            },
+        }],
+        "relations": [],
+        "updates": [],
+        "deprecations": [],
+        "reason": "建立逻辑架构",
+    }
+
+    normalized = OpenAICompatibleModel._parse_and_validate(
+        json.dumps(payload, ensure_ascii=False),
+        schema,
+        normalize_vertical=True,
+    )
+
+    logical_payload = normalized["entities"][0]["payload"]
+    assert logical_payload["architecture_rationale"] == (
+        '{"function_ids": ["function-1"]}'
+    )
 
 
 def test_vertical_payload_maps_function_purpose_to_required_decomposition():

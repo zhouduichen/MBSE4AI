@@ -503,6 +503,14 @@ def _normalize_vertical_entity_payload(
         partition_basis = source.get("partition_basis")
         if isinstance(partition_basis, Mapping):
             source["partition_basis"] = _wire_text(partition_basis)
+        # Providers commonly call the architecture justification
+        # ``partition_basis``.  The strict logical contract exposes the same
+        # evidence as ``architecture_rationale``; preserve the provider's
+        # explanation instead of rejecting an otherwise usable component.
+        if "architecture_rationale" not in source and "partition_basis" in source:
+            source["architecture_rationale"] = str(
+                source["partition_basis"] or ""
+            ).strip()
         for field in (
             "dependencies",
             "functional_flow_ids",
