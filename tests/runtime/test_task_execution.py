@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 
 import pytest
 
@@ -1420,7 +1421,101 @@ def test_structured_runtime_caps_only_multi_requirement_batch_output_budget():
 
     StructuredModelRuntime(model).execute(request)
 
-    assert [call.max_tokens for call in model.calls] == [3072, 3072, 3072]
+    assert [call.max_tokens for call in model.calls] == [3072] * 5
+
+
+def test_structured_runtime_batches_functional_one_requirement_per_call():
+    model = BatchedVerticalModel()
+    requirements = tuple(
+        make_entity(
+            EntityKind.REQUIREMENT,
+            f"需求-{index}",
+            {"statement": f"系统应满足需求-{index}"},
+        )
+        for index in range(5)
+    )
+    request = TaskExecutor(model).request(
+        stage_task("functional"),
+        ContextBundle("p1", "vertical.functional", 3, requirements),
+        "v2.1",
+    )
+
+    StructuredModelRuntime(model).execute(request)
+
+    ordered = sorted(requirements, key=lambda item: item.id)
+    assert [
+        len(call.user_payload["requirement_worklist"])
+        for call in model.calls
+    ] == [1] * 5
+    assert [
+        call.user_payload["requirement_batch"]["requirement_ids"]
+        for call in model.calls
+    ] == [[item.id] for item in ordered]
+
+
+def test_functional_slice_preserves_requirement_source_and_satisfied_by_trace():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应支持人工接管",
+        {"statement": "系统应支持人工接管"},
+    )
+
+    class FunctionalTraceModel:
+        def complete_json(self, request):
+            requirement_id = request.user_payload["requirement_worklist"][0][
+                "requirement_id"
+            ]
+            return GenerationResponse(
+                request.lens_id,
+                {
+                    "entities": [{
+                        "local_ref": "function-intervene",
+                        "kind": EntityKind.FUNCTION.value,
+                        "name": "执行人工接管",
+                        "payload": {
+                            "decomposition": ["接收接管指令", "切换安全控制"],
+                            "source_requirement_ids": [requirement_id],
+                        },
+                    }],
+                    "relations": [{
+                        "source_ref": requirement_id,
+                        "predicate": RelationPredicate.SATISFIED_BY.value,
+                        "target_ref": "function-intervene",
+                        "evidence_ids": [],
+                    }],
+                    "updates": [],
+                    "deprecations": [],
+                    "reason": "建立需求到功能的追溯",
+                },
+                "input",
+                "output",
+                False,
+                "fake",
+                "functional-trace-model",
+            )
+
+    request = TaskExecutor(FunctionalTraceModel()).request(
+        stage_task("functional"),
+        ContextBundle("p1", "vertical.functional", 3, (requirement,)),
+        "v2.1",
+    )
+    result = StructuredModelRuntime(FunctionalTraceModel()).execute(request)
+
+    assert result.patch is not None
+    function = next(
+        operation.entity
+        for operation in result.patch.operations
+        if isinstance(operation, AddEntity)
+        and operation.entity.kind is EntityKind.FUNCTION
+    )
+    assert function.payload["source_requirement_ids"] == [requirement.id]
+    assert any(
+        isinstance(operation, Relate)
+        and operation.source_id == requirement.id
+        and operation.predicate is RelationPredicate.SATISFIED_BY
+        and operation.target_id == function.id
+        for operation in result.patch.operations
+    )
 
 
 @pytest.mark.parametrize("stage", ("functional", "logical", "physical"))
@@ -1442,40 +1537,46 @@ def test_structured_runtime_batches_large_rflp_worklist(stage):
     result = StructuredModelRuntime(model).execute(request)
 
     ordered_requirements = tuple(sorted(requirements, key=lambda item: item.id))
+    expected_batches = (
+        tuple((item,) for item in ordered_requirements)
+        if stage == "functional"
+        else (
+            ordered_requirements[:2],
+            ordered_requirements[2:4],
+            ordered_requirements[4:],
+        )
+    )
     assert result.patch is None
     assert [
         [item["requirement_id"] for item in call.user_payload["requirement_worklist"]]
         for call in model.calls
     ] == [
         [item.id for item in batch]
-        for batch in (
-            ordered_requirements[:2],
-            ordered_requirements[2:4],
-            ordered_requirements[4:],
-        )
+        for batch in expected_batches
     ]
     assert [call.user_payload["requirement_batch"] for call in model.calls] == [
         {
             "index": index,
-            "count": 3,
+            "count": len(expected_batches),
             "is_first": index == 1,
             "requirement_ids": [item.id for item in batch],
         }
-        for index, batch in enumerate(
-            (ordered_requirements[:2], ordered_requirements[2:4], ordered_requirements[4:]),
-            start=1,
-        )
+        for index, batch in enumerate(expected_batches, start=1)
     ]
     assert all(
-        f"当前是 vertical.{stage} 第" in call.system_prompt
+        (
+            "当前是 Functional 第" if stage == "functional"
+            else f"当前是 vertical.{stage} 第"
+        ) in call.system_prompt
         for call in model.calls
     )
-    assert "batch_count=3" in result.diagnostics
+    assert f"batch_count={len(expected_batches)}" in result.diagnostics
 
 
 def test_structured_runtime_accepts_provider_batch_budget_overrides():
     model = BatchedVerticalModel()
     model.vertical_batch_size = 4
+    model.vertical_functional_batch_size = 4
     model.vertical_batch_output_token_budget = 1536
     requirements = tuple(
         make_entity(
@@ -1535,7 +1636,7 @@ def test_structured_runtime_scopes_each_batch_to_current_requirements():
     ordered_requirements = tuple(sorted(requirements, key=lambda item: item.id))
     for call, expected in zip(
         model.calls,
-        (ordered_requirements[:2], ordered_requirements[2:4], ordered_requirements[4:]),
+        tuple((item,) for item in ordered_requirements),
     ):
         expected_ids = {item.id for item in expected}
         visible_requirements = {
@@ -1590,13 +1691,15 @@ def test_structured_runtime_parallelizes_batches_only_for_capable_models():
 
         def __init__(self):
             super().__init__()
-            self.barrier = threading.Barrier(3)
+            self.thread_ids = set()
 
         def complete_json(self, request):
-            self.barrier.wait(timeout=5)
+            self.thread_ids.add(threading.get_ident())
+            time.sleep(0.05)
             return super().complete_json(request)
 
     model = ParallelBatchedModel()
+    model.max_parallel_requests = 3
     requirements = tuple(
         make_entity(
             EntityKind.REQUIREMENT,
@@ -1613,7 +1716,8 @@ def test_structured_runtime_parallelizes_batches_only_for_capable_models():
     result = StructuredModelRuntime(model).execute(request)
 
     assert result.patch is None
-    assert len(model.calls) == 3
+    assert len(model.calls) == 5
+    assert len(model.thread_ids) >= 2
 
 
 def test_structured_runtime_rejects_merged_vv_patch_over_effective_limit():

@@ -127,6 +127,16 @@ class StructuredModelRuntime:
             1,
             min(32, int(getattr(model, "vertical_batch_size", _VERTICAL_BATCH_SIZE))),
         )
+        try:
+            self.vertical_functional_batch_size = max(
+                1,
+                min(
+                    32,
+                    int(getattr(model, "vertical_functional_batch_size", 1)),
+                ),
+            )
+        except (TypeError, ValueError):
+            self.vertical_functional_batch_size = 1
         self.vertical_batch_output_token_budget = max(
             256,
             int(
@@ -209,17 +219,22 @@ class StructuredModelRuntime:
         if request.task_id == "vertical.requirements":
             compiled = self._execute_r_stage(request, payload, contract)
         else:
+            batch_size = self.vertical_batch_size
+            if request.task_id == "vertical.functional":
+                batch_size = self.vertical_functional_batch_size
+            elif request.task_id == _VV_BATCH_TASK:
+                batch_size = self.vertical_vv_batch_size
             batches = _requirement_batches(
                 request,
                 payload.get("requirement_worklist", []),
                 self.model,
-                batch_size=(
-                    self.vertical_vv_batch_size
-                    if request.task_id == _VV_BATCH_TASK
-                    else self.vertical_batch_size
-                ),
+                batch_size=batch_size,
             )
             batch_descriptors = _batch_descriptors(request, batches, self.model)
+            include_batch_metadata = (
+                len(batch_descriptors) > 1
+                or request.task_id == "vertical.functional"
+            )
             batch_payloads = tuple(
                 _scope_batch_payload(
                     request,
@@ -249,7 +264,7 @@ class StructuredModelRuntime:
                                     ),
                                 }
                             }
-                            if len(batch_descriptors) > 1
+                            if include_batch_metadata
                             else {}
                         ),
                     },
@@ -1388,6 +1403,22 @@ def _batch_instruction(task_id: str, meta: object) -> str:
     index = meta.get("index")
     count = meta.get("count")
     if task_id != _VV_BATCH_TASK:
+        if task_id == "vertical.functional":
+            requirement_ids = meta.get("requirement_ids")
+            target_hint = (
+                str(requirement_ids[0])
+                if isinstance(requirement_ids, (list, tuple)) and requirement_ids
+                else "当前批次"
+            )
+            return (
+                f"当前是 Functional 第 {index}/{count} 个需求批次，只处理一个 canonical "
+                f"Requirement：{target_hint}。"
+                "只能为该 Requirement 生成行为性的 Function；Function payload 的 "
+                "source_requirement_ids 只能包含该 ID。可以生成与本批 Function 端点一致的 "
+                "FunctionalFlow 和 FunctionalScenario；必须保留 Requirement→satisfiedBy→Function "
+                "关系，禁止引用其它批次 Requirement。"
+                "功能名称描述可观察系统行为，不要把传感器、芯片、数据库或物理零件当作 Function。"
+            )
         return (
             f"当前是 {task_id} 第 {index}/{count} 个需求批次。"
             "只处理 requirement_worklist 中的 canonical Requirement；"

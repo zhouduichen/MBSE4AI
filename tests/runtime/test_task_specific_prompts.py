@@ -122,3 +122,27 @@ def test_logical_prompt_requires_typed_interface_and_state_ownership():
     prompt = model.requests[0].system_prompt
     assert "payload.owner_id" in prompt
     assert "payload.connected_component_ids" in prompt
+
+
+def test_functional_prompt_scopes_single_requirement_and_typed_trace():
+    model = CapturingModel()
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统应支持人工接管",
+        {"statement": "系统应支持人工接管"},
+    )
+    context = ContextBundle(
+        "p1",
+        "vertical.functional",
+        3,
+        (requirement,),
+    )
+    request = TaskExecutor(model).request(stage_task("functional"), context, "v2.1")
+
+    StructuredModelRuntime(model).execute(request)
+
+    prompt = model.requests[0].system_prompt
+    assert requirement.id in prompt
+    assert "只能为该 Requirement 生成行为性的 Function" in prompt
+    assert "source_requirement_ids" in prompt
+    assert "禁止引用其它批次 Requirement" in prompt
