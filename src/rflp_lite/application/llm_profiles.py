@@ -256,6 +256,7 @@ def normalize_profile(payload: object) -> dict[str, object]:
         vertical_completion_bridge = model_location != "remote"
     if not isinstance(vertical_completion_bridge, bool):
         raise InvariantViolation("LLM vertical_completion_bridge 必须是布尔值")
+    r_backbone_single_kind = payload.get("r_backbone_single_kind") is True
     vertical_batch_size = _optional_int(
         payload,
         ("vertical_batch_size",),
@@ -330,6 +331,7 @@ def normalize_profile(payload: object) -> dict[str, object]:
         "reasoning_effort": reasoning_effort.strip() if isinstance(reasoning_effort, str) else None,
         "vertical_feedback": vertical_feedback,
         "vertical_completion_bridge": vertical_completion_bridge,
+        "r_backbone_single_kind": r_backbone_single_kind,
         "vertical_batch_size": vertical_batch_size,
         "vertical_batch_output_tokens": vertical_batch_output_tokens,
         "max_parallel_requests": max_parallel_requests,

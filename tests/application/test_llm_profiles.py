@@ -198,7 +198,7 @@ def test_remote_profile_allows_long_running_generation_timeout() -> None:
     assert profile["timeout_seconds"] == 900
 
 
-def test_remote_profile_defaults_to_single_vertical_pass_but_allows_feedback() -> None:
+def test_remote_profile_defaults_to_mixed_r_backbone_and_allows_compatibility_mode() -> None:
     remote = normalize_profile({
         **_payload(),
         "id": "jiayuinter-vllm",
@@ -218,6 +218,10 @@ def test_remote_profile_defaults_to_single_vertical_pass_but_allows_feedback() -
         **remote,
         "vertical_feedback": True,
     })
+    compatibility = normalize_profile({
+        **remote,
+        "r_backbone_single_kind": True,
+    })
 
     assert remote["vertical_feedback"] is False
     assert remote["vertical_batch_size"] == 2
@@ -228,6 +232,8 @@ def test_remote_profile_defaults_to_single_vertical_pass_but_allows_feedback() -
     assert opted_in["vertical_feedback"] is True
     assert remote["vertical_completion_bridge"] is False
     assert local["vertical_completion_bridge"] is True
+    assert remote["r_backbone_single_kind"] is False
+    assert compatibility["r_backbone_single_kind"] is True
 
 
 def test_llm_profile_can_disable_vertical_completion_bridge() -> None:

@@ -53,10 +53,15 @@ def test_openai_compatible_model_enables_requirement_batching():
     assert OpenAICompatibleModel({"model": "remote", "model_location": "remote"}).supports_vv_case_splitting is True
 
 
-def test_openai_compatible_remote_model_uses_single_vertical_pass_by_default():
+def test_openai_compatible_remote_model_uses_mixed_r_backbone_by_default():
     remote = OpenAICompatibleModel({
         "model": "remote",
         "model_location": "remote",
+    })
+    compatibility = OpenAICompatibleModel({
+        "model": "remote",
+        "model_location": "remote",
+        "r_backbone_single_kind": True,
     })
     local = OpenAICompatibleModel({
         "model": "local",
@@ -68,6 +73,9 @@ def test_openai_compatible_remote_model_uses_single_vertical_pass_by_default():
         "vertical_feedback": True,
     })
 
+    assert remote.r_backbone_single_kind is False
+    assert compatibility.r_backbone_single_kind is True
+    assert local.r_backbone_single_kind is False
     assert remote.automatic_vertical_stage_feedback is False
     assert remote.automatic_vertical_stage_completion_bridge is False
     assert remote.automatic_operational_completion is True

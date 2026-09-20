@@ -815,13 +815,15 @@ class OpenAICompatibleModel:
     ) -> None:
         self._config = dict(config)
         self._complete = complete
-        # Remote vLLM endpoints may ignore the provider-neutral kind union
-        # carried by json_object mode.  Keep each R backbone request to one
-        # entity kind so a provider cannot spend its output budget on an
-        # unintended mixed graph before the application validator runs.
+        # Prefer one compact mixed-kind backbone request.  The runtime keeps
+        # the one-kind retry path for endpoints whose structured-output
+        # grammar cannot compile the union.  A profile can force that
+        # compatibility mode explicitly without changing source code.
+        configured_single_kind = self._config.get("r_backbone_single_kind")
         self.r_backbone_single_kind = (
-            str(self._config.get("model_location", "local")).casefold()
-            == "remote"
+            configured_single_kind
+            if isinstance(configured_single_kind, bool)
+            else False
         )
         configured_feedback = self._config.get("vertical_feedback")
         if not isinstance(configured_feedback, bool):
