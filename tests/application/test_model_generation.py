@@ -173,6 +173,7 @@ class ScriptedModel:
             "scripted",
         )
 
+
     @staticmethod
     def _scope_r_proposal(request, payload):
         metadata = request.user_payload.get("r_slice")
@@ -270,6 +271,22 @@ class ScriptedModel:
         }
 
 
+class FailOnceAtFunctionalRuntime(VerticalRuleRuntime):
+    def __init__(self):
+        self.calls = []
+        self.fail_functional_attempts = 2
+
+    def execute(self, request):
+        self.calls.append(request.task_id)
+        if request.task_id == "vertical.functional" and self.fail_functional_attempts:
+            self.fail_functional_attempts -= 1
+            return TaskExecutionResponse(
+                StepStatus.DEGRADED,
+                diagnostics=("simulated remote interruption",),
+            )
+        return super().execute(request)
+
+
 class TransportFailingVerticalRuntime:
     def __init__(self):
         self.model = ScriptedModel()
@@ -338,6 +355,32 @@ def test_prepare_generation_creates_persisted_run_without_executing_runtime(tmp_
         "vertical.verification_validation",
     ])
     assert services.model("robot").graph("robot").revision == 1
+
+
+def test_resume_generation_reuses_completed_requirements_stage(tmp_path: Path):
+    runtime = FailOnceAtFunctionalRuntime()
+    services = build_v2_services(tmp_path / "workspaces", runtime=runtime)
+    services.projects.create("robot")
+    generation = services.generation("robot")
+
+    first = generation.generate("robot", requirement_text="系统应支持人工接管")
+
+    assert first.status == "failed"
+    assert runtime.calls.count("vertical.requirements") == 1
+    resumed = generation.resume("robot", first.run_id)
+
+    assert resumed.status in {"completed", "completed_with_warnings"}
+    assert runtime.calls.count("vertical.requirements") == 1
+    assert [item.stage for item in resumed.stage_results] == [
+        "requirements", "functional", "logical", "physical", "verification_validation",
+    ]
+    run = services.repository("robot").load_run("robot", first.run_id)
+    assert run is not None
+    assert run.status == "completed"
+    assert any(
+        event["kind"] == "model_generation.resumed"
+        for event in services.repository("robot").list_audit_events("robot")
+    )
 
 
 class SemanticInvalidModel(ScriptedModel):

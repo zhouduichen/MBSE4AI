@@ -56,6 +56,35 @@ def test_async_generation_returns_run_before_model_generation_finishes(tmp_path:
     assert client.get("/projects/p1/model").json()["revision"] >= 1
 
 
+def test_async_resume_continues_a_prepared_vertical_run(tmp_path: Path):
+    app = create_app(tmp_path / "workspaces")
+    app.state.container.v2._runtime_override = VerticalRuleRuntime()
+    client = TestClient(app)
+    assert client.post("/projects", json={"id": "p1"}).status_code == 200
+
+    generation = app.state.container.v2.generation("p1")
+    run_id = generation.prepare_generation(
+        "p1",
+        requirement_text="系统应支持人工接管",
+        run_id="resume-me",
+    )
+
+    accepted = client.post(f"/projects/p1/runs/{run_id}/resume")
+
+    assert accepted.status_code == 202
+    assert accepted.json()["run"]["resume"] is True
+    deadline = time.monotonic() + 5
+    completed = None
+    while time.monotonic() < deadline:
+        completed = client.get(f"/projects/p1/runs/{run_id}").json()["run"]
+        if completed["status"] == "completed":
+            break
+        time.sleep(0.02)
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["progress"]["completed_stages"] == 5
+
+
 def test_async_generation_rejects_pipeline_mode_before_creating_run(tmp_path: Path):
     app = create_app(tmp_path / "workspaces")
     app.state.container.v2._runtime_override = VerticalRuleRuntime()

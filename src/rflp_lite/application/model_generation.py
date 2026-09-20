@@ -228,19 +228,76 @@ class ModelGenerationService:
             run_id=run_id,
             force_new=force_new,
         )
+        return self._run_generation(
+            project_id,
+            effective_run_id,
+            document_ids,
+        )
+
+    def resume(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        document_ids: tuple[str, ...] = (),
+    ) -> GenerateModelResult:
+        """Resume an interrupted vertical run from its persisted ModelGraph.
+
+        A remote provider can disappear after a patch has already been
+        committed.  The run ledger and graph are therefore the source of
+        truth: completed stages whose completion contract still passes are
+        reused, while the first incomplete stage and all downstream stages
+        continue under the same run id.
+        """
+
+        run = self.repository.load_run(project_id, run_id)
+        if run is None:
+            raise ContractViolation(f"run not found: {run_id}")
+        if run.phase != "vertical_generation":
+            raise ContractViolation(
+                f"run {run_id} is not a vertical generation run"
+            )
+        if run.status == RunStatus.COMPLETED.value:
+            raise ContractViolation(f"run {run_id} is already completed")
+        self.repository.update_run(run_id, RunStatus.RUNNING.value, ())
+        self._audit(project_id, "model_generation.resumed", {
+            "run_id": run_id,
+            "previous_status": run.status,
+            "revision": self.repository.load_graph(project_id).revision,
+        })
+        return self._run_generation(
+            project_id,
+            run_id,
+            document_ids,
+            resume_existing=run,
+        )
+
+    def _run_generation(
+        self,
+        project_id: str,
+        run_id: str,
+        document_ids: tuple[str, ...],
+        *,
+        resume_existing: Run | None = None,
+    ) -> GenerateModelResult:
         graph = self.repository.load_graph(project_id)
         stage_results: list[StageResult] = []
         warnings: list[str] = []
 
         for stage in vertical_stage_specs():
             graph = self.repository.load_graph(project_id)
+            if resume_existing is not None and self._can_reuse_stage(
+                resume_existing, stage, graph
+            ):
+                stage_results.append(self._reused_stage_result(stage, graph))
+                continue
             execution = self._execute_stage(
-                project_id, effective_run_id, stage, graph, document_ids
+                project_id, run_id, stage, graph, document_ids
             )
             if execution.result is None:
                 return self._finish_failed(
                     project_id,
-                    effective_run_id,
+                    run_id,
                     stage_results,
                     stage.stage,
                     execution.diagnostics,
@@ -266,23 +323,23 @@ class ModelGenerationService:
         else:
             status = "completed_with_warnings"
             warnings.append("没有形成完整的 R→F→L→P→V&V 追溯链")
-        self.repository.update_run(effective_run_id, RunStatus.COMPLETED.value, tuple(warnings))
+        self.repository.update_run(run_id, RunStatus.COMPLETED.value, tuple(warnings))
         self._audit(project_id, "model_generation.completed", {
-            "run_id": effective_run_id,
+            "run_id": run_id,
             "status": status,
             "revision": final_graph.revision,
             "traceability": traceability.as_dict(),
         })
         self._audit(project_id, "model_generation.methodology_analyzed", {
-            "run_id": effective_run_id,
+            "run_id": run_id,
             **methodology.as_dict(),
         })
         self._audit(project_id, "model_generation.controller_planned", {
-            "run_id": effective_run_id,
+            "run_id": run_id,
             **controller_plan.as_dict(),
         })
         return GenerateModelResult(
-            effective_run_id,
+            run_id,
             project_id,
             status,
             final_graph.revision,
@@ -292,6 +349,41 @@ class ModelGenerationService:
             _sysml_text(final_graph),
             methodology,
             controller_plan,
+        )
+
+    def _can_reuse_stage(self, run: Run, stage, graph) -> bool:
+        """Reuse a stage only when its persisted graph satisfies its contract."""
+
+        if self._missing_stage_kinds(graph, stage.stage):
+            return False
+        completion = evaluate_vertical_stage(stage.stage, graph)
+        if not completion.passed:
+            return False
+        return any(
+            step.task_id == f"vertical.{stage.stage.value}"
+            and step.status in {
+                StepStatus.QUEUED.value,
+                StepStatus.RUNNING.value,
+                StepStatus.COMPLETED.value,
+            }
+            for step in run.steps
+        )
+
+    def _reused_stage_result(self, stage, graph) -> StageResult:
+        completion = evaluate_vertical_stage(stage.stage, graph)
+        return StageResult(
+            stage.stage.value,
+            "completed",
+            graph.revision,
+            sum(
+                1
+                for entity in graph.entities
+                if entity.kind in stage.output_kinds
+                and entity.meta.status is not EntityStatus.DEPRECATED
+            ),
+            len(graph.relations),
+            completion_checks=completion.checks,
+            completion_issue_codes=completion.issue_codes,
         )
 
     def prepare_generation(

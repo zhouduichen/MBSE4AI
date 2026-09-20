@@ -232,6 +232,31 @@ def _run_generation_job(
             pass
 
 
+def _run_generation_resume_job(
+    services,
+    project_id: str,
+    run_id: str,
+    document_ids: tuple[str, ...],
+    profile_id: str | None,
+) -> None:
+    try:
+        services.generation(project_id, profile_id=profile_id).resume(
+            project_id,
+            run_id,
+            document_ids=document_ids,
+        )
+    except Exception as exc:  # Background work must always settle its Run.
+        message = str(exc).strip()[:240] or type(exc).__name__
+        try:
+            services.repository(project_id).update_run(
+                run_id,
+                "failed",
+                (f"async_resume_{type(exc).__name__}: {message}",),
+            )
+        except Exception:
+            pass
+
+
 def _call_run(analysis, project_id: str, phase: Phase, run_id: str | None = None, *, force_run: bool = False):
     if run_id is None and not force_run:
         return analysis.run(project_id, phase)
@@ -1088,6 +1113,55 @@ async def start_async_generation(request: Request, project_id: str):
                 "project_id": project_id,
                 "status": "running",
                 "progress_url": f"/projects/{project_id}/runs/{run_id}",
+            },
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/runs/{run_id}/resume", status_code=202)
+async def resume_async_generation(request: Request, project_id: str, run_id: str):
+    """Continue an interrupted vertical run without rebuilding its R layer."""
+
+    try:
+        payload = await _json_object(request)
+        services = _services(request)
+        stored = services.repository(project_id).load_run(project_id, run_id)
+        if stored is None:
+            raise ContractViolation(f"run not found: {run_id}")
+        if stored.phase != "vertical_generation":
+            raise ContractViolation(f"run {run_id} is not a vertical generation run")
+        if stored.status == "completed":
+            raise ContractViolation(f"run {run_id} is already completed")
+        profile_id = str(payload.get("profile_id", "")).strip() or None
+        if (
+            profile_id is None
+            and getattr(services, "_runtime_override", None) is None
+            and stored.model_profile not in {"", "offline-rule"}
+        ):
+            profile_id = stored.model_profile
+        document_ids = tuple(
+            str(item) for item in payload.get("document_ids", ()) if str(item).strip()
+        )
+        executor = getattr(request.app.state, "analysis_executor", None)
+        if executor is None:
+            raise ContractViolation("async generation executor is not configured")
+        executor.submit(
+            _run_generation_resume_job,
+            services,
+            project_id,
+            run_id,
+            document_ids,
+            profile_id,
+        )
+        return {
+            "status": "accepted",
+            "run": {
+                "run_id": run_id,
+                "project_id": project_id,
+                "status": "running",
+                "progress_url": f"/projects/{project_id}/runs/{run_id}",
+                "resume": True,
             },
         }
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
