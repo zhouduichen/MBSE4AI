@@ -984,6 +984,7 @@ class WorkflowRunner:
             operations,
             "任务语义检查通过，提升 LLM 输出为 validated",
             expected_revision,
+            authority="verifier",
         )
         return self.model_repository.append_patch(
             project_id,
