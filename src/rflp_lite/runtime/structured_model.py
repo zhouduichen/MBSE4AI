@@ -123,6 +123,7 @@ class _CompiledProposal:
 class StructuredModelRuntime:
     def __init__(self, model: GenerativeModel):
         self.model = model
+        self.remote_fail_fast = bool(getattr(model, "remote_fail_fast", False))
         self.vertical_batch_size = max(
             1,
             min(32, int(getattr(model, "vertical_batch_size", _VERTICAL_BATCH_SIZE))),
@@ -442,6 +443,17 @@ class StructuredModelRuntime:
         ) as executor:
             outcomes = tuple(executor.map(complete, payloads))
 
+        if self.remote_fail_fast:
+            for payload, (item, failure) in zip(payloads, outcomes):
+                if item is not None or failure is None:
+                    continue
+                if isinstance(
+                    failure,
+                    (StructuredOutputFailure, ProposalCompileFailure, TransportFailure),
+                ):
+                    raise _annotate_r_slice_failure(failure, payload) from failure
+                raise failure
+
         compiled: list[_CompiledProposal] = []
         for payload, (item, failure) in zip(payloads, outcomes):
             if item is not None:
@@ -482,6 +494,8 @@ class StructuredModelRuntime:
             try:
                 item = self._complete_batch(current_request, contract, current_payload)
             except (StructuredOutputFailure, ProposalCompileFailure) as exc:
+                if self.remote_fail_fast:
+                    raise _annotate_r_slice_failure(exc, current_payload) from exc
                 fallback, working_graph = self._fallback_r_backbone(
                     request,
                     contract,
@@ -585,6 +599,12 @@ class StructuredModelRuntime:
                     raise failure
                 sequential_outcomes.append(outcome)
             outcomes = tuple(sequential_outcomes)
+
+        if self.remote_fail_fast:
+            for _payload, (_compiled, failure) in zip(payloads, outcomes):
+                if failure is None:
+                    continue
+                raise failure
 
         result: list[_CompiledProposal] = []
         for payload, (compiled, failure) in zip(payloads, outcomes):

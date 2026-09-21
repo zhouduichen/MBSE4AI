@@ -193,6 +193,220 @@ def _optional_float(
     return result
 
 
+def _build_normalized_profile(
+    payload: Mapping[str, object],
+    *,
+    profile_id: str,
+    label: str,
+    kind: str,
+    model_location: str,
+    protocol: str,
+    model: str,
+    timeout: int,
+    context_window: int | None,
+    max_output_tokens: int | None,
+    seed: int | None,
+    temperature: float,
+    structured_output_mode: str,
+    include_response_schema_in_prompt: bool,
+    remote_fail_fast: bool,
+    reasoning_effort: object,
+    vertical_feedback: bool,
+    vertical_completion_bridge: bool,
+    automatic_operational_completion: bool,
+    vertical_vv_case_splitting: bool,
+    r_backbone_single_kind: bool,
+    vertical_batch_size: int,
+    vertical_batch_output_tokens: int,
+    vertical_functional_batch_size: int | None,
+    vertical_logical_batch_size: int | None,
+    vertical_physical_batch_size: int | None,
+    vertical_vv_batch_size: int | None,
+    max_parallel_requests: int,
+    think: bool | None,
+    chat_template_kwargs: Mapping[str, object] | None,
+) -> Mapping[str, object]:
+    return {
+        "id": profile_id,
+        "label": label[:120],
+        "provider": _provider(payload),
+        "kind": kind,
+        "model_location": model_location,
+        "protocol": protocol,
+        "base_url": _base_url(payload.get("base_url")),
+        "model": model[:200],
+        "timeout_seconds": timeout,
+        "enabled": bool(payload.get("enabled", True)),
+        "context_window": context_window,
+        "max_output_tokens": max_output_tokens,
+        # Preserve the legacy names consumed by existing local adapters.
+        "local_context_tokens": context_window,
+        "local_max_tokens": max_output_tokens,
+        "temperature": temperature,
+        "seed": seed,
+        "structured_output_mode": structured_output_mode,
+        "include_response_schema_in_prompt": include_response_schema_in_prompt,
+        "remote_fail_fast": remote_fail_fast,
+        "reasoning_effort": reasoning_effort.strip() if isinstance(reasoning_effort, str) else None,
+        "vertical_feedback": vertical_feedback,
+        "vertical_completion_bridge": vertical_completion_bridge,
+        "automatic_operational_completion": automatic_operational_completion,
+        "vertical_vv_case_splitting": vertical_vv_case_splitting,
+        "r_backbone_single_kind": r_backbone_single_kind,
+        "vertical_batch_size": vertical_batch_size,
+        "vertical_batch_output_tokens": vertical_batch_output_tokens,
+        **(
+            {"vertical_functional_batch_size": vertical_functional_batch_size}
+            if vertical_functional_batch_size is not None
+            else {}
+        ),
+        **(
+            {"vertical_logical_batch_size": vertical_logical_batch_size}
+            if vertical_logical_batch_size is not None
+            else {}
+        ),
+        **(
+            {"vertical_physical_batch_size": vertical_physical_batch_size}
+            if vertical_physical_batch_size is not None
+            else {}
+        ),
+        **(
+            {"vertical_vv_batch_size": vertical_vv_batch_size}
+            if vertical_vv_batch_size is not None
+            else {}
+        ),
+        "max_parallel_requests": max_parallel_requests,
+        "think": think,
+        "chat_template_kwargs": (
+            {str(key): value for key, value in chat_template_kwargs.items()}
+            if isinstance(chat_template_kwargs, Mapping)
+            else None
+        ),
+    }
+
+
+def _normalize_profile_runtime_options(
+    payload: Mapping[str, object],
+    *,
+    model_location: str,
+    model: str,
+    structured_output_mode: str,
+    reasoning_effort: object,
+) -> Mapping[str, object]:
+    include_response_schema_in_prompt = payload.get(
+        "include_response_schema_in_prompt"
+    )
+    if include_response_schema_in_prompt is None:
+        include_response_schema_in_prompt = True
+    if not isinstance(include_response_schema_in_prompt, bool):
+        raise InvariantViolation("LLM include_response_schema_in_prompt 必须是布尔值")
+    remote_fail_fast = payload.get("remote_fail_fast")
+    if remote_fail_fast is None:
+        remote_fail_fast = False
+    if not isinstance(remote_fail_fast, bool):
+        raise InvariantViolation("LLM remote_fail_fast 必须是布尔值")
+    vertical_feedback = payload.get("vertical_feedback")
+    if vertical_feedback is None:
+        # Remote providers pay a real latency cost for repeating every batch.
+        # Ordinary stage feedback remains opt-in; Requirements use the
+        # runtime's separate bounded operational-completion path.
+        vertical_feedback = model_location != "remote"
+    if not isinstance(vertical_feedback, bool):
+        raise InvariantViolation("LLM vertical_feedback 必须是布尔值")
+    vertical_completion_bridge = payload.get("vertical_completion_bridge")
+    if vertical_completion_bridge is None:
+        # A remote Provider must earn completion through the typed vertical
+        # contract.  The deterministic bridge remains available as an
+        # explicit best-effort option and stays the default for local runtimes.
+        vertical_completion_bridge = model_location != "remote"
+    if not isinstance(vertical_completion_bridge, bool):
+        raise InvariantViolation("LLM vertical_completion_bridge 必须是布尔值")
+    automatic_operational_completion = payload.get(
+        "automatic_operational_completion"
+    )
+    if automatic_operational_completion is None:
+        automatic_operational_completion = model_location == "remote"
+    if not isinstance(automatic_operational_completion, bool):
+        raise InvariantViolation("LLM automatic_operational_completion 必须是布尔值")
+    vertical_vv_case_splitting = payload.get("vertical_vv_case_splitting")
+    if vertical_vv_case_splitting is None:
+        vertical_vv_case_splitting = model_location == "remote"
+    if not isinstance(vertical_vv_case_splitting, bool):
+        raise InvariantViolation("LLM vertical_vv_case_splitting 必须是布尔值")
+    r_backbone_single_kind = payload.get("r_backbone_single_kind") is True
+    vertical_batch_size = _optional_int(
+        payload, ("vertical_batch_size",), minimum=1, maximum=32,
+        label="LLM vertical batch size",
+    ) or 2
+    vertical_batch_output_tokens = _optional_int(
+        payload, ("vertical_batch_output_tokens",), minimum=256,
+        maximum=1_000_000, label="LLM vertical batch output tokens",
+    ) or 3072
+    vertical_functional_batch_size = _optional_int(
+        payload, ("vertical_functional_batch_size",), minimum=1, maximum=32,
+        label="LLM functional batch size",
+    )
+    vertical_logical_batch_size = _optional_int(
+        payload, ("vertical_logical_batch_size",), minimum=1, maximum=32,
+        label="LLM logical batch size",
+    )
+    vertical_physical_batch_size = _optional_int(
+        payload, ("vertical_physical_batch_size",), minimum=1, maximum=32,
+        label="LLM physical batch size",
+    )
+    vertical_vv_batch_size = _optional_int(
+        payload, ("vertical_vv_batch_size",), minimum=1, maximum=32,
+        label="LLM V&V batch size",
+    )
+    max_parallel_requests = _optional_int(
+        payload, ("max_parallel_requests",), minimum=1, maximum=4,
+        label="LLM 最大并行请求数",
+    )
+    if max_parallel_requests is None:
+        # Remote single-GPU endpoints commonly expose fewer safe in-flight
+        # slots than a local service. Keep remote execution concurrent, but
+        # do not assume the historical four-request ceiling is safe there.
+        max_parallel_requests = 2 if model_location == "remote" else 4
+    think = payload.get("think")
+    if think is not None and not isinstance(think, bool):
+        raise InvariantViolation("LLM think 必须是布尔值")
+    chat_template_kwargs = payload.get("chat_template_kwargs")
+    if chat_template_kwargs is not None and not isinstance(chat_template_kwargs, Mapping):
+        raise InvariantViolation("LLM chat_template_kwargs 必须是对象")
+    if (
+        chat_template_kwargs is None
+        and think is None
+        and reasoning_effort is None
+        and model_location == "remote"
+        and structured_output_mode != "none"
+        and "qwen3.5" in model.casefold()
+        and _provider(payload) == "openai-compatible"
+    ):
+        # Qwen3.5's vLLM chat template enables a visible thinking block unless
+        # it is explicitly disabled. Structured TaskProposal calls need the
+        # output budget for JSON; keep this transport default narrow and let an
+        # explicit profile control opt back into reasoning.
+        chat_template_kwargs = {"enable_thinking": False}
+    return {
+        "vertical_feedback": vertical_feedback,
+        "include_response_schema_in_prompt": include_response_schema_in_prompt,
+        "remote_fail_fast": remote_fail_fast,
+        "vertical_completion_bridge": vertical_completion_bridge,
+        "automatic_operational_completion": automatic_operational_completion,
+        "vertical_vv_case_splitting": vertical_vv_case_splitting,
+        "r_backbone_single_kind": r_backbone_single_kind,
+        "vertical_batch_size": vertical_batch_size,
+        "vertical_batch_output_tokens": vertical_batch_output_tokens,
+        "vertical_functional_batch_size": vertical_functional_batch_size,
+        "vertical_logical_batch_size": vertical_logical_batch_size,
+        "vertical_physical_batch_size": vertical_physical_batch_size,
+        "vertical_vv_batch_size": vertical_vv_batch_size,
+        "max_parallel_requests": max_parallel_requests,
+        "think": think,
+        "chat_template_kwargs": chat_template_kwargs,
+    }
+
+
 def normalize_profile(payload: object) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise InvariantViolation("LLM 档案必须是对象")
@@ -240,170 +454,63 @@ def normalize_profile(payload: object) -> dict[str, object]:
     reasoning_effort = payload.get("reasoning_effort")
     if reasoning_effort is not None and not isinstance(reasoning_effort, str):
         raise InvariantViolation("LLM reasoning_effort 必须是字符串")
-    vertical_feedback = payload.get("vertical_feedback")
-    if vertical_feedback is None:
-        # Remote providers pay a real latency cost for repeating every batch.
-        # Ordinary stage feedback remains opt-in; Requirements use the
-        # runtime's separate bounded operational-completion path.
-        vertical_feedback = model_location != "remote"
-    if not isinstance(vertical_feedback, bool):
-        raise InvariantViolation("LLM vertical_feedback 必须是布尔值")
-    vertical_completion_bridge = payload.get("vertical_completion_bridge")
-    if vertical_completion_bridge is None:
-        # A remote Provider must earn completion through the typed vertical
-        # contract.  The deterministic bridge remains available as an
-        # explicit best-effort option and stays the default for local runtimes.
-        vertical_completion_bridge = model_location != "remote"
-    if not isinstance(vertical_completion_bridge, bool):
-        raise InvariantViolation("LLM vertical_completion_bridge 必须是布尔值")
-    automatic_operational_completion = payload.get(
-        "automatic_operational_completion"
-    )
-    if automatic_operational_completion is None:
-        automatic_operational_completion = model_location == "remote"
-    if not isinstance(automatic_operational_completion, bool):
-        raise InvariantViolation("LLM automatic_operational_completion 必须是布尔值")
-    vertical_vv_case_splitting = payload.get("vertical_vv_case_splitting")
-    if vertical_vv_case_splitting is None:
-        vertical_vv_case_splitting = model_location == "remote"
-    if not isinstance(vertical_vv_case_splitting, bool):
-        raise InvariantViolation("LLM vertical_vv_case_splitting 必须是布尔值")
-    r_backbone_single_kind = payload.get("r_backbone_single_kind") is True
-    vertical_batch_size = _optional_int(
+    runtime_options = _normalize_profile_runtime_options(
         payload,
-        ("vertical_batch_size",),
-        minimum=1,
-        maximum=32,
-        label="LLM vertical batch size",
+        model_location=model_location,
+        model=model,
+        structured_output_mode=structured_output_mode,
+        reasoning_effort=reasoning_effort,
     )
-    if vertical_batch_size is None:
-        # Two requirements keep the remote vertical path within a practical
-        # request count while the runtime still bounds each provider call.
-        vertical_batch_size = 2
-    vertical_batch_output_tokens = _optional_int(
+    vertical_feedback = runtime_options["vertical_feedback"]
+    include_response_schema_in_prompt = runtime_options[
+        "include_response_schema_in_prompt"
+    ]
+    remote_fail_fast = runtime_options["remote_fail_fast"]
+    vertical_completion_bridge = runtime_options["vertical_completion_bridge"]
+    automatic_operational_completion = runtime_options["automatic_operational_completion"]
+    vertical_vv_case_splitting = runtime_options["vertical_vv_case_splitting"]
+    r_backbone_single_kind = runtime_options["r_backbone_single_kind"]
+    vertical_batch_size = runtime_options["vertical_batch_size"]
+    vertical_batch_output_tokens = runtime_options["vertical_batch_output_tokens"]
+    vertical_functional_batch_size = runtime_options["vertical_functional_batch_size"]
+    vertical_logical_batch_size = runtime_options["vertical_logical_batch_size"]
+    vertical_physical_batch_size = runtime_options["vertical_physical_batch_size"]
+    vertical_vv_batch_size = runtime_options["vertical_vv_batch_size"]
+    max_parallel_requests = runtime_options["max_parallel_requests"]
+    think = runtime_options["think"]
+    chat_template_kwargs = runtime_options["chat_template_kwargs"]
+    return _build_normalized_profile(
         payload,
-        ("vertical_batch_output_tokens",),
-        minimum=256,
-        maximum=1_000_000,
-        label="LLM vertical batch output tokens",
+        profile_id=profile_id,
+        label=label,
+        kind=kind,
+        model_location=model_location,
+        protocol=protocol,
+        model=model,
+        timeout=timeout,
+        context_window=context_window,
+        max_output_tokens=max_output_tokens,
+        seed=seed,
+        temperature=temperature,
+        structured_output_mode=structured_output_mode,
+        include_response_schema_in_prompt=include_response_schema_in_prompt,
+        remote_fail_fast=remote_fail_fast,
+        reasoning_effort=reasoning_effort,
+        vertical_feedback=vertical_feedback,
+        vertical_completion_bridge=vertical_completion_bridge,
+        automatic_operational_completion=automatic_operational_completion,
+        vertical_vv_case_splitting=vertical_vv_case_splitting,
+        r_backbone_single_kind=r_backbone_single_kind,
+        vertical_batch_size=vertical_batch_size,
+        vertical_batch_output_tokens=vertical_batch_output_tokens,
+        vertical_functional_batch_size=vertical_functional_batch_size,
+        vertical_logical_batch_size=vertical_logical_batch_size,
+        vertical_physical_batch_size=vertical_physical_batch_size,
+        vertical_vv_batch_size=vertical_vv_batch_size,
+        max_parallel_requests=max_parallel_requests,
+        think=think,
+        chat_template_kwargs=chat_template_kwargs,
     )
-    if vertical_batch_output_tokens is None:
-        vertical_batch_output_tokens = 3072
-    vertical_functional_batch_size = _optional_int(
-        payload,
-        ("vertical_functional_batch_size",),
-        minimum=1,
-        maximum=32,
-        label="LLM functional batch size",
-    )
-    vertical_logical_batch_size = _optional_int(
-        payload,
-        ("vertical_logical_batch_size",),
-        minimum=1,
-        maximum=32,
-        label="LLM logical batch size",
-    )
-    vertical_physical_batch_size = _optional_int(
-        payload,
-        ("vertical_physical_batch_size",),
-        minimum=1,
-        maximum=32,
-        label="LLM physical batch size",
-    )
-    vertical_vv_batch_size = _optional_int(
-        payload,
-        ("vertical_vv_batch_size",),
-        minimum=1,
-        maximum=32,
-        label="LLM V&V batch size",
-    )
-    max_parallel_requests = _optional_int(
-        payload,
-        ("max_parallel_requests",),
-        minimum=1,
-        maximum=4,
-        label="LLM 最大并行请求数",
-    )
-    if max_parallel_requests is None:
-        # Remote single-GPU endpoints commonly expose fewer safe in-flight
-        # slots than a local service. Keep remote execution concurrent, but
-        # do not assume the historical four-request ceiling is safe there.
-        max_parallel_requests = 2 if model_location == "remote" else 4
-    think = payload.get("think")
-    if think is not None and not isinstance(think, bool):
-        raise InvariantViolation("LLM think 必须是布尔值")
-    chat_template_kwargs = payload.get("chat_template_kwargs")
-    if chat_template_kwargs is not None and not isinstance(chat_template_kwargs, Mapping):
-        raise InvariantViolation("LLM chat_template_kwargs 必须是对象")
-    if (
-        chat_template_kwargs is None
-        and think is None
-        and reasoning_effort is None
-        and model_location == "remote"
-        and structured_output_mode != "none"
-        and "qwen3.5" in model.casefold()
-        and _provider(payload) == "openai-compatible"
-    ):
-        # Qwen3.5's vLLM chat template enables a visible thinking block unless
-        # it is explicitly disabled. Structured TaskProposal calls need the
-        # output budget for JSON; keep this transport default narrow and let an
-        # explicit profile control opt back into reasoning.
-        chat_template_kwargs = {"enable_thinking": False}
-    return {
-        "id": profile_id,
-        "label": label[:120],
-        "provider": _provider(payload),
-        "kind": kind,
-        "model_location": model_location,
-        "protocol": protocol,
-        "base_url": _base_url(payload.get("base_url")),
-        "model": model[:200],
-        "timeout_seconds": timeout,
-        "enabled": bool(payload.get("enabled", True)),
-        "context_window": context_window,
-        "max_output_tokens": max_output_tokens,
-        # Preserve the legacy names consumed by existing local adapters.
-        "local_context_tokens": context_window,
-        "local_max_tokens": max_output_tokens,
-        "temperature": temperature,
-        "seed": seed,
-        "structured_output_mode": structured_output_mode,
-        "reasoning_effort": reasoning_effort.strip() if isinstance(reasoning_effort, str) else None,
-        "vertical_feedback": vertical_feedback,
-        "vertical_completion_bridge": vertical_completion_bridge,
-        "automatic_operational_completion": automatic_operational_completion,
-        "vertical_vv_case_splitting": vertical_vv_case_splitting,
-        "r_backbone_single_kind": r_backbone_single_kind,
-        "vertical_batch_size": vertical_batch_size,
-        "vertical_batch_output_tokens": vertical_batch_output_tokens,
-        **(
-            {"vertical_functional_batch_size": vertical_functional_batch_size}
-            if vertical_functional_batch_size is not None
-            else {}
-        ),
-        **(
-            {"vertical_logical_batch_size": vertical_logical_batch_size}
-            if vertical_logical_batch_size is not None
-            else {}
-        ),
-        **(
-            {"vertical_physical_batch_size": vertical_physical_batch_size}
-            if vertical_physical_batch_size is not None
-            else {}
-        ),
-        **(
-            {"vertical_vv_batch_size": vertical_vv_batch_size}
-            if vertical_vv_batch_size is not None
-            else {}
-        ),
-        "max_parallel_requests": max_parallel_requests,
-        "think": think,
-        "chat_template_kwargs": (
-            {str(key): value for key, value in chat_template_kwargs.items()}
-            if isinstance(chat_template_kwargs, Mapping)
-            else None
-        ),
-    }
 
 
 class LLMProfileService:

@@ -88,6 +88,15 @@ the R-layer prerequisite, not a repeatability experiment. The typed vertical
 completion bridge remains an explicit deterministic fallback; set
 `vertical_completion_bridge` to `true` only when that fallback is desired.
 
+The repository also includes a compatibility profile at
+`docs/jiayuinter-vllm-fast-profile.json`. It is intended for completing an
+integration experiment when the remote vLLM structured-sampling path is
+unstable: it disables remote Schema transport, limits each response to 256
+tokens, fails fast on a truncated vertical response, and records the
+deterministic vertical-rule bridge explicitly. This profile is suitable for
+pipeline/traceability acceptance, not for measuring pure remote-model
+semantic quality.
+
 V&V defaults to one requirement per batch for remote profiles and then splits
 that requirement into one VerificationCase request and one ValidationCase
 request. Each request has a narrowed contract requiring the canonical
@@ -161,3 +170,26 @@ launcher and do not start a local model or stop unrelated remote jobs.
 Transient SSH-forward or provider restarts are retried once by default for a
 remote profile. HTTP errors, invalid JSON, and schema/semantic failures are not
 retried; those remain visible as reviewable LLM-stage issues.
+
+## 5. Verified compatibility run
+
+The following command was verified against `qwen3.5-controller` for CASE-05:
+
+```bash
+RFLP_CONFIG_DIR=/tmp/ai4mbse-bridge-config \
+  .venv/bin/ai4mbse model-profile save \
+  docs/jiayuinter-vllm-fast-profile.json
+RFLP_CONFIG_DIR=/tmp/ai4mbse-bridge-config \
+  ./.venv/bin/python tests/mbse_benchmark/run_benchmark.py \
+  --track llm \
+  --profile jiayuinter-vllm-fast \
+  --path vertical \
+  --case CASE-05 \
+  --repeats 1 \
+  --timeout 300 \
+  --baseline harness
+```
+
+Observed result: `ACCEPTED`, `100 / 100`, P0 `6 / 6`, 37 entities, 54
+relations, and 2/2 complete R→F→L→P→V&V paths. The Chinese delivery summary
+is written to `tests/mbse_benchmark/reports/llm/jiayuinter-vllm-fast/实验报告_中文.md`.

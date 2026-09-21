@@ -1,0 +1,1 @@
+[{"actual":1,"case_id":"CASE-05","category":"regression","expected":"3 repeats","recommended_fix":"Run the case three times in isolated workspaces.","related_elements":[],"root_cause":"fewer than three runs were available","severity":"P1","status":"BLOCKED","test_id":"T20"}]

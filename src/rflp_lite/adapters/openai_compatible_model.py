@@ -461,6 +461,73 @@ def _entity_payload_schema(
     return None
 
 
+def _normalize_logical_component_payload(source: MutableMapping[str, object]) -> None:
+    partition_basis = source.get("partition_basis")
+    if isinstance(partition_basis, Mapping):
+        source["partition_basis"] = _wire_text(partition_basis)
+    # Providers commonly call the architecture justification
+    # ``partition_basis``.  The strict logical contract exposes the same
+    # evidence as ``architecture_rationale``; preserve the provider's
+    # explanation instead of rejecting an otherwise usable component.
+    if "architecture_rationale" not in source and "partition_basis" in source:
+        source["architecture_rationale"] = str(
+            source["partition_basis"] or ""
+        ).strip()
+    for field in (
+        "dependencies",
+        "functional_flow_ids",
+        "cross_component_flow_ids",
+        "shared_state_ids",
+        "source_context_ids",
+    ):
+        if field in source:
+            source[field] = _wire_string_list(source[field])
+    alternative_partitions = source.get("alternative_partitions")
+    if isinstance(alternative_partitions, (list, tuple)):
+        source["alternative_partitions"] = [
+            _wire_text(item) if isinstance(item, Mapping) else str(item)
+            for item in alternative_partitions
+        ]
+    shared_state = source.get("shared_state")
+    if isinstance(shared_state, (list, tuple)):
+        existing_state_ids = source.get("shared_state_ids")
+        shared_state_ids = (
+            list(existing_state_ids)
+            if isinstance(existing_state_ids, (list, tuple))
+            else []
+        )
+        normalized_state = []
+        for item in shared_state:
+            if isinstance(item, Mapping):
+                item_id = str(item.get("id") or "").strip()
+                if item_id and item_id not in shared_state_ids:
+                    shared_state_ids.append(item_id)
+                normalized_state.append(
+                    str(item.get("name") or item.get("description") or _wire_text(item)).strip()
+                )
+            elif str(item).strip():
+                normalized_state.append(str(item).strip())
+        source["shared_state"] = normalized_state
+        if shared_state_ids:
+            source["shared_state_ids"] = shared_state_ids
+    for field in ("timing_constraints", "safety_isolation", "safety_constraints"):
+        if isinstance(source.get(field), Mapping):
+            source[field] = [source[field]]
+        elif field in source and not isinstance(source[field], (list, tuple)):
+            source[field] = [source[field]]
+    rationale = source.get("architecture_rationale")
+    if isinstance(rationale, Mapping):
+        reasoning = source.get("architecture_reasoning")
+        if isinstance(reasoning, Mapping):
+            source["architecture_reasoning"] = {
+                **dict(reasoning),
+                **dict(rationale),
+            }
+        else:
+            source["architecture_reasoning"] = dict(rationale)
+        source["architecture_rationale"] = _wire_text(rationale)
+
+
 def _normalize_vertical_entity_payload(
     kind: str,
     payload: Mapping[str, object],
@@ -500,73 +567,7 @@ def _normalize_vertical_entity_payload(
     elif kind == "requirement" and "statement" not in source:
         source["statement"] = str(payload.get("description") or entity_name or "待澄清需求").strip()
     elif kind == "logical_component":
-        partition_basis = source.get("partition_basis")
-        if isinstance(partition_basis, Mapping):
-            source["partition_basis"] = _wire_text(partition_basis)
-        # Providers commonly call the architecture justification
-        # ``partition_basis``.  The strict logical contract exposes the same
-        # evidence as ``architecture_rationale``; preserve the provider's
-        # explanation instead of rejecting an otherwise usable component.
-        if "architecture_rationale" not in source and "partition_basis" in source:
-            source["architecture_rationale"] = str(
-                source["partition_basis"] or ""
-            ).strip()
-        for field in (
-            "dependencies",
-            "functional_flow_ids",
-            "cross_component_flow_ids",
-            "shared_state_ids",
-            "source_context_ids",
-        ):
-            if field in source:
-                source[field] = _wire_string_list(source[field])
-        alternative_partitions = source.get("alternative_partitions")
-        if isinstance(alternative_partitions, (list, tuple)):
-            source["alternative_partitions"] = [
-                _wire_text(item) if isinstance(item, Mapping) else str(item)
-                for item in alternative_partitions
-            ]
-        shared_state = source.get("shared_state")
-        if isinstance(shared_state, (list, tuple)):
-            existing_state_ids = source.get("shared_state_ids")
-            shared_state_ids = (
-                list(existing_state_ids)
-                if isinstance(existing_state_ids, (list, tuple))
-                else []
-            )
-            normalized_state = []
-            for item in shared_state:
-                if isinstance(item, Mapping):
-                    item_id = str(item.get("id") or "").strip()
-                    if item_id and item_id not in shared_state_ids:
-                        shared_state_ids.append(item_id)
-                    normalized_state.append(
-                        str(item.get("name") or item.get("description") or _wire_text(item)).strip()
-                    )
-                elif str(item).strip():
-                    normalized_state.append(str(item).strip())
-            source["shared_state"] = normalized_state
-            if shared_state_ids:
-                source["shared_state_ids"] = shared_state_ids
-        safety_isolation = source.get("safety_isolation")
-        if isinstance(safety_isolation, Mapping):
-            source["safety_isolation"] = [safety_isolation]
-        for field in ("timing_constraints", "safety_isolation", "safety_constraints"):
-            if isinstance(source.get(field), Mapping):
-                source[field] = [source[field]]
-            elif field in source and not isinstance(source[field], (list, tuple)):
-                source[field] = [source[field]]
-        rationale = source.get("architecture_rationale")
-        if isinstance(rationale, Mapping):
-            reasoning = source.get("architecture_reasoning")
-            if isinstance(reasoning, Mapping):
-                source["architecture_reasoning"] = {
-                    **dict(reasoning),
-                    **dict(rationale),
-                }
-            else:
-                source["architecture_reasoning"] = dict(rationale)
-            source["architecture_rationale"] = _wire_text(rationale)
+        _normalize_logical_component_payload(source)
     elif kind == "state":
         for field in ("values", "transitions"):
             if field in source:
@@ -832,6 +833,10 @@ class OpenAICompatibleModel:
     ) -> None:
         self._config = dict(config)
         self._complete = complete
+        self._configure_remote_controls()
+
+    def _configure_remote_controls(self) -> None:
+        self._configure_output_controls()
         # Prefer one compact mixed-kind backbone request.  The runtime keeps
         # the one-kind retry path for endpoints whose structured-output
         # grammar cannot compile the union.  A profile can force that
@@ -968,6 +973,22 @@ class OpenAICompatibleModel:
         except (TypeError, ValueError):
             configured_parallelism = 2
         self.max_parallel_requests = max(1, min(4, configured_parallelism))
+
+    def _configure_output_controls(self) -> None:
+        configured_prompt_schema = self._config.get(
+            "include_response_schema_in_prompt"
+        )
+        self.include_response_schema_in_prompt = (
+            configured_prompt_schema
+            if isinstance(configured_prompt_schema, bool)
+            else True
+        )
+        configured_fail_fast = self._config.get("remote_fail_fast")
+        self.remote_fail_fast = (
+            configured_fail_fast
+            if isinstance(configured_fail_fast, bool)
+            else False
+        )
 
     @staticmethod
     def _parse_json(raw: object) -> object:
@@ -1137,6 +1158,22 @@ class OpenAICompatibleModel:
                         pass
             if recovered:
                 return payload, repaired, final_raw
+            if self.remote_fail_fast and request.lens_id.startswith("vertical."):
+                raise StructuredOutputFailure(
+                    f"{_REPAIR_FAILURE}: {initial_error}",
+                    code=initial_error.code,
+                    raw_response=str(raw or ""),
+                    initial_raw_response=str(raw or ""),
+                    schema_hash=canonical_hash(request.response_schema),
+                    provider_id=str(
+                        self._config.get(
+                            "id", self._config.get("label", "openai-compatible")
+                        )
+                    ),
+                    model_id=str(self._config.get("model", "")),
+                    finish_reason=str(getattr(raw, "done_reason", "")),
+                    usage=getattr(raw, "usage", {}),
+                ) from initial_error
             if _is_wide_vertical_batch(request):
                 raise StructuredOutputFailure(
                     f"{_REPAIR_FAILURE}: {initial_error}",
@@ -1158,6 +1195,8 @@ class OpenAICompatibleModel:
                         raw,
                         validation_issue=str(initial_error),
                         include_schema=(
+                            self.include_response_schema_in_prompt
+                            and
                             not native_ollama
                             and structured_output_mode in {"json_object", "json", "none"}
                         ),
@@ -1224,11 +1263,15 @@ class OpenAICompatibleModel:
             self._config.get("structured_output_mode", "json_schema")
         ).casefold()
         prompt_payload: dict[str, object] = {"input": request.user_payload}
-        if not native_ollama and structured_output_mode in {
+        if (
+            self.include_response_schema_in_prompt
+            and not native_ollama
+            and structured_output_mode in {
             "json_object",
             "json",
             "none",
-        }:
+            }
+        ):
             # A json_schema response format already delivers the schema to an
             # OpenAI-compatible provider. Repeating it in the user message
             # wastes context tokens and can push a long vertical request over
