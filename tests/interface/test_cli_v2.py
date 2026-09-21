@@ -103,7 +103,7 @@ def test_cli_run_auto_intakes_ingested_document(tmp_path: Path, monkeypatch, cap
         "robot",
     ]) == 0
     run = json.loads(capsys.readouterr().out)
-    assert run["run"]["status"] == "completed"
+    assert run["run"]["status"] == "degraded"
     repository = build_v2_services(workspace_root, runtime=RuleRuntime()).repository("robot")
     graph = repository.load_graph("robot")
     assert any(item.kind.value == "use_case" for item in graph.entities)

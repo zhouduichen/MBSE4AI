@@ -48,6 +48,7 @@ class AnalysisService:
         force_new: bool = False,
         new_run: bool = False,
         force_run: bool = False,
+        max_repair_rounds: int = 2,
         requirement_text: str | None = None,
         document_ids: tuple[str, ...] = (),
     ) -> RunSummary:
@@ -63,6 +64,7 @@ class AnalysisService:
             force_new=force_new,
             new_run=new_run,
             force_run=force_run,
+            max_repair_rounds=max_repair_rounds,
         )
 
     def resume(self, project_id: str, run_id: str) -> RunSummary:

@@ -439,7 +439,9 @@ def test_pipeline_analysis_accepts_natural_language_input(tmp_path: Path) -> Non
     assert any(item.payload.get("statement") == "系统应支持人工接管" for item in graph.entities)
     requirement_count = sum(item.kind.value == "requirement" for item in graph.entities)
     assert requirement_count == 1
-    assert response.json()["run"]["traceability"]["end_to_end_complete_count"] == requirement_count
+    # The legacy pipeline still materializes the graph, but trusted closure
+    # remains blocked until the imported requirement is explicitly accepted.
+    assert response.json()["run"]["traceability"]["end_to_end_complete_count"] == 0
 
 
 def test_pipeline_analysis_auto_intakes_uploaded_document(tmp_path: Path) -> None:

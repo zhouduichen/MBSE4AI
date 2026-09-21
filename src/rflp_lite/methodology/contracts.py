@@ -9,6 +9,7 @@ from typing import Mapping, Protocol
 from rflp_lite.domain.entities import Entity, EntityKind
 from rflp_lite.domain.model import Patch
 from rflp_lite.methodology.policy import PatchPolicy
+from rflp_lite.methodology.validation_feedback import ValidationFeedback
 
 
 class Phase(StrEnum):
@@ -95,6 +96,9 @@ class TaskSpec:
     failure_routes: tuple[FailureRoute, ...] = ()
     completion_condition: CompletionCondition = field(default_factory=CompletionCondition)
     patch_policy: PatchPolicy = field(default_factory=PatchPolicy)
+    preconditions: tuple[str, ...] = ()
+    postconditions: tuple[str, ...] = ()
+    examples: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -134,6 +138,7 @@ class TaskExecutionRequest:
     prompt_text: str = ""
     prompt_version: str = ""
     prompt_hash: str = ""
+    validation_feedback: tuple[ValidationFeedback, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +157,7 @@ class TaskExecutionResponse:
     assumptions: tuple[str, ...] = ()
     open_questions: tuple[str, ...] = ()
     decision_records: tuple[Mapping[str, object], ...] = ()
+    validation_feedback: tuple[ValidationFeedback, ...] = ()
 
 
 class TaskRuntime(Protocol):

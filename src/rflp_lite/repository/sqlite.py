@@ -27,6 +27,9 @@ from rflp_lite.repository.migrations import apply_v2_schema
 from rflp_lite.repository.port import ModelRepository, Run, RunRepository, Step
 
 
+_RUN_LEASE_TIMEOUT_SECONDS = 300.0
+
+
 def _json(value: object) -> str:
     return canonical_json(value)
 
@@ -227,11 +230,19 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
             )
 
     def append_patch(
-        self, project_id: str, patch: Patch, expected_revision: int, *, run_id: str | None = None
+        self,
+        project_id: str,
+        patch: Patch,
+        expected_revision: int,
+        *,
+        run_id: str | None = None,
+        lease: str | None = None,
     ) -> Revision:
         if patch.project_id != project_id or patch.expected_revision != expected_revision:
             raise ContractViolation("patch project or expected revision does not match request")
         with self._transaction():
+            if run_id is not None:
+                self._assert_lease_in_transaction(project_id, run_id, lease, time.time())
             current = self._current_revision(project_id)
             if current != expected_revision:
                 raise ConcurrentModificationError(
@@ -623,18 +634,45 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
         with self._transaction():
             cursor = self._connection.execute(
                 "UPDATE runs SET lease = ?, heartbeat = ? WHERE id = ? AND project_id = ? AND (lease = '' OR heartbeat < ?)",
-                (lease, now, run_id, project_id, now - 300),
+                (lease, now, run_id, project_id, now - _RUN_LEASE_TIMEOUT_SECONDS),
             )
             return cursor.rowcount == 1
 
     def heartbeat_run(self, run_id: str, lease: str, now: float) -> None:
         with self._transaction():
             cursor = self._connection.execute(
-                "UPDATE runs SET heartbeat = ? WHERE id = ? AND lease = ?",
-                (now, run_id, lease),
+                "UPDATE runs SET heartbeat = ? WHERE id = ? AND lease = ? AND heartbeat >= ?",
+                (now, run_id, lease, now - _RUN_LEASE_TIMEOUT_SECONDS),
             )
             if cursor.rowcount != 1:
-                raise ContractViolation("run lease is not held")
+                raise ContractViolation("run lease is not held or has expired")
+
+    def assert_lease(self, project_id: str, run_id: str, lease: str, now: float) -> None:
+        with self._lock:
+            self._assert_lease_in_transaction(project_id, run_id, lease, now)
+
+    def _assert_lease_in_transaction(
+        self,
+        project_id: str,
+        run_id: str,
+        lease: str | None,
+        now: float,
+    ) -> None:
+        if not lease:
+            raise ContractViolation("run-owned CAS requires its active lease")
+        row = self._connection.execute(
+            "SELECT lease, heartbeat FROM runs WHERE id = ? AND project_id = ?",
+            (run_id, project_id),
+        ).fetchone()
+        if row is None or row["lease"] != lease or float(row["heartbeat"]) < now - _RUN_LEASE_TIMEOUT_SECONDS:
+            raise ContractViolation("run lease is not held or has expired")
+
+    def release_run(self, project_id: str, run_id: str, lease: str) -> None:
+        with self._transaction():
+            self._connection.execute(
+                "UPDATE runs SET lease = '', heartbeat = 0 WHERE id = ? AND project_id = ? AND lease = ?",
+                (run_id, project_id, lease),
+            )
 
     def interrupt_run(self, run_id: str, lease: str) -> None:
         with self._transaction():

@@ -18,6 +18,7 @@ from tests.mbse_benchmark.runners.report_builder import (
 from tests.mbse_benchmark.validators.case import validate_case
 from tests.mbse_benchmark.tracks import BenchmarkTrack
 from tests.mbse_benchmark.tracks.harness import compute_harness_metrics
+from tests.mbse_benchmark.scenarios import BenchmarkScenario, scenario_contract
 
 
 def _case_output_name(case_id: str) -> str:
@@ -36,6 +37,7 @@ def run_benchmark(
     profile: str | None = None,
     runtime_config: Mapping[str, object] | None = None,
     analysis_path: str = "lifecycle",
+    scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
 ) -> dict[str, object]:
     if track not in {item.value for item in BenchmarkTrack if item is not BenchmarkTrack.ROBUSTNESS}:
         raise ValueError(f"run_benchmark only executes harness or llm tracks: {track}")
@@ -45,6 +47,7 @@ def run_benchmark(
         raise ValueError(f"unknown analysis path: {analysis_path}")
     if analysis_path == "vertical" and track != BenchmarkTrack.LLM.value:
         raise ValueError("the vertical analysis path is only available on the explicit llm track")
+    contract = scenario_contract(scenario)
     cases = load_cases(cases_dir)
     expectations = load_expectations(cases_dir.parent / "expected")
     if selected_case:
@@ -64,6 +67,7 @@ def run_benchmark(
                 timeout_seconds=timeout_seconds,
                 runtime_config=runtime_config,
                 analysis_path=analysis_path,
+                scenario=contract.scenario.value,
             )
             for index in range(1, max(1, repeats) + 1)
         ]
@@ -92,6 +96,13 @@ def run_benchmark(
             else "build_v2_services -> ProjectService -> AnalysisService.run -> WorkflowRunner"
         ),
         "analysis_path": analysis_path,
+        "scenario": contract.scenario.value,
+        "scenario_contract": {
+            "description": contract.description,
+            "has_verifier": contract.has_verifier,
+            "has_repair": contract.has_repair,
+            "has_cas": contract.has_cas,
+        },
         "runtime": "RuleRuntime" if track == BenchmarkTrack.HARNESS.value else "configured-llm",
         "model_profile": profile or "offline-rule",
         "provider": str(runtime_config.get("provider_id", runtime_config.get("provider", "offline"))) if runtime_config else "offline",
@@ -212,6 +223,7 @@ def main() -> int:
         help="analysis path; vertical runs the five-stage product generation path",
     )
     parser.add_argument("--baseline", choices=("harness", "bare", "both"), default="both", help="LLM track comparison baseline")
+    parser.add_argument("--scenario", choices=[item.value for item in BenchmarkScenario], default=BenchmarkScenario.E_FULL_HARNESS.value)
     args = parser.parse_args()
     if args.track == BenchmarkTrack.ROBUSTNESS.value:
         from tests.mbse_benchmark.tracks.robustness import run_robustness_benchmark
@@ -245,6 +257,7 @@ def main() -> int:
         profile=args.profile,
         runtime_config=runtime_config,
         analysis_path=args.analysis_path,
+        scenario=args.scenario,
     )
     if args.track == BenchmarkTrack.LLM.value and args.baseline in {"bare", "both"}:
         from tests.mbse_benchmark.tracks.llm import run_bare_baseline

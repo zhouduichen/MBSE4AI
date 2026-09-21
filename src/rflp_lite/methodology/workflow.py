@@ -44,6 +44,15 @@ _NON_SEMANTIC_FAILURE_STAGES = frozenset({
 })
 
 
+class RunLeaseUnavailable(ContractViolation):
+    """A second worker cannot enter a run already owned by another worker."""
+
+    def __init__(self, project_id: str, run_id: str):
+        self.project_id = project_id
+        self.run_id = run_id
+        super().__init__(f"run lease unavailable: {project_id}/{run_id}")
+
+
 # These are dependency-safe only after the preceding group has committed its
 # snapshot.  The order inside a group is the deterministic merge order; the
 # provider calls themselves may run concurrently.
@@ -264,6 +273,7 @@ class WorkflowRunner:
         methodology_version: str = "v2.1",
         *,
         runtime_selection=None,
+        verifier_enabled: bool = True,
     ):
         self.model_repository = model_repository
         self.run_repository = run_repository
@@ -271,7 +281,7 @@ class WorkflowRunner:
         self.runtime_selection = runtime_selection
         self.context_builder = context_builder or ContextBuilder(RetrievalEngine(model_repository))
         self.methodology_version = methodology_version
-        self.executor = TaskExecutor(runtime)
+        self.executor = TaskExecutor(runtime, verifier_enabled=verifier_enabled)
         self.closure = ClosureService(model_repository)
         self.orchestrator = LifecycleOrchestrator(self)
         self._leases: dict[str, str] = {}
@@ -281,7 +291,9 @@ class WorkflowRunner:
             prompt_registry=self.executor.prompts,
             schema_registry=self.executor.schemas,
             validator_registry=self.executor.validators,
+            verifier_enabled=verifier_enabled,
         )
+        self.verifier_enabled = verifier_enabled
 
     def run(
         self,
@@ -292,31 +304,53 @@ class WorkflowRunner:
         force_new: bool = False,
         new_run: bool = False,
         force_run: bool = False,
+        max_repair_rounds: int = 2,
     ) -> RunSummary:
-        if phase is None:
-            return self.orchestrator.run(project_id, run_id=run_id, force_new=force_new or new_run or force_run)
-        if phase is Phase.CLOSURE:
-            identity = self._ensure_run(project_id, run_id=run_id, force_new=force_new or new_run or force_run)
-            closure = self.closure.close(project_id, identity.run_id)
-            if closure.status != RunStatus.COMPLETED.value:
-                diagnostics = tuple(
-                    f"closure:{item.get('code', 'blocked')}"
-                    for item in closure.issues
-                )
-                self._update_run_status(identity.run_id, RunStatus.BLOCKED, diagnostics)
-                return RunSummary(
-                    identity.run_id,
+        leases_before = set(self._leases)
+        try:
+            if phase is None:
+                return self.orchestrator.run(
                     project_id,
-                    Phase.CLOSURE,
-                    RunStatus.BLOCKED,
-                    diagnostics=diagnostics,
-                    gate_id="Global-Gate",
-                    gate_passed=False,
-                    closure=closure.as_dict(),
+                    run_id=run_id,
+                    force_new=force_new or new_run or force_run,
+                    max_repair_rounds=max_repair_rounds,
                 )
-            self._update_run_status(identity.run_id, RunStatus.COMPLETED, (f"closure_revision={closure.revision}",))
-            return RunSummary(identity.run_id, project_id, Phase.CLOSURE, RunStatus.COMPLETED)
-        return self._run_phase(project_id, phase, run_id=run_id, force_new=force_new or new_run or force_run)
+            if phase is Phase.CLOSURE:
+                identity = self._ensure_run(project_id, run_id=run_id, force_new=force_new or new_run or force_run)
+                closure = self.closure.close(project_id, identity.run_id)
+                if closure.status != RunStatus.COMPLETED.value:
+                    diagnostics = tuple(
+                        f"closure:{item.get('code', 'blocked')}"
+                        for item in closure.issues
+                    )
+                    self._update_run_status(identity.run_id, RunStatus.BLOCKED, diagnostics)
+                    return RunSummary(
+                        identity.run_id,
+                        project_id,
+                        Phase.CLOSURE,
+                        RunStatus.BLOCKED,
+                        diagnostics=diagnostics,
+                        gate_id="Global-Gate",
+                        gate_passed=False,
+                        closure=closure.as_dict(),
+                    )
+                self._update_run_status(identity.run_id, RunStatus.COMPLETED, (f"closure_revision={closure.revision}",))
+                return RunSummary(identity.run_id, project_id, Phase.CLOSURE, RunStatus.COMPLETED)
+            return self._run_phase(project_id, phase, run_id=run_id, force_new=force_new or new_run or force_run)
+        except RunLeaseUnavailable as exc:
+            return RunSummary(
+                exc.run_id,
+                exc.project_id,
+                phase or Phase.OPERATIONAL,
+                RunStatus.BLOCKED,
+                diagnostics=("concurrency:run_lease_unavailable",),
+                gate_id="Run-Lease",
+                gate_passed=False,
+                failure_stage=FailureStage.CONCURRENCY,
+            )
+        finally:
+            for owned_run_id in set(self._leases) - leases_before:
+                self._release_lease(project_id, owned_run_id)
 
     def _run_phase(self, project_id: str, phase: Phase, *, run_id: str | None = None, force_new: bool = False, rerun_task_ids: set[str] | None = None) -> RunSummary:
         tasks = tasks_for_phase(phase)
@@ -412,8 +446,10 @@ class WorkflowRunner:
                     context,
                     self.methodology_version,
                     token_budget=self._output_budget(),
+                    graph=current,
                     )
                 )
+            self._heartbeat_lease(project_id, identity.run_id)
             if prepared is not None and response.patch is not None:
                 rebased = _rebase_parallel_patch(
                     project_id, task.id, response.patch, current
@@ -423,6 +459,20 @@ class WorkflowRunner:
                     patch=rebased,
                     output_hash=canonical_hash(rebased),
                 )
+            if response.failure_stage is FailureStage.SEMANTIC and response.validation_feedback:
+                recovered = self._recover_lifecycle_task(
+                    project_id,
+                    identity.run_id,
+                    task,
+                    current,
+                    context,
+                    request,
+                    prior_attempt,
+                    started,
+                    f"{task.id}: verifier-grounded retry exhausted",
+                )
+                if recovered is not None:
+                    return _TaskRunResult(*recovered)
             return self._accept_task_response(
                 project_id,
                 identity.run_id,
@@ -503,6 +553,7 @@ class WorkflowRunner:
         response,
         diagnostics: list[str],
     ) -> _TaskRunResult:
+        self._heartbeat_lease(project_id, run_id)
         if response.patch is not None:
             response = replace(
                 response,
@@ -517,11 +568,8 @@ class WorkflowRunner:
         patch_id = None
         revision = current
         if response.patch is not None:
-            revision = self.model_repository.append_patch(
-                project_id,
-                response.patch,
-                current.revision,
-                run_id=run_id,
+            revision = self._append_run_patch(
+                project_id, response.patch, current.revision, run_id
             )
             patch_id = response.patch.id
             patch_trace = getattr(self.model_repository, "update_patch_trace", None)
@@ -804,6 +852,7 @@ class WorkflowRunner:
                 context,
                 self.methodology_version,
                 token_budget=self._output_budget(),
+                graph=current,
             )
             prepared[task.id] = _PreparedParallelTask(
                 current,
@@ -876,11 +925,8 @@ class WorkflowRunner:
                 )
             patch_id = response.patch.id if response.patch is not None else None
             if response.patch is not None:
-                revision = self.model_repository.append_patch(
-                    project_id,
-                    response.patch,
-                    current.revision,
-                    run_id=run_id,
+                revision = self._append_run_patch(
+                    project_id, response.patch, current.revision, run_id
                 )
                 patch_trace = getattr(self.model_repository, "update_patch_trace", None)
                 if patch_trace is not None:
@@ -986,11 +1032,8 @@ class WorkflowRunner:
             expected_revision,
             authority="verifier",
         )
-        return self.model_repository.append_patch(
-            project_id,
-            promotion,
-            expected_revision,
-            run_id=run_id,
+        return self._append_run_patch(
+            project_id, promotion, expected_revision, run_id
         ).sequence
 
     def _fail_closed_task(
@@ -1037,9 +1080,50 @@ class WorkflowRunner:
         if identity.run_id not in self._leases:
             lease = f"lease-{uuid4().hex}"
             claimer = getattr(self.run_repository, "claim_run", None)
-            if claimer is None or claimer(project_id, identity.run_id, lease, time.time()):
-                self._leases[identity.run_id] = lease
+            if claimer is not None and not claimer(project_id, identity.run_id, lease, time.time()):
+                raise RunLeaseUnavailable(project_id, identity.run_id)
+            self._leases[identity.run_id] = lease
         return identity
+
+    def _heartbeat_lease(self, project_id: str, run_id: str) -> None:
+        lease = self._leases.get(run_id)
+        if not lease:
+            raise RunLeaseUnavailable(project_id, run_id)
+        heartbeat = getattr(self.run_repository, "heartbeat_run", None)
+        if heartbeat is not None:
+            heartbeat(run_id, lease, time.time())
+
+    def _release_lease(self, project_id: str, run_id: str) -> None:
+        lease = self._leases.pop(run_id, None)
+        if not lease:
+            return
+        release = getattr(self.run_repository, "release_run", None)
+        if release is not None:
+            release(project_id, run_id, lease)
+
+    def _append_run_patch(self, project_id: str, patch, expected_revision: int, run_id: str):
+        """Heartbeat and CAS a patch under the exact run lease."""
+
+        self._heartbeat_lease(project_id, run_id)
+        lease = self._leases.get(run_id)
+        try:
+            revision = self.model_repository.append_patch(
+                project_id,
+                patch,
+                expected_revision,
+                run_id=run_id,
+                lease=lease,
+            )
+        except TypeError as exc:
+            # Small in-memory test repositories predate the lease keyword; the
+            # durable SQLite repository always takes the strict path above.
+            if "lease" not in str(exc):
+                raise
+            revision = self.model_repository.append_patch(
+                project_id, patch, expected_revision, run_id=run_id
+            )
+        self._heartbeat_lease(project_id, run_id)
+        return revision
 
     def _block_pending_steps(
         self,
@@ -1114,7 +1198,15 @@ class WorkflowRunner:
         repair_response = TaskExecutionResponse(StepStatus.COMPLETED, patch=patch)
         repair_spec = repair_task.as_task_spec(context)
         self.executor.validate_response(project_id, repair_spec, graph, ContextBundle(project_id, repair_spec.id, graph.revision, context.local_entities, context.local_relations, context.evidence), repair_response)
-        self.model_repository.append_patch(project_id, patch, graph.revision, run_id=run_id)
+        self._ensure_run(
+            project_id,
+            run_id=effective_run_id,
+            phase=_phase_for_repair_task(repair_task.target_task_id),
+        )
+        try:
+            self._append_run_patch(project_id, patch, graph.revision, effective_run_id)
+        finally:
+            self._release_lease(project_id, effective_run_id)
         if run_id and self.run_repository.load_run(project_id, run_id) is not None:
             prompt = self.executor.prompts.resolve(repair_spec.prompt_template_id)
             self.run_repository.update_step(Step(

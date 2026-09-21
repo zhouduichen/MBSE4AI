@@ -12,7 +12,16 @@ def _client_with_fixture(tmp_path, runtime=None):
         app.state.container.v2._runtime_override = runtime
     client = TestClient(app)
     assert client.post("/projects", json={"id": "p1"}).status_code == 200
-    requirement = make_entity(EntityKind.REQUIREMENT, "Battery shall last 8 hours", {"statement": "Battery shall last 8 hours"}, status=EntityStatus.VALIDATED)
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "Battery shall last 8 hours",
+        {
+            "statement": "Battery shall last 8 hours",
+            "obligation": "系统应保持目标续航",
+            "verification_method": "test",
+        },
+        status=EntityStatus.VALIDATED,
+    )
     function = make_entity(EntityKind.FUNCTION, "Manage energy", status=EntityStatus.VALIDATED)
     logical = make_entity(EntityKind.LOGICAL_COMPONENT, "Energy controller", status=EntityStatus.VALIDATED)
     physical = make_entity(EntityKind.PHYSICAL_BLOCK, "Battery pack", status=EntityStatus.VALIDATED)

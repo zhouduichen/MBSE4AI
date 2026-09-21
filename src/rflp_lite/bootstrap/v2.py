@@ -58,11 +58,13 @@ class V2Services:
         runtime_config: Mapping[str, object] | None = None,
         config_dir: Path | None = None,
         engineering_tools: Sequence[EngineeringTool] = (),
+        verifier_enabled: bool = True,
     ):
         self.workspace_root = workspace_root.resolve()
         self._runtime_override = runtime
         self._runtime_config = dict(runtime_config) if runtime_config else None
         self._engineering_tools = tuple(engineering_tools)
+        self.verifier_enabled = verifier_enabled
         self.runtime_factory = RuntimeFactory()
         self.settings = SettingsService(config_dir)
         self.projects = ProjectService(
@@ -104,6 +106,7 @@ class V2Services:
                 selection.runtime,
                 context_builder=ContextBuilder(self._retrieval_engine(project_id, repository)),
                 runtime_selection=selection,
+                verifier_enabled=self.verifier_enabled,
             )
         )
 
@@ -289,6 +292,7 @@ def build_v2_services(
     runtime_config: Mapping[str, object] | None = None,
     config_dir: Path | None = None,
     engineering_tools: Sequence[EngineeringTool] = (),
+    verifier_enabled: bool = True,
 ) -> V2Services:
     # Library/test callers are isolated by default.  The real CLI and web
     # composition roots pass the user profile directory explicitly.
@@ -299,4 +303,5 @@ def build_v2_services(
         runtime_config=runtime_config,
         config_dir=effective_config_dir,
         engineering_tools=engineering_tools,
+        verifier_enabled=verifier_enabled,
     )

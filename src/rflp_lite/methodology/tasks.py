@@ -13,6 +13,55 @@ from rflp_lite.methodology.proposal_compiler import proposal_schema
 from rflp_lite.methodology.vv_contract import VV_PLAN_FIELDS
 
 
+_TASK_ALLOWED_PREDICATES = {
+    "system_definition": frozenset(),
+    "stakeholder_analysis": frozenset({RelationPredicate.HAS_CONCERN}),
+    "stakeholder_requirements": frozenset({RelationPredicate.DERIVED_FROM}),
+    "lifecycle_analysis": frozenset({RelationPredicate.DERIVED_FROM}),
+    "scenario_exploration": frozenset({RelationPredicate.DERIVED_FROM}),
+    "use_case_analysis": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.PARTICIPATES_IN}),
+    "operational_scenario": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.PARTICIPATES_IN, RelationPredicate.OCCURS_IN}),
+    "activity_analysis": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.OCCURS_IN, RelationPredicate.DECOMPOSES}),
+    "system_requirement_derivation": frozenset({RelationPredicate.DERIVED_FROM}),
+    "function_identification": frozenset({RelationPredicate.SATISFIED_BY}),
+    "functional_decomposition": frozenset({RelationPredicate.DECOMPOSES, RelationPredicate.DERIVED_FROM, RelationPredicate.SATISFIED_BY}),
+    "functional_interaction": frozenset({RelationPredicate.EXCHANGES_WITH, RelationPredicate.DERIVED_FROM, RelationPredicate.PARTICIPATES_IN}),
+    "functional_scenario": frozenset({RelationPredicate.PARTICIPATES_IN, RelationPredicate.DERIVED_FROM}),
+    "functional_requirement": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.SATISFIED_BY}),
+    "logical_analysis": frozenset({RelationPredicate.ALLOCATED_TO, RelationPredicate.DERIVED_FROM, RelationPredicate.DECOMPOSES, RelationPredicate.CONNECTED_TO, RelationPredicate.EXCHANGES_WITH}),
+    "physical_candidates": frozenset({RelationPredicate.ALLOCATED_TO, RelationPredicate.REALIZED_BY, RelationPredicate.SATISFIED_BY, RelationPredicate.DERIVED_FROM, RelationPredicate.CONNECTED_TO}),
+    "allocation_tradeoff": frozenset({RelationPredicate.ALLOCATED_TO, RelationPredicate.REALIZED_BY, RelationPredicate.DERIVED_FROM}),
+    "technical_requirement": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.SATISFIED_BY}),
+    "interface_sequence_state": frozenset({RelationPredicate.CONNECTED_TO, RelationPredicate.EXCHANGES_WITH, RelationPredicate.DECOMPOSES, RelationPredicate.DERIVED_FROM}),
+    "fmea_stpa_hazard": frozenset({RelationPredicate.CAUSES, RelationPredicate.MITIGATED_BY, RelationPredicate.DERIVED_FROM}),
+    "reverse_feasibility": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.SATISFIED_BY, RelationPredicate.VERIFIED_BY, RelationPredicate.VALIDATED_BY}),
+    "verification_validation": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.VERIFIED_BY, RelationPredicate.VALIDATED_BY}),
+    "global_cross_analysis": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.SATISFIED_BY, RelationPredicate.VERIFIED_BY, RelationPredicate.VALIDATED_BY, RelationPredicate.MITIGATED_BY}),
+}
+
+_TASK_WRITABLE_FIELDS = frozenset({"name", "confidence", "payload", "lifecycle_ids", "evidence_ids"})
+
+_TASK_EXAMPLES = {
+    "function_identification": (
+        "ADD Function(name='执行人工接管', payload={decomposition: [...]}) + "
+        "RELATE Requirement -satisfiedBy-> Function",
+    ),
+    "logical_analysis": (
+        "ADD LogicalComponent(name='接管控制逻辑', payload={responsibility: ...}) + "
+        "RELATE Function -allocatedTo-> LogicalComponent",
+    ),
+    "physical_candidates": (
+        "ADD PhysicalBlock(name='执行机构候选', payload={candidate_basis: ..., tradeoffs: [...]}) + "
+        "RELATE LogicalComponent -allocatedTo-> PhysicalBlock",
+    ),
+    "verification_validation": (
+        "ADD VerificationCase(payload={method, precondition, procedure, "
+        "expected_result, pass_fail_rule, environment, evidence_artifact}) + "
+        "RELATE Requirement -verifiedBy-> VerificationCase",
+    ),
+}
+
+
 def _task(
     task_id: str,
     phase: Phase,
@@ -22,6 +71,7 @@ def _task(
     template: str | None = None,
     completion_condition: CompletionCondition | None = None,
     allowed_predicates: Iterable[RelationPredicate] | None = None,
+    max_operations: int = 32,
 ) -> TaskSpec:
     kinds = frozenset(input_kinds)
     routes = [FailureRoute("task_output_invalid", phase, FailureAction.RETRY, task_id)]
@@ -39,6 +89,12 @@ def _task(
             FailureRoute("missing_validation", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
             FailureRoute("broken_requirement_validation_trace", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
         ))
+    predicates = (
+        _TASK_ALLOWED_PREDICATES[task_id]
+        if allowed_predicates is None
+        else frozenset(allowed_predicates)
+    )
+    completion = completion_condition or CompletionCondition(frozenset(output_kinds), 0)
     return TaskSpec(
         task_id,
         phase,
@@ -50,12 +106,24 @@ def _task(
         validators=("schema", "identity", "reference", "evidence", "semantic", "patch_policy"),
         max_attempts=2,
         failure_routes=tuple(routes),
-        completion_condition=completion_condition or CompletionCondition(frozenset(output_kinds), 0),
-        patch_policy=PatchPolicy.for_task(
-            input_kinds,
-            output_kinds,
-            allowed_predicates=allowed_predicates,
+        completion_condition=completion,
+        patch_policy=PatchPolicy(
+            writable_kinds=frozenset(output_kinds),
+            writable_fields=_TASK_WRITABLE_FIELDS,
+            allowed_predicates=predicates,
+            allowed_entity_scope="context_and_outputs",
+            max_operations=max_operations,
         ),
+        preconditions=(
+            "context is revision-bound and may contain only declared input kinds",
+            "candidate output is generated against the current graph revision",
+        ),
+        postconditions=(
+            "writes only declared output kinds and task-allowlisted predicates",
+            "new generated entities remain CANDIDATE until verifier promotion",
+            f"completion={completion.required_output_kinds or 'no required output kind'}",
+        ),
+        examples=_TASK_EXAMPLES.get(task_id, ()),
     )
 
 
@@ -159,6 +227,9 @@ def task_spec_hash(task: TaskSpec) -> str:
             "allowed_entity_scope": sorted(policy.allowed_entity_scope) if isinstance(policy.allowed_entity_scope, frozenset) else policy.allowed_entity_scope,
             "max_operations": policy.max_operations,
         },
+        "preconditions": task.preconditions,
+        "postconditions": task.postconditions,
+        "examples": task.examples,
     })
 
 
@@ -182,6 +253,9 @@ def output_contract(task: TaskSpec) -> dict[str, object]:
         )
     schema["validators"] = list(task.validators)
     schema["max_attempts"] = task.max_attempts
+    schema["preconditions"] = list(task.preconditions)
+    schema["postconditions"] = list(task.postconditions)
+    schema["examples"] = list(task.examples)
     return schema
 
 

@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from rflp_lite.application.requirement_input import RequirementInputService
+from rflp_lite.application.model_service import ModelService
+from rflp_lite.application.review_service import ReviewService
 from rflp_lite.domain.entities import EntityKind, EntityStatus
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import ContextBundle, Phase, RunStatus
@@ -90,11 +92,15 @@ def test_lifecycle_fallback_function_name_stays_solution_neutral(tmp_path: Path)
     RequirementInputService(repository, "p1").ensure_text_requirements(
         "无人机系统通信链路应稳定，支持高清视频与传感器数据回传"
     )
+    graph = repository.load_graph("p1")
+    ReviewService(ModelService(repository)).accept_entity(
+        "p1", graph.entities[0].id, expected_revision=graph.revision
+    )
     runner = WorkflowRunner(repository, repository, RuleRuntime())
 
     summary = runner.run("p1", force_run=True)
 
-    assert summary.status is RunStatus.COMPLETED
+    assert summary.status is RunStatus.BLOCKED
     functions = [
         item for item in repository.load_graph("p1").entities
         if item.kind is EntityKind.FUNCTION

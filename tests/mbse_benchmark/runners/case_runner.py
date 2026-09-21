@@ -13,10 +13,19 @@ from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
 from rflp_lite.bootstrap.v2 import build_v2_services
 from rflp_lite.domain.canonical import canonical_json, to_primitive
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
+from rflp_lite.domain.errors import ConcurrentModificationError
 from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
+from rflp_lite.methodology.closure import evaluate_strict_closure
+from rflp_lite.repository.sqlite import SQLiteModelRepository
+from tests.mbse_benchmark.scenarios import (
+    BenchmarkScenario,
+    bare_model_graph,
+    normalize_to_model_graph,
+    scenario_contract,
+)
 
 
 
@@ -147,7 +156,9 @@ def _run_analysis(
     ingest_result: Mapping[str, object],
     runtime_config: Mapping[str, object] | None,
     analysis_path: str,
+    scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
 ):
+    contract = scenario_contract(scenario)
     if analysis_path == "vertical":
         if not runtime_config:
             raise ValueError("vertical benchmark path requires an explicit LLM runtime config")
@@ -161,7 +172,49 @@ def _run_analysis(
             document_ids=(document_id,) if document_id and region_count > 0 else (),
             force_new=True,
         )
-    return services.analysis(project_id).run(project_id, force_new=True)
+    if contract.has_repair:
+        return services.analysis(project_id).run(project_id, force_new=True)
+    return services.analysis(project_id).run(
+        project_id,
+        force_new=True,
+        max_repair_rounds=0,
+    )
+
+
+def _run_cas_probe(repository, project_id: str) -> dict[str, object]:
+    """Exercise the real repository CAS boundary in an isolated probe project."""
+
+    # SQLite revision ids are database-global. Use a fresh repository so the
+    # probe cannot collide with the case's legitimate revision history or
+    # mutate the observed engineering model.
+    del repository, project_id
+    with tempfile.TemporaryDirectory(prefix="ai4mbse-cas-") as root:
+        probe_repository = SQLiteModelRepository(Path(root) / "cas.db")
+        probe_project = "cas-probe"
+        probe_repository.ensure_project(probe_project)
+        graph = probe_repository.load_graph(probe_project)
+        entity = make_entity(
+            EntityKind.SYSTEM,
+            "CAS probe",
+            status=EntityStatus.CANDIDATE,
+            producer=Producer.RULE,
+            revision=graph.revision,
+        )
+        patch = Patch.create(
+            probe_project,
+            "benchmark.cas_probe",
+            (AddEntity(entity),),
+            "benchmark CAS probe",
+            graph.revision,
+        )
+        probe_repository.append_patch(probe_project, patch, graph.revision)
+        try:
+            probe_repository.append_patch(probe_project, patch, graph.revision)
+        except ConcurrentModificationError:
+            probe_repository.close()
+            return {"stale_write_rejected": True, "first_revision": 1}
+        probe_repository.close()
+        return {"stale_write_rejected": False, "first_revision": 1}
 
 
 def _run_case_inner(
@@ -169,10 +222,12 @@ def _run_case_inner(
     output_dir: Path,
     runtime_config: Mapping[str, object] | None = None,
     analysis_path: str = "lifecycle",
+    scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
 ) -> None:
     started = time.time()
     case_id = str(case["case_id"])
     project_id = case_id.lower()
+    scenario_contract(scenario)
     workspace = Path(tempfile.mkdtemp(prefix=f"ai4mbse-{project_id}-"))
     execution: dict[str, object] = {
         "status": "running",
@@ -186,10 +241,62 @@ def _run_case_inner(
             else "build_v2_services -> AnalysisService.run -> WorkflowRunner"
         ),
         "analysis_path": analysis_path,
+        "scenario": scenario,
         "started_at": started,
     }
     services = None
     try:
+        contract = scenario_contract(scenario)
+        if contract.scenario in {
+            BenchmarkScenario.A_BARE_ONE_SHOT,
+            BenchmarkScenario.B_BARE_STAGED,
+        }:
+            graph = normalize_to_model_graph(
+                bare_model_graph(
+                    case,
+                    project_id=project_id,
+                    staged=contract.scenario is BenchmarkScenario.B_BARE_STAGED,
+                ),
+                project_id=project_id,
+            )
+            closure = evaluate_strict_closure(graph)
+            summary = {
+                "run_id": f"{project_id}-{contract.scenario.value}",
+                "project_id": project_id,
+                "status": "completed",
+                "phase": "bare_model",
+                "completed_tasks": [],
+                "diagnostics": ["bare scenario: repository, verifier, repair and CAS bypassed"],
+                "closure": {
+                    "status": "completed" if closure.passed else "blocked",
+                    "issues": [item.as_dict() for item in closure.issues],
+                    "manifest": None,
+                },
+                "scenario_controls": {
+                    "verifier": contract.has_verifier,
+                    "repair": contract.has_repair,
+                    "cas": contract.has_cas,
+                },
+            }
+            _write_json(output_dir / "run_summary.json", summary)
+            _write_json(output_dir / "run_ledger.json", {})
+            _write_json(output_dir / "model.json", _graph_payload(graph))
+            _write_json(output_dir / "coverage_matrix.json", build_requirement_coverage(graph).as_dict())
+            _write_json(output_dir / "issues.json", [])
+            _write_json(output_dir / "audit.json", {"events": []})
+            execution.update(
+                {
+                    "status": "completed",
+                    "run_status": "completed",
+                    "run_id": summary["run_id"],
+                    "revision": graph.revision,
+                    "entity_count": len(graph.entities),
+                    "relation_count": len(graph.relations),
+                    "cas_probe": {},
+                    "scenario_controls": summary["scenario_controls"],
+                }
+            )
+            return
         runtime = (
             StructuredModelRuntime(OpenAICompatibleModel(dict(runtime_config)))
             if runtime_config
@@ -200,6 +307,7 @@ def _run_case_inner(
             runtime=runtime,
             runtime_config=dict(runtime_config) if runtime_config else None,
             config_dir=workspace / ".rflp-config",
+            verifier_enabled=contract.has_verifier,
         )
         services.projects.create(project_id, str(case.get("system", project_id)))
         input_path = output_dir / "input.json"
@@ -215,12 +323,14 @@ def _run_case_inner(
             ingest_result if isinstance(ingest_result, Mapping) else {},
             runtime_config,
             analysis_path,
+            scenario,
         )
         repository = services.repository(project_id)
         graph = services.model(project_id).graph(project_id)
         run = repository.load_run(project_id, summary.run_id)
         issues = repository.list_issues(project_id)
         audit = repository.audit_summary(project_id, summary.run_id)
+        cas_probe = _run_cas_probe(repository, project_id)
         _write_json(output_dir / "run_summary.json", to_primitive(summary))
         _write_json(output_dir / "run_ledger.json", to_primitive(run) if run else {})
         _write_json(output_dir / "model.json", _graph_payload(graph))
@@ -236,6 +346,12 @@ def _run_case_inner(
                 "entity_count": len(graph.entities),
                 "relation_count": len(graph.relations),
                 "injection": injection,
+                "cas_probe": cas_probe,
+                "scenario_controls": {
+                    "verifier": contract.has_verifier,
+                    "repair": contract.has_repair,
+                    "cas": contract.has_cas,
+                },
             }
         )
     except BaseException as exc:  # Persist the failure before the child exits.
@@ -260,8 +376,9 @@ def _child_entry(
     output_dir: str,
     runtime_config: Mapping[str, object] | None = None,
     analysis_path: str = "lifecycle",
+    scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
 ) -> None:
-    _run_case_inner(case, Path(output_dir), runtime_config, analysis_path)
+    _run_case_inner(case, Path(output_dir), runtime_config, analysis_path, scenario)
 
 
 def run_case(
@@ -272,6 +389,7 @@ def run_case(
     timeout_seconds: int = 60,
     runtime_config: Mapping[str, object] | None = None,
     analysis_path: str = "lifecycle",
+    scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
 ) -> dict[str, object]:
     """Run one isolated real-system case and always return a result record."""
 
@@ -285,6 +403,7 @@ def run_case(
             str(output_dir),
             dict(runtime_config) if runtime_config else None,
             analysis_path,
+            scenario,
         ),
     )
     started = time.time()
@@ -340,4 +459,5 @@ def run_case(
         "audit": json.loads((output_dir / "audit.json").read_text(encoding="utf-8"))
         if (output_dir / "audit.json").exists()
         else {},
+        "cas_probe": execution.get("cas_probe", {}),
     }

@@ -1,5 +1,6 @@
 from pathlib import Path
 from dataclasses import replace
+import time
 
 import pytest
 
@@ -2942,7 +2943,7 @@ def test_controller_iteration_stops_at_iteration_budget(tmp_path: Path, monkeypa
     assert result["revision"] == 2
 
 
-def test_semantic_invalid_output_stays_candidate_and_creates_review_issue(tmp_path: Path):
+def test_semantic_invalid_output_is_not_committed_and_creates_review_issue(tmp_path: Path):
     services = build_v2_services(
         tmp_path / "workspaces",
         runtime=StructuredModelRuntime(SemanticInvalidModel()),
@@ -2958,7 +2959,11 @@ def test_semantic_invalid_output_stays_candidate_and_creates_review_issue(tmp_pa
 
     assert result.status == "completed_with_warnings"
     assert result.stage_results[1].status == "needs_review"
-    assert function.meta.status is EntityStatus.CANDIDATE
+    # The verifier-grounded retry rejects the solution-specific LLM proposal;
+    # only the validated repair bridge is allowed to enter the graph.
+    assert function.meta.status is EntityStatus.VALIDATED
+    assert function.meta.producer is Producer.RULE
+    assert "传感器" not in function.meta.name
     assert any(item["code"] == "semantic_invalid" for item in services.model("robot").issues("robot"))
 
 
@@ -3008,7 +3013,12 @@ def test_feedback_transport_failure_keeps_applied_stage_for_downstream_work(
         "首次功能分析",
         graph.revision,
     )
-    revision = repository.append_patch("robot", patch, graph.revision, run_id=run_id).sequence
+    assert repository.claim_run("robot", run_id, "test-lease", time.time())
+    lease = "test-lease"
+    revision = repository.append_patch(
+        "robot", patch, graph.revision, run_id=run_id, lease=lease
+    ).sequence
+    repository.release_run("robot", run_id, lease)
     response = TaskExecutionResponse(
         StepStatus.COMPLETED,
         patch=patch,

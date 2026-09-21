@@ -37,7 +37,7 @@ class PatchPolicy:
             writable_kinds=frozenset(output_kinds),
             writable_fields=frozenset({"name", "status", "confidence", "payload", "lifecycle_ids", "evidence_ids"}),
             allowed_predicates=(
-                frozenset(RelationPredicate)
+                frozenset()
                 if allowed_predicates is None
                 else frozenset(allowed_predicates)
             ),

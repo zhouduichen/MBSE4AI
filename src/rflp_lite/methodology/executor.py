@@ -13,6 +13,7 @@ from rflp_lite.domain.errors import (
     ProposalCompileFailure,
     StructuredOutputFailure,
     TransportFailure,
+    MethodologyValidationError,
 )
 from rflp_lite.domain.entities import EntityKind, EntityStatus
 from rflp_lite.domain.model import Patch
@@ -22,6 +23,7 @@ from rflp_lite.methodology.contracts import (
 from rflp_lite.methodology.registries import PromptRegistry, RetryPolicy, SchemaRegistry, ValidatorRegistry
 from rflp_lite.methodology.tasks import output_contract
 from rflp_lite.methodology.validators import default_validators
+from rflp_lite.methodology.validation_feedback import ValidationFeedback
 
 
 def _request_task(task: TaskSpec) -> TaskSpec:
@@ -49,11 +51,13 @@ class TaskExecutor:
         prompt_registry: PromptRegistry | None = None,
         schema_registry: SchemaRegistry | None = None,
         validator_registry: ValidatorRegistry | None = None,
+        verifier_enabled: bool = True,
     ) -> None:
         self.runtime = runtime
         self.prompts = prompt_registry or PromptRegistry()
         self.schemas = schema_registry or SchemaRegistry()
         self.validators = validator_registry or ValidatorRegistry(default_validators())
+        self.verifier_enabled = verifier_enabled
 
     def request(
         self,
@@ -62,6 +66,7 @@ class TaskExecutor:
         methodology_version: str,
         evidence_bundle: tuple[dict[str, object], ...] | None = None,
         token_budget: int = 2000,
+        validation_feedback: tuple[ValidationFeedback, ...] = (),
     ) -> TaskExecutionRequest:
         request_task = _request_task(task)
         contract = output_contract(request_task)
@@ -91,6 +96,7 @@ class TaskExecutor:
             prompt.text,
             prompt.version,
             prompt.prompt_hash,
+            validation_feedback,
         )
 
 
@@ -103,18 +109,28 @@ class TaskExecutor:
         evidence_bundle: tuple[dict[str, object], ...] | None = None,
         token_budget: int = 2000,
         retry_policy: RetryPolicy | None = None,
+        graph=None,
     ) -> TaskExecutionResponse:
-        request = self.request(task, context, methodology_version, evidence_bundle, token_budget)
-        input_hash = canonical_hash({
-            "task_id": task.id, "prompt_hash": request.prompt_hash,
-            "context": context, "evidence": request.evidence_bundle,
-            "contract": request.output_contract,
-        })
         policy = retry_policy or RetryPolicy(task.max_attempts)
         diagnostics: list[str] = []
         last_response: TaskExecutionResponse | None = None
         last_failure_stage: FailureStage | None = None
+        feedback: tuple[ValidationFeedback, ...] = ()
         for attempt in range(1, policy.max_attempts + 1):
+            request = self.request(
+                task,
+                context,
+                methodology_version,
+                evidence_bundle,
+                token_budget,
+                validation_feedback=feedback,
+            )
+            input_hash = canonical_hash({
+                "task_id": task.id, "prompt_hash": request.prompt_hash,
+                "context": context, "evidence": request.evidence_bundle,
+                "contract": request.output_contract,
+                "validation_feedback": tuple(item.as_dict() for item in feedback),
+            })
             try:
                 response = self.runtime.execute(request)
                 last_response = response
@@ -129,11 +145,39 @@ class TaskExecutor:
                         output_hash=response.output_hash or canonical_hash(response.patch),
                     )
                 if response.status is StepStatus.COMPLETED:
+                    if graph is not None and self.verifier_enabled:
+                        try:
+                            self.validate_response(
+                                context.project_id, task, graph, context, response
+                            )
+                        except MethodologyValidationError as exc:
+                            item = _validation_feedback(response, exc, attempt)
+                            feedback = (*feedback, item)
+                            diagnostics.append(
+                                json.dumps(
+                                    {"validation_feedback": item.as_dict()},
+                                    ensure_ascii=False,
+                                    sort_keys=True,
+                                )
+                            )
+                            if attempt < policy.max_attempts:
+                                continue
+                            return replace(
+                                response,
+                                status=StepStatus.DEGRADED,
+                                patch=None,
+                                diagnostics=tuple(diagnostics) + tuple(response.diagnostics),
+                                input_hash=input_hash,
+                                output_hash=canonical_hash(diagnostics),
+                                failure_stage=FailureStage.SEMANTIC,
+                                validation_feedback=feedback,
+                            )
                     return replace(
                         response,
                         input_hash=response.input_hash or input_hash,
                         output_hash=response.output_hash or canonical_hash(response.patch),
                         diagnostics=tuple(diagnostics) + tuple(response.diagnostics),
+                        validation_feedback=feedback,
                     )
                 diagnostics.extend(response.diagnostics or (f"attempt={attempt}: runtime returned {response.status.value}",))
                 if response.failure_stage in {FailureStage.STRUCTURAL, FailureStage.COMPILER}:
@@ -167,10 +211,14 @@ class TaskExecutor:
             provider_id=last_response.provider_id if last_response else "",
             model_id=last_response.model_id if last_response else "",
             failure_stage=(last_response.failure_stage or last_failure_stage) if last_response else last_failure_stage,
+            validation_feedback=feedback,
         )
 
     def validate_response(self, project_id, task, graph, context, response) -> None:
         """Run the same methodology validators for any runtime before CAS."""
+
+        if not self.verifier_enabled:
+            return
 
         from rflp_lite.methodology.validation import ValidationContext
 
@@ -178,6 +226,49 @@ class TaskExecutor:
             task.validators,
             context=ValidationContext(project_id, task, graph, context, response),
         )
+
+
+def _validation_feedback(
+    response: TaskExecutionResponse,
+    error: MethodologyValidationError,
+    retry_count: int,
+) -> ValidationFeedback:
+    """Translate a validator failure into a stable retry contract."""
+
+    affected: list[str] = []
+    relation: dict[str, object] = {}
+    patch = response.patch
+    if patch is not None:
+        for operation in patch.operations:
+            if hasattr(operation, "entity"):
+                affected.append(str(operation.entity.id))
+            elif hasattr(operation, "entity_id"):
+                affected.append(str(operation.entity_id))
+            if hasattr(operation, "source_id"):
+                relation = {
+                    "source_id": str(operation.source_id),
+                    "predicate": getattr(operation.predicate, "value", str(operation.predicate)),
+                    "target_id": str(operation.target_id),
+                }
+    message = str(error)
+    evidence_gap = message if "evidence" in error.code or "evidence" in message else ""
+    expected = {
+        "semantic_invalid": "the task semantic contract and executable plan fields",
+        "reference_missing": "all relation endpoints must exist in the prospective graph",
+        "relation_endpoint_invalid": "relation endpoint kinds must match the declared predicate",
+        "patch_policy_violation": "the task patch policy allowlist",
+        "identity_conflict": "stable entity identity and current graph revision",
+        "cas_conflict": "the current graph revision",
+    }.get(error.code, "the declared task contract")
+    return ValidationFeedback(
+        code=error.code,
+        affected_entities=tuple(dict.fromkeys(affected)),
+        expected=expected,
+        actual=message,
+        failing_relation=relation,
+        evidence_gap=evidence_gap,
+        retry_count=retry_count,
+    )
 
 
 def _require_mapping(value: object) -> None:

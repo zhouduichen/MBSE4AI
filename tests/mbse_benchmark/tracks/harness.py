@@ -53,13 +53,19 @@ def evaluate_harness_case(result: Mapping[str, object]) -> dict[str, object]:
         isinstance(item.get("graph"), Mapping) and bool(item.get("graph"))
         for item in repeat_results
     )
-    completed = execution.get("status") == "completed" and summary.get("status") in {"completed", "RunStatus.COMPLETED"}
+    completed = (
+        execution.get("status") == "completed"
+        and summary.get("status") in {"completed", "RunStatus.COMPLETED"}
+        and isinstance(summary.get("closure"), Mapping)
+        and summary.get("closure", {}).get("status") == "completed"
+    )
     run_ledger = _ledger(primary)
     steps = run_ledger.get("steps", ())
     steps = steps if isinstance(steps, (list, tuple)) else ()
     audit = primary.get("audit", {})
     audit = audit if isinstance(audit, Mapping) else {}
-    audit_text = str(audit)
+    audit_events = audit.get("events", ()) if isinstance(audit, Mapping) else ()
+    audit_events = audit_events if isinstance(audit_events, (list, tuple)) else ()
     gate_results = summary.get("gate_results", ())
     gate_results = gate_results if isinstance(gate_results, (list, tuple)) else ()
     traceability = result.get("details", {})
@@ -72,16 +78,27 @@ def evaluate_harness_case(result: Mapping[str, object]) -> dict[str, object]:
     details = details if isinstance(details, Mapping) else {}
     consistency = details.get("consistency", {})
     consistency = consistency if isinstance(consistency, Mapping) else {}
+    gate_evidence = [
+        item for item in gate_results
+        if isinstance(item, Mapping)
+        and isinstance(item.get("passed"), bool)
+        and (item.get("issues") or not item.get("passed"))
+    ]
+    repair_evidence = [
+        item for item in audit_events
+        if isinstance(item, Mapping)
+        and str(item.get("kind", "")).casefold() in {"repair.applied", "task.recovered"}
+    ]
     return {
         "pipeline_completion": 1.0 if completed else 0.0,
         "revision_determinism": 1.0 if complete_graphs and len({item[0] for item in signatures}) <= 1 else 0.0,
         "graph_hash_determinism": 1.0 if complete_graphs and len({item[1] for item in signatures}) <= 1 else 0.0,
         "rflp_trace_coverage": float(coverage_metrics.get("r_to_f_to_l_to_p_coverage", traceability.get("architecture_traceability", 0.0)) or 0.0),
-        "gate_detection": 1.0 if gate_results or consistency.get("conflict_signals") else 0.0,
-        "repair_recovery": 1.0 if _has_text(summary, ("repair.applied", "repair", "recovered")) else 0.0,
-        "cas_lock_protection": 1.0 if _has_text(audit_text, ("cas", "lock", "concurrent")) or completed else 0.0,
+        "gate_detection": 1.0 if gate_evidence or consistency.get("conflict_signals") else 0.0,
+        "repair_recovery": 1.0 if repair_evidence else 0.0,
+        "cas_lock_protection": 1.0 if isinstance(primary.get("cas_probe"), Mapping) and primary["cas_probe"].get("stale_write_rejected") is True else 0.0,
         "closure_manifest": 1.0 if isinstance(summary.get("closure"), Mapping) and summary["closure"].get("manifest") else 0.0,
-        "audit_completeness": 1.0 if run_ledger and steps and audit else 0.0,
+        "audit_completeness": 1.0 if run_ledger and steps and audit_events else 0.0,
         "repeat_count": len(repeat_results),
         "primary_revision": graph.get("revision"),
     }

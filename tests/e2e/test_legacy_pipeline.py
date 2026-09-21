@@ -13,10 +13,23 @@ from rflp_lite.runtime.structured_model import StructuredModelRuntime
 SOURCE = Path("tests/fixtures/requirements_use_case_acceptance.txt")
 
 
+def _accept_input_requirements(services, project_id: str) -> None:
+    """Model the explicit user acceptance required before trusted closure."""
+
+    review = services.review(project_id)
+    graph = services.repository(project_id).load_graph(project_id)
+    revision = graph.revision
+    for entity in graph.entities:
+        if entity.kind is EntityKind.REQUIREMENT:
+            review.accept_entity(project_id, entity.id, expected_revision=revision)
+            revision += 1
+
+
 def test_pipeline_auto_intakes_ingested_document_before_running(tmp_path: Path):
     services = build_v2_services(tmp_path / "workspaces")
     services.projects.create("document-pipeline")
     services.projects.ingest("document-pipeline", SOURCE)
+    _accept_input_requirements(services, "document-pipeline")
 
     summary = services.analysis("document-pipeline").run(
         "document-pipeline",
@@ -25,10 +38,12 @@ def test_pipeline_auto_intakes_ingested_document_before_running(tmp_path: Path):
     graph = services.model("document-pipeline").graph("document-pipeline")
     report = services.analysis("document-pipeline").pipeline_report("document-pipeline")
 
-    assert summary.status is RunStatus.COMPLETED
-    assert len(summary.completed_tasks) == 23
+    assert summary.status is RunStatus.DEGRADED
+    # Document intake creates candidate requirements; the lifecycle pauses
+    # before trusted closure until a human accepts those candidates.
+    assert len(summary.completed_tasks) == 18
     requirements = [item for item in graph.entities if item.kind is EntityKind.REQUIREMENT]
-    assert report["traceability"]["end_to_end_complete_count"] == len(requirements)
+    assert report["traceability"]["end_to_end_complete_count"] == 0
     assert any(item.kind is EntityKind.USE_CASE for item in graph.entities)
     assert any(item.kind is EntityKind.OPERATIONAL_SCENARIO for item in graph.entities)
     assert any(item.kind is EntityKind.ACTIVITY for item in graph.entities)
@@ -48,6 +63,7 @@ def test_pipeline_from_natural_language_creates_operational_and_functional_layer
     services.requirements_input("robot").ensure_text_requirements(
         "系统应支持自主配送并允许人工接管"
     )
+    _accept_input_requirements(services, "robot")
 
     summary = services.analysis("robot").run("robot", force_new=True)
 
@@ -66,7 +82,7 @@ def test_pipeline_from_natural_language_creates_operational_and_functional_layer
         EntityKind.FUNCTIONAL_FLOW,
         EntityKind.FUNCTIONAL_SCENARIO,
     } <= kinds
-    assert summary.status is RunStatus.COMPLETED
+    assert summary.status is RunStatus.BLOCKED
     assert len(summary.completed_tasks) == 23
 
 
@@ -76,6 +92,7 @@ def test_pipeline_closes_logical_physical_and_assurance_layers(tmp_path: Path):
     services.requirements_input("robot").ensure_text_requirements(
         "系统功耗不超过 50 W 且续航不少于 10 h"
     )
+    _accept_input_requirements(services, "robot")
 
     summary = services.analysis("robot").run("robot", force_new=True)
     graph = services.model("robot").graph("robot")
@@ -92,7 +109,7 @@ def test_pipeline_closes_logical_physical_and_assurance_layers(tmp_path: Path):
         EntityKind.VALIDATION_CASE,
     } <= kinds
     assert any(item.payload.get("level") == "technical" for item in graph.entities)
-    assert summary.status is RunStatus.COMPLETED
+    assert summary.status is RunStatus.BLOCKED
     assert len(summary.completed_tasks) == 23
 
     requirement = next(
@@ -137,12 +154,13 @@ def test_pipeline_preserves_requirement_scope_for_multi_requirement_input(tmp_pa
     services.requirements_input("robot").ensure_text_requirements(
         "系统应完成配送。功耗不超过 120 W。时延不超过 200 ms。系统应支持人工接管。"
     )
+    _accept_input_requirements(services, "robot")
 
     summary = services.analysis("robot").run("robot", force_new=True)
     graph = services.model("robot").graph("robot")
     report = services.analysis("robot").pipeline_report("robot")
 
-    assert summary.status is RunStatus.COMPLETED
+    assert summary.status is RunStatus.BLOCKED
     assert len(summary.completed_tasks) == 23
     traceability = report["traceability"]
     physicals = {
@@ -195,13 +213,14 @@ def test_pipeline_delivers_complete_traceable_editable_model(tmp_path: Path):
     services.requirements_input("robot").ensure_text_requirements(
         "系统应支持自主配送并允许人工接管"
     )
+    _accept_input_requirements(services, "robot")
 
     summary = services.analysis("robot").run("robot", force_new=True)
     graph = services.model("robot").graph("robot")
     package = services.deliverables("robot").build("robot")
     trace_metrics = package["artifacts"]["traceability"]["content"]["metrics"]
 
-    assert summary.status is RunStatus.COMPLETED
+    assert summary.status is RunStatus.BLOCKED
     assert len(summary.completed_tasks) == 23
     assert set(summary.completed_tasks) == {task.id for task in task_catalog()}
     assert trace_metrics["requirement_count"] == 1
@@ -508,12 +527,13 @@ def test_structured_llm_executes_all_23_tasks_and_writes_the_graph(tmp_path: Pat
     services = build_v2_services(tmp_path / "workspaces")
     services.projects.create("robot")
     services.requirements_input("robot").ensure_text_requirements("系统应支持人工接管")
+    _accept_input_requirements(services, "robot")
     model = LifecycleModel()
     services._runtime_override = StructuredModelRuntime(model)
 
     summary = services.analysis("robot").run("robot", force_new=True)
 
-    assert summary.status is RunStatus.COMPLETED
+    assert summary.status is RunStatus.BLOCKED
     assert model.calls == [task.id for task in task_catalog()]
     report = services.analysis("robot").pipeline_report("robot")
     assert report["traceability"]["complete_count"] == 1

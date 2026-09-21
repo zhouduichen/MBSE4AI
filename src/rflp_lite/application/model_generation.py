@@ -211,6 +211,7 @@ class ModelGenerationService:
             output_budget=self.output_budget,
         )
         self.executor = TaskExecutor(runtime)
+        self._leases: dict[str, str] = {}
 
     def generate(
         self,
@@ -228,11 +229,22 @@ class ModelGenerationService:
             run_id=run_id,
             force_new=force_new,
         )
-        return self._run_generation(
-            project_id,
+        # Preparation persists an unclaimed run so that a different worker
+        # (for example the web background executor) can acquire it.  The
+        # executing worker must claim it immediately before touching stages.
+        self._ensure_run(
             effective_run_id,
-            document_ids,
+            project_id,
+            self.repository.load_graph(project_id),
         )
+        try:
+            return self._run_generation(
+                project_id,
+                effective_run_id,
+                document_ids,
+            )
+        finally:
+            self._release_lease(project_id, effective_run_id)
 
     def resume(
         self,
@@ -259,18 +271,22 @@ class ModelGenerationService:
             )
         if run.status == RunStatus.COMPLETED.value:
             raise ContractViolation(f"run {run_id} is already completed")
-        self.repository.update_run(run_id, RunStatus.RUNNING.value, ())
-        self._audit(project_id, "model_generation.resumed", {
-            "run_id": run_id,
-            "previous_status": run.status,
-            "revision": self.repository.load_graph(project_id).revision,
-        })
-        return self._run_generation(
-            project_id,
-            run_id,
-            document_ids,
-            resume_existing=run,
-        )
+        self._ensure_run(run_id, project_id, self.repository.load_graph(project_id))
+        try:
+            self.repository.update_run(run_id, RunStatus.RUNNING.value, ())
+            self._audit(project_id, "model_generation.resumed", {
+                "run_id": run_id,
+                "previous_status": run.status,
+                "revision": self.repository.load_graph(project_id).revision,
+            })
+            return self._run_generation(
+                project_id,
+                run_id,
+                document_ids,
+                resume_existing=run,
+            )
+        finally:
+            self._release_lease(project_id, run_id)
 
     def _run_generation(
         self,
@@ -407,7 +423,10 @@ class ModelGenerationService:
         self._ensure_input(request)
         graph = self.repository.load_graph(project_id)
         effective_run_id = run_id or f"generation-{uuid4().hex[:16]}"
+        # Keep the run durable for resumable/background execution, but do not
+        # retain the worker lease during this preparation-only call.
         self._ensure_run(effective_run_id, project_id, graph)
+        self._release_lease(project_id, effective_run_id)
         return effective_run_id
 
     def impact_plan(
@@ -1150,11 +1169,8 @@ class ModelGenerationService:
                 bridge_semantic_invalid,
             )
         patch = _promote_generated_entities(bridge_response.patch, validated=True)
-        revision = self.repository.append_patch(
-            project_id,
-            patch,
-            graph.revision,
-            run_id=run_id,
+        revision = self._append_run_patch(
+            project_id, patch, graph.revision, run_id
         ).sequence
         current = self.repository.load_graph(project_id)
         missing_kinds = self._missing_stage_kinds(current, stage.stage)
@@ -1321,11 +1337,22 @@ class ModelGenerationService:
             self.methodology_version,
             evidence_bundle=context.evidence,
             token_budget=self.output_budget,
+            graph=graph,
         )
+        self._heartbeat_lease(project_id, run_id)
         if response.status is not StepStatus.COMPLETED:
+            if response.validation_feedback:
+                self._save_validation_feedback_issues(
+                    project_id, run_id, task.id, response.validation_feedback
+                )
+                feedback_diagnostics = tuple(
+                    f"{item.code}: {item.actual}" for item in response.validation_feedback
+                )
+            else:
+                feedback_diagnostics = ()
             return _StageAttemptResult(
                 None,
-                diagnostics=response.diagnostics,
+                diagnostics=tuple(response.diagnostics) + feedback_diagnostics,
                 response=response,
                 context_hash=context_hash,
                 started_at=started,
@@ -1358,8 +1385,8 @@ class ModelGenerationService:
                 response,
             )
             patch = _promote_generated_entities(response.patch, validated=not semantic_invalid)
-            revision = self.repository.append_patch(
-                project_id, patch, graph.revision, run_id=run_id
+            revision = self._append_run_patch(
+                project_id, patch, graph.revision, run_id
             ).sequence
             if semantic_invalid:
                 self._save_semantic_issue(project_id, run_id, task.id, patch, semantic_invalid)
@@ -1519,40 +1546,81 @@ class ModelGenerationService:
         phase: str = "vertical_generation",
     ) -> None:
         existing = self.repository.load_run(project_id, run_id)
-        if existing is not None:
-            return
-        selected_stages = tuple(stages or (item for item in vertical_stage_specs()))
-        tasks = tuple(stage_task(item.stage) for item in selected_stages)
-        task_hash = canonical_hash(tuple(task_spec_hash(item) for item in tasks))
-        prompt_hash = canonical_hash(tuple(item.prompt_template_id for item in tasks))
-        self.repository.create_run(
-            Run(
-                run_id,
-                project_id,
-                phase,
-                RunStatus.RUNNING.value,
-                0,
-                self.methodology_version,
-                str(getattr(self.runtime_selection, "profile_id", "offline-rule")),
-                graph.snapshot_hash,
-                (),
-                tuple(Step(run_id, item.id) for item in tasks),
-                self._provider_id(),
-                self._model_id(),
-                self._mode(),
-                graph.snapshot_hash,
-                task_hash,
-                prompt_hash,
-                "",
-                time.time(),
-                0.0,
+        if existing is None:
+            selected_stages = tuple(stages or (item for item in vertical_stage_specs()))
+            tasks = tuple(stage_task(item.stage) for item in selected_stages)
+            task_hash = canonical_hash(tuple(task_spec_hash(item) for item in tasks))
+            prompt_hash = canonical_hash(tuple(item.prompt_template_id for item in tasks))
+            self.repository.create_run(
+                Run(
+                    run_id,
+                    project_id,
+                    phase,
+                    RunStatus.RUNNING.value,
+                    0,
+                    self.methodology_version,
+                    str(getattr(self.runtime_selection, "profile_id", "offline-rule")),
+                    graph.snapshot_hash,
+                    (),
+                    tuple(Step(run_id, item.id) for item in tasks),
+                    self._provider_id(),
+                    self._model_id(),
+                    self._mode(),
+                    graph.snapshot_hash,
+                    task_hash,
+                    prompt_hash,
+                    "",
+                    time.time(),
+                    0.0,
+                )
             )
-        )
-        self._audit(project_id, "model_generation.started", {
-            "run_id": run_id,
-            "provider_id": self._provider_id(),
-            "model_id": self._model_id(),
-        })
+            self._audit(project_id, "model_generation.started", {
+                "run_id": run_id,
+                "provider_id": self._provider_id(),
+                "model_id": self._model_id(),
+            })
+        if run_id not in self._leases:
+            lease = f"lease-{uuid4().hex}"
+            claimer = getattr(self.repository, "claim_run", None)
+            if claimer is not None and not claimer(project_id, run_id, lease, time.time()):
+                raise ContractViolation(f"run lease unavailable: {project_id}/{run_id}")
+            self._leases[run_id] = lease
+
+    def _heartbeat_lease(self, project_id: str, run_id: str) -> None:
+        lease = self._leases.get(run_id)
+        if not lease:
+            raise ContractViolation(f"run lease unavailable: {project_id}/{run_id}")
+        heartbeat = getattr(self.repository, "heartbeat_run", None)
+        if heartbeat is not None:
+            heartbeat(run_id, lease, time.time())
+
+    def _release_lease(self, project_id: str, run_id: str) -> None:
+        lease = self._leases.pop(run_id, None)
+        if not lease:
+            return
+        release = getattr(self.repository, "release_run", None)
+        if release is not None:
+            release(project_id, run_id, lease)
+
+    def _append_run_patch(self, project_id: str, patch, expected_revision: int, run_id: str):
+        self._heartbeat_lease(project_id, run_id)
+        lease = self._leases.get(run_id)
+        try:
+            revision = self.repository.append_patch(
+                project_id,
+                patch,
+                expected_revision,
+                run_id=run_id,
+                lease=lease,
+            )
+        except TypeError as exc:
+            if "lease" not in str(exc):
+                raise
+            revision = self.repository.append_patch(
+                project_id, patch, expected_revision, run_id=run_id
+            )
+        self._heartbeat_lease(project_id, run_id)
+        return revision
 
     def _stage_already_present(self, graph, stage: VerticalStage) -> bool:
         return not self._missing_stage_kinds(graph, stage)
@@ -1601,6 +1669,33 @@ class ModelGenerationService:
             },
         )
 
+    def _save_validation_feedback_issues(
+        self,
+        project_id: str,
+        run_id: str,
+        task_id: str,
+        feedback,
+    ) -> None:
+        for item in feedback:
+            self.repository.save_issue(
+                project_id,
+                {
+                    "id": f"issue-{canonical_hash((run_id, task_id, item.code, item.actual))[:16]}",
+                    "run_id": run_id,
+                    "task_id": task_id,
+                    "code": item.code,
+                    "severity": "warning",
+                    "entity_ids": list(item.affected_entities),
+                    "suggested_rollback": task_id,
+                    "status": "open",
+                    "expected": item.expected,
+                    "actual": item.actual,
+                    "failing_relation": dict(item.failing_relation),
+                    "evidence_gap": item.evidence_gap,
+                    "retry_count": item.retry_count,
+                },
+            )
+
     def _validate_response_for_commit(
         self,
         project_id: str,
@@ -1609,26 +1704,9 @@ class ModelGenerationService:
         context,
         response,
     ) -> str:
-        """Validate a patch while retaining semantic-invalid output for review.
+        """Validate a patch without weakening any declared validator."""
 
-        A configured LLM may produce a structurally valid but solution-specific
-        Function name. That is a model-quality issue, not a reason to discard
-        the rest of the vertical slice. All non-semantic validators remain
-        authoritative; only the semantic validator is relaxed after recording
-        the exact diagnostic so the candidate can be reviewed or repaired.
-        """
-
-        try:
-            self.executor.validate_response(project_id, task, graph, context, response)
-        except MethodologyValidationError as exc:
-            if exc.code != "semantic_invalid":
-                raise
-            relaxed = replace(
-                task,
-                validators=tuple(item for item in task.validators if item != "semantic"),
-            )
-            self.executor.validate_response(project_id, relaxed, graph, context, response)
-            return str(exc)
+        self.executor.validate_response(project_id, task, graph, context, response)
         return ""
 
     def _finish_failed(

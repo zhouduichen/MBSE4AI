@@ -1443,6 +1443,8 @@ async def patch_entity(request: Request, project_id: str, entity_id: str):
         raw_payload = fields.get("payload")
         if raw_payload is not None and not isinstance(raw_payload, Mapping):
             raise ContractViolation("payload must be an object")
+        if entity_id not in _services(request).repository(project_id).load_graph(project_id).entity_index:
+            raise ContractViolation(f"entity not found: {entity_id}")
         result = _services(request).review(project_id).edit_entity(
             project_id,
             entity_id,
