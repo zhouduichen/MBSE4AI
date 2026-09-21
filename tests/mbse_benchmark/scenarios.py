@@ -98,6 +98,30 @@ def scenario_contract(value: str | BenchmarkScenario) -> ScenarioContract:
     return next(item for item in SCENARIO_CONTRACTS if item.scenario is requested)
 
 
+def validate_ablation_contracts() -> None:
+    """Fail closed when C/D/E are not one-control ablations of E."""
+
+    full = next(item for item in SCENARIO_CONTRACTS if item.scenario is BenchmarkScenario.E_FULL_HARNESS)
+    controls = ("verifier_enabled", "gate_enabled", "repair_enabled", "cas_enabled")
+    expected_changes = {
+        BenchmarkScenario.C_HARNESS_NO_VERIFIER: "verifier_enabled",
+        BenchmarkScenario.D_HARNESS_NO_REPAIR: "repair_enabled",
+    }
+    for scenario, changed_control in expected_changes.items():
+        candidate = next(item for item in SCENARIO_CONTRACTS if item.scenario is scenario)
+        if candidate.generation_shape != full.generation_shape:
+            raise ValueError(f"{scenario.value} changes generation shape relative to E")
+        changes = [
+            control
+            for control in controls
+            if getattr(candidate, control) != getattr(full, control)
+        ]
+        if changes != [changed_control]:
+            raise ValueError(
+                f"{scenario.value} is not an orthogonal ablation: {changes}"
+            )
+
+
 def normalize_to_model_graph(value: object, *, project_id: str = "benchmark") -> ModelGraph:
     """Compatibility wrapper for the one canonical normalizer."""
 
@@ -130,4 +154,5 @@ __all__ = [
     "evaluate_normalized",
     "normalize_to_model_graph",
     "scenario_contract",
+    "validate_ablation_contracts",
 ]

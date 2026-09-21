@@ -885,9 +885,11 @@ class OpenAICompatibleModel:
         started = time.monotonic()
         effective_max_tokens = max(1, int(max_tokens))
         if self._benchmark_output_budget is not None:
+            if self._benchmark_output_budget <= 0:
+                raise AdapterFailure("benchmark output token budget exhausted")
             effective_max_tokens = min(
                 effective_max_tokens,
-                max(1, self._benchmark_output_budget),
+                self._benchmark_output_budget,
             )
         try:
             raw = self._complete(call_config, messages, max_tokens=effective_max_tokens)

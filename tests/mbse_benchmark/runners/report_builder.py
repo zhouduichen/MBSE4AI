@@ -407,10 +407,12 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
         "",
         f"Status: **{comparison.get('status', 'not_recorded')}**",
         "",
-        f"Same model/provider: **{comparison.get('same_model_provider', 'N/A')}**; same input: **{comparison.get('same_input', 'N/A')}**; same task spec: **{comparison.get('same_task_spec', 'N/A')}**",
+        f"Same model/provider: **{comparison.get('same_model_provider', 'N/A')}**; same input bytes: **{comparison.get('same_input', 'N/A')}**; same task spec: **{comparison.get('same_task_spec', 'N/A')}**; same evaluator: **{comparison.get('same_evaluation_spec', 'N/A')}**",
         "",
-        "| Scenario | Model | Provider | Input Hash | Task Spec Hash | Graph Hashes | Verifier | Gate | Repair | CAS | Calls | Tokens | Cost |",
-        "| -------- | ----- | -------- | ---------- | -------------- | ------------ | -------- | ---- | ------ | --- | ----- | ------ | ---- |",
+        f"Same temperature: **{comparison.get('same_temperature', 'N/A')}**; budget comparable: **{comparison.get('budget_comparable', 'N/A')}**; orthogonal ablations: **{comparison.get('ablation_contract_valid', 'N/A')}**",
+        "",
+        "| Scenario | Model | Provider | Input Hash | Eval Spec Hash | Task Spec Hash | Graph Hashes | Verifier | Gate | Repair | CAS | Calls | Tokens | Cost |",
+        "| -------- | ----- | -------- | ---------- | -------------- | -------------- | ------------ | -------- | ---- | ------ | --- | ----- | ------ | ---- |",
     ]
     scenarios = comparison.get("scenarios", {})
     for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
@@ -421,7 +423,8 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
         telemetry = telemetry if isinstance(telemetry, Mapping) else {}
         lines.append(
             f"| {scenario} | {metadata.get('model', '')} | {metadata.get('provider', '')} | "
-            f"{chr(96)}{metadata.get('input_hash', '')}{chr(96)} | {chr(96)}{metadata.get('task_spec_hash', '')}{chr(96)} | "
+            f"{chr(96)}{metadata.get('input_hash', '')}{chr(96)} | {chr(96)}{metadata.get('evaluation_spec_hash', '')}{chr(96)} | "
+            f"{chr(96)}{metadata.get('task_spec_hash', '')}{chr(96)} | "
             f"{chr(96)}{', '.join(str(item) for item in graph_hashes)}{chr(96)} | "
             f"{metadata.get('verifier_enabled', '')} | {metadata.get('gate_enabled', '')} | "
             f"{metadata.get('repair_enabled', '')} | {metadata.get('cas_enabled', '')} | "
@@ -436,9 +439,11 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
             f"- `{scenario}`: prompt_hash=`{metadata.get('prompt_hash', '')}`, "
             f"temperature={metadata.get('temperature', 'N/A')}, "
             f"comparison_mode={metadata.get('comparison_mode', 'natural')}, "
+            f"benchmark_token_budget={metadata.get('benchmark_token_budget', 'N/A')}, "
             f"token_usage={metadata.get('token_usage', 'N/A')}, "
             f"latency_ms={metadata.get('latency_ms', 'N/A')}, "
-            f"repeat_statistics={metadata.get('telemetry_statistics', 'N/A')}"
+            f"telemetry_statistics={metadata.get('telemetry_statistics', 'N/A')}, "
+            f"metric_statistics={metadata.get('metric_statistics', 'N/A')}"
         )
     lines.extend(["", "## Semantic versus governance metrics", ""])
     for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
@@ -487,6 +492,10 @@ def write_scenario_comparison(comparison: Mapping[str, object], report_dir: Path
             "same_model_provider": comparison.get("same_model_provider"),
             "same_input": comparison.get("same_input"),
             "same_task_spec": comparison.get("same_task_spec"),
+            "same_evaluation_spec": comparison.get("same_evaluation_spec"),
+            "same_temperature": comparison.get("same_temperature"),
+            "budget_comparable": comparison.get("budget_comparable"),
+            "ablation_contract_valid": comparison.get("ablation_contract_valid"),
             "records": manifest,
         }) + "\n",
         encoding="utf-8",

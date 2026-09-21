@@ -322,6 +322,10 @@ def _run_case_inner(
             metadata["normalization_audit"] = scenario_output.normalization_audit.as_dict()
             metadata["input_byte_length"] = len(input_envelope.canonical_bytes)
             metadata["input_sha256"] = input_sha256(input_envelope)
+            metadata["benchmark_token_budget"] = int(
+                effective_runtime_config.get("benchmark_token_budget", 3000)
+                or 3000
+            )
             metadata["telemetry"] = ExperimentTelemetry.from_events(
                 telemetry_events,
                 wall_latency_ms=int((time.time() - started) * 1000),
@@ -597,6 +601,7 @@ def _harness_metadata(
         "input_hash": input_envelope.input_hash,
         "input_byte_length": len(input_envelope.canonical_bytes),
         "input_sha256": input_sha256(input_envelope),
+        "benchmark_token_budget": int(config.get("benchmark_token_budget", 3000) or 3000),
         "token_usage": ledger_metadata.get("token_usage") if isinstance(ledger_metadata.get("token_usage"), Mapping) else None,
         "latency_ms": max(0, int(execution_elapsed * 1000)),
         "graph_hash": graph.snapshot_hash,

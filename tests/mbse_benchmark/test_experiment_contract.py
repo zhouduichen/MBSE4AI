@@ -9,6 +9,7 @@ from tests.mbse_benchmark.runners.experiment_contract import (
     ExperimentTelemetry,
     GenerationCallEvent,
     assert_model_visible_payload,
+    numeric_projection,
     summarize_repeats,
 )
 
@@ -70,6 +71,20 @@ def test_telemetry_aggregates_calls_tokens_latency_and_cost() -> None:
     assert telemetry.call_count == 2
     assert telemetry.repair_call_count == 1
     assert telemetry.total_tokens == 40
+    assert telemetry.token_usage_status == "available"
     assert telemetry.provider_latency_ms == 12
     assert telemetry.estimated_cost_usd == 0.000067
     assert telemetry.budget_exhausted is True
+
+
+def test_numeric_projection_keeps_nested_semantic_governance_and_telemetry_metrics() -> None:
+    projected = numeric_projection({
+        "semantic": {"trace_accuracy": 0.75},
+        "governance": {"release_closure": {"issue_count": 2}},
+        "available": True,
+    })
+
+    assert projected == {
+        "semantic.trace_accuracy": 0.75,
+        "governance.release_closure.issue_count": 2.0,
+    }

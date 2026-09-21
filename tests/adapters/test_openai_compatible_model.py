@@ -230,6 +230,27 @@ def test_adapter_telemetry_counts_structural_repair_transport_attempt():
     assert len(calls) == 2
 
 
+def test_budget_matched_adapter_stops_after_measured_output_cap():
+    calls = []
+
+    class Response(str):
+        usage = {"output_tokens": 5}
+
+    def complete(_config, _messages, *, max_tokens=None):
+        calls.append(max_tokens)
+        return Response('{"items": []}')
+
+    model = OpenAICompatibleModel(
+        {"model": "local", "benchmark_total_output_token_budget": 5},
+        complete=complete,
+    )
+
+    assert model.complete_json(request()).payload == {"items": []}
+    with pytest.raises(AdapterFailure, match="budget exhausted"):
+        model.complete_json(request())
+    assert calls == [5]
+
+
 def test_adapter_fits_output_to_configured_context_window():
     calls = []
 

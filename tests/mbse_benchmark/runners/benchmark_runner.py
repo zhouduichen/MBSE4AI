@@ -18,10 +18,17 @@ from tests.mbse_benchmark.runners.report_builder import (
 )
 from tests.mbse_benchmark.tracks import BenchmarkTrack
 from tests.mbse_benchmark.tracks.harness import compute_harness_metrics
-from tests.mbse_benchmark.scenarios import BenchmarkScenario, scenario_contract
+from tests.mbse_benchmark.scenarios import (
+    BenchmarkScenario,
+    scenario_contract,
+    validate_ablation_contracts,
+)
 from tests.mbse_benchmark.runners.scenario_pipeline import ExternalEvaluator, ModelGraphNormalizer
 from tests.mbse_benchmark.runners.experiment_contract import BenchmarkInputEnvelope
-from tests.mbse_benchmark.runners.experiment_contract import summarize_repeats
+from tests.mbse_benchmark.runners.experiment_contract import (
+    numeric_projection,
+    summarize_repeats,
+)
 
 
 def _metric_display(value: object) -> object:
@@ -57,6 +64,7 @@ def run_benchmark(
     if analysis_path == "vertical" and track != BenchmarkTrack.LLM.value:
         raise ValueError("the vertical analysis path is only available on the explicit llm track")
     contract = scenario_contract(scenario)
+    validate_ablation_contracts()
     normalizer = ModelGraphNormalizer()
     evaluator = ExternalEvaluator(normalizer)
     cases = load_cases(cases_dir)
@@ -85,30 +93,77 @@ def run_benchmark(
             )
             for index in range(1, max(1, repeats) + 1)
         ]
-        for repeat_result in repeat_results:
-            metadata = repeat_result.get("metadata")
-            if isinstance(metadata, Mapping):
-                metadata["evaluation_spec_hash"] = evaluation_spec.evaluation_spec_hash
-        primary = next((item for item in repeat_results if item.get("graph")), repeat_results[0])
         is_bare = contract.scenario in {
             BenchmarkScenario.A_BARE_ONE_SHOT,
             BenchmarkScenario.B_BARE_STAGED,
         }
-        graph = (
-            normalizer.normalize(primary.get("graph", {}), project_id=case_id.lower())
-            if is_bare
-            else normalizer.normalize_canonical(primary.get("graph", {}), project_id=case_id.lower())
+        for repeat_result in repeat_results:
+            metadata = repeat_result.get("metadata")
+            if isinstance(metadata, Mapping):
+                metadata["evaluation_spec_hash"] = evaluation_spec.evaluation_spec_hash
+                metadata["case_id"] = case_id
+                metadata["repeat_index"] = repeat_result.get("repeat_index")
+            graph = (
+                normalizer.normalize(
+                    repeat_result.get("graph", {}),
+                    project_id=case_id.lower(),
+                )
+                if is_bare
+                else normalizer.normalize_canonical(
+                    repeat_result.get("graph", {}),
+                    project_id=case_id.lower(),
+                )
+            )
+            repeat_result["graph"] = normalizer.payload(graph)
+            if isinstance(metadata, Mapping):
+                repeat_result["normalization_audit"] = metadata.get(
+                    "normalization_audit",
+                    {},
+                )
+                for control_key in (
+                    "verifier_enabled",
+                    "gate_enabled",
+                    "repair_enabled",
+                    "cas_enabled",
+                ):
+                    repeat_result[control_key] = metadata.get(control_key)
+            repeat_validation = evaluator.evaluate(
+                input_envelope,
+                graph,
+                evaluation_spec,
+                raw_result=repeat_result,
+            )
+            repeat_result["metrics"] = dict(
+                repeat_validation.get(
+                    "semantic_metrics",
+                    repeat_validation.get("metrics", {}),
+                )
+            )
+            repeat_result["semantic_metrics"] = dict(
+                repeat_validation.get("semantic_metrics", {})
+            )
+            repeat_result["governance_metrics"] = dict(
+                repeat_validation.get("governance_metrics", {})
+            )
+            repeat_result["input_hash"] = input_envelope.input_hash
+            repeat_result["evaluation_spec_hash"] = evaluation_spec.evaluation_spec_hash
+            metric_record = _repeat_metric_record(
+                repeat_validation,
+                telemetry=metadata.get("telemetry", {})
+                if isinstance(metadata, Mapping)
+                else {},
+            )
+            repeat_result["metric_record"] = metric_record
+            if isinstance(metadata, Mapping):
+                metadata["semantic_metrics"] = repeat_result["semantic_metrics"]
+                metadata["governance_metrics"] = repeat_result["governance_metrics"]
+                metadata["metric_record"] = metric_record
+        primary = next((item for item in repeat_results if item.get("graph")), repeat_results[0])
+        graph = normalizer.normalize_canonical(
+            primary.get("graph", {}),
+            project_id=case_id.lower(),
         )
         primary["graph"] = normalizer.payload(graph)
-        if isinstance(primary.get("metadata"), Mapping):
-            primary["normalization_audit"] = primary["metadata"].get("normalization_audit", {})
-            for control_key in (
-                "verifier_enabled",
-                "gate_enabled",
-                "repair_enabled",
-                "cas_enabled",
-            ):
-                primary[control_key] = primary["metadata"].get(control_key)
         validation = evaluator.evaluate(
             input_envelope,
             graph,
@@ -117,6 +172,11 @@ def run_benchmark(
             repeats=repeat_results,
         )
         validation["repeat_results"] = repeat_results
+        validation["repeat_statistics"] = summarize_repeats([
+            item.get("metric_record", {})
+            for item in repeat_results
+            if isinstance(item.get("metric_record"), Mapping)
+        ])
         validation["metadata"] = _case_metadata(case_id, repeat_results, track=track, profile=profile)
         (case_dir / "validation.json").write_text(
             __import__("rflp_lite.domain.canonical", fromlist=["canonical_json"]).canonical_json(validation) + "\n",
@@ -217,6 +277,7 @@ def run_scenario_comparison(
 ) -> dict[str, object]:
     """Run A–E with one resolved model configuration and one evaluator path."""
 
+    validate_ablation_contracts()
     scenario_summaries: dict[str, Mapping[str, object]] = {}
     for scenario in BenchmarkScenario:
         scenario_summaries[scenario.value] = run_benchmark(
@@ -257,9 +318,12 @@ def run_scenario_comparison(
                 "provider": first.get("provider", summary.get("provider", "")),
                 "prompt_hash": first.get("prompt_hash"),
                 "input_hash": first.get("input_hash"),
+                "input_sha256": first.get("input_sha256"),
+                "input_byte_length": first.get("input_byte_length"),
                 "task_spec_hash": first.get("task_spec_hash"),
                 "evaluation_spec_hash": first.get("evaluation_spec_hash"),
                 "temperature": first.get("temperature"),
+                "benchmark_token_budget": first.get("benchmark_token_budget"),
                 "token_usage": first.get("token_usage"),
                 "latency_ms": first.get("latency_ms"),
                 "telemetry": first.get("telemetry", {}),
@@ -267,6 +331,11 @@ def run_scenario_comparison(
                     item.get("telemetry", {})
                     for item in records
                     if isinstance(item.get("telemetry"), Mapping)
+                ]),
+                "metric_statistics": summarize_repeats([
+                    item.get("metric_record", {})
+                    for item in records
+                    if isinstance(item.get("metric_record"), Mapping)
                 ]),
                 "repeat_records": records,
                 "semantic_metrics": summary.get("semantic_metrics", {}),
@@ -283,23 +352,6 @@ def run_scenario_comparison(
                 "cas_enabled": first.get("cas_enabled"),
             },
         }
-    metadata_values = [
-        payload.get("metadata", {})
-        for payload in comparison["scenarios"].values()
-        if isinstance(payload, Mapping) and isinstance(payload.get("metadata"), Mapping)
-    ]
-    comparison["same_model_provider"] = bool(metadata_values) and len({
-        (item.get("model"), item.get("provider")) for item in metadata_values
-    }) == 1
-    comparison["same_input"] = bool(metadata_values) and len({
-        item.get("input_hash") for item in metadata_values
-    }) == 1
-    comparison["same_task_spec"] = bool(metadata_values) and len({
-        item.get("task_spec_hash") for item in metadata_values
-    }) == 1
-    comparison["same_evaluation_spec"] = bool(metadata_values) and len({
-        item.get("evaluation_spec_hash") for item in metadata_values
-    }) == 1
     comparison["controls"] = {
         scenario: {
             "verifier_enabled": scenario_contract(scenario).verifier_enabled,
@@ -309,20 +361,94 @@ def run_scenario_comparison(
         }
         for scenario in scenario_summaries
     }
+    records_by_scenario = {
+        scenario: [
+            item
+            for item in (
+                payload.get("metadata", {}).get("repeat_records", ())
+                if isinstance(payload, Mapping)
+                and isinstance(payload.get("metadata"), Mapping)
+                else ()
+            )
+            if isinstance(item, Mapping)
+        ]
+        for scenario, payload in comparison["scenarios"].items()
+    }
+    all_records = [
+        record
+        for records in records_by_scenario.values()
+        for record in records
+    ]
+    comparison["same_model_provider"] = bool(all_records) and len({
+        (item.get("model"), item.get("provider")) for item in all_records
+    }) == 1 and all(
+        item.get("model") and item.get("provider") for item in all_records
+    )
+    input_sets = [
+        tuple(sorted(
+            (
+                str(item.get("case_id", "")),
+                int(item.get("repeat_index", 0) or 0),
+                str(item.get("input_hash", "")),
+                str(item.get("input_sha256", "")),
+                int(item.get("input_byte_length", 0) or 0),
+            )
+            for item in records
+        ))
+        for records in records_by_scenario.values()
+    ]
+    comparison["same_input"] = (
+        bool(input_sets)
+        and len(set(input_sets)) == 1
+        and bool(input_sets[0])
+        and all(
+            signature[2] and signature[3] and signature[4] > 0
+            for signature in input_sets[0]
+        )
+    )
+    comparison["same_task_spec"] = bool(all_records) and len({
+        item.get("task_spec_hash") for item in all_records
+    }) == 1 and all(item.get("task_spec_hash") for item in all_records)
+    comparison["same_evaluation_spec"] = bool(all_records) and len({
+        item.get("evaluation_spec_hash") for item in all_records
+    }) == 1 and all(item.get("evaluation_spec_hash") for item in all_records)
+    comparison["same_temperature"] = bool(all_records) and len({
+        item.get("temperature") for item in all_records
+    }) == 1
+    modes = {str(item.get("comparison_mode", comparison_mode)) for item in all_records}
+    if comparison_mode == "budget_matched":
+        budgets = {item.get("total_output_token_budget") for item in all_records}
+        comparison["budget_comparable"] = bool(all_records) and modes == {comparison_mode} and len(budgets) == 1 and None not in budgets
+    else:
+        budgets = {item.get("benchmark_token_budget") for item in all_records}
+        comparison["budget_comparable"] = bool(all_records) and modes == {comparison_mode} and len(budgets) == 1 and None not in budgets
+    comparison["ablation_contract_valid"] = all(
+        all(
+            all(record.get(key) == expected.get(key) for key in expected)
+            for record in records_by_scenario.get(scenario, ())
+        )
+        for scenario, expected in comparison["controls"].items()
+    )
     comparison["quality_cost_points"] = [
         {
             "scenario": scenario,
-            "quality": payload.get("metrics", {}).get("end_to_end_traceability")
-            if isinstance(payload.get("metrics"), Mapping)
-            else None,
-            "cost": payload.get("metadata", {}).get("telemetry", {}).get("estimated_cost_usd")
-            if isinstance(payload.get("metadata"), Mapping)
-            and isinstance(payload.get("metadata", {}).get("telemetry"), Mapping)
-            else None,
-            "cost_status": payload.get("metadata", {}).get("telemetry", {}).get("cost_status", "unavailable")
-            if isinstance(payload.get("metadata"), Mapping)
-            and isinstance(payload.get("metadata", {}).get("telemetry"), Mapping)
-            else "unavailable",
+            "quality": _stat_mean(
+                payload.get("metadata", {}).get("metric_statistics", {})
+                if isinstance(payload.get("metadata"), Mapping)
+                else {},
+                "semantic.end_to_end_traceability",
+            ),
+            "cost": _stat_mean(
+                payload.get("metadata", {}).get("telemetry_statistics", {})
+                if isinstance(payload.get("metadata"), Mapping)
+                else {},
+                "estimated_cost_usd",
+            ),
+            "cost_status": _cost_status(
+                payload.get("metadata", {}).get("repeat_records", ())
+                if isinstance(payload.get("metadata"), Mapping)
+                else (),
+            ),
         }
         for scenario, payload in comparison["scenarios"].items()
     ]
@@ -333,11 +459,38 @@ def run_scenario_comparison(
             "same_input",
             "same_task_spec",
             "same_evaluation_spec",
+            "same_temperature",
+            "budget_comparable",
+            "ablation_contract_valid",
         )
     ):
         raise ValueError("A–E comparison invariant failed: model, input, task, or evaluator differs")
     write_scenario_comparison(comparison, report_dir)
     return comparison
+
+
+def _stat_mean(statistics: object, key: str) -> float | None:
+    if not isinstance(statistics, Mapping):
+        return None
+    value = statistics.get(key)
+    if not isinstance(value, Mapping):
+        return None
+    mean_value = value.get("mean")
+    return float(mean_value) if isinstance(mean_value, (int, float)) else None
+
+
+def _cost_status(records: object) -> str:
+    statuses = {
+        str(item.get("telemetry", {}).get("cost_status", "unavailable"))
+        for item in records
+        if isinstance(item, Mapping)
+        and isinstance(item.get("telemetry"), Mapping)
+    }
+    if statuses == {"available"}:
+        return "available"
+    if len(statuses) > 1:
+        return "mixed"
+    return next(iter(statuses), "unavailable")
 
 
 def _case_metadata(
@@ -368,6 +521,30 @@ def _case_metadata(
         "evaluation_spec_hash": sorted({str(item.get("evaluation_spec_hash", "")) for item in run_metadata if item.get("evaluation_spec_hash")}),
         "run_metadata": run_metadata,
     }
+
+
+def _repeat_metric_record(
+    validation: Mapping[str, object],
+    *,
+    telemetry: Mapping[str, object],
+) -> dict[str, float]:
+    """Create one flat numeric record for semantic/governance/cost statistics."""
+
+    record: dict[str, float] = {}
+    semantic = validation.get("semantic_metrics", {})
+    governance = validation.get("governance_metrics", {})
+    if isinstance(semantic, Mapping):
+        record.update(numeric_projection(semantic, prefix="semantic"))
+    if isinstance(governance, Mapping):
+        record.update(numeric_projection(governance, prefix="governance"))
+        for key in ("technical_closure", "release_closure"):
+            closure = governance.get(key, {})
+            if isinstance(closure, Mapping):
+                record[f"governance.{key}.passed"] = float(
+                    bool(closure.get("passed"))
+                )
+    record.update(numeric_projection(telemetry, prefix="telemetry"))
+    return record
 
 
 def _ledger_metadata(case_results: list[Mapping[str, object]]) -> dict[str, str]:

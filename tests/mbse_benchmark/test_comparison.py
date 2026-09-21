@@ -4,7 +4,11 @@ from pathlib import Path
 
 from tests.mbse_benchmark.runners.case_runner import _write_canonical_input
 from tests.mbse_benchmark.runners.experiment_contract import BenchmarkInputEnvelope
-from tests.mbse_benchmark.scenarios import BenchmarkScenario, scenario_contract
+from tests.mbse_benchmark.scenarios import (
+    BenchmarkScenario,
+    scenario_contract,
+    validate_ablation_contracts,
+)
 
 
 CASE = {
@@ -19,6 +23,7 @@ CASE = {
 
 
 def test_c_d_e_change_only_the_declared_control() -> None:
+    validate_ablation_contracts()
     c = scenario_contract(BenchmarkScenario.C_HARNESS_NO_VERIFIER)
     d = scenario_contract(BenchmarkScenario.D_HARNESS_NO_REPAIR)
     e = scenario_contract(BenchmarkScenario.E_FULL_HARNESS)

@@ -31,6 +31,7 @@ class ExperimentTelemetry:
     input_tokens: int
     output_tokens: int
     total_tokens: int
+    token_usage_status: str
     provider_latency_ms: int
     wall_latency_ms: int
     input_cost_per_1m_tokens: float | None
@@ -61,6 +62,11 @@ class ExperimentTelemetry:
             )
             for event in events
         )
+        token_usage_status = (
+            "available"
+            if any(_has_token_usage(event.usage) for event in events)
+            else "unavailable"
+        )
         event_costs = [event.estimated_cost_usd for event in events if event.estimated_cost_usd is not None]
         if event_costs:
             estimated_cost = round(sum(event_costs), 8)
@@ -83,6 +89,7 @@ class ExperimentTelemetry:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,
+            token_usage_status=token_usage_status,
             provider_latency_ms=sum(max(0, int(event.duration_ms)) for event in events),
             wall_latency_ms=max(0, int(wall_latency_ms)),
             input_cost_per_1m_tokens=input_cost_per_1m_tokens,
@@ -106,6 +113,7 @@ class ExperimentTelemetry:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "total_tokens": self.total_tokens,
+            "token_usage_status": self.token_usage_status,
             "provider_latency_ms": self.provider_latency_ms,
             "wall_latency_ms": self.wall_latency_ms,
             "input_cost_per_1m_tokens": self.input_cost_per_1m_tokens,
@@ -124,6 +132,20 @@ def _usage_int(usage: Mapping[str, object], *keys: str) -> int:
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return max(0, int(value))
     return 0
+
+
+def _has_token_usage(usage: Mapping[str, object]) -> bool:
+    return any(
+        isinstance(usage.get(key), (int, float))
+        and not isinstance(usage.get(key), bool)
+        for key in (
+            "input_tokens",
+            "prompt_tokens",
+            "output_tokens",
+            "completion_tokens",
+            "total_tokens",
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +227,24 @@ def summarize_repeats(records: Sequence[Mapping[str, object]]) -> dict[str, obje
     return result
 
 
+def numeric_projection(value: object, *, prefix: str = "") -> dict[str, float]:
+    """Flatten numeric leaves for repeat-level statistical summaries."""
+
+    if isinstance(value, Mapping):
+        projected: dict[str, float] = {}
+        for key, nested in value.items():
+            name = f"{prefix}.{key}" if prefix else str(key)
+            projected.update(numeric_projection(nested, prefix=name))
+        return projected
+    if (
+        prefix
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+    ):
+        return {prefix: float(value)}
+    return {}
+
+
 __all__ = [
     "BenchmarkInputEnvelope",
     "EvaluationSpec",
@@ -213,5 +253,6 @@ __all__ = [
     "TelemetrySink",
     "assert_model_visible_payload",
     "input_sha256",
+    "numeric_projection",
     "summarize_repeats",
 ]
