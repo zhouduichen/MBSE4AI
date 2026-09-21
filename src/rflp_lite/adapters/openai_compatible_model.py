@@ -56,6 +56,16 @@ def _estimate_cost(
         return None
     if not isinstance(output_price, (int, float)) or isinstance(output_price, bool):
         return None
+    has_input_usage = any(
+        isinstance(usage.get(key), (int, float)) and not isinstance(usage.get(key), bool)
+        for key in ("input_tokens", "prompt_tokens", "prompt_eval_count")
+    )
+    has_output_usage = any(
+        isinstance(usage.get(key), (int, float)) and not isinstance(usage.get(key), bool)
+        for key in ("output_tokens", "completion_tokens", "eval_count")
+    )
+    if not has_input_usage or not has_output_usage:
+        return None
     value = (
         _usage_count(usage, "input_tokens", "prompt_tokens", "prompt_eval_count") * float(input_price)
         + _usage_count(usage, "output_tokens", "completion_tokens", "eval_count") * float(output_price)

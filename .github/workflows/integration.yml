@@ -83,6 +83,10 @@ jobs:
           payload = json.loads(os.environ["AI4MBSE_LLM_PROFILE_JSON"])
           if payload.get("id") != os.environ["AI4MBSE_LLM_PROFILE"]:
               raise SystemExit("profile id does not match AI4MBSE_LLM_PROFILE")
+          for key in ("input_cost_per_1m_tokens", "output_cost_per_1m_tokens"):
+              value = payload.get(key)
+              if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                  raise SystemExit(f"{key} must be a non-negative number; use 0 for free inference")
           LLMProfileService().save({**payload, "active": True})
           PY
       - name: Run same-model A–E comparison

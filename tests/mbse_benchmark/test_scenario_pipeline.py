@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from rflp_lite.ports.generative_model import GenerationResponse
+from tests.mbse_benchmark.runners.experiment_contract import EvaluationSpec
 from tests.mbse_benchmark.runners.scenario_pipeline import (
     ModelGraphNormalizer,
     ScenarioRunner,
@@ -70,6 +73,22 @@ def test_one_shot_and_staged_scenarios_call_the_same_model_without_expected_grap
     assert one_shot.metadata.verifier_enabled is False
     assert staged.metadata.repair_enabled is False
     assert one_shot.graph.snapshot_hash
+
+
+def test_bare_runner_rejects_evaluator_only_aliases_before_model_call():
+    model = RecordingModel()
+    case = {**CASE, "expectedGraph": {"shortcut": True}}
+
+    with pytest.raises(ValueError, match="evaluator-only"):
+        ScenarioRunner().run(
+            case,
+            scenario_contract(BenchmarkScenario.A_BARE_ONE_SHOT),
+            model,
+            project_id="p1",
+            evaluation_spec=EvaluationSpec.from_expectations({"shortcut": True}),
+        )
+
+    assert model.requests == []
 
 
 def test_model_graph_normalizer_preserves_ids_and_remaps_relations():

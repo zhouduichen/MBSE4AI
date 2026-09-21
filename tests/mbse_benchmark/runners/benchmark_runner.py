@@ -8,6 +8,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Mapping
 
+from rflp_lite.domain.canonical import canonical_json
 from tests.mbse_benchmark.cases.loader import load_cases, load_evaluation_spec
 from tests.mbse_benchmark.runners.case_runner import run_case
 from tests.mbse_benchmark.runners.report_builder import (
@@ -30,8 +31,9 @@ from tests.mbse_benchmark.runners.scenario_pipeline import (
     MODEL_GRAPH_NORMALIZER_ID,
     ModelGraphNormalizer,
 )
-from tests.mbse_benchmark.runners.experiment_contract import BenchmarkInputEnvelope
 from tests.mbse_benchmark.runners.experiment_contract import (
+    BenchmarkInputEnvelope,
+    assert_model_visible_payload,
     numeric_projection,
     summarize_repeats,
 )
@@ -144,6 +146,8 @@ def run_benchmark(
         cases = tuple(case for case in cases if str(case["case_id"]) == selected_case)
         if not cases:
             raise ValueError(f"unknown case: {selected_case}")
+    for case in cases:
+        assert_model_visible_payload(case, evaluation_spec)
     output_root.mkdir(parents=True, exist_ok=True)
     case_results: list[dict[str, object]] = []
     for case in cases:
@@ -206,6 +210,13 @@ def run_benchmark(
                 )
                 metadata["evaluator_id"] = evaluator.evaluator_id
                 metadata["normalizer_id"] = normalizer.normalizer_id
+                metadata["evaluation_owner"] = evaluator.evaluator_id
+                metadata["ground_truth_model_visible"] = False
+                metadata["evaluation_boundary"] = {
+                    "owner": evaluator.evaluator_id,
+                    "model_visible": False,
+                    "evaluation_spec_hash": evaluation_spec.evaluation_spec_hash,
+                }
             repeat_validation = evaluator.evaluate(
                 input_envelope,
                 graph,
@@ -237,6 +248,11 @@ def run_benchmark(
                 metadata["semantic_metrics"] = repeat_result["semantic_metrics"]
                 metadata["governance_metrics"] = repeat_result["governance_metrics"]
                 metadata["metric_record"] = metric_record
+                metadata_path = Path(str(repeat_result["output_dir"])) / "metadata.json"
+                metadata_path.write_text(
+                    canonical_json(metadata) + "\n",
+                    encoding="utf-8",
+                )
         primary = next((item for item in repeat_results if item.get("graph")), repeat_results[0])
         graph = normalizer.normalize_canonical(
             primary.get("graph", {}),
@@ -411,6 +427,9 @@ def run_scenario_comparison(
                 "evaluation_spec_hash": first.get("evaluation_spec_hash"),
                 "evaluator_id": first.get("evaluator_id", EXTERNAL_EVALUATOR_ID),
                 "normalizer_id": first.get("normalizer_id", MODEL_GRAPH_NORMALIZER_ID),
+                "evaluation_owner": first.get("evaluation_owner"),
+                "ground_truth_model_visible": first.get("ground_truth_model_visible"),
+                "evaluation_boundary": first.get("evaluation_boundary", {}),
                 "temperature": first.get("temperature"),
                 "benchmark_token_budget": first.get("benchmark_token_budget"),
                 "token_usage": first.get("token_usage"),
@@ -519,6 +538,13 @@ def run_scenario_comparison(
     comparison["same_normalizer"] = bool(all_records) and len({
         item.get("normalizer_id") for item in all_records
     }) == 1 and all(item.get("normalizer_id") for item in all_records)
+    comparison["ground_truth_isolated"] = bool(all_records) and all(
+        item.get("evaluation_owner") == EXTERNAL_EVALUATOR_ID
+        and item.get("ground_truth_model_visible") is False
+        and isinstance(item.get("evaluation_boundary"), Mapping)
+        and item["evaluation_boundary"].get("model_visible") is False
+        for item in all_records
+    )
     comparison["same_temperature"] = bool(all_records) and len({
         item.get("temperature") for item in all_records
     }) == 1
@@ -549,6 +575,21 @@ def run_scenario_comparison(
     comparison["token_usage_observed"] = bool(all_records) and all(
         isinstance(record.get("telemetry"), Mapping)
         and record["telemetry"].get("token_usage_status") == "available"
+        for record in all_records
+    )
+    comparison["latency_observed"] = bool(all_records) and all(
+        isinstance(record.get("telemetry"), Mapping)
+        and isinstance(record["telemetry"].get("provider_latency_ms"), (int, float))
+        and isinstance(record["telemetry"].get("wall_latency_ms"), (int, float))
+        and record["telemetry"].get("provider_latency_ms", -1) >= 0
+        and record["telemetry"].get("wall_latency_ms", -1) >= 0
+        for record in all_records
+    )
+    comparison["cost_observed"] = bool(all_records) and all(
+        isinstance(record.get("telemetry"), Mapping)
+        and record["telemetry"].get("cost_status") == "available"
+        and isinstance(record["telemetry"].get("estimated_cost_usd"), (int, float))
+        and record["telemetry"].get("estimated_cost_usd", -1) >= 0
         for record in all_records
     )
     comparison["quality_cost_points"] = [
@@ -583,12 +624,15 @@ def run_scenario_comparison(
             "same_evaluation_spec",
             "same_evaluator",
             "same_normalizer",
+            "ground_truth_isolated",
             "same_temperature",
             "budget_comparable",
             "ablation_contract_valid",
             "execution_complete",
             "real_calls_observed",
             "token_usage_observed",
+            "latency_observed",
+            "cost_observed",
         )
     ):
         raise ValueError("A–E comparison invariant failed: model, input, task, or evaluator differs")

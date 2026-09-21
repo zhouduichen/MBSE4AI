@@ -26,6 +26,13 @@ _EVALUATOR_KEYS = frozenset({
 })
 
 
+def _key_token(value: object) -> str:
+    return "".join(character for character in str(value).casefold() if character.isalnum())
+
+
+_EVALUATOR_KEY_TOKENS = frozenset(_key_token(key) for key in _EVALUATOR_KEYS)
+
+
 @dataclass(frozen=True, slots=True)
 class ExperimentTelemetry:
     call_count: int
@@ -72,16 +79,20 @@ class ExperimentTelemetry:
             )
             for event in events
         )
-        token_usage_status = (
-            "available"
-            if any(_has_token_usage(event.usage) for event in events)
-            else "unavailable"
+        complete_usage = bool(events) and all(
+            _has_token_usage(event.usage) for event in events
         )
-        event_costs = [event.estimated_cost_usd for event in events if event.estimated_cost_usd is not None]
-        if event_costs:
+        token_usage_status = "available" if complete_usage else "unavailable"
+        event_costs = [event.estimated_cost_usd for event in events]
+        if complete_usage and all(cost is not None for cost in event_costs):
             estimated_cost = round(sum(event_costs), 8)
             cost_status = "available"
-        elif input_cost_per_1m_tokens is not None and output_cost_per_1m_tokens is not None:
+        elif (
+            complete_usage
+            and input_cost_per_1m_tokens is not None
+            and output_cost_per_1m_tokens is not None
+            and all(_has_cost_usage(event.usage) for event in events)
+        ):
             estimated_cost = round(
                 input_tokens * input_cost_per_1m_tokens / 1_000_000
                 + output_tokens * output_cost_per_1m_tokens / 1_000_000,
@@ -145,18 +156,27 @@ def _usage_int(usage: Mapping[str, object], *keys: str) -> int:
 
 
 def _has_token_usage(usage: Mapping[str, object]) -> bool:
+    has_total = _has_numeric_value(usage, "total_tokens")
+    return has_total or (_has_input_usage(usage) and _has_output_usage(usage))
+
+
+def _has_cost_usage(usage: Mapping[str, object]) -> bool:
+    return _has_input_usage(usage) and _has_output_usage(usage)
+
+
+def _has_input_usage(usage: Mapping[str, object]) -> bool:
+    return _has_numeric_value(usage, "input_tokens", "prompt_tokens", "prompt_eval_count")
+
+
+def _has_output_usage(usage: Mapping[str, object]) -> bool:
+    return _has_numeric_value(usage, "output_tokens", "completion_tokens", "eval_count")
+
+
+def _has_numeric_value(usage: Mapping[str, object], *keys: str) -> bool:
     return any(
         isinstance(usage.get(key), (int, float))
         and not isinstance(usage.get(key), bool)
-        for key in (
-            "input_tokens",
-            "prompt_tokens",
-            "output_tokens",
-            "completion_tokens",
-            "total_tokens",
-            "prompt_eval_count",
-            "eval_count",
-        )
+        for key in keys
     )
 
 
@@ -204,7 +224,7 @@ def assert_model_visible_payload(payload: object, evaluation_spec: EvaluationSpe
         raise ValueError("evaluator-only EvaluationSpec cannot be model-visible")
     if isinstance(payload, Mapping):
         for key, value in payload.items():
-            if str(key).casefold() in _EVALUATOR_KEYS:
+            if _key_token(key) in _EVALUATOR_KEY_TOKENS:
                 raise ValueError(f"evaluator-only key is model-visible: {key}")
             assert_model_visible_payload(value, evaluation_spec)
     elif isinstance(payload, (list, tuple)):

@@ -11,6 +11,9 @@ Configure these repository-level values:
 - Variable `AI4MBSE_LLM_PROFILE`: the profile `id` to execute on the scheduled run.
 - Secret `AI4MBSE_LLM_PROFILE_JSON`: the complete profile JSON, including the
   provider endpoint and credentials. The JSON `id` must equal the variable.
+  It must also declare `input_cost_per_1m_tokens` and
+  `output_cost_per_1m_tokens`; use `0` explicitly for a genuinely free local
+  endpoint so the comparison can still prove that cost was measured.
 
 For an operator-triggered run, supply the profile id through the workflow input
 and keep the JSON in the repository secret. The job runs

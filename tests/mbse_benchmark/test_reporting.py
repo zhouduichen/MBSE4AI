@@ -8,6 +8,7 @@ from tests.mbse_benchmark.runners.report_builder import (
     compute_metrics,
     compute_score,
     render_benchmark_report,
+    render_scenario_comparison,
     write_reports,
     write_scenario_comparison,
 )
@@ -113,6 +114,9 @@ def test_scenario_comparison_writes_reproducibility_manifest(tmp_path: Path) -> 
         "profile": "test",
         "same_model_provider": True,
         "same_input": True,
+        "ground_truth_isolated": True,
+        "latency_observed": True,
+        "cost_observed": True,
         "same_task_spec": True,
         "scenarios": {
             "A": {
@@ -130,3 +134,7 @@ def test_scenario_comparison_writes_reproducibility_manifest(tmp_path: Path) -> 
 
     manifest = json.loads((tmp_path / "reproducibility_manifest.json").read_text(encoding="utf-8"))
     assert manifest["records"] == [{"scenario": "A", "repeat_index": 1, "input_hash": "same"}]
+    rendered = render_scenario_comparison(comparison)
+    assert "ground truth isolated: **True**" in rendered
+    assert "latency: **True**" in rendered
+    assert "cost: **True**" in rendered

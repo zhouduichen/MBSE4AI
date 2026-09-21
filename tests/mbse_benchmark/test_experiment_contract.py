@@ -42,6 +42,9 @@ def test_evaluator_spec_is_rejected_from_model_payload() -> None:
     with pytest.raises(ValueError, match="evaluator-only"):
         assert_model_visible_payload({"known_conflicts": spec.payload}, spec)
 
+    with pytest.raises(ValueError, match="evaluator-only"):
+        assert_model_visible_payload({"expectedGraph": spec.payload}, spec)
+
 
 def test_repeat_summary_reports_sample_dispersion_and_ci() -> None:
     summary = summarize_repeats([{"quality": 0.4}, {"quality": 0.6}, {"quality": 0.8}])
@@ -92,6 +95,27 @@ def test_telemetry_accepts_native_prompt_and_eval_counts() -> None:
     assert telemetry.output_tokens == 7
     assert telemetry.total_tokens == 18
     assert telemetry.token_usage_status == "available"
+
+
+def test_telemetry_fails_closed_when_any_provider_call_lacks_complete_usage() -> None:
+    telemetry = ExperimentTelemetry.from_events(
+        [
+            GenerationCallEvent(
+                "first", "initial", "provider", "model", 3, "completed",
+                {"input_tokens": 11, "output_tokens": 7},
+            ),
+            GenerationCallEvent(
+                "second", "initial", "provider", "model", 3, "completed",
+                {"input_tokens": 5},
+            ),
+        ],
+        input_cost_per_1m_tokens=1.0,
+        output_cost_per_1m_tokens=1.0,
+    )
+
+    assert telemetry.token_usage_status == "unavailable"
+    assert telemetry.cost_status == "unavailable"
+    assert telemetry.estimated_cost_usd is None
 
 
 def test_numeric_projection_keeps_nested_semantic_governance_and_telemetry_metrics() -> None:
