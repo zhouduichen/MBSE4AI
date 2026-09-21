@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.methodology.closure import evaluate_strict_closure
 from rflp_lite.methodology.gates import global_gate
 
 
@@ -16,12 +17,15 @@ class ClosureResult:
     manifest: dict[str, object]
     gate_snapshot: tuple[dict[str, object], ...]
     audit_summary: dict[str, object]
+    status: str = "completed"
+    issues: tuple[dict[str, object], ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
             "project_id": self.project_id, "run_id": self.run_id, "revision": self.revision,
             "manifest": self.manifest, "gate_snapshot": list(self.gate_snapshot),
-            "audit_summary": self.audit_summary,
+            "audit_summary": self.audit_summary, "status": self.status,
+            "issues": list(self.issues),
         }
 
 
@@ -37,9 +41,41 @@ class ClosureService:
         gate_snapshot: tuple[dict[str, object], ...] = (),
     ) -> ClosureResult:
         graph = self.repository.load_graph(project_id)
+        issue_reader = getattr(self.repository, "list_issues", None)
+        issue_records = issue_reader(project_id) if callable(issue_reader) else ()
+        assessment = evaluate_strict_closure(graph, issue_records=issue_records)
+        if not assessment.passed:
+            result = ClosureResult(
+                project_id,
+                run_id,
+                graph.revision,
+                {},
+                gate_snapshot,
+                self._audit(project_id, run_id),
+                "blocked",
+                tuple(issue.as_dict() for issue in assessment.issues),
+            )
+            self._record_block(project_id, run_id, result)
+            return result
         final_gate = global_gate(graph)
         if not final_gate.passed:
-            raise ContractViolation("Global-Gate must pass before Closure")
+            result = ClosureResult(
+                project_id,
+                run_id,
+                graph.revision,
+                {},
+                gate_snapshot,
+                self._audit(project_id, run_id),
+                "blocked",
+                tuple({
+                    "code": issue.code,
+                    "message": f"Global-Gate blocked Closure: {issue.code}",
+                    "entity_ids": list(issue.entity_ids),
+                    "details": {},
+                } for issue in final_gate.issues),
+            )
+            self._record_block(project_id, run_id, result)
+            return result
         manifest = {
             "format": "ai4mbse.model-manifest.v1",
             "project_id": project_id,
@@ -62,3 +98,16 @@ class ClosureService:
         if callable(freezer):
             freezer(project_id, graph.revision)
         return result
+
+    def _audit(self, project_id: str, run_id: str) -> dict[str, object]:
+        reader = getattr(self.repository, "audit_summary", None)
+        return reader(project_id, run_id) if callable(reader) else {"run_id": run_id}
+
+    def _record_block(self, project_id: str, run_id: str, result: ClosureResult) -> None:
+        recorder = getattr(self.repository, "record_audit", None)
+        if callable(recorder):
+            recorder(project_id, "closure.blocked", {
+                "run_id": run_id,
+                "revision": result.revision,
+                "issues": list(result.issues),
+            })

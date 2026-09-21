@@ -24,7 +24,7 @@ def _seeded_services(tmp_path: Path):
     return services, fixture
 
 
-def test_campus_fixture_runs_all_phases_and_closure(tmp_path: Path) -> None:
+def test_campus_fixture_runs_all_phases_then_blocks_unreviewed_closure(tmp_path: Path) -> None:
     services, fixture = _seeded_services(tmp_path)
 
     for phase in (
@@ -38,7 +38,8 @@ def test_campus_fixture_runs_all_phases_and_closure(tmp_path: Path) -> None:
         assert services.analysis("campus").gate("campus", phase).passed
 
     closure = services.analysis("campus").run("campus", Phase.CLOSURE)
-    assert closure.status is RunStatus.COMPLETED
+    assert closure.status is RunStatus.BLOCKED
+    assert any("requires_human_review" in item for item in closure.diagnostics)
     report = run_acceptance(services.model("campus").graph("campus"), fixture)
     assert report.status == "passed", report.diagnostics
 

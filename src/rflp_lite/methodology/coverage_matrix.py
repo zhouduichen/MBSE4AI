@@ -102,14 +102,15 @@ def build_requirement_coverage(graph: ModelGraph) -> CoverageMatrix:
         if not entity.meta.source_ids and not entity.meta.evidence_ids
         and not any(entity.id in {relation.source_id, relation.target_id} for relation in graph.relations)
     )
+    ratio = lambda value: value / total if total else 0.0
     metrics = {
         "requirement_count": total,
-        "r_to_f_coverage": count(lambda row: bool(row.functions)) / total if total else 1.0,
-        "r_to_f_to_l_coverage": count(lambda row: bool(row.logical_components)) / total if total else 1.0,
-        "r_to_f_to_l_to_p_coverage": count(lambda row: bool(row.physical_blocks)) / total if total else 1.0,
-        "r_to_v_coverage": count(lambda row: bool(row.verification_cases)) / total if total else 1.0,
-        "r_to_validation_coverage": count(lambda row: bool(row.validation_cases)) / total if total else 1.0,
-        "evidence_coverage": count(lambda row: row.evidence) / total if total else 1.0,
+        "r_to_f_coverage": ratio(count(lambda row: bool(row.functions))),
+        "r_to_f_to_l_coverage": ratio(count(lambda row: bool(row.logical_components))),
+        "r_to_f_to_l_to_p_coverage": ratio(count(lambda row: bool(row.physical_blocks))),
+        "r_to_v_coverage": ratio(count(lambda row: bool(row.verification_cases))),
+        "r_to_validation_coverage": ratio(count(lambda row: bool(row.validation_cases))),
+        "evidence_coverage": ratio(count(lambda row: row.evidence)),
         "verification_pass_criteria_coverage": _verification_pass_criteria_coverage(graph),
         "orphan_entity_count": orphan_entities,
         "broken_relation_count": broken_relations,
@@ -120,5 +121,5 @@ def build_requirement_coverage(graph: ModelGraph) -> CoverageMatrix:
 def _verification_pass_criteria_coverage(graph: ModelGraph) -> float:
     cases = [entity for entity in graph.entities if entity.kind is EntityKind.VERIFICATION_CASE]
     if not cases:
-        return 1.0
+        return 0.0
     return sum(1 for entity in cases if not missing_vv_plan_fields(entity.payload)) / len(cases)

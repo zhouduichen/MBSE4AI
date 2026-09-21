@@ -223,6 +223,31 @@ class LifecycleOrchestrator:
                 phase_results.append({"phase": Phase.CLOSURE.value, "status": "blocked", "completed_tasks": [], "diagnostics": ["Global Gate must pass before Closure"]})
                 return RunSummary(identity.run_id, project_id, phase, RunStatus.DEGRADED, tuple(dict.fromkeys(completed)), tuple(diagnostics), gate.gate_id, False, tuple(phase_results), tuple(gate_snapshot), {"status": "blocked", "accepted_revision": None, "manifest": None})
         closure = self.runner.closure.close(project_id, identity.run_id, gate_snapshot=tuple(gate_snapshot))
+        if closure.status != RunStatus.COMPLETED.value:
+            diagnostics.extend(
+                f"closure:{item.get('code', 'blocked')}"
+                for item in closure.issues
+            )
+            self.runner._update_run_status(identity.run_id, RunStatus.BLOCKED, tuple(diagnostics))
+            phase_results.append({
+                "phase": Phase.CLOSURE.value,
+                "status": RunStatus.BLOCKED.value,
+                "completed_tasks": [],
+                "diagnostics": list(diagnostics),
+            })
+            return RunSummary(
+                identity.run_id,
+                project_id,
+                Phase.CLOSURE,
+                RunStatus.BLOCKED,
+                tuple(dict.fromkeys(completed)),
+                tuple(diagnostics),
+                "Global-Gate",
+                False,
+                tuple(phase_results),
+                tuple(gate_snapshot),
+                closure.as_dict(),
+            )
         diagnostics.append(f"closure_revision={closure.revision}")
         self.runner._update_run_status(identity.run_id, RunStatus.COMPLETED, tuple(diagnostics))
         phase_results.append({"phase": Phase.CLOSURE.value, "status": RunStatus.COMPLETED.value, "completed_tasks": [], "diagnostics": []})
@@ -273,6 +298,22 @@ class WorkflowRunner:
         if phase is Phase.CLOSURE:
             identity = self._ensure_run(project_id, run_id=run_id, force_new=force_new or new_run or force_run)
             closure = self.closure.close(project_id, identity.run_id)
+            if closure.status != RunStatus.COMPLETED.value:
+                diagnostics = tuple(
+                    f"closure:{item.get('code', 'blocked')}"
+                    for item in closure.issues
+                )
+                self._update_run_status(identity.run_id, RunStatus.BLOCKED, diagnostics)
+                return RunSummary(
+                    identity.run_id,
+                    project_id,
+                    Phase.CLOSURE,
+                    RunStatus.BLOCKED,
+                    diagnostics=diagnostics,
+                    gate_id="Global-Gate",
+                    gate_passed=False,
+                    closure=closure.as_dict(),
+                )
             self._update_run_status(identity.run_id, RunStatus.COMPLETED, (f"closure_revision={closure.revision}",))
             return RunSummary(identity.run_id, project_id, Phase.CLOSURE, RunStatus.COMPLETED)
         return self._run_phase(project_id, phase, run_id=run_id, force_new=force_new or new_run or force_run)
