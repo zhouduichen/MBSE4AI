@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from tests.mbse_benchmark.cases.loader import load_cases, load_expectations
+from tests.mbse_benchmark.cases.loader import load_cases, load_evaluation_spec
 from tests.mbse_benchmark.runners.case_runner import run_case
 from tests.mbse_benchmark.runners.report_builder import (
     build_failures,
@@ -20,6 +20,7 @@ from tests.mbse_benchmark.tracks import BenchmarkTrack
 from tests.mbse_benchmark.tracks.harness import compute_harness_metrics
 from tests.mbse_benchmark.scenarios import BenchmarkScenario, scenario_contract
 from tests.mbse_benchmark.runners.scenario_pipeline import ExternalEvaluator, ModelGraphNormalizer
+from tests.mbse_benchmark.runners.experiment_contract import BenchmarkInputEnvelope
 
 
 def _metric_display(value: object) -> object:
@@ -56,7 +57,7 @@ def run_benchmark(
     normalizer = ModelGraphNormalizer()
     evaluator = ExternalEvaluator(normalizer)
     cases = load_cases(cases_dir)
-    expectations = load_expectations(cases_dir.parent / "expected")
+    evaluation_spec = load_evaluation_spec(cases_dir.parent / "expected")
     if selected_case:
         cases = tuple(case for case in cases if str(case["case_id"]) == selected_case)
         if not cases:
@@ -65,6 +66,7 @@ def run_benchmark(
     case_results: list[dict[str, object]] = []
     for case in cases:
         case_id = str(case["case_id"])
+        input_envelope = BenchmarkInputEnvelope.from_case(case)
         case_dir = output_root / _case_output_name(case_id)
         repeat_results = [
             run_case(
@@ -78,13 +80,27 @@ def run_benchmark(
             )
             for index in range(1, max(1, repeats) + 1)
         ]
+        for repeat_result in repeat_results:
+            metadata = repeat_result.get("metadata")
+            if isinstance(metadata, Mapping):
+                metadata["evaluation_spec_hash"] = evaluation_spec.evaluation_spec_hash
         primary = next((item for item in repeat_results if item.get("graph")), repeat_results[0])
-        graph = normalizer.normalize(primary.get("graph", {}), project_id=case_id.lower())
+        is_bare = contract.scenario in {
+            BenchmarkScenario.A_BARE_ONE_SHOT,
+            BenchmarkScenario.B_BARE_STAGED,
+        }
+        graph = (
+            normalizer.normalize(primary.get("graph", {}), project_id=case_id.lower())
+            if is_bare
+            else normalizer.normalize_canonical(primary.get("graph", {}), project_id=case_id.lower())
+        )
         primary["graph"] = normalizer.payload(graph)
+        if isinstance(primary.get("metadata"), Mapping):
+            primary["normalization_audit"] = primary["metadata"].get("normalization_audit", {})
         validation = evaluator.evaluate(
-            case,
+            input_envelope,
             graph,
-            expectations,
+            evaluation_spec,
             raw_result=primary,
             repeats=repeat_results,
         )
@@ -114,9 +130,11 @@ def run_benchmark(
         "scenario": contract.scenario.value,
         "scenario_contract": {
             "description": contract.description,
-            "has_verifier": contract.has_verifier,
-            "has_repair": contract.has_repair,
-            "has_cas": contract.has_cas,
+            "generation_shape": contract.generation_shape,
+            "verifier_enabled": contract.verifier_enabled,
+            "gate_enabled": contract.gate_enabled,
+            "repair_enabled": contract.repair_enabled,
+            "cas_enabled": contract.cas_enabled,
         },
         "runtime": "RuleRuntime" if track == BenchmarkTrack.HARNESS.value else "configured-llm",
         "model_profile": profile or "offline-rule",
@@ -125,6 +143,7 @@ def run_benchmark(
         "methodology_version": "v2.1",
         "prompt_hash": ledger_metadata["prompt_hash"],
         "task_spec_hash": ledger_metadata["task_spec_hash"],
+        "evaluation_spec_hash": evaluation_spec.evaluation_spec_hash,
         "configuration": "offline RuleRuntime; isolated workspace; no external model" if track == BenchmarkTrack.HARNESS.value else "explicit LLM profile; isolated workspace; provider credentials are not written to reports",
         "cases": [str(case["case_id"]) for case in cases],
         "repeats": max(1, repeats),
@@ -143,6 +162,7 @@ def run_benchmark(
             "methodology_version": "v2.1",
             "prompt_hash": ledger_metadata["prompt_hash"],
             "task_spec_hash": ledger_metadata["task_spec_hash"],
+            "evaluation_spec_hash": evaluation_spec.evaluation_spec_hash,
             "commit": _git_value(["rev-parse", "HEAD"]),
             "cases": [str(case["case_id"]) for case in cases],
             "repeat": max(1, repeats),
@@ -167,7 +187,7 @@ def run_scenario_comparison(
     cases_dir: Path,
     output_root: Path,
     *,
-    repeats: int = 1,
+    repeats: int = 3,
     timeout_seconds: int = 60,
     report_dir: Path,
     selected_case: str | None = None,
@@ -214,11 +234,13 @@ def run_scenario_comparison(
                 "prompt_hash": first.get("prompt_hash"),
                 "input_hash": first.get("input_hash"),
                 "task_spec_hash": first.get("task_spec_hash"),
+                "evaluation_spec_hash": first.get("evaluation_spec_hash"),
                 "temperature": first.get("temperature"),
                 "token_usage": first.get("token_usage"),
                 "latency_ms": first.get("latency_ms"),
                 "graph_hashes": [item.get("graph_hash") for item in records if item.get("graph_hash")],
                 "verifier_enabled": first.get("verifier_enabled"),
+                "gate_enabled": first.get("gate_enabled"),
                 "repair_enabled": first.get("repair_enabled"),
                 "cas_enabled": first.get("cas_enabled"),
             },
@@ -237,6 +259,28 @@ def run_scenario_comparison(
     comparison["same_task_spec"] = bool(metadata_values) and len({
         item.get("task_spec_hash") for item in metadata_values
     }) == 1
+    comparison["same_evaluation_spec"] = bool(metadata_values) and len({
+        item.get("evaluation_spec_hash") for item in metadata_values
+    }) == 1
+    comparison["controls"] = {
+        scenario: {
+            "verifier_enabled": scenario_contract(scenario).verifier_enabled,
+            "gate_enabled": scenario_contract(scenario).gate_enabled,
+            "repair_enabled": scenario_contract(scenario).repair_enabled,
+            "cas_enabled": scenario_contract(scenario).cas_enabled,
+        }
+        for scenario in scenario_summaries
+    }
+    if not all(
+        comparison[key]
+        for key in (
+            "same_model_provider",
+            "same_input",
+            "same_task_spec",
+            "same_evaluation_spec",
+        )
+    ):
+        raise ValueError("A–E comparison invariant failed: model, input, task, or evaluator differs")
     write_scenario_comparison(comparison, report_dir)
     return comparison
 
@@ -266,6 +310,7 @@ def _case_metadata(
         "methodology_version": sorted({str(item.get("methodology_version", "")) for item in ledgers if item.get("methodology_version")}),
         "prompt_hash": sorted({str(item.get("prompt_hash", "")) for item in ledgers if item.get("prompt_hash")}),
         "task_spec_hash": sorted({str(item.get("task_spec_hash", "")) for item in ledgers if item.get("task_spec_hash")}),
+        "evaluation_spec_hash": sorted({str(item.get("evaluation_spec_hash", "")) for item in run_metadata if item.get("evaluation_spec_hash")}),
         "run_metadata": run_metadata,
     }
 

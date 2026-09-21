@@ -93,6 +93,7 @@ def test_all_a_to_e_scenarios_execute_through_the_declared_entrypoint(tmp_path, 
         assert execution["status"] == "completed"
         assert execution["scenario_controls"] == {
             "verifier": contract.has_verifier,
+            "gate": contract.gate_enabled,
             "repair": contract.has_repair,
             "cas": contract.has_cas,
         }

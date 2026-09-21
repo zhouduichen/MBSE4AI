@@ -91,6 +91,7 @@ class RunMetadata:
     latency_ms: int | None
     graph_hash: str
     verifier_enabled: bool
+    gate_enabled: bool
     repair_enabled: bool
     cas_enabled: bool
 
@@ -107,6 +108,7 @@ class RunMetadata:
             "latency_ms": self.latency_ms,
             "graph_hash": self.graph_hash,
             "verifier_enabled": self.verifier_enabled,
+            "gate_enabled": self.gate_enabled,
             "repair_enabled": self.repair_enabled,
             "cas_enabled": self.cas_enabled,
         }
@@ -183,6 +185,25 @@ class ModelGraphNormalizer:
             NormalizationAudit({}, {}),
         )
 
+    def normalize_canonical(
+        self,
+        value: object,
+        *,
+        project_id: str = "benchmark",
+    ) -> ModelGraph:
+        """Parse an already-governed Harness graph without rewriting status."""
+
+        candidate = value.get("graph", value) if isinstance(value, Mapping) else value
+        if isinstance(candidate, ModelGraph):
+            return candidate
+        if isinstance(candidate, Mapping) and "entities" in candidate:
+            return self._graph_from_mapping(
+                candidate,
+                project_id,
+                enforce_model_authority=False,
+            ).graph
+        return ModelGraph(project_id, (), (), 0)
+
     @staticmethod
     def semantic_projection(graph: ModelGraph) -> ModelGraph:
         """Return a private status-neutral graph for semantic scoring only."""
@@ -221,7 +242,13 @@ class ModelGraphNormalizer:
             ],
         }
 
-    def _graph_from_mapping(self, value: Mapping[str, object], project_id: str) -> NormalizedGraph:
+    def _graph_from_mapping(
+        self,
+        value: Mapping[str, object],
+        project_id: str,
+        *,
+        enforce_model_authority: bool = True,
+    ) -> NormalizedGraph:
         raw_entities = [item for item in value.get("entities", ()) if isinstance(item, Mapping)]
         entities = []
         id_map: dict[str, str] = {}
@@ -230,15 +257,21 @@ class ModelGraphNormalizer:
         lifecycle_claims: list[str] = []
         authority_violations: list[str] = []
         for item in raw_entities:
-            entity, raw_id, raw_status, raw_producer = self._entity_from_mapping(item)
+            entity, raw_id, raw_status, raw_producer = self._entity_from_mapping(
+                item,
+                enforce_model_authority=enforce_model_authority,
+            )
             entities.append(entity)
             if raw_id:
                 id_map[raw_id] = entity.id
                 claimed_statuses[raw_id] = raw_status
                 claimed_producers[raw_id] = raw_producer
-                if raw_status != EntityStatus.CANDIDATE.value:
+                if enforce_model_authority and raw_status != EntityStatus.CANDIDATE.value:
                     lifecycle_claims.append(raw_id)
-                if raw_status in {EntityStatus.ACCEPTED.value, EntityStatus.LOCKED.value} or raw_producer == Producer.USER.value:
+                if enforce_model_authority and (
+                    raw_status in {EntityStatus.ACCEPTED.value, EntityStatus.LOCKED.value}
+                    or raw_producer == Producer.USER.value
+                ):
                     authority_violations.append(raw_id)
         relations = []
         for item in value.get("relations", ()):
@@ -275,19 +308,35 @@ class ModelGraphNormalizer:
         )
 
     @staticmethod
-    def _entity_from_mapping(value: Mapping[str, object]):
+    def _entity_from_mapping(
+        value: Mapping[str, object],
+        *,
+        enforce_model_authority: bool = True,
+    ):
         try:
             kind = EntityKind(str(value.get("kind", EntityKind.REQUIREMENT.value)))
         except ValueError:
             kind = EntityKind.REQUIREMENT
         raw_status = str(value.get("status", EntityStatus.CANDIDATE.value))
         raw_producer = str(value.get("producer", Producer.LLM.value))
+        if enforce_model_authority:
+            status = EntityStatus.CANDIDATE
+            producer = Producer.LLM
+        else:
+            try:
+                status = EntityStatus(raw_status)
+            except ValueError:
+                status = EntityStatus.CANDIDATE
+            try:
+                producer = Producer(raw_producer)
+            except ValueError:
+                producer = Producer.LLM
         entity = make_entity(
             kind,
             str(value.get("name", kind.value)),
             value.get("payload", {}) if isinstance(value.get("payload", {}), Mapping) else {},
-            status=EntityStatus.CANDIDATE,
-            producer=Producer.LLM,
+            status=status,
+            producer=producer,
             confidence=value.get("confidence"),
             source_ids=tuple(str(item) for item in value.get("source_ids", ()) if str(item)),
             evidence_ids=tuple(str(item) for item in value.get("evidence_ids", ()) if str(item)),
@@ -484,6 +533,7 @@ class ScenarioRunner:
             latency_ms=sum(int(getattr(item, "duration_ms", 0) or 0) for item in responses) or duration_ms,
             graph_hash=graph.snapshot_hash,
             verifier_enabled=contract.has_verifier,
+            gate_enabled=contract.gate_enabled,
             repair_enabled=contract.has_repair,
             cas_enabled=contract.has_cas,
         )

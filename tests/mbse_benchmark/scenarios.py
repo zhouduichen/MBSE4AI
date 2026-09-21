@@ -25,17 +25,71 @@ class BenchmarkScenario(StrEnum):
 class ScenarioContract:
     scenario: BenchmarkScenario
     description: str
-    has_verifier: bool
-    has_repair: bool
-    has_cas: bool
+    generation_shape: str
+    verifier_enabled: bool
+    gate_enabled: bool
+    repair_enabled: bool
+    cas_enabled: bool
+
+    @property
+    def has_verifier(self) -> bool:
+        return self.verifier_enabled
+
+    @property
+    def has_repair(self) -> bool:
+        return self.repair_enabled
+
+    @property
+    def has_cas(self) -> bool:
+        return self.cas_enabled
 
 
 SCENARIO_CONTRACTS = (
-    ScenarioContract(BenchmarkScenario.A_BARE_ONE_SHOT, "one-shot full RFLP+V&V model output", False, False, False),
-    ScenarioContract(BenchmarkScenario.B_BARE_STAGED, "staged R→F→L→P→V&V output without Harness controls", False, False, False),
-    ScenarioContract(BenchmarkScenario.C_HARNESS_NO_VERIFIER, "real Harness path with verifier disabled", False, True, True),
-    ScenarioContract(BenchmarkScenario.D_HARNESS_NO_REPAIR, "real Harness path with repair disabled", True, False, True),
-    ScenarioContract(BenchmarkScenario.E_FULL_HARNESS, "real Harness path with verifier, repair, gates, and CAS", True, True, True),
+    ScenarioContract(
+        BenchmarkScenario.A_BARE_ONE_SHOT,
+        "one-shot full RFLP+V&V model output",
+        "one_shot",
+        False,
+        False,
+        False,
+        False,
+    ),
+    ScenarioContract(
+        BenchmarkScenario.B_BARE_STAGED,
+        "staged R→F→L→P→V&V output without Harness controls",
+        "staged",
+        False,
+        False,
+        False,
+        False,
+    ),
+    ScenarioContract(
+        BenchmarkScenario.C_HARNESS_NO_VERIFIER,
+        "real Harness path with verifier disabled",
+        "harness",
+        False,
+        True,
+        True,
+        True,
+    ),
+    ScenarioContract(
+        BenchmarkScenario.D_HARNESS_NO_REPAIR,
+        "real Harness path with repair disabled",
+        "harness",
+        True,
+        True,
+        False,
+        True,
+    ),
+    ScenarioContract(
+        BenchmarkScenario.E_FULL_HARNESS,
+        "real Harness path with verifier, repair, gates, and CAS",
+        "harness",
+        True,
+        True,
+        True,
+        True,
+    ),
 )
 
 

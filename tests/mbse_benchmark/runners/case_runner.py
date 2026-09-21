@@ -24,11 +24,14 @@ from tests.mbse_benchmark.scenarios import (
     BenchmarkScenario,
     scenario_contract,
 )
+from tests.mbse_benchmark.runners.experiment_contract import (
+    BenchmarkInputEnvelope,
+    input_sha256,
+)
 from tests.mbse_benchmark.runners.scenario_pipeline import (
     ModelGraphNormalizer,
     ScenarioRunner,
     TASK_SPEC,
-    model_input_for_case,
 )
 
 
@@ -36,6 +39,13 @@ from tests.mbse_benchmark.runners.scenario_pipeline import (
 def _write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(canonical_json(value) + "\n", encoding="utf-8")
+
+
+def _write_canonical_input(path: Path, envelope: BenchmarkInputEnvelope) -> None:
+    """Persist the exact bytes shared by every A–E scenario."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(envelope.canonical_bytes + b"\n")
 
 
 def _graph_payload(graph) -> dict[str, object]:
@@ -231,6 +241,7 @@ def _run_case_inner(
     started = time.time()
     case_id = str(case["case_id"])
     project_id = case_id.lower()
+    input_envelope = BenchmarkInputEnvelope.from_case(case)
     scenario_contract(scenario)
     workspace = Path(tempfile.mkdtemp(prefix=f"ai4mbse-{project_id}-"))
     execution: dict[str, object] = {
@@ -261,7 +272,7 @@ def _run_case_inner(
                 )
             model = OpenAICompatibleModel(dict(runtime_config))
             scenario_output = ScenarioRunner(ModelGraphNormalizer()).run(
-                case,
+                input_envelope,
                 contract,
                 model,
                 project_id=project_id,
@@ -283,17 +294,23 @@ def _run_case_inner(
                 },
                 "scenario_controls": {
                     "verifier": contract.has_verifier,
+                    "gate": contract.gate_enabled,
                     "repair": contract.has_repair,
                     "cas": contract.has_cas,
                 },
             }
+            _write_canonical_input(output_dir / "input.json", input_envelope)
             _write_json(output_dir / "run_summary.json", summary)
             _write_json(output_dir / "run_ledger.json", {})
             _write_json(output_dir / "model.json", _graph_payload(graph))
             _write_json(output_dir / "coverage_matrix.json", build_requirement_coverage(graph).as_dict())
             _write_json(output_dir / "issues.json", [])
             _write_json(output_dir / "audit.json", {"events": []})
-            _write_json(output_dir / "metadata.json", scenario_output.metadata.as_dict())
+            metadata = scenario_output.metadata.as_dict()
+            metadata["normalization_audit"] = scenario_output.normalization_audit.as_dict()
+            metadata["input_byte_length"] = len(input_envelope.canonical_bytes)
+            metadata["input_sha256"] = input_sha256(input_envelope)
+            _write_json(output_dir / "metadata.json", metadata)
             execution.update(
                 {
                     "status": "completed",
@@ -302,9 +319,12 @@ def _run_case_inner(
                     "revision": graph.revision,
                     "entity_count": len(graph.entities),
                     "relation_count": len(graph.relations),
+                    "input_hash": input_envelope.input_hash,
+                    "input_byte_length": len(input_envelope.canonical_bytes),
+                    "input_sha256": input_sha256(input_envelope),
                     "cas_probe": {},
                     "scenario_controls": summary["scenario_controls"],
-                    "metadata": scenario_output.metadata.as_dict(),
+                    "metadata": metadata,
                 }
             )
             return
@@ -322,7 +342,7 @@ def _run_case_inner(
         )
         services.projects.create(project_id, str(case.get("system", project_id)))
         input_path = output_dir / "input.json"
-        _write_json(input_path, case)
+        _write_canonical_input(input_path, input_envelope)
         ingest_result = services.projects.ingest(project_id, input_path)
         injection = None
         if case_id == "CASE-05":
@@ -351,7 +371,7 @@ def _run_case_inner(
         ledger_payload = to_primitive(run) if run else {}
         ledger_metadata = ledger_payload.get("metadata", ledger_payload) if isinstance(ledger_payload, Mapping) else {}
         _write_json(output_dir / "metadata.json", _harness_metadata(
-            case,
+            input_envelope,
             contract,
             graph,
             runtime_config,
@@ -366,14 +386,18 @@ def _run_case_inner(
                 "revision": graph.revision,
                 "entity_count": len(graph.entities),
                 "relation_count": len(graph.relations),
+                "input_hash": input_envelope.input_hash,
+                "input_byte_length": len(input_envelope.canonical_bytes),
+                "input_sha256": input_sha256(input_envelope),
                 "injection": injection,
                 "cas_probe": cas_probe,
                 "scenario_controls": {
                     "verifier": contract.has_verifier,
+                    "gate": contract.gate_enabled,
                     "repair": contract.has_repair,
                     "cas": contract.has_cas,
                 },
-                "metadata": json.loads((output_dir / "metadata.json").read_text(encoding="utf-8")),
+            "metadata": json.loads((output_dir / "metadata.json").read_text(encoding="utf-8")),
             }
         )
     except BaseException as exc:  # Persist the failure before the child exits.
@@ -489,7 +513,7 @@ def run_case(
 
 
 def _harness_metadata(
-    case: Mapping[str, object],
+    input_envelope: BenchmarkInputEnvelope,
     contract,
     graph,
     runtime_config: Mapping[str, object] | None,
@@ -498,14 +522,14 @@ def _harness_metadata(
     execution_elapsed: float,
 ) -> dict[str, object]:
     config = runtime_config or {}
-    model_input = model_input_for_case(case)
     fallback_context = {
         "scenario": contract.scenario.value,
         "model": config.get("model", "rule-runtime"),
         "provider": config.get("provider_id", config.get("provider", "offline")),
-        "case_input": model_input,
+        "input_hash": input_envelope.input_hash,
         "controls": {
             "verifier": contract.has_verifier,
+            "gate": contract.gate_enabled,
             "repair": contract.has_repair,
             "cas": contract.has_cas,
         },
@@ -519,11 +543,14 @@ def _harness_metadata(
         "prompt_hash": str(prompt_hash),
         "task_spec_hash": str(task_spec_hash),
         "temperature": _as_float(config.get("temperature")),
-        "input_hash": canonical_hash(model_input),
+        "input_hash": input_envelope.input_hash,
+        "input_byte_length": len(input_envelope.canonical_bytes),
+        "input_sha256": input_sha256(input_envelope),
         "token_usage": ledger_metadata.get("token_usage") if isinstance(ledger_metadata.get("token_usage"), Mapping) else None,
         "latency_ms": max(0, int(execution_elapsed * 1000)),
         "graph_hash": graph.snapshot_hash,
         "verifier_enabled": contract.has_verifier,
+        "gate_enabled": contract.gate_enabled,
         "repair_enabled": contract.has_repair,
         "cas_enabled": contract.has_cas,
     }
