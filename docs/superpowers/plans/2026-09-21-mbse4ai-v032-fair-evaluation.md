@@ -11,9 +11,9 @@
 ## Current implementation status (2026-09-21)
 
 Tasks 1–7 and Task 8 Steps 1, 3, 4, and 5 are implemented and revalidated on
-commit `71ef61f`; the current working change further tightens the evidence
-boundary. The latest local gates, GitHub `CI / quality`, and the Integration
-contract all pass. Task 8 Step 2 remains intentionally pending: the A–E
+commit `30b604b`; the evidence boundary is now fail-closed for incomplete
+telemetry as well. The latest local gates, GitHub `CI / quality`, and the
+Integration contract all pass. Task 8 Step 2 remains intentionally pending: the A–E
 three-repeat comparison requires a real configured provider with reported
 token usage, latency, and explicit pricing, and the current GitHub repository
 has no LLM profile, secrets, variables, or self-hosted runners. The comparison
