@@ -8,6 +8,17 @@
 
 **Tech Stack:** Python 3.11+, dataclasses, canonical JSON/hash helpers, existing `ModelGraph`/Closure/Gate services, OpenAI-compatible adapter, pytest, Ruff, import-linter, GitHub Actions, and `gh`.
 
+## Current implementation status (2026-09-21)
+
+Tasks 1–7 and Task 8 Steps 1, 3, 4, and 5 are implemented and revalidated on
+commit `cc5a919`. The latest local gates, GitHub `CI / quality`, and the
+Integration contract all pass. Task 8 Step 2 remains intentionally pending:
+the A–E three-repeat comparison requires a real configured provider with
+reported token usage, and the current GitHub repository has no LLM profile,
+secrets, variables, or self-hosted runners. The comparison now fails closed
+when those prerequisites are absent; it must not be replaced with an offline
+or synthetic PASS.
+
 ## Global Constraints
 
 - Ground truth is evaluator-only and never enters a model-visible payload.
@@ -17,7 +28,7 @@
 - A–E record verifier, gate, repair, and CAS toggles independently.
 - Natural and budget-matched modes are explicit; unknown cost is unavailable, not zero.
 - Default repeats are three; reports contain mean, sample std, and approximate 95% CI.
-- Ordinary CI installs `.[dev,web]`; remote LLM/FreeCAD/GPU work is separate.
+- Ordinary CI installs `.[dev,documents,web]`; remote LLM/FreeCAD/GPU work is separate.
 - Do not add CAD, MDO, UI, or unrelated Harness features.
 
 ## File map
@@ -102,4 +113,3 @@
 - [ ] **Step 3: Push `codex/web-audit-2026-08-18`, wait with `gh run watch --exit-status`, and inspect `gh run view --json status,conclusion,url,jobs`; the final commit must have a real successful `CI / quality` check.**
 - [ ] **Step 4: Verify `main` protection still requires strict `CI / quality`; query Actions runners, secrets, and variables. Report Remote LLM/FreeCAD/GPU PASS only when real prerequisites are reachable.**
 - [ ] **Step 5: Create a PR to `main` containing the commit SHA, local commands, GitHub CI URL, A–E invariants, artifacts, and explicit external integration status. Do not bypass branch protection or claim merge before required checks/reviews are satisfied.**
-
