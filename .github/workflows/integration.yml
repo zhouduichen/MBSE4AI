@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install project and integration dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,web]"
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,documents,web]"
       - name: Run offline integration contract
         run: |
           python -m pytest -q tests/integration/test_integration_contract.py
@@ -70,7 +70,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,web]"
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,documents,web]"
       - name: Install the ephemeral LLM profile
         run: |
           test -n "$AI4MBSE_LLM_PROFILE"
@@ -98,7 +98,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,web]"
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,documents,web]"
       - name: Confirm FreeCAD runner and execute acceptance
         env:
           AI4MBSE_CAD_BACKEND: freecad-remote
