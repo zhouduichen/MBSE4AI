@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ (github.event_name == 'workflow_dispatch' && inputs.profile != '') || (github.event_name == 'schedule' && vars.AI4MBSE_LLM_PROFILE != '') }}
     env:
-      RFLP_CONFIG_DIR: ${{ runner.temp }}/rflp-config
+      RFLP_CONFIG_DIR: ${{ github.workspace }}/.rflp-config
       AI4MBSE_LLM_PROFILE: ${{ inputs.profile || vars.AI4MBSE_LLM_PROFILE }}
       AI4MBSE_LLM_PROFILE_JSON: ${{ secrets.AI4MBSE_LLM_PROFILE_JSON }}
     steps:
