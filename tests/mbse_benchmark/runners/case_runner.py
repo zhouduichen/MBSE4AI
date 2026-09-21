@@ -238,6 +238,8 @@ def _run_case_inner(
     runtime_config: Mapping[str, object] | None = None,
     analysis_path: str = "lifecycle",
     scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
+    comparison_mode: str = "natural",
+    total_output_token_budget: int | None = None,
 ) -> None:
     started = time.time()
     case_id = str(case["case_id"])
@@ -264,16 +266,21 @@ def _run_case_inner(
     telemetry_events: list[object] = []
     try:
         contract = scenario_contract(scenario)
+        effective_runtime_config = dict(runtime_config) if runtime_config else None
+        if comparison_mode == "budget_matched" and total_output_token_budget is not None:
+            if effective_runtime_config is None:
+                raise ValueError("budget-matched comparison requires a configured model")
+            effective_runtime_config["benchmark_total_output_token_budget"] = int(total_output_token_budget)
         if contract.scenario in {
             BenchmarkScenario.A_BARE_ONE_SHOT,
             BenchmarkScenario.B_BARE_STAGED,
         }:
-            if not runtime_config:
+            if not effective_runtime_config:
                 raise ValueError(
                     "A/B benchmark scenarios require the explicit configured model used by E"
                 )
             model = OpenAICompatibleModel(
-                dict(runtime_config),
+                dict(effective_runtime_config),
                 telemetry_sink=telemetry_events.append,
             )
             scenario_output = ScenarioRunner(ModelGraphNormalizer()).run(
@@ -281,7 +288,7 @@ def _run_case_inner(
                 contract,
                 model,
                 project_id=project_id,
-                token_budget=int(runtime_config.get("benchmark_token_budget", 3000) or 3000),
+                token_budget=int(effective_runtime_config.get("benchmark_token_budget", 3000) or 3000),
             )
             graph = scenario_output.graph
             closure = evaluate_strict_closure(graph)
@@ -318,8 +325,10 @@ def _run_case_inner(
             metadata["telemetry"] = ExperimentTelemetry.from_events(
                 telemetry_events,
                 wall_latency_ms=int((time.time() - started) * 1000),
-                input_cost_per_1m_tokens=_as_float(runtime_config.get("input_cost_per_1m_tokens")),
-                output_cost_per_1m_tokens=_as_float(runtime_config.get("output_cost_per_1m_tokens")),
+                comparison_mode=comparison_mode,
+                total_output_token_budget=total_output_token_budget,
+                input_cost_per_1m_tokens=_as_float(effective_runtime_config.get("input_cost_per_1m_tokens")),
+                output_cost_per_1m_tokens=_as_float(effective_runtime_config.get("output_cost_per_1m_tokens")),
             ).as_dict()
             _write_json(output_dir / "metadata.json", metadata)
             execution.update(
@@ -341,16 +350,16 @@ def _run_case_inner(
             return
         runtime = (
             StructuredModelRuntime(OpenAICompatibleModel(
-                dict(runtime_config),
+                dict(effective_runtime_config),
                 telemetry_sink=telemetry_events.append,
             ))
-            if runtime_config
+            if effective_runtime_config
             else None
         )
         services = build_v2_services(
             workspace,
             runtime=runtime,
-            runtime_config=dict(runtime_config) if runtime_config else None,
+            runtime_config=effective_runtime_config,
             config_dir=workspace / ".rflp-config",
             verifier_enabled=contract.has_verifier,
         )
@@ -366,7 +375,7 @@ def _run_case_inner(
             services,
             project_id,
             ingest_result if isinstance(ingest_result, Mapping) else {},
-            runtime_config,
+            effective_runtime_config,
             analysis_path,
             scenario,
         )
@@ -391,6 +400,8 @@ def _run_case_inner(
             runtime_config,
             ledger_metadata,
             telemetry_events=telemetry_events,
+            comparison_mode=comparison_mode,
+            total_output_token_budget=total_output_token_budget,
             execution_elapsed=time.time() - started,
         ))
         execution.update(
@@ -438,8 +449,18 @@ def _child_entry(
     runtime_config: Mapping[str, object] | None = None,
     analysis_path: str = "lifecycle",
     scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
+    comparison_mode: str = "natural",
+    total_output_token_budget: int | None = None,
 ) -> None:
-    _run_case_inner(case, Path(output_dir), runtime_config, analysis_path, scenario)
+    _run_case_inner(
+        case,
+        Path(output_dir),
+        runtime_config,
+        analysis_path,
+        scenario,
+        comparison_mode,
+        total_output_token_budget,
+    )
 
 
 def run_case(
@@ -451,6 +472,8 @@ def run_case(
     runtime_config: Mapping[str, object] | None = None,
     analysis_path: str = "lifecycle",
     scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
+    comparison_mode: str = "natural",
+    total_output_token_budget: int | None = None,
 ) -> dict[str, object]:
     """Run one isolated real-system case and always return a result record."""
 
@@ -465,6 +488,8 @@ def run_case(
             dict(runtime_config) if runtime_config else None,
             analysis_path,
             scenario,
+            comparison_mode,
+            total_output_token_budget,
         ),
     )
     started = time.time()
@@ -535,6 +560,8 @@ def _harness_metadata(
     ledger_metadata: Mapping[str, object],
     *,
     telemetry_events: list[object],
+    comparison_mode: str,
+    total_output_token_budget: int | None,
     execution_elapsed: float,
 ) -> dict[str, object]:
     config = runtime_config or {}
@@ -555,6 +582,8 @@ def _harness_metadata(
     telemetry = ExperimentTelemetry.from_events(
         telemetry_events,
         wall_latency_ms=int(execution_elapsed * 1000),
+        comparison_mode=comparison_mode,
+        total_output_token_budget=total_output_token_budget,
         input_cost_per_1m_tokens=_as_float(config.get("input_cost_per_1m_tokens")),
         output_cost_per_1m_tokens=_as_float(config.get("output_cost_per_1m_tokens")),
     )

@@ -21,6 +21,7 @@ from tests.mbse_benchmark.tracks.harness import compute_harness_metrics
 from tests.mbse_benchmark.scenarios import BenchmarkScenario, scenario_contract
 from tests.mbse_benchmark.runners.scenario_pipeline import ExternalEvaluator, ModelGraphNormalizer
 from tests.mbse_benchmark.runners.experiment_contract import BenchmarkInputEnvelope
+from tests.mbse_benchmark.runners.experiment_contract import summarize_repeats
 
 
 def _metric_display(value: object) -> object:
@@ -44,6 +45,8 @@ def run_benchmark(
     runtime_config: Mapping[str, object] | None = None,
     analysis_path: str = "lifecycle",
     scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
+    comparison_mode: str = "natural",
+    total_output_token_budget: int | None = None,
 ) -> dict[str, object]:
     if track not in {item.value for item in BenchmarkTrack if item is not BenchmarkTrack.ROBUSTNESS}:
         raise ValueError(f"run_benchmark only executes harness or llm tracks: {track}")
@@ -77,6 +80,8 @@ def run_benchmark(
                 runtime_config=runtime_config,
                 analysis_path=analysis_path,
                 scenario=contract.scenario.value,
+                comparison_mode=comparison_mode,
+                total_output_token_budget=total_output_token_budget,
             )
             for index in range(1, max(1, repeats) + 1)
         ]
@@ -97,6 +102,13 @@ def run_benchmark(
         primary["graph"] = normalizer.payload(graph)
         if isinstance(primary.get("metadata"), Mapping):
             primary["normalization_audit"] = primary["metadata"].get("normalization_audit", {})
+            for control_key in (
+                "verifier_enabled",
+                "gate_enabled",
+                "repair_enabled",
+                "cas_enabled",
+            ):
+                primary[control_key] = primary["metadata"].get(control_key)
         validation = evaluator.evaluate(
             input_envelope,
             graph,
@@ -147,7 +159,11 @@ def run_benchmark(
         "configuration": "offline RuleRuntime; isolated workspace; no external model" if track == BenchmarkTrack.HARNESS.value else "explicit LLM profile; isolated workspace; provider credentials are not written to reports",
         "cases": [str(case["case_id"]) for case in cases],
         "repeats": max(1, repeats),
+        "comparison_mode": comparison_mode,
+        "total_output_token_budget": total_output_token_budget,
         "metrics": metrics,
+        "semantic_metrics": metrics.get("semantic_metrics", {}),
+        "governance_metrics": metrics.get("governance_metrics", {}),
         "score": score,
         "failures": failures,
         "case_results": case_results,
@@ -166,6 +182,8 @@ def run_benchmark(
             "commit": _git_value(["rev-parse", "HEAD"]),
             "cases": [str(case["case_id"]) for case in cases],
             "repeat": max(1, repeats),
+            "comparison_mode": comparison_mode,
+            "total_output_token_budget": total_output_token_budget,
             "scenario_metadata": [
                 item.get("metadata", {})
                 for result in case_results
@@ -194,6 +212,8 @@ def run_scenario_comparison(
     profile: str,
     runtime_config: Mapping[str, object],
     analysis_path: str = "lifecycle",
+    comparison_mode: str = "natural",
+    total_output_token_budget: int | None = None,
 ) -> dict[str, object]:
     """Run A–E with one resolved model configuration and one evaluator path."""
 
@@ -211,6 +231,8 @@ def run_scenario_comparison(
             runtime_config=runtime_config,
             analysis_path=analysis_path,
             scenario=scenario.value,
+            comparison_mode=comparison_mode,
+            total_output_token_budget=total_output_token_budget,
         )
     comparison: dict[str, object] = {
         "status": "recorded",
@@ -228,6 +250,8 @@ def run_scenario_comparison(
         comparison["scenarios"][scenario] = {
             "status": summary.get("score", {}).get("final_status", "NOT_RUN"),
             "metrics": summary.get("metrics", {}),
+            "semantic_metrics": summary.get("semantic_metrics", {}),
+            "governance_metrics": summary.get("governance_metrics", {}),
             "metadata": {
                 "model": first.get("model", summary.get("model", "")),
                 "provider": first.get("provider", summary.get("provider", "")),
@@ -238,6 +262,20 @@ def run_scenario_comparison(
                 "temperature": first.get("temperature"),
                 "token_usage": first.get("token_usage"),
                 "latency_ms": first.get("latency_ms"),
+                "telemetry": first.get("telemetry", {}),
+                "telemetry_statistics": summarize_repeats([
+                    item.get("telemetry", {})
+                    for item in records
+                    if isinstance(item.get("telemetry"), Mapping)
+                ]),
+                "repeat_records": records,
+                "semantic_metrics": summary.get("semantic_metrics", {}),
+                "governance_metrics": summary.get("governance_metrics", {}),
+                "comparison_mode": first.get("comparison_mode", comparison_mode),
+                "total_output_token_budget": first.get(
+                    "total_output_token_budget",
+                    total_output_token_budget,
+                ),
                 "graph_hashes": [item.get("graph_hash") for item in records if item.get("graph_hash")],
                 "verifier_enabled": first.get("verifier_enabled"),
                 "gate_enabled": first.get("gate_enabled"),
@@ -271,6 +309,23 @@ def run_scenario_comparison(
         }
         for scenario in scenario_summaries
     }
+    comparison["quality_cost_points"] = [
+        {
+            "scenario": scenario,
+            "quality": payload.get("metrics", {}).get("end_to_end_traceability")
+            if isinstance(payload.get("metrics"), Mapping)
+            else None,
+            "cost": payload.get("metadata", {}).get("telemetry", {}).get("estimated_cost_usd")
+            if isinstance(payload.get("metadata"), Mapping)
+            and isinstance(payload.get("metadata", {}).get("telemetry"), Mapping)
+            else None,
+            "cost_status": payload.get("metadata", {}).get("telemetry", {}).get("cost_status", "unavailable")
+            if isinstance(payload.get("metadata"), Mapping)
+            and isinstance(payload.get("metadata", {}).get("telemetry"), Mapping)
+            else "unavailable",
+        }
+        for scenario, payload in comparison["scenarios"].items()
+    ]
     if not all(
         comparison[key]
         for key in (
@@ -366,6 +421,8 @@ def main() -> int:
     parser.add_argument("--track", choices=[item.value for item in BenchmarkTrack], default=BenchmarkTrack.HARNESS.value)
     parser.add_argument("--profile", help="explicit LLM profile ID; required by --track llm")
     parser.add_argument("--compare-a-e", action="store_true", help="run A–E with one configured model and one evaluator")
+    parser.add_argument("--comparison-mode", choices=("natural", "budget_matched"), default="natural")
+    parser.add_argument("--total-output-token-budget", type=int)
     parser.add_argument(
         "--path",
         dest="analysis_path",
@@ -407,6 +464,8 @@ def main() -> int:
                 profile=args.profile,
                 runtime_config=runtime_config,
                 analysis_path=args.analysis_path,
+                comparison_mode=args.comparison_mode,
+                total_output_token_budget=args.total_output_token_budget,
             )
             print(f"A-E STATUS: {comparison['status']}")
             print(f"Scenarios: {', '.join(str(item) for item in comparison['scenarios'])}")
@@ -423,6 +482,8 @@ def main() -> int:
         runtime_config=runtime_config,
         analysis_path=args.analysis_path,
         scenario=args.scenario,
+        comparison_mode=args.comparison_mode,
+        total_output_token_budget=args.total_output_token_budget,
     )
     print(f"FINAL STATUS: {summary['score']['final_status']}")
     if args.track == BenchmarkTrack.HARNESS.value:

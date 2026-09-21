@@ -58,6 +58,51 @@ def compute_metrics(case_results: list[Mapping[str, object]]) -> dict[str, objec
         aggregate[key] = _numeric_values(values)
     aggregate["iteration_signal"] = any(bool(metrics.get("iteration_signal")) for metrics in per_case.values())
     aggregate["per_case"] = per_case
+    semantic_per_case = {
+        str(result.get("case_id", "")): dict(result.get("semantic_metrics", {}))
+        for result in case_results
+        if isinstance(result.get("semantic_metrics"), Mapping)
+    }
+    governance_per_case = {
+        str(result.get("case_id", "")): dict(result.get("governance_metrics", {}))
+        for result in case_results
+        if isinstance(result.get("governance_metrics"), Mapping)
+    }
+    authority_counts = [
+        float(item.get("authority_violation_count", 0) or 0)
+        for item in governance_per_case.values()
+    ]
+    technical_results = [
+        bool(item.get("technical_closure", {}).get("passed"))
+        for item in governance_per_case.values()
+        if isinstance(item.get("technical_closure"), Mapping)
+    ]
+    release_results = [
+        bool(item.get("release_closure", {}).get("passed"))
+        for item in governance_per_case.values()
+        if isinstance(item.get("release_closure"), Mapping)
+    ]
+    aggregate["semantic_metrics"] = {
+        "per_case": semantic_per_case,
+        "trace_accuracy": _numeric_values([
+            item.get("trace_accuracy") for item in semantic_per_case.values()
+        ]),
+        "RFLP_coverage": _numeric_values([
+            item.get("RFLP_coverage") for item in semantic_per_case.values()
+        ]),
+    }
+    aggregate["governance_metrics"] = {
+        "per_case": governance_per_case,
+        "authority_violation_count": int(sum(authority_counts)),
+        "technical_closure_pass_rate": (
+            sum(technical_results) / len(technical_results)
+            if technical_results else None
+        ),
+        "release_closure_pass_rate": (
+            sum(release_results) / len(release_results)
+            if release_results else None
+        ),
+    }
     return aggregate
 
 
@@ -253,6 +298,16 @@ def render_benchmark_report(summary: Mapping[str, object]) -> str:
     else:
         for label, passed in p0.items():
             lines.append(f"- {'PASS' if passed else 'FAIL'}: {label}")
+    lines.extend([
+        "",
+        "## 5a. Semantic Metrics",
+        "",
+        f"`{json.dumps(summary.get('semantic_metrics', metrics), ensure_ascii=False, sort_keys=True)}`",
+        "",
+        "## 5b. Governance Metrics",
+        "",
+        f"`{json.dumps(summary.get('governance_metrics', {}), ensure_ascii=False, sort_keys=True)}`",
+    ])
     lines.extend(["", "## 6. Traceability Analysis", "", str(summary.get("traceability_summary", "No traceability data.")), "", "## 7. Requirement Quality", "", str(summary.get("requirement_quality_summary", "No requirement quality data.")), "", "## 8. Cross-stage Consistency", "", str(summary.get("consistency_summary", "No cross-stage consistency data.")), "", "## 9. Fault Injection Result", "", str(summary.get("fault_injection_summary", "CASE-05 was not executed.")), "", "## 10. Iteration Test", "", str(summary.get("iteration_summary", "No iteration evidence.")), "", "## 11. Critical Problems", ""])
     failures = list(summary.get("failures", ()))
     top_failures = _top_unique_failures(failures)
@@ -354,19 +409,24 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
         "",
         f"Same model/provider: **{comparison.get('same_model_provider', 'N/A')}**; same input: **{comparison.get('same_input', 'N/A')}**; same task spec: **{comparison.get('same_task_spec', 'N/A')}**",
         "",
-        "| Scenario | Model | Provider | Input Hash | Task Spec Hash | Graph Hashes | Verifier | Repair | CAS |",
-        "| -------- | ----- | -------- | ---------- | -------------- | ------------ | -------- | ------ | --- |",
+        "| Scenario | Model | Provider | Input Hash | Task Spec Hash | Graph Hashes | Verifier | Gate | Repair | CAS | Calls | Tokens | Cost |",
+        "| -------- | ----- | -------- | ---------- | -------------- | ------------ | -------- | ---- | ------ | --- | ----- | ------ | ---- |",
     ]
     scenarios = comparison.get("scenarios", {})
     for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
         metadata = payload.get("metadata", {}) if isinstance(payload, Mapping) else {}
         metadata = metadata if isinstance(metadata, Mapping) else {}
         graph_hashes = metadata.get("graph_hashes", ())
+        telemetry = metadata.get("telemetry", {})
+        telemetry = telemetry if isinstance(telemetry, Mapping) else {}
         lines.append(
             f"| {scenario} | {metadata.get('model', '')} | {metadata.get('provider', '')} | "
             f"{chr(96)}{metadata.get('input_hash', '')}{chr(96)} | {chr(96)}{metadata.get('task_spec_hash', '')}{chr(96)} | "
             f"{chr(96)}{', '.join(str(item) for item in graph_hashes)}{chr(96)} | "
-            f"{metadata.get('verifier_enabled', '')} | {metadata.get('repair_enabled', '')} | {metadata.get('cas_enabled', '')} |"
+            f"{metadata.get('verifier_enabled', '')} | {metadata.get('gate_enabled', '')} | "
+            f"{metadata.get('repair_enabled', '')} | {metadata.get('cas_enabled', '')} | "
+            f"{telemetry.get('call_count', 'N/A')} | {telemetry.get('total_tokens', 'N/A')} | "
+            f"{telemetry.get('estimated_cost_usd', 'N/A')} ({telemetry.get('cost_status', 'unavailable')}) |"
         )
     lines.extend(["", "## Run metadata", ""])
     for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
@@ -375,9 +435,29 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
         lines.append(
             f"- `{scenario}`: prompt_hash=`{metadata.get('prompt_hash', '')}`, "
             f"temperature={metadata.get('temperature', 'N/A')}, "
+            f"comparison_mode={metadata.get('comparison_mode', 'natural')}, "
             f"token_usage={metadata.get('token_usage', 'N/A')}, "
-            f"latency_ms={metadata.get('latency_ms', 'N/A')}"
+            f"latency_ms={metadata.get('latency_ms', 'N/A')}, "
+            f"repeat_statistics={metadata.get('telemetry_statistics', 'N/A')}"
         )
+    lines.extend(["", "## Semantic versus governance metrics", ""])
+    for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
+        metrics = payload.get("semantic_metrics", {}) if isinstance(payload, Mapping) else {}
+        metadata = payload.get("metadata", {}) if isinstance(payload, Mapping) else {}
+        governance = payload.get("governance_metrics", {}) if isinstance(payload, Mapping) else {}
+        lines.append(
+            f"- `{scenario}` semantic: `{json.dumps(metrics, ensure_ascii=False, sort_keys=True)}`; "
+            f"governance: `{json.dumps(governance, ensure_ascii=False, sort_keys=True)}`"
+        )
+    quality_cost = comparison.get("quality_cost_points", ())
+    if isinstance(quality_cost, (list, tuple)):
+        lines.extend(["", "## Quality-Cost", "", "| Scenario | Quality | Cost | Cost status |", "| -------- | -------: | ----: | ----------- |"])
+        for point in quality_cost:
+            if isinstance(point, Mapping):
+                lines.append(
+                    f"| {point.get('scenario', '')} | {point.get('quality', 'N/A')} | "
+                    f"{point.get('cost', 'N/A')} | {point.get('cost_status', 'unavailable')} |"
+                )
     return "\n".join(lines) + "\n"
 
 
@@ -389,5 +469,25 @@ def write_scenario_comparison(comparison: Mapping[str, object], report_dir: Path
     )
     (report_dir / "a_to_e_comparison.json").write_text(
         canonical_json(comparison) + "\n",
+        encoding="utf-8",
+    )
+    manifest: list[dict[str, object]] = []
+    scenarios = comparison.get("scenarios", {})
+    if isinstance(scenarios, Mapping):
+        for scenario, payload in scenarios.items():
+            metadata = payload.get("metadata", {}) if isinstance(payload, Mapping) else {}
+            records = metadata.get("repeat_records", ()) if isinstance(metadata, Mapping) else ()
+            for record in records if isinstance(records, (list, tuple)) else ():
+                if isinstance(record, Mapping):
+                    manifest.append({"scenario": scenario, **dict(record)})
+    (report_dir / "reproducibility_manifest.json").write_text(
+        canonical_json({
+            "track": comparison.get("track"),
+            "profile": comparison.get("profile"),
+            "same_model_provider": comparison.get("same_model_provider"),
+            "same_input": comparison.get("same_input"),
+            "same_task_spec": comparison.get("same_task_spec"),
+            "records": manifest,
+        }) + "\n",
         encoding="utf-8",
     )

@@ -862,6 +862,15 @@ class OpenAICompatibleModel:
         self._config = dict(config)
         self._complete = complete
         self._telemetry_sink = telemetry_sink
+        configured_budget = config.get("benchmark_total_output_token_budget")
+        try:
+            self._benchmark_output_budget = (
+                max(0, int(configured_budget))
+                if configured_budget is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            self._benchmark_output_budget = None
         self._configure_remote_controls()
 
     def _transport_call(
@@ -874,8 +883,14 @@ class OpenAICompatibleModel:
         attempt_kind: str,
     ) -> object:
         started = time.monotonic()
+        effective_max_tokens = max(1, int(max_tokens))
+        if self._benchmark_output_budget is not None:
+            effective_max_tokens = min(
+                effective_max_tokens,
+                max(1, self._benchmark_output_budget),
+            )
         try:
-            raw = self._complete(call_config, messages, max_tokens=max_tokens)
+            raw = self._complete(call_config, messages, max_tokens=effective_max_tokens)
         except Exception:
             self._emit_call_event(
                 request,
@@ -892,6 +907,11 @@ class OpenAICompatibleModel:
             status="completed",
             raw=raw,
         )
+        if self._benchmark_output_budget is not None:
+            usage = getattr(raw, "usage", {})
+            usage = usage if isinstance(usage, Mapping) else {}
+            output_tokens = _usage_count(usage, "output_tokens", "completion_tokens")
+            self._benchmark_output_budget = max(0, self._benchmark_output_budget - output_tokens)
         return raw
 
     def _emit_call_event(

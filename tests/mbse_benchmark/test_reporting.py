@@ -8,7 +8,9 @@ from tests.mbse_benchmark.runners.report_builder import (
     compute_metrics,
     compute_score,
     write_reports,
+    write_scenario_comparison,
 )
+from rflp_lite.methodology.coverage_status import coverage_result
 
 
 def _case_result(case_id: str, *, p0_failure: bool = False) -> dict[str, object]:
@@ -67,3 +69,40 @@ def test_report_writer_emits_required_files_and_rejects_p0_failure(tmp_path: Pat
     assert (tmp_path / "failures.json").is_file()
     assert (tmp_path / "traceability_report.md").is_file()
     assert json.loads((tmp_path / "failures.json").read_text(encoding="utf-8"))[0]["status"] == "FAIL"
+
+
+def test_empty_coverage_is_not_applicable_and_reports_keep_the_value(tmp_path: Path) -> None:
+    empty = coverage_result(0, 0)
+    assert empty["coverage"] is None
+    assert empty["status"] == "not_applicable"
+    assert empty["passed"] is False
+
+    write_reports({"metrics": {}, "score": {}, "case_results": []}, tmp_path)
+    traceability = (tmp_path / "traceability_report.md").read_text(encoding="utf-8")
+    assert "Complete Trace %: N/A" in traceability
+    assert "1.0" not in traceability
+
+
+def test_scenario_comparison_writes_reproducibility_manifest(tmp_path: Path) -> None:
+    comparison = {
+        "track": "llm_same_model_comparison",
+        "profile": "test",
+        "same_model_provider": True,
+        "same_input": True,
+        "same_task_spec": True,
+        "scenarios": {
+            "A": {
+                "metadata": {
+                    "repeat_records": [{"repeat_index": 1, "input_hash": "same"}],
+                    "telemetry": {"call_count": 1, "total_tokens": 2},
+                },
+                "metrics": {},
+            }
+        },
+        "quality_cost_points": [],
+    }
+
+    write_scenario_comparison(comparison, tmp_path)
+
+    manifest = json.loads((tmp_path / "reproducibility_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["records"] == [{"scenario": "A", "repeat_index": 1, "input_hash": "same"}]

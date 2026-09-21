@@ -6,6 +6,8 @@ from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
     EvaluationSpec,
+    ExperimentTelemetry,
+    GenerationCallEvent,
     assert_model_visible_payload,
     summarize_repeats,
 )
@@ -44,3 +46,30 @@ def test_repeat_summary_reports_sample_dispersion_and_ci() -> None:
     assert summary["quality"]["mean"] == 0.6
     assert summary["quality"]["std"] > 0
     assert summary["quality"]["ci95"][0] < 0.6 < summary["quality"]["ci95"][1]
+
+
+def test_telemetry_aggregates_calls_tokens_latency_and_cost() -> None:
+    telemetry = ExperimentTelemetry.from_events(
+        [
+            GenerationCallEvent(
+                "one-shot", "initial", "provider", "model", 8, "completed",
+                {"input_tokens": 10, "output_tokens": 20},
+            ),
+            GenerationCallEvent(
+                "one-shot", "structural_repair", "provider", "model", 4, "completed",
+                {"input_tokens": 3, "output_tokens": 7},
+            ),
+        ],
+        wall_latency_ms=20,
+        comparison_mode="budget_matched",
+        total_output_token_budget=27,
+        input_cost_per_1m_tokens=1.0,
+        output_cost_per_1m_tokens=2.0,
+    )
+
+    assert telemetry.call_count == 2
+    assert telemetry.repair_call_count == 1
+    assert telemetry.total_tokens == 40
+    assert telemetry.provider_latency_ms == 12
+    assert telemetry.estimated_cost_usd == 0.000067
+    assert telemetry.budget_exhausted is True
