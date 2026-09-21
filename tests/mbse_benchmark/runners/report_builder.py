@@ -329,14 +329,15 @@ def render_benchmark_report(summary: Mapping[str, object]) -> str:
             lines.append(f"| {key} | {'N/A' if value is None else value} |")
     scenario_metadata = summary.get("metadata", {}).get("scenario_metadata", ()) if isinstance(summary.get("metadata", {}), Mapping) else ()
     if scenario_metadata:
-        lines.extend(["", "## 15. Reproducibility Metadata", "", "| Scenario | Model | Provider | Input Hash | Graph Hash | Verifier | Repair | CAS |", "| -------- | ----- | -------- | ---------- | ---------- | -------- | ------ | --- |"])
+        lines.extend(["", "## 15. Reproducibility Metadata", "", "| Scenario | Model | Provider | Input Hash | Graph Hash | Verifier | Gate | Repair | CAS |", "| -------- | ----- | -------- | ---------- | ---------- | -------- | ---- | ------ | --- |"])
         for item in scenario_metadata:
             if not isinstance(item, Mapping):
                 continue
             lines.append(
                 f"| {item.get('scenario', '')} | {item.get('model', '')} | {item.get('provider', '')} | "
                 f"`{item.get('input_hash', '')}` | `{item.get('graph_hash', '')}` | "
-                f"{item.get('verifier_enabled', '')} | {item.get('repair_enabled', '')} | {item.get('cas_enabled', '')} |"
+                f"{item.get('verifier_enabled', '')} | {item.get('gate_enabled', '')} | "
+                f"{item.get('repair_enabled', '')} | {item.get('cas_enabled', '')} |"
             )
     return "\n".join(lines)
 
@@ -407,9 +408,9 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
         "",
         f"Status: **{comparison.get('status', 'not_recorded')}**",
         "",
-        f"Same model/provider: **{comparison.get('same_model_provider', 'N/A')}**; same input bytes: **{comparison.get('same_input', 'N/A')}**; same task spec: **{comparison.get('same_task_spec', 'N/A')}**; same evaluator: **{comparison.get('same_evaluation_spec', 'N/A')}**",
+        f"Same model/provider: **{comparison.get('same_model_provider', 'N/A')}**; same input bytes: **{comparison.get('same_input', 'N/A')}**; same task spec: **{comparison.get('same_task_spec', 'N/A')}**; same evaluator: **{comparison.get('same_evaluator', 'N/A')}**; same evaluation spec: **{comparison.get('same_evaluation_spec', 'N/A')}**",
         "",
-        f"Same temperature: **{comparison.get('same_temperature', 'N/A')}**; budget comparable: **{comparison.get('budget_comparable', 'N/A')}**; orthogonal ablations: **{comparison.get('ablation_contract_valid', 'N/A')}**",
+        f"Same temperature: **{comparison.get('same_temperature', 'N/A')}**; budget comparable: **{comparison.get('budget_comparable', 'N/A')}**; orthogonal ablations: **{comparison.get('ablation_contract_valid', 'N/A')}**; execution complete: **{comparison.get('execution_complete', 'N/A')}**; real calls: **{comparison.get('real_calls_observed', 'N/A')}**; token usage: **{comparison.get('token_usage_observed', 'N/A')}**",
         "",
         "| Scenario | Model | Provider | Input Hash | Eval Spec Hash | Task Spec Hash | Graph Hashes | Verifier | Gate | Repair | CAS | Calls | Tokens | Cost |",
         "| -------- | ----- | -------- | ---------- | -------------- | -------------- | ------------ | -------- | ---- | ------ | --- | ----- | ------ | ---- |",
@@ -493,9 +494,14 @@ def write_scenario_comparison(comparison: Mapping[str, object], report_dir: Path
             "same_input": comparison.get("same_input"),
             "same_task_spec": comparison.get("same_task_spec"),
             "same_evaluation_spec": comparison.get("same_evaluation_spec"),
+            "same_evaluator": comparison.get("same_evaluator"),
             "same_temperature": comparison.get("same_temperature"),
             "budget_comparable": comparison.get("budget_comparable"),
             "ablation_contract_valid": comparison.get("ablation_contract_valid"),
+            "execution_complete": comparison.get("execution_complete"),
+            "real_calls_observed": comparison.get("real_calls_observed"),
+            "token_usage_observed": comparison.get("token_usage_observed"),
+            "input_artifact_audit": comparison.get("input_artifact_audit", {}),
             "records": manifest,
         }) + "\n",
         encoding="utf-8",

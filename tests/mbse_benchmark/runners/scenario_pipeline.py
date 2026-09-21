@@ -28,6 +28,10 @@ TASK_SPEC: Mapping[str, object] = {
     "graph_rule": "Return a typed ModelGraph with RFLP and verification/validation relations.",
 }
 
+EXTERNAL_EVALUATOR_ID = (
+    "tests.mbse_benchmark.runners.scenario_pipeline.ExternalEvaluator:v0.3.2"
+)
+
 _ENTITY_KINDS = tuple(item.value for item in EntityKind)
 _ENTITY_STATUSES = tuple(item.value for item in EntityStatus)
 _PRODUCERS = tuple(item.value for item in Producer)
@@ -382,6 +386,8 @@ class ModelGraphNormalizer:
 class ExternalEvaluator:
     """Evaluate only normalized graphs against the shared case contract."""
 
+    evaluator_id = EXTERNAL_EVALUATOR_ID
+
     def __init__(self, normalizer: ModelGraphNormalizer | None = None):
         self.normalizer = normalizer or ModelGraphNormalizer()
 
@@ -608,6 +614,7 @@ def _config_float(model: object, key: str) -> float | None:
 
 
 __all__ = [
+    "EXTERNAL_EVALUATOR_ID",
     "ExternalEvaluator",
     "MODEL_GRAPH_SCHEMA",
     "ModelGraphNormalizer",

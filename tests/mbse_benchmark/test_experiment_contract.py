@@ -39,6 +39,9 @@ def test_evaluator_spec_is_rejected_from_model_payload() -> None:
     with pytest.raises(ValueError, match="evaluator-only"):
         assert_model_visible_payload({"evaluation_spec": spec.payload}, spec)
 
+    with pytest.raises(ValueError, match="evaluator-only"):
+        assert_model_visible_payload({"known_conflicts": spec.payload}, spec)
+
 
 def test_repeat_summary_reports_sample_dispersion_and_ci() -> None:
     summary = summarize_repeats([{"quality": 0.4}, {"quality": 0.6}, {"quality": 0.8}])
@@ -75,6 +78,20 @@ def test_telemetry_aggregates_calls_tokens_latency_and_cost() -> None:
     assert telemetry.provider_latency_ms == 12
     assert telemetry.estimated_cost_usd == 0.000067
     assert telemetry.budget_exhausted is True
+
+
+def test_telemetry_accepts_native_prompt_and_eval_counts() -> None:
+    telemetry = ExperimentTelemetry.from_events([
+        GenerationCallEvent(
+            "native", "initial", "ollama", "model", 3, "completed",
+            {"prompt_eval_count": 11, "eval_count": 7},
+        ),
+    ])
+
+    assert telemetry.input_tokens == 11
+    assert telemetry.output_tokens == 7
+    assert telemetry.total_tokens == 18
+    assert telemetry.token_usage_status == "available"
 
 
 def test_numeric_projection_keeps_nested_semantic_governance_and_telemetry_metrics() -> None:

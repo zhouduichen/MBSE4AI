@@ -57,8 +57,8 @@ def _estimate_cost(
     if not isinstance(output_price, (int, float)) or isinstance(output_price, bool):
         return None
     value = (
-        _usage_count(usage, "input_tokens", "prompt_tokens") * float(input_price)
-        + _usage_count(usage, "output_tokens", "completion_tokens") * float(output_price)
+        _usage_count(usage, "input_tokens", "prompt_tokens", "prompt_eval_count") * float(input_price)
+        + _usage_count(usage, "output_tokens", "completion_tokens", "eval_count") * float(output_price)
     ) / 1_000_000
     return round(value, 8)
 
@@ -912,7 +912,7 @@ class OpenAICompatibleModel:
         if self._benchmark_output_budget is not None:
             usage = getattr(raw, "usage", {})
             usage = usage if isinstance(usage, Mapping) else {}
-            output_tokens = _usage_count(usage, "output_tokens", "completion_tokens")
+            output_tokens = _usage_count(usage, "output_tokens", "completion_tokens", "eval_count")
             self._benchmark_output_budget = max(0, self._benchmark_output_budget - output_tokens)
         return raw
 

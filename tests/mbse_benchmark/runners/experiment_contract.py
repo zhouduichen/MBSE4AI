@@ -13,12 +13,16 @@ from rflp_lite.ports.generative_model import GenerationCallEvent, TelemetrySink
 
 
 _EVALUATOR_KEYS = frozenset({
+    "coverage_expectations",
     "evaluation_spec",
     "evaluation_spec_hash",
     "expected",
     "expected_graph",
     "ground_truth",
+    "known_conflicts",
+    "metric_targets",
     "reference_graph",
+    "expectations",
 })
 
 
@@ -53,12 +57,18 @@ class ExperimentTelemetry:
         input_cost_per_1m_tokens: float | None = None,
         output_cost_per_1m_tokens: float | None = None,
     ) -> "ExperimentTelemetry":
-        input_tokens = sum(_usage_int(event.usage, "input_tokens", "prompt_tokens") for event in events)
-        output_tokens = sum(_usage_int(event.usage, "output_tokens", "completion_tokens") for event in events)
+        input_tokens = sum(
+            _usage_int(event.usage, "input_tokens", "prompt_tokens", "prompt_eval_count")
+            for event in events
+        )
+        output_tokens = sum(
+            _usage_int(event.usage, "output_tokens", "completion_tokens", "eval_count")
+            for event in events
+        )
         total_tokens = sum(
             _usage_int(event.usage, "total_tokens") or (
-                _usage_int(event.usage, "input_tokens", "prompt_tokens")
-                + _usage_int(event.usage, "output_tokens", "completion_tokens")
+                _usage_int(event.usage, "input_tokens", "prompt_tokens", "prompt_eval_count")
+                + _usage_int(event.usage, "output_tokens", "completion_tokens", "eval_count")
             )
             for event in events
         )
@@ -144,6 +154,8 @@ def _has_token_usage(usage: Mapping[str, object]) -> bool:
             "output_tokens",
             "completion_tokens",
             "total_tokens",
+            "prompt_eval_count",
+            "eval_count",
         )
     )
 

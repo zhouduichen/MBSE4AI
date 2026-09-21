@@ -7,6 +7,7 @@ from tests.mbse_benchmark.runners.report_builder import (
     build_failures,
     compute_metrics,
     compute_score,
+    render_benchmark_report,
     write_reports,
     write_scenario_comparison,
 )
@@ -81,6 +82,29 @@ def test_empty_coverage_is_not_applicable_and_reports_keep_the_value(tmp_path: P
     traceability = (tmp_path / "traceability_report.md").read_text(encoding="utf-8")
     assert "Complete Trace %: N/A" in traceability
     assert "1.0" not in traceability
+
+
+def test_benchmark_report_lists_all_four_control_switches() -> None:
+    report = render_benchmark_report({
+        "score": {},
+        "case_results": [],
+        "metadata": {
+            "scenario_metadata": [{
+                "scenario": "E_full_harness",
+                "model": "m",
+                "provider": "p",
+                "input_hash": "i",
+                "graph_hash": "g",
+                "verifier_enabled": True,
+                "gate_enabled": True,
+                "repair_enabled": True,
+                "cas_enabled": True,
+            }],
+        },
+    })
+
+    assert "| Scenario | Model | Provider | Input Hash | Graph Hash | Verifier | Gate | Repair | CAS |" in report
+    assert "True | True | True | True |" in report
 
 
 def test_scenario_comparison_writes_reproducibility_manifest(tmp_path: Path) -> None:

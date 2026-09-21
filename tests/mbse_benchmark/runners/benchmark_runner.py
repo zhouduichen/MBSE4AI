@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -23,7 +24,11 @@ from tests.mbse_benchmark.scenarios import (
     scenario_contract,
     validate_ablation_contracts,
 )
-from tests.mbse_benchmark.runners.scenario_pipeline import ExternalEvaluator, ModelGraphNormalizer
+from tests.mbse_benchmark.runners.scenario_pipeline import (
+    EXTERNAL_EVALUATOR_ID,
+    ExternalEvaluator,
+    ModelGraphNormalizer,
+)
 from tests.mbse_benchmark.runners.experiment_contract import BenchmarkInputEnvelope
 from tests.mbse_benchmark.runners.experiment_contract import (
     numeric_projection,
@@ -37,6 +42,70 @@ def _metric_display(value: object) -> object:
 
 def _case_output_name(case_id: str) -> str:
     return case_id.casefold().replace("-", "_")
+
+
+def _persisted_input_audit(
+    output_root: Path,
+    cases: tuple[Mapping[str, object], ...],
+    *,
+    repeats: int,
+) -> dict[str, object]:
+    """Verify the bytes actually written for every scenario/repeat.
+
+    Metadata hashes are useful but not sufficient evidence: a runner could
+    report the expected hash without writing those bytes to the model input
+    file.  This audit reads only the canonical input artifacts and never
+    exposes their payload in the comparison report.
+    """
+
+    records: list[dict[str, object]] = []
+    repeat_count = max(1, int(repeats))
+    for scenario in BenchmarkScenario:
+        for case in cases:
+            envelope = BenchmarkInputEnvelope.from_case(case)
+            expected_bytes = envelope.canonical_bytes + b"\n"
+            expected_file_hash = hashlib.sha256(expected_bytes).hexdigest()
+            for repeat_index in range(1, repeat_count + 1):
+                path = (
+                    output_root
+                    / scenario.value
+                    / _case_output_name(envelope.case_id)
+                    / f"repeat_{repeat_index:02d}"
+                    / "input.json"
+                )
+                if not path.is_file():
+                    records.append({
+                        "scenario": scenario.value,
+                        "case_id": envelope.case_id,
+                        "repeat_index": repeat_index,
+                        "path": str(path),
+                        "present": False,
+                        "exact": False,
+                        "expected_sha256": expected_file_hash,
+                        "observed_sha256": None,
+                        "expected_byte_length": len(expected_bytes),
+                        "observed_byte_length": None,
+                    })
+                    continue
+                observed_bytes = path.read_bytes()
+                records.append({
+                    "scenario": scenario.value,
+                    "case_id": envelope.case_id,
+                    "repeat_index": repeat_index,
+                    "path": str(path),
+                    "present": True,
+                    "exact": observed_bytes == expected_bytes,
+                    "expected_sha256": expected_file_hash,
+                    "observed_sha256": hashlib.sha256(observed_bytes).hexdigest(),
+                    "expected_byte_length": len(expected_bytes),
+                    "observed_byte_length": len(observed_bytes),
+                })
+    return {
+        "checked_count": len(records),
+        "all_present": bool(records) and all(bool(item["present"]) for item in records),
+        "all_exact": bool(records) and all(bool(item["exact"]) for item in records),
+        "records": records,
+    }
 
 
 def run_benchmark(
@@ -54,6 +123,7 @@ def run_benchmark(
     scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
     comparison_mode: str = "natural",
     total_output_token_budget: int | None = None,
+    evaluator: ExternalEvaluator | None = None,
 ) -> dict[str, object]:
     if track not in {item.value for item in BenchmarkTrack if item is not BenchmarkTrack.ROBUSTNESS}:
         raise ValueError(f"run_benchmark only executes harness or llm tracks: {track}")
@@ -65,8 +135,8 @@ def run_benchmark(
         raise ValueError("the vertical analysis path is only available on the explicit llm track")
     contract = scenario_contract(scenario)
     validate_ablation_contracts()
-    normalizer = ModelGraphNormalizer()
-    evaluator = ExternalEvaluator(normalizer)
+    normalizer = evaluator.normalizer if evaluator is not None else ModelGraphNormalizer()
+    evaluator = evaluator or ExternalEvaluator(normalizer)
     cases = load_cases(cases_dir)
     evaluation_spec = load_evaluation_spec(cases_dir.parent / "expected")
     if selected_case:
@@ -127,6 +197,13 @@ def run_benchmark(
                     "cas_enabled",
                 ):
                     repeat_result[control_key] = metadata.get(control_key)
+                execution = repeat_result.get("execution", {})
+                metadata["execution_status"] = (
+                    execution.get("status")
+                    if isinstance(execution, Mapping)
+                    else None
+                )
+                metadata["evaluator_id"] = evaluator.evaluator_id
             repeat_validation = evaluator.evaluate(
                 input_envelope,
                 graph,
@@ -216,6 +293,7 @@ def run_benchmark(
         "prompt_hash": ledger_metadata["prompt_hash"],
         "task_spec_hash": ledger_metadata["task_spec_hash"],
         "evaluation_spec_hash": evaluation_spec.evaluation_spec_hash,
+        "evaluator_id": evaluator.evaluator_id,
         "configuration": "offline RuleRuntime; isolated workspace; no external model" if track == BenchmarkTrack.HARNESS.value else "explicit LLM profile; isolated workspace; provider credentials are not written to reports",
         "cases": [str(case["case_id"]) for case in cases],
         "repeats": max(1, repeats),
@@ -277,7 +355,10 @@ def run_scenario_comparison(
 ) -> dict[str, object]:
     """Run A–E with one resolved model configuration and one evaluator path."""
 
+    if int(repeats) < 3:
+        raise ValueError("A–E comparison requires at least three repeats")
     validate_ablation_contracts()
+    shared_evaluator = ExternalEvaluator()
     scenario_summaries: dict[str, Mapping[str, object]] = {}
     for scenario in BenchmarkScenario:
         scenario_summaries[scenario.value] = run_benchmark(
@@ -294,6 +375,7 @@ def run_scenario_comparison(
             scenario=scenario.value,
             comparison_mode=comparison_mode,
             total_output_token_budget=total_output_token_budget,
+            evaluator=shared_evaluator,
         )
     comparison: dict[str, object] = {
         "status": "recorded",
@@ -322,6 +404,7 @@ def run_scenario_comparison(
                 "input_byte_length": first.get("input_byte_length"),
                 "task_spec_hash": first.get("task_spec_hash"),
                 "evaluation_spec_hash": first.get("evaluation_spec_hash"),
+                "evaluator_id": first.get("evaluator_id", EXTERNAL_EVALUATOR_ID),
                 "temperature": first.get("temperature"),
                 "benchmark_token_budget": first.get("benchmark_token_budget"),
                 "token_usage": first.get("token_usage"),
@@ -346,6 +429,7 @@ def run_scenario_comparison(
                     total_output_token_budget,
                 ),
                 "graph_hashes": [item.get("graph_hash") for item in records if item.get("graph_hash")],
+                "execution_statuses": [item.get("execution_status") for item in records],
                 "verifier_enabled": first.get("verifier_enabled"),
                 "gate_enabled": first.get("gate_enabled"),
                 "repair_enabled": first.get("repair_enabled"),
@@ -374,6 +458,16 @@ def run_scenario_comparison(
         ]
         for scenario, payload in comparison["scenarios"].items()
     }
+    selected_cases = load_cases(cases_dir)
+    if selected_case:
+        selected_cases = tuple(
+            case for case in selected_cases if str(case["case_id"]) == selected_case
+        )
+    comparison["input_artifact_audit"] = _persisted_input_audit(
+        output_root,
+        selected_cases,
+        repeats=repeats,
+    )
     all_records = [
         record
         for records in records_by_scenario.values()
@@ -401,6 +495,7 @@ def run_scenario_comparison(
         bool(input_sets)
         and len(set(input_sets)) == 1
         and bool(input_sets[0])
+        and bool(comparison["input_artifact_audit"].get("all_exact"))
         and all(
             signature[2] and signature[3] and signature[4] > 0
             for signature in input_sets[0]
@@ -412,6 +507,9 @@ def run_scenario_comparison(
     comparison["same_evaluation_spec"] = bool(all_records) and len({
         item.get("evaluation_spec_hash") for item in all_records
     }) == 1 and all(item.get("evaluation_spec_hash") for item in all_records)
+    comparison["same_evaluator"] = bool(all_records) and len({
+        item.get("evaluator_id") for item in all_records
+    }) == 1 and all(item.get("evaluator_id") for item in all_records)
     comparison["same_temperature"] = bool(all_records) and len({
         item.get("temperature") for item in all_records
     }) == 1
@@ -428,6 +526,21 @@ def run_scenario_comparison(
             for record in records_by_scenario.get(scenario, ())
         )
         for scenario, expected in comparison["controls"].items()
+    )
+    comparison["execution_complete"] = bool(all_records) and all(
+        record.get("execution_status") == "completed"
+        and bool(record.get("graph_hash"))
+        for record in all_records
+    )
+    comparison["real_calls_observed"] = bool(all_records) and all(
+        isinstance(record.get("telemetry"), Mapping)
+        and int(record["telemetry"].get("call_count", 0) or 0) > 0
+        for record in all_records
+    )
+    comparison["token_usage_observed"] = bool(all_records) and all(
+        isinstance(record.get("telemetry"), Mapping)
+        and record["telemetry"].get("token_usage_status") == "available"
+        for record in all_records
     )
     comparison["quality_cost_points"] = [
         {
@@ -459,9 +572,13 @@ def run_scenario_comparison(
             "same_input",
             "same_task_spec",
             "same_evaluation_spec",
+            "same_evaluator",
             "same_temperature",
             "budget_comparable",
             "ablation_contract_valid",
+            "execution_complete",
+            "real_calls_observed",
+            "token_usage_observed",
         )
     ):
         raise ValueError("A–E comparison invariant failed: model, input, task, or evaluator differs")
