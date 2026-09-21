@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import time
 from typing import Mapping
 
@@ -10,6 +10,7 @@ from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.model import ModelGraph, Relation
 from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.methodology.closure import evaluate_release_closure, evaluate_technical_closure
 from rflp_lite.ports.generative_model import GenerationRequest, GenerationResponse, GenerativeModel
 
 from tests.mbse_benchmark.scenarios import BenchmarkScenario, ScenarioContract
@@ -112,21 +113,54 @@ class RunMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class NormalizationAudit:
+    """Audit the authority claims made by a model response."""
+
+    claimed_statuses: Mapping[str, str]
+    claimed_producers: Mapping[str, str]
+    lifecycle_claims: tuple[str, ...] = ()
+    authority_violations: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "claimed_statuses": dict(self.claimed_statuses),
+            "claimed_producers": dict(self.claimed_producers),
+            "lifecycle_claims": list(self.lifecycle_claims),
+            "authority_violations": list(self.authority_violations),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizedGraph:
+    graph: ModelGraph
+    audit: NormalizationAudit
+
+
+@dataclass(frozen=True, slots=True)
 class ScenarioOutput:
     graph: ModelGraph
     metadata: RunMetadata
     responses: tuple[GenerationResponse, ...]
+    normalization_audit: NormalizationAudit = NormalizationAudit({}, {})
 
 
 class ModelGraphNormalizer:
     """Convert every scenario output to the canonical ModelGraph shape."""
 
     def normalize(self, value: object, *, project_id: str = "benchmark") -> ModelGraph:
+        return self.normalize_with_audit(value, project_id=project_id).graph
+
+    def normalize_with_audit(
+        self,
+        value: object,
+        *,
+        project_id: str = "benchmark",
+    ) -> NormalizedGraph:
         if isinstance(value, ModelGraph):
-            return value
+            return self._force_graph_authority(value)
         candidate = value.get("graph", value) if isinstance(value, Mapping) else value
         if isinstance(candidate, ModelGraph):
-            return candidate
+            return self._force_graph_authority(candidate)
         if isinstance(candidate, Mapping) and "entities" in candidate:
             return self._graph_from_mapping(candidate, project_id)
         payload = candidate if isinstance(candidate, Mapping) else {}
@@ -144,7 +178,30 @@ class ModelGraphNormalizer:
                 status=EntityStatus.CANDIDATE,
                 producer=Producer.LLM,
             ))
-        return ModelGraph(project_id, tuple(entities), (), 0)
+        return NormalizedGraph(
+            ModelGraph(project_id, tuple(entities), (), 0),
+            NormalizationAudit({}, {}),
+        )
+
+    @staticmethod
+    def semantic_projection(graph: ModelGraph) -> ModelGraph:
+        """Return a private status-neutral graph for semantic scoring only."""
+
+        entities = tuple(
+            replace(
+                entity,
+                meta=replace(
+                    entity.meta,
+                    status=(
+                        EntityStatus.VALIDATED
+                        if entity.meta.status is EntityStatus.CANDIDATE
+                        else entity.meta.status
+                    ),
+                ),
+            )
+            for entity in graph.entities
+        )
+        return ModelGraph(graph.project_id, entities, graph.relations, graph.revision)
 
     def payload(self, graph: ModelGraph) -> dict[str, object]:
         return {
@@ -164,16 +221,25 @@ class ModelGraphNormalizer:
             ],
         }
 
-    def _graph_from_mapping(self, value: Mapping[str, object], project_id: str) -> ModelGraph:
+    def _graph_from_mapping(self, value: Mapping[str, object], project_id: str) -> NormalizedGraph:
         raw_entities = [item for item in value.get("entities", ()) if isinstance(item, Mapping)]
         entities = []
         id_map: dict[str, str] = {}
+        claimed_statuses: dict[str, str] = {}
+        claimed_producers: dict[str, str] = {}
+        lifecycle_claims: list[str] = []
+        authority_violations: list[str] = []
         for item in raw_entities:
-            entity = self._entity_from_mapping(item)
+            entity, raw_id, raw_status, raw_producer = self._entity_from_mapping(item)
             entities.append(entity)
-            raw_id = str(item.get("id", "")).strip()
             if raw_id:
                 id_map[raw_id] = entity.id
+                claimed_statuses[raw_id] = raw_status
+                claimed_producers[raw_id] = raw_producer
+                if raw_status != EntityStatus.CANDIDATE.value:
+                    lifecycle_claims.append(raw_id)
+                if raw_status in {EntityStatus.ACCEPTED.value, EntityStatus.LOCKED.value} or raw_producer == Producer.USER.value:
+                    authority_violations.append(raw_id)
         relations = []
         for item in value.get("relations", ()):
             if not isinstance(item, Mapping):
@@ -193,11 +259,19 @@ class ModelGraphNormalizer:
                 target_id,
                 tuple(str(item_id) for item_id in item.get("evidence_ids", ()) if str(item_id)),
             ))
-        return ModelGraph(
-            str(value.get("project_id", project_id)),
-            tuple(entities),
-            tuple(relations),
-            int(value.get("revision", 0) or 0),
+        return NormalizedGraph(
+            ModelGraph(
+                str(value.get("project_id", project_id)),
+                tuple(entities),
+                tuple(relations),
+                int(value.get("revision", 0) or 0),
+            ),
+            NormalizationAudit(
+                claimed_statuses,
+                claimed_producers,
+                tuple(dict.fromkeys(lifecycle_claims)),
+                tuple(dict.fromkeys(authority_violations)),
+            ),
         )
 
     @staticmethod
@@ -206,30 +280,54 @@ class ModelGraphNormalizer:
             kind = EntityKind(str(value.get("kind", EntityKind.REQUIREMENT.value)))
         except ValueError:
             kind = EntityKind.REQUIREMENT
-        try:
-            status = EntityStatus(str(value.get("status", EntityStatus.CANDIDATE.value)))
-        except ValueError:
-            status = EntityStatus.CANDIDATE
-        try:
-            producer = Producer(str(value.get("producer", Producer.LLM.value)))
-        except ValueError:
-            producer = Producer.LLM
+        raw_status = str(value.get("status", EntityStatus.CANDIDATE.value))
+        raw_producer = str(value.get("producer", Producer.LLM.value))
         entity = make_entity(
             kind,
             str(value.get("name", kind.value)),
             value.get("payload", {}) if isinstance(value.get("payload", {}), Mapping) else {},
-            status=status,
-            producer=producer,
+            status=EntityStatus.CANDIDATE,
+            producer=Producer.LLM,
             confidence=value.get("confidence"),
             source_ids=tuple(str(item) for item in value.get("source_ids", ()) if str(item)),
             evidence_ids=tuple(str(item) for item in value.get("evidence_ids", ()) if str(item)),
         )
         raw_id = str(value.get("id", "")).strip()
         if raw_id:
-            from dataclasses import replace
-
             entity = replace(entity, meta=replace(entity.meta, id=raw_id))
-        return entity
+        return entity, raw_id, raw_status, raw_producer
+
+    @staticmethod
+    def _force_graph_authority(graph: ModelGraph) -> NormalizedGraph:
+        claimed_statuses = {entity.id: entity.meta.status.value for entity in graph.entities}
+        claimed_producers = {entity.id: entity.meta.producer.value for entity in graph.entities}
+        lifecycle_claims = tuple(
+            entity.id
+            for entity in graph.entities
+            if entity.meta.status is not EntityStatus.CANDIDATE
+        )
+        authority_violations = tuple(
+            entity.id
+            for entity in graph.entities
+            if entity.meta.status in {EntityStatus.ACCEPTED, EntityStatus.LOCKED}
+            or entity.meta.producer is Producer.USER
+        )
+        entities = tuple(
+            replace(
+                entity,
+                meta=replace(entity.meta, status=EntityStatus.CANDIDATE, producer=Producer.LLM),
+            )
+            for entity in graph.entities
+        )
+        return NormalizedGraph(
+            ModelGraph(graph.project_id, entities, graph.relations, graph.revision),
+            NormalizationAudit(
+                claimed_statuses,
+                claimed_producers,
+                lifecycle_claims,
+                authority_violations,
+            ),
+        )
 
 
 class ExternalEvaluator:
@@ -263,12 +361,40 @@ class ExternalEvaluator:
             "graph": self.normalizer.payload(graph),
             "execution": dict(execution or observed.get("execution", {"status": "completed"})),
         })
+        semantic_graph = self.normalizer.semantic_projection(graph)
+        semantic_observed = dict(observed)
+        semantic_observed["graph"] = self.normalizer.payload(semantic_graph)
         result = validate_case(
             input_envelope.payload,
-            observed,
+            semantic_observed,
             evaluation_spec.payload,
             repeats=repeats,
         )
+        raw_audit = observed.get("normalization_audit")
+        audit = (
+            raw_audit.as_dict()
+            if isinstance(raw_audit, NormalizationAudit)
+            else dict(raw_audit)
+            if isinstance(raw_audit, Mapping)
+            else {}
+        )
+        technical = evaluate_technical_closure(graph)
+        release = evaluate_release_closure(graph)
+        semantic_metrics = dict(result.get("metrics", {}))
+        governance_metrics = {
+            "authority_violation_count": len(audit.get("authority_violations", ())),
+            "lifecycle_claim_count": len(audit.get("lifecycle_claims", ())),
+            "authority_violations": list(audit.get("authority_violations", ())),
+            "technical_closure": technical.as_dict(),
+            "release_closure": release.as_dict(),
+            "verifier_enabled": observed.get("verifier_enabled"),
+            "gate_enabled": observed.get("gate_enabled"),
+            "repair_enabled": observed.get("repair_enabled"),
+            "cas_enabled": observed.get("cas_enabled"),
+        }
+        result["semantic_metrics"] = semantic_metrics
+        result["governance_metrics"] = governance_metrics
+        result.setdefault("details", {})["governance"] = governance_metrics
         result["input_hash"] = input_envelope.input_hash
         result["evaluation_spec_hash"] = evaluation_spec.evaluation_spec_hash
         return result
@@ -335,7 +461,8 @@ class ScenarioRunner:
             responses.append(response)
             response_payload = response.payload if isinstance(response.payload, Mapping) else {}
             payload = _merge_graph_payload(payload, response_payload, project_id)
-        graph = self.normalizer.normalize(payload, project_id=project_id)
+        normalized = self.normalizer.normalize_with_audit(payload, project_id=project_id)
+        graph = normalized.graph
         duration_ms = max(0, int((time.monotonic() - started) * 1000))
         usage = _sum_usage(responses)
         last = responses[-1] if responses else None
@@ -360,7 +487,7 @@ class ScenarioRunner:
             repair_enabled=contract.has_repair,
             cas_enabled=contract.has_cas,
         )
-        return ScenarioOutput(graph, metadata, tuple(responses))
+        return ScenarioOutput(graph, metadata, tuple(responses), normalized.audit)
 
 
 def model_input_for_case(case: Mapping[str, object] | BenchmarkInputEnvelope) -> dict[str, object]:
@@ -434,6 +561,8 @@ __all__ = [
     "ExternalEvaluator",
     "MODEL_GRAPH_SCHEMA",
     "ModelGraphNormalizer",
+    "NormalizationAudit",
+    "NormalizedGraph",
     "RunMetadata",
     "ScenarioOutput",
     "ScenarioRunner",

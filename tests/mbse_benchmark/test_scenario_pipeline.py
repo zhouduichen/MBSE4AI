@@ -81,6 +81,27 @@ def test_model_graph_normalizer_preserves_ids_and_remaps_relations():
     assert graph.relations[0].target_id == "fn-1"
 
 
+def test_model_graph_normalizer_removes_model_lifecycle_authority_claims():
+    normalized = ModelGraphNormalizer().normalize_with_audit({
+        "project_id": "p1",
+        "entities": [{
+            "id": "req-1",
+            "kind": "requirement",
+            "name": "系统需求",
+            "status": "accepted",
+            "producer": "user",
+            "payload": {"statement": "系统应完成任务"},
+        }],
+        "relations": [],
+    })
+
+    entity = normalized.graph.entities[0]
+    assert entity.meta.status.value == "candidate"
+    assert entity.meta.producer.value == "llm"
+    assert normalized.audit.authority_violations == ("req-1",)
+    assert normalized.audit.claimed_statuses["req-1"] == "accepted"
+
+
 def test_metadata_contains_reproducibility_fields():
     model = RecordingModel()
     result = ScenarioRunner().run(
