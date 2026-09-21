@@ -78,6 +78,8 @@ def test_empty_requirement_scope_is_not_vacuously_covered():
 
     assert result.rows == ()
     assert result.passed is False
+    assert result.as_check()["status"] == "not_applicable"
+    assert result.as_check()["coverage"] is None
 
 
 def test_functional_coverage_names_the_requirement_missing_a_live_function():

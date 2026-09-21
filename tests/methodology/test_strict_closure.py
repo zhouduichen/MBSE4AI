@@ -8,7 +8,7 @@ from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
 from rflp_lite.methodology.gates import global_gate, rflp_gate
 
 
-def _graph(*, requirement_status=EntityStatus.ACCEPTED, omit=(), requirement_payload=None):
+def _graph(*, requirement_status=EntityStatus.ACCEPTED, downstream_status=EntityStatus.ACCEPTED, omit=(), requirement_payload=None):
     requirement = make_entity(
         EntityKind.REQUIREMENT,
         "配送需求",
@@ -16,9 +16,9 @@ def _graph(*, requirement_status=EntityStatus.ACCEPTED, omit=(), requirement_pay
         status=requirement_status,
         evidence_ids=("e1",),
     )
-    function = make_entity(EntityKind.FUNCTION, "支持配送", status=EntityStatus.VALIDATED)
-    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "配送逻辑", status=EntityStatus.VALIDATED)
-    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "配送执行器", status=EntityStatus.VALIDATED)
+    function = make_entity(EntityKind.FUNCTION, "支持配送", status=downstream_status)
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "配送逻辑", status=downstream_status)
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "配送执行器", status=downstream_status)
     vv_payload = {
         "requirement_ids": [requirement.id],
         "function_ids": [function.id],
@@ -38,13 +38,13 @@ def _graph(*, requirement_status=EntityStatus.ACCEPTED, omit=(), requirement_pay
         EntityKind.VERIFICATION_CASE,
         "验证配送需求",
         vv_payload,
-        status=EntityStatus.VALIDATED,
+        status=downstream_status,
     )
     validation = make_entity(
         EntityKind.VALIDATION_CASE,
         "确认配送需求",
         {**vv_payload, "method": "demonstration"},
-        status=EntityStatus.VALIDATED,
+        status=downstream_status,
     )
     entities = {
         "requirement": requirement,
@@ -85,7 +85,8 @@ def test_empty_requirement_scope_fails_and_empty_ratios_are_not_passes():
 
     assert result.passed is False
     assert "empty_requirement_scope" in _codes(result)
-    assert matrix.metrics["r_to_f_coverage"] == 0.0
+    assert matrix.metrics["r_to_f_coverage"] is None
+    assert matrix.metrics["coverage_status"] == "not_applicable"
     assert p_gate.passed is False
 
 

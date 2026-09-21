@@ -9,7 +9,7 @@
 
 项目目标通过 `ProjectContextService` 进入同一条链：写入 System 的 mission/objectives，并以候选 Requirement 保留来源和后续 RFLP/V&V 追溯；自然语言、文档区域和已有输入由 `RequirementInputService` 统一去重与合并 provenance，避免五阶段生成和 23-task pipeline 产生不同的 Requirement 图；既有 SysML 直接导入 ModelGraph，其他 managed project 则只作为 Controller 的历史检索来源。
 
-这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `0.2.0`，方法论协议是 `v2.1`。每个项目使用独立工作区和数据库，正式模型和证据仍按项目隔离；Controller 可对其他 managed project 的 FTS 做只读历史检索，命中内容以 Evidence 回写当前项目。五阶段生成器是产品主入口；`WorkflowRunner` 保留完整 23-task 生命周期和单阶段调试能力，作为显式兼容/研究路径。
+这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `MBSE4AI v0.3.1`，方法论协议是 `v0.3.1`。每个项目使用独立工作区和数据库，正式模型和证据仍按项目隔离；Controller 可对其他 managed project 的 FTS 做只读历史检索，命中内容以 Evidence 回写当前项目。五阶段生成器是产品主入口；`WorkflowRunner` 保留完整 23-task 生命周期和单阶段调试能力，作为显式兼容/研究路径。
 
 完整 pipeline 由 `WorkflowRunner` 写入当前 ModelGraph revision 后，由应用层 `PipelineReportService` 做只读结果投影。它一次读取图，复用 `build_traceability_summary`、`MethodologyEngine` 和 `SystemsEngineeringController`，输出追溯指标、架构/物理工程结论和下一步动作；`AnalysisService`、Resource API 和 Web 页面共用这份投影，`report_revision/report_snapshot_hash` 与 deliverable 绑定。报告不是新的持久化事实，不创建 Run、Patch 或 Revision，也不触发 LLM；因此 API、刷新后的工作台和 SysML/交付包继续围绕同一个 ModelGraph 真源。
 
@@ -34,7 +34,9 @@ adapters → ports + domain
 - `adapters/`：文档解析、OCR 和模型/文档技术实现；由 `bootstrap/container.py` 组装。
 - `interface/`：`ai4mbse` CLI、FastAPI Resource API 和五个资源页面；Analysis 主入口默认调用五阶段产品生成，`mode=pipeline` 保留完整 23-task 生命周期，`phase` 仍可显式单阶段调试；CLI 的 `analyze generate --profile` 和 Web Analysis 的 `profile_id` 都只为本次请求选择已保存 Profile，不改变 active profile。
 - Web 页面使用独立的展示适配层把 VerticalStage、Completion、Methodology 和 Controller 的机器字段转换为用户可读的工程阶段、质量结论和下一步动作；原始任务/实体标识、运行台账和 payload 只在高级详情或稳定 data 属性中保留，不改变 API、ModelGraph 或执行边界。
-- `tests/mbse_benchmark/tracks/`：Harness deterministic、显式 LLM/bare baseline、Agent robustness 三轨基准；各轨独立记录 runtime/profile/provider/model、方法论和哈希元数据。
+- `tests/mbse_benchmark/`：Harness、同模型 A–E 对照和 Agent robustness 三轨基准；A–E 统一经过 ScenarioContract、ScenarioRunner、ModelGraphNormalizer 和 ExternalEvaluator，各轨独立记录 runtime/profile/provider/model、方法论和哈希元数据。
+
+Benchmark 的 Coverage 只使用 PASS/FAIL/N/A 三态；空需求范围输出 `coverage: null` 和 `status: "not_applicable"`。Closure 明确拆为 Technical Closure（Validated/Accepted/Locked）与 Release Closure（Accepted/Locked），后者是正式交付门。
 
 ## 写入与恢复规则
 

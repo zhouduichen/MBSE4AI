@@ -1,8 +1,8 @@
 # 开发状态
 
 **更新时间：** 2026-09-21
-**产品版本：** rflp-lite 0.3.0
-**方法论协议：** v2.1
+**产品版本：** MBSE4AI v0.3.1
+**方法论协议：** v0.3.1
 
 ## 已完成
 
@@ -16,13 +16,15 @@
 | 生命周期闭环 | 单次调用串联四阶段、Global Gate、Closure manifest、冻结 revision 和审计摘要；指定 phase 保留调试入口 |
 | 运行可追溯 | active profile/provider/model、TaskSpec/prompt/context/input/output hash、step ledger、lease/heartbeat |
 | 方法论智能化重构 | 23 个独立版本化 Prompt、可执行 Validator、谓词感知 Coverage Matrix、局部语义 Repair、Completion/Failure DSL、分层 Context Planner |
-| Benchmark 三轨 | Harness deterministic、显式 LLM + same-model bare baseline、Agent robustness faults 分开运行和报告，不共享总分 |
-| Trusted Closure | Closure 对空作用域、零 Accepted/Locked Requirement、不完整 R→F→L→P→V&V、候选/回退占位和未解决 Issue 非空通过；垂直阶段覆盖同样禁止空集真值通过 |
+| Benchmark 三轨 | A–E 统一由 ScenarioContract→ScenarioRunner→ModelGraphNormalizer→ExternalEvaluator 驱动；A/B 与 E 使用同一显式模型配置，Agent robustness faults 分开运行和报告，不共享总分 |
+| Closure gates | Technical Closure 允许 Validated/Accepted/Locked；Release Closure 只允许 Accepted/Locked；空需求范围和零 Accepted Requirement 均失败 |
+| Coverage semantics | Coverage 统一为 PASS/FAIL/N/A；空范围序列化为 `coverage: null`、`status: "not_applicable"`，不会把空集报告为 1.0 |
 | Lifecycle authority | LLM、Verifier、User、Task 和 Acceptance Policy 的状态迁移权限显式区分；通用 PATCH 不得伪造 status/producer，Review 降级旧事实并保留影响审计 |
 | Verifier-grounded retry | 结构化输出、语义关系、PatchPolicy 和 V&V 反馈均进入有界重试；Verifier 失败写入结构化 feedback，不得在未重跑 Gate 时宣称恢复 |
 | Run lease safety | Provider/Repair 长调用期间由后台 heartbeat 保持租约；所有 run-owned CAS 仍需当前 lease，完成/取消 Run 不可被重新认领 |
 | Least-privilege task contract | 23 个 TaskSpec 使用显式输入/输出类型、谓词白名单、字段白名单、上下文范围和操作上限；缺少策略的旧请求 fail-closed |
-| v0.3 Benchmark validity | A–E 场景入口均执行并记录 verifier/repair/CAS 控制差异；Robustness 十类故障通过真实 SQLiteModelRepository、WorkflowRunner lease/CAS、Gate、外部 Verifier 和重跑链路，检测率与根因定位率均为 1.0 |
+| v0.3.1 Experimental validity | A–E 记录 model/provider、prompt/task/input/graph hash、temperature、token usage、latency 和 verifier/repair/CAS 控制；Robustness 十类故障通过真实 SQLiteModelRepository、WorkflowRunner lease/CAS、Gate、外部 Verifier 和重跑链路，检测率与根因定位率均为 1.0 |
+| CI closure | GitHub `CI / quality` 运行 pytest、Ruff、compileall、lint-imports、architecture budget 和 robustness benchmark；真实远程 LLM、FreeCAD、GPU 仅在独立 integration workflow 中手动/定时运行 |
 | 资源服务 | Project、Analysis、Model、Evidence、Render、Settings 服务及统一依赖组装 |
 | CLI / Web | `ai4mbse` 命令、完整 Analysis 工作流页、Trace 页、连接测试和 JSON/SVG/DOT/SysML-lite 导出 |
 | CLI 单次模型选择 | `analyze generate --profile <id>` 可为本次五阶段生成选择已保存 Profile，不修改 active profile；适用于远程 SSH/Tailscale 模型验收 |
@@ -160,19 +162,19 @@ RFLP_CONFIG_DIR="$(mktemp -d)" AI4MBSE_CAD_BACKEND=preview ./.venv/bin/python -m
 
 本版本已将 2.1/2.2 的概念布局与多学科快速评估切片接回 Core，并将 3.1–3.3 接到远程 FreeCAD 真实几何链。默认 preview 不触碰本机模型；设置 `AI4MBSE_CAD_BACKEND=freecad-remote` 后使用 `Jiayu-intern` 上的独立 FreeCAD 环境，输出 FCStd/STEP 并回读验证。固定翼评估器、GD&T 标准映射和 DFM/DFA 规则仍是开发证据；正式工程结论仍需客户批准的真实标准、规则库和验证合格适配器。
 
-Track B 需要显式配置 profile，不能在无密钥 CI 中默认运行：
+Track B 需要显式配置 profile，不能在无密钥 CI 中默认运行。A–E 对照使用同一 profile：
 
 ```bash
-./.venv/bin/python tests/mbse_benchmark/run_benchmark.py --track llm --profile <profile-id>
+./.venv/bin/python tests/mbse_benchmark/run_benchmark.py \
+  --track llm --profile <profile-id> --compare-a-e --case CASE-04
 ```
 
-要验收产品五阶段纵向链（而不是兼容性的 23-task `WorkflowRunner`），显式选择
-`--path vertical`：
+要验收单个完整 Harness 五阶段纵向链，显式选择 `--path vertical`；A–E 研究对照仍建议使用上面的 `--compare-a-e`：
 
 ```bash
 ./.venv/bin/python tests/mbse_benchmark/run_benchmark.py \
   --track llm --profile windows-5080-ollama --path vertical \
-  --case CASE-04 --repeats 1 --timeout 1800 --baseline bare
+  --case CASE-04 --repeats 1 --timeout 1800 --scenario E_full_harness
 ```
 
 该命令要求显式 LLM profile；不会回退到本机模型。默认 `--path lifecycle`

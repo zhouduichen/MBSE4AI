@@ -143,9 +143,11 @@ def test_traceability_projection_uses_ready_targets_and_scope_semantics():
 
     assert first_row["status"] == "PASS"
     assert first_row["coverage_percent"] == 100.0
+    assert first_row["coverage_status"] == "pass"
     assert second_row["functions"] == ()
     assert "function" in second_row["gaps"]
     assert second_row["status"] == "MISSING_FUNCTION"
+    assert second_row["coverage_status"] == "fail"
     assert first_row["stage_coverage"] == {
         "functional": True,
         "logical": True,

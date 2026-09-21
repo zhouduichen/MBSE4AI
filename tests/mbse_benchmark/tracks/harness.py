@@ -111,11 +111,15 @@ def evaluate_harness_case(result: Mapping[str, object]) -> dict[str, object]:
         if isinstance(item, Mapping)
         and str(item.get("kind", "")).casefold() in {"repair.applied", "task.recovered"}
     ]
+    rflp_coverage = coverage_metrics.get(
+        "r_to_f_to_l_to_p_coverage",
+        traceability.get("architecture_traceability"),
+    )
     return {
         "pipeline_completion": 1.0 if completed else 0.0,
         "revision_determinism": 1.0 if complete_graphs and len({item[0] for item in signatures}) <= 1 else 0.0,
         "graph_hash_determinism": 1.0 if complete_graphs and len({item[1] for item in signatures}) <= 1 else 0.0,
-        "rflp_trace_coverage": float(coverage_metrics.get("r_to_f_to_l_to_p_coverage", traceability.get("architecture_traceability", 0.0)) or 0.0),
+        "rflp_trace_coverage": rflp_coverage,
         "gate_detection": 1.0 if gate_evidence or consistency.get("conflict_signals") else 0.0,
         "repair_recovery": 1.0 if repair_evidence and _has_gate_recovery(audit_events) else 0.0,
         "cas_lock_protection": 1.0 if isinstance(primary.get("cas_probe"), Mapping) and primary["cas_probe"].get("stale_write_rejected") is True else 0.0,
@@ -133,8 +137,12 @@ def compute_harness_metrics(case_results: list[Mapping[str, object]]) -> dict[st
     }
     aggregate: dict[str, object] = {}
     for key in HARNESS_METRICS:
-        values = [float(metrics.get(key, 0.0)) for metrics in per_case.values()]
-        aggregate[key] = round(sum(values) / len(values), 6) if values else 0.0
+        values = [
+            float(metrics[key])
+            for metrics in per_case.values()
+            if isinstance(metrics.get(key), (int, float)) and not isinstance(metrics.get(key), bool)
+        ]
+        aggregate[key] = round(sum(values) / len(values), 6) if values else None
     aggregate["per_case"] = per_case
     aggregate["repeat_minimum"] = min(
         (int(metrics.get("repeat_count", 0)) for metrics in per_case.values()),

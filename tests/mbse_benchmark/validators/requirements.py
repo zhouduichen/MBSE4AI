@@ -87,8 +87,8 @@ def _derived_requirement_review(
         else:
             invalid.append(entity_id)
     total = len(technical)
-    precision = len(valid) / total if total else 1.0
-    return total, round(precision, 6), valid, invalid
+    precision = round(len(valid) / total, 6) if total else None
+    return total, precision, valid, invalid
 
 
 def validate_requirements(graph: Mapping[str, object], expectations: Mapping[str, object] | None = None) -> dict[str, object]:
@@ -125,7 +125,20 @@ def validate_requirements(graph: Mapping[str, object], expectations: Mapping[str
     validity = ratio(len(set(clear) & set(sourced)), total)
     atomicity = ratio(len(atomic), total)
     verifiability = ratio(len(verifiable), total)
-    unsupported_rate = ratio(len(unsupported), total) if total else 0.0
+    unsupported_rate = ratio(len(unsupported), total)
+
+    def threshold_status(value: float | None, threshold: float, *, maximum: bool = False) -> str:
+        if value is None:
+            return "N/A"
+        return "PASS" if (value <= threshold if maximum else value >= threshold) else "FAIL"
+
+    quality_status = (
+        "N/A"
+        if any(value is None for value in (validity, atomicity, verifiability))
+        else "PASS"
+        if validity >= 0.90 and atomicity >= 0.85 and verifiability >= 0.90
+        else "FAIL"
+    )
     return {
         "requirement_count": total,
         "requirement_validity": validity,
@@ -143,8 +156,8 @@ def validate_requirements(graph: Mapping[str, object], expectations: Mapping[str
         "derived_requirement_valid_ids": derived_valid_ids,
         "derived_requirement_invalid_ids": derived_invalid_ids,
         "findings": [
-            finding("T4", str(graph.get("project_id", "")), "PASS" if validity >= 0.90 and atomicity >= 0.85 and verifiability >= 0.90 else "FAIL", severity="P1", category="requirement_quality", expected={"validity": ">= 90%", "atomicity": ">= 85%", "verifiability": ">= 90%"}, actual={"validity": validity, "atomicity": atomicity, "verifiability": verifiability}, root_cause="requirement fields are vague, compound, unverifiable, or unproven" if validity < 0.90 or atomicity < 0.85 or verifiability < 0.90 else "", recommended_fix="Normalize atomic shall-statements with source and verification criteria."),
-            finding("T19", str(graph.get("project_id", "")), "PASS" if unsupported_rate <= 0.05 else "FAIL", severity="P1", category="unsupported_assumption", expected="unsupported hard assumption rate <= 5%", actual=unsupported_rate, related_elements=unsupported, root_cause="hard requirements lack source or engineering rationale" if unsupported else "", recommended_fix="Attach stakeholder/scenario/evidence provenance or mark the item as an explicit assumption."),
-            finding("T8", str(graph.get("project_id", "")), "PASS" if derived_precision >= 0.80 else "FAIL", severity="P1", category="derived_requirement_precision", expected=">= 80% technical requirements preserve typed parent and physical derivation", actual={"precision": derived_precision, "count": derived_count, "valid_ids": derived_valid_ids, "invalid_ids": derived_invalid_ids}, related_elements=derived_invalid_ids, root_cause="technical requirements are not connected to a source requirement and physical candidate" if derived_invalid_ids else "", recommended_fix="Persist source_requirement_ids/source_physical_ids and derivedFrom/satisfiedBy edges for each technical requirement."),
+            finding("T4", str(graph.get("project_id", "")), quality_status, severity="P1", category="requirement_quality", expected={"validity": ">= 90%", "atomicity": ">= 85%", "verifiability": ">= 90%"}, actual={"validity": validity, "atomicity": atomicity, "verifiability": verifiability}, root_cause="requirement fields are vague, compound, unverifiable, or unproven" if quality_status == "FAIL" else "", recommended_fix="Normalize atomic shall-statements with source and verification criteria."),
+            finding("T19", str(graph.get("project_id", "")), threshold_status(unsupported_rate, 0.05, maximum=True), severity="P1", category="unsupported_assumption", expected="unsupported hard assumption rate <= 5%", actual=unsupported_rate, related_elements=unsupported, root_cause="hard requirements lack source or engineering rationale" if unsupported else "", recommended_fix="Attach stakeholder/scenario/evidence provenance or mark the item as an explicit assumption."),
+            finding("T8", str(graph.get("project_id", "")), threshold_status(derived_precision, 0.80), severity="P1", category="derived_requirement_precision", expected=">= 80% technical requirements preserve typed parent and physical derivation", actual={"precision": derived_precision, "count": derived_count, "valid_ids": derived_valid_ids, "invalid_ids": derived_invalid_ids}, related_elements=derived_invalid_ids, root_cause="technical requirements are not connected to a source requirement and physical candidate" if derived_invalid_ids else "", recommended_fix="Persist source_requirement_ids/source_physical_ids and derivedFrom/satisfiedBy edges for each technical requirement."),
         ],
     }

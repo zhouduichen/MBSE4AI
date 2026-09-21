@@ -9,7 +9,7 @@ from rflp_lite.domain.model import ModelGraph
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
 from rflp_lite.methodology.coverage import CoverageGap, CoverageReport, evaluate
-from rflp_lite.methodology.closure import evaluate_strict_closure
+from rflp_lite.methodology.closure import evaluate_technical_closure
 from rflp_lite.methodology.vertical_coverage import resolve_requirement_trace
 from rflp_lite.methodology.trace_rules import F_TO_L, L_TO_P, R_TO_F, R_TO_V, R_TO_VALIDATION
 
@@ -96,7 +96,7 @@ def rflp_gate(graph: ModelGraph) -> GateResult:
         if not physical:
             missing.append(requirement.id)
     issues = [CoverageGap("broken_requirement_rflp_trace", "architecture", tuple(missing))] if missing else []
-    strict = evaluate_strict_closure(graph)
+    strict = evaluate_technical_closure(graph)
     issues.extend(
         CoverageGap(issue.code, "architecture", issue.entity_ids)
         for issue in strict.issues
@@ -138,7 +138,7 @@ def global_gate(graph: ModelGraph) -> GateResult:
         })
         if not validation_linked:
             issues.append(CoverageGap("broken_requirement_validation_trace", "validation", (row.requirement_id,)))
-    strict = evaluate_strict_closure(graph)
+    strict = evaluate_technical_closure(graph)
     existing = {(issue.code, issue.entity_ids) for issue in issues}
     for issue in strict.issues:
         if (issue.code, issue.entity_ids) in existing:

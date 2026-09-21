@@ -13,12 +13,17 @@ from tests.mbse_benchmark.runners.report_builder import (
     build_failures,
     compute_metrics,
     compute_score,
+    write_scenario_comparison,
     write_reports,
 )
-from tests.mbse_benchmark.validators.case import validate_case
 from tests.mbse_benchmark.tracks import BenchmarkTrack
 from tests.mbse_benchmark.tracks.harness import compute_harness_metrics
 from tests.mbse_benchmark.scenarios import BenchmarkScenario, scenario_contract
+from tests.mbse_benchmark.runners.scenario_pipeline import ExternalEvaluator, ModelGraphNormalizer
+
+
+def _metric_display(value: object) -> object:
+    return "N/A" if value is None else value
 
 
 def _case_output_name(case_id: str) -> str:
@@ -48,6 +53,8 @@ def run_benchmark(
     if analysis_path == "vertical" and track != BenchmarkTrack.LLM.value:
         raise ValueError("the vertical analysis path is only available on the explicit llm track")
     contract = scenario_contract(scenario)
+    normalizer = ModelGraphNormalizer()
+    evaluator = ExternalEvaluator(normalizer)
     cases = load_cases(cases_dir)
     expectations = load_expectations(cases_dir.parent / "expected")
     if selected_case:
@@ -72,7 +79,15 @@ def run_benchmark(
             for index in range(1, max(1, repeats) + 1)
         ]
         primary = next((item for item in repeat_results if item.get("graph")), repeat_results[0])
-        validation = validate_case(case, primary, expectations, repeats=repeat_results)
+        graph = normalizer.normalize(primary.get("graph", {}), project_id=case_id.lower())
+        primary["graph"] = normalizer.payload(graph)
+        validation = evaluator.evaluate(
+            case,
+            graph,
+            expectations,
+            raw_result=primary,
+            repeats=repeat_results,
+        )
         validation["repeat_results"] = repeat_results
         validation["metadata"] = _case_metadata(case_id, repeat_results, track=track, profile=profile)
         (case_dir / "validation.json").write_text(
@@ -131,15 +146,99 @@ def run_benchmark(
             "commit": _git_value(["rev-parse", "HEAD"]),
             "cases": [str(case["case_id"]) for case in cases],
             "repeat": max(1, repeats),
+            "scenario_metadata": [
+                item.get("metadata", {})
+                for result in case_results
+                for item in result.get("repeat_results", ())
+                if isinstance(item, Mapping) and item.get("metadata")
+            ],
         },
-        "traceability_summary": "\n".join(f"{item.get('case_id', '')}: {item.get('metrics', {}).get('end_to_end_traceability', 0)} end-to-end coverage" for item in case_results),
-        "requirement_quality_summary": "\n".join(f"{item.get('case_id', '')}: validity={item.get('metrics', {}).get('requirement_validity', 0)}, atomicity={item.get('metrics', {}).get('requirement_atomicity', 0)}, verifiability={item.get('metrics', {}).get('requirement_verifiability', 0)}" for item in case_results),
-        "consistency_summary": "\n".join(f"{item.get('case_id', '')}: conflict_detection={item.get('metrics', {}).get('known_conflict_detection', 0)}" for item in case_results),
+        "traceability_summary": "\n".join(f"{item.get('case_id', '')}: {_metric_display(item.get('metrics', {}).get('end_to_end_traceability'))} end-to-end coverage" for item in case_results),
+        "requirement_quality_summary": "\n".join(f"{item.get('case_id', '')}: validity={_metric_display(item.get('metrics', {}).get('requirement_validity'))}, atomicity={_metric_display(item.get('metrics', {}).get('requirement_atomicity'))}, verifiability={_metric_display(item.get('metrics', {}).get('requirement_verifiability'))}" for item in case_results),
+        "consistency_summary": "\n".join(f"{item.get('case_id', '')}: conflict_detection={_metric_display(item.get('metrics', {}).get('known_conflict_detection'))}" for item in case_results),
         "fault_injection_summary": next((str(item.get('details', {}).get('consistency', {})) for item in case_results if item.get('case_id') == "CASE-05"), "CASE-05 was not selected."),
         "iteration_summary": "\n".join(f"{item.get('case_id', '')}: iteration_signal={item.get('metrics', {}).get('iteration_signal', False)}" for item in case_results),
     }
     write_reports(summary, report_dir or output_root.parent / "reports")
     return summary
+
+
+def run_scenario_comparison(
+    cases_dir: Path,
+    output_root: Path,
+    *,
+    repeats: int = 1,
+    timeout_seconds: int = 60,
+    report_dir: Path,
+    selected_case: str | None = None,
+    profile: str,
+    runtime_config: Mapping[str, object],
+    analysis_path: str = "lifecycle",
+) -> dict[str, object]:
+    """Run A–E with one resolved model configuration and one evaluator path."""
+
+    scenario_summaries: dict[str, Mapping[str, object]] = {}
+    for scenario in BenchmarkScenario:
+        scenario_summaries[scenario.value] = run_benchmark(
+            cases_dir,
+            output_root / scenario.value,
+            repeats=repeats,
+            timeout_seconds=timeout_seconds,
+            report_dir=report_dir / scenario.value,
+            selected_case=selected_case,
+            track=BenchmarkTrack.LLM.value,
+            profile=profile,
+            runtime_config=runtime_config,
+            analysis_path=analysis_path,
+            scenario=scenario.value,
+        )
+    comparison: dict[str, object] = {
+        "status": "recorded",
+        "track": "llm_same_model_comparison",
+        "profile": profile,
+        "model": str(runtime_config.get("model", "")),
+        "provider": str(runtime_config.get("provider_id", runtime_config.get("provider", ""))),
+        "scenarios": {},
+    }
+    for scenario, summary in scenario_summaries.items():
+        metadata = summary.get("metadata", {})
+        run_metadata = metadata.get("scenario_metadata", ()) if isinstance(metadata, Mapping) else ()
+        records = [item for item in run_metadata if isinstance(item, Mapping)]
+        first = records[0] if records else {}
+        comparison["scenarios"][scenario] = {
+            "status": summary.get("score", {}).get("final_status", "NOT_RUN"),
+            "metrics": summary.get("metrics", {}),
+            "metadata": {
+                "model": first.get("model", summary.get("model", "")),
+                "provider": first.get("provider", summary.get("provider", "")),
+                "prompt_hash": first.get("prompt_hash"),
+                "input_hash": first.get("input_hash"),
+                "task_spec_hash": first.get("task_spec_hash"),
+                "temperature": first.get("temperature"),
+                "token_usage": first.get("token_usage"),
+                "latency_ms": first.get("latency_ms"),
+                "graph_hashes": [item.get("graph_hash") for item in records if item.get("graph_hash")],
+                "verifier_enabled": first.get("verifier_enabled"),
+                "repair_enabled": first.get("repair_enabled"),
+                "cas_enabled": first.get("cas_enabled"),
+            },
+        }
+    metadata_values = [
+        payload.get("metadata", {})
+        for payload in comparison["scenarios"].values()
+        if isinstance(payload, Mapping) and isinstance(payload.get("metadata"), Mapping)
+    ]
+    comparison["same_model_provider"] = bool(metadata_values) and len({
+        (item.get("model"), item.get("provider")) for item in metadata_values
+    }) == 1
+    comparison["same_input"] = bool(metadata_values) and len({
+        item.get("input_hash") for item in metadata_values
+    }) == 1
+    comparison["same_task_spec"] = bool(metadata_values) and len({
+        item.get("task_spec_hash") for item in metadata_values
+    }) == 1
+    write_scenario_comparison(comparison, report_dir)
+    return comparison
 
 
 def _case_metadata(
@@ -154,6 +253,11 @@ def _case_metadata(
         for item in repeat_results
         if isinstance(item.get("run_ledger"), Mapping)
     ]
+    run_metadata = [
+        item.get("metadata", {})
+        for item in repeat_results
+        if isinstance(item.get("metadata"), Mapping)
+    ]
     return {
         "track": track,
         "case": case_id,
@@ -162,6 +266,7 @@ def _case_metadata(
         "methodology_version": sorted({str(item.get("methodology_version", "")) for item in ledgers if item.get("methodology_version")}),
         "prompt_hash": sorted({str(item.get("prompt_hash", "")) for item in ledgers if item.get("prompt_hash")}),
         "task_spec_hash": sorted({str(item.get("task_spec_hash", "")) for item in ledgers if item.get("task_spec_hash")}),
+        "run_metadata": run_metadata,
     }
 
 
@@ -215,6 +320,7 @@ def main() -> int:
     parser.add_argument("--report-dir", type=Path, default=Path("tests/mbse_benchmark/reports"))
     parser.add_argument("--track", choices=[item.value for item in BenchmarkTrack], default=BenchmarkTrack.HARNESS.value)
     parser.add_argument("--profile", help="explicit LLM profile ID; required by --track llm")
+    parser.add_argument("--compare-a-e", action="store_true", help="run A–E with one configured model and one evaluator")
     parser.add_argument(
         "--path",
         dest="analysis_path",
@@ -222,7 +328,6 @@ def main() -> int:
         default="lifecycle",
         help="analysis path; vertical runs the five-stage product generation path",
     )
-    parser.add_argument("--baseline", choices=("harness", "bare", "both"), default="both", help="LLM track comparison baseline")
     parser.add_argument("--scenario", choices=[item.value for item in BenchmarkScenario], default=BenchmarkScenario.E_FULL_HARNESS.value)
     args = parser.parse_args()
     if args.track == BenchmarkTrack.ROBUSTNESS.value:
@@ -246,6 +351,21 @@ def main() -> int:
             parser.error(str(exc))
         args.output_root = args.output_root / "llm" / str(args.profile)
         args.report_dir = args.report_dir / "llm" / str(args.profile)
+        if args.compare_a_e:
+            comparison = run_scenario_comparison(
+                Path("tests/mbse_benchmark/cases"),
+                args.output_root,
+                repeats=args.repeats,
+                timeout_seconds=args.timeout_seconds,
+                report_dir=args.report_dir,
+                selected_case=args.selected_case,
+                profile=args.profile,
+                runtime_config=runtime_config,
+                analysis_path=args.analysis_path,
+            )
+            print(f"A-E STATUS: {comparison['status']}")
+            print(f"Scenarios: {', '.join(str(item) for item in comparison['scenarios'])}")
+            return 0
     summary = run_benchmark(
         Path("tests/mbse_benchmark/cases"),
         args.output_root,
@@ -259,14 +379,6 @@ def main() -> int:
         analysis_path=args.analysis_path,
         scenario=args.scenario,
     )
-    if args.track == BenchmarkTrack.LLM.value and args.baseline in {"bare", "both"}:
-        from tests.mbse_benchmark.tracks.llm import run_bare_baseline
-
-        cases = load_cases(Path("tests/mbse_benchmark/cases"))
-        if args.selected_case:
-            cases = tuple(case for case in cases if str(case["case_id"]) == args.selected_case)
-        summary["bare_llm_baseline"] = run_bare_baseline(cases, runtime_config or {})
-        write_reports(summary, args.report_dir)
     print(f"FINAL STATUS: {summary['score']['final_status']}")
     if args.track == BenchmarkTrack.HARNESS.value:
         print(f"TRACK STATUS: {summary['track_status']}")

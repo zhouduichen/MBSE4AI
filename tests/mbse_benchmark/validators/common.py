@@ -160,8 +160,10 @@ def finding(
     }
 
 
-def ratio(matched: int, total: int) -> float:
-    return round(matched / total, 6) if total else 1.0
+def ratio(matched: int, total: int) -> float | None:
+    """Return a ratio, or None when the metric has no applicable scope."""
+
+    return round(matched / total, 6) if total else None
 
 
 def json_text(value: object) -> str:

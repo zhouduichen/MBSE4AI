@@ -51,9 +51,9 @@ reports/failures.json
 reports/traceability_report.md
 ```
 
-当前验收基线使用 `RuleRuntime`，不读取用户的激活 LLM 配置；因此结果可离线重复。若要评估外部 LLM，应单独运行并保留 provider/model/配置记录，不得覆盖这份确定性基线。
+Coverage 使用三态语义：非空范围为 `PASS`/`FAIL`，空范围为 `N/A`，序列化为 `status: "not_applicable"`、`coverage: null`，不能把零需求当成 100%。
 
-## 三轨入口
+## 入口
 
 Track A 是常规 CI 使用的确定性 Harness：
 
@@ -61,11 +61,15 @@ Track A 是常规 CI 使用的确定性 Harness：
 ./.venv/bin/python tests/mbse_benchmark/run_benchmark.py --track harness --repeats 3
 ```
 
-Track B 必须显式指定 LLM profile；它会把 Harness + 同一模型与裸 LLM（同输入、无 workflow/gate/repair）分开记录：
+Track B 必须显式指定 LLM profile。A–E 对照会对同一输入使用同一 provider/model、同一个 ModelGraph normalizer 和同一个 external evaluator：
 
 ```bash
-./.venv/bin/python tests/mbse_benchmark/run_benchmark.py --track llm --profile <profile-id> --case CASE-01
+./.venv/bin/python tests/mbse_benchmark/run_benchmark.py --track llm --profile <profile-id> --compare-a-e --case CASE-01
 ```
+
+五个场景的含义是：A Bare one-shot，B Bare staged，C Harness without verifier，D Harness without repair，E Full Harness。A/B 的模型输入只包含 system brief、stakeholders、lifecycle 和 scenarios，不包含 `expected/` 内容；缺少显式 profile 时 A/B 会失败，而不会构造 ground-truth graph。
+
+每次场景保存 `metadata.json`，包括 scenario、model、provider、prompt/task-spec/input hash、temperature、token usage、latency、graph hash 以及 verifier/repair/CAS 开关。比较报告位于 `reports/llm/<profile-id>/a_to_e_comparison.{json,md}`。
 
 Track C 使用临时 SQLite ModelRepository 和真实 WorkflowRunner lease/CAS 边界注入故障，经过 Gate/外部 Verifier 检测、最小修复和重跑后，单独报告检测、定位、修复和回归指标：
 
@@ -73,4 +77,4 @@ Track C 使用临时 SQLite ModelRepository 和真实 WorkflowRunner lease/CAS �
 ./.venv/bin/python tests/mbse_benchmark/run_benchmark.py --track robustness
 ```
 
-每条 Track 的报告都记录 track、runtime/profile/provider/model、methodology version、prompt/task-spec hash、commit、case 和 repeat；Track A 与 Track B 不共享总分。
+每条运行都记录 track、runtime/profile/provider/model、prompt/task-spec/input hash、commit、case 和 repeat；真实远程 LLM、FreeCAD 和 GPU 测试不进入普通 CI，而由 `.github/workflows/integration.yml` 手动或 nightly 触发。

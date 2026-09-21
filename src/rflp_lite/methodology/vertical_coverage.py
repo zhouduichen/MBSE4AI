@@ -13,6 +13,7 @@ from rflp_lite.methodology.trace_rules import (
     is_technical_requirement,
     requirement_lineage,
 )
+from rflp_lite.methodology.coverage_status import coverage_result
 
 
 class CoverageStage(StrEnum):
@@ -60,11 +61,17 @@ class VerticalCoverage:
     def missing_requirement_ids(self) -> tuple[str, ...]:
         return tuple(row.requirement_id for row in self.rows if row.missing)
 
+    @property
+    def coverage(self) -> Mapping[str, object]:
+        return coverage_result(self.covered_count, len(self.rows))
+
     def as_check(self, *, max_gaps: int = 24) -> Mapping[str, object]:
         return {
             "id": f"requirement_coverage:{self.stage}",
             "stage": self.stage,
             "passed": self.passed,
+            "status": self.coverage["status"],
+            "coverage": self.coverage["coverage"],
             "requirement_count": len(self.rows),
             "covered_count": self.covered_count,
             "missing_requirement_ids": list(self.missing_requirement_ids),

@@ -18,6 +18,7 @@ from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.methodology.engine import MethodologyEngine
+from rflp_lite.methodology.coverage_status import coverage_result
 from rflp_lite.methodology.vv_contract import missing_vv_plan_fields
 
 
@@ -303,6 +304,13 @@ def _vv_plan(assurance: Mapping[str, object]) -> Mapping[str, object]:
             for field in ("activity_id", "stimulus", "procedure", "expected_result", "pass_criteria")
         )
     ]
+    branch_executed = sum(
+        str(item.get("status", ""))
+        in {"passed", "failed", "blocked", "inconclusive"}
+        or bool(item.get("execution_evidence_ids"))
+        for item in branch_scenarios
+    )
+    branch_coverage = coverage_result(branch_executed, len(branch_scenarios))
     metrics = {
         "requirement_count": len(requirement_ids),
         "row_count": len(rows),
@@ -310,31 +318,38 @@ def _vv_plan(assurance: Mapping[str, object]) -> Mapping[str, object]:
         "incomplete_row_count": sum(row.get("status") != "PASS" for row in rows),
         "verification_coverage_percent": _coverage_percent(requirement_ids, verification_rows),
         "validation_coverage_percent": _coverage_percent(requirement_ids, validation_rows),
+        "verification_coverage_status": _coverage_status(requirement_ids, verification_rows),
+        "validation_coverage_status": _coverage_status(requirement_ids, validation_rows),
         "branch_scenario_total": len(branch_scenarios),
         "branch_scenario_complete": len(branch_complete),
-        "branch_execution_coverage_percent": round(
-            100 * sum(
-                str(item.get("status", ""))
-                in {"passed", "failed", "blocked", "inconclusive"}
-                or bool(item.get("execution_evidence_ids"))
-                for item in branch_scenarios
-            ) / len(branch_scenarios),
-            2,
-        ) if branch_scenarios else 0.0,
+        "branch_execution_coverage_percent": (
+            round(float(branch_coverage["coverage"]) * 100, 2)
+            if branch_coverage["coverage"] is not None else None
+        ),
+        "branch_execution_coverage_status": branch_coverage["status"],
         "gate_coverage": gate_metrics,
     }
     return {"rows": rows, "gates": gates, "metrics": metrics}
 
 
-def _coverage_percent(requirement_ids: set[str], rows: list[Mapping[str, object]]) -> float:
+def _coverage_percent(requirement_ids: set[str], rows: list[Mapping[str, object]]) -> float | None:
     if not requirement_ids:
-        return 100.0
+        return None
     covered = {
         str(row.get("requirement_id"))
         for row in rows
         if row.get("case_id")
     }
     return round(len(covered & requirement_ids) / len(requirement_ids) * 100, 2)
+
+
+def _coverage_status(requirement_ids: set[str], rows: list[Mapping[str, object]]) -> str:
+    covered = {
+        str(row.get("requirement_id"))
+        for row in rows
+        if row.get("case_id")
+    }
+    return str(coverage_result(len(covered & requirement_ids), len(requirement_ids))["status"])
 
 
 def _architecture_report(

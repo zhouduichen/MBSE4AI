@@ -1,0 +1,70 @@
+name: Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Configured LLM profile ID for the same-model A–E comparison"
+        required: false
+        type: string
+      run_freecad:
+        description: "Run opt-in remote FreeCAD integration"
+        required: true
+        default: false
+        type: boolean
+  schedule:
+    - cron: "17 2 * * 6"
+
+permissions:
+  contents: read
+
+jobs:
+  remote-llm:
+    name: remote LLM A–E comparison
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+      - name: Run same-model A–E comparison
+        env:
+          AI4MBSE_LLM_PROFILE: ${{ inputs.profile }}
+        run: python tests/mbse_benchmark/run_benchmark.py --track llm --profile "$AI4MBSE_LLM_PROFILE" --compare-a-e
+
+  freecad:
+    name: opt-in remote FreeCAD
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_freecad }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+      - name: Run opt-in FreeCAD integration tests
+        env:
+          AI4MBSE_CAD_BACKEND: freecad-remote
+        run: pytest -q tests/integration/test_freecad_remote.py
+
+  gpu:
+    name: opt-in GPU integration
+    runs-on: [self-hosted, linux, gpu]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_freecad }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm GPU runner and run GPU-tagged tests when present
+        run: |
+          python - <<'PY'
+          import pathlib
+          import subprocess
+          import sys
+
+          tests = pathlib.Path("tests").rglob("test_*.py")
+          gpu_tests = [str(path) for path in tests if "gpu" in path.read_text(encoding="utf-8").casefold()]
+          if gpu_tests:
+              raise SystemExit(subprocess.call([sys.executable, "-m", "pytest", "-q", *gpu_tests]))
+          print("No GPU-tagged tests are configured; integration job completed without a claim.")
+          PY

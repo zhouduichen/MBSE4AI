@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 from rflp_lite.adapters.openai_compatible_model import OpenAICompatibleModel
 from rflp_lite.bootstrap.v2 import build_v2_services
-from rflp_lite.domain.canonical import canonical_json, to_primitive
+from rflp_lite.domain.canonical import canonical_hash, canonical_json, to_primitive
 from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
 from rflp_lite.domain.errors import ConcurrentModificationError
 from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
@@ -22,9 +22,13 @@ from rflp_lite.methodology.closure import evaluate_strict_closure
 from rflp_lite.repository.sqlite import SQLiteModelRepository
 from tests.mbse_benchmark.scenarios import (
     BenchmarkScenario,
-    bare_model_graph,
-    normalize_to_model_graph,
     scenario_contract,
+)
+from tests.mbse_benchmark.runners.scenario_pipeline import (
+    ModelGraphNormalizer,
+    ScenarioRunner,
+    TASK_SPEC,
+    model_input_for_case,
 )
 
 
@@ -251,14 +255,19 @@ def _run_case_inner(
             BenchmarkScenario.A_BARE_ONE_SHOT,
             BenchmarkScenario.B_BARE_STAGED,
         }:
-            graph = normalize_to_model_graph(
-                bare_model_graph(
-                    case,
-                    project_id=project_id,
-                    staged=contract.scenario is BenchmarkScenario.B_BARE_STAGED,
-                ),
+            if not runtime_config:
+                raise ValueError(
+                    "A/B benchmark scenarios require the explicit configured model used by E"
+                )
+            model = OpenAICompatibleModel(dict(runtime_config))
+            scenario_output = ScenarioRunner(ModelGraphNormalizer()).run(
+                case,
+                contract,
+                model,
                 project_id=project_id,
+                token_budget=int(runtime_config.get("benchmark_token_budget", 3000) or 3000),
             )
+            graph = scenario_output.graph
             closure = evaluate_strict_closure(graph)
             summary = {
                 "run_id": f"{project_id}-{contract.scenario.value}",
@@ -266,7 +275,7 @@ def _run_case_inner(
                 "status": "completed",
                 "phase": "bare_model",
                 "completed_tasks": [],
-                "diagnostics": ["bare scenario: repository, verifier, repair and CAS bypassed"],
+                "diagnostics": ["bare scenario: configured model call; repository, verifier, repair and CAS bypassed"],
                 "closure": {
                     "status": "completed" if closure.passed else "blocked",
                     "issues": [item.as_dict() for item in closure.issues],
@@ -284,6 +293,7 @@ def _run_case_inner(
             _write_json(output_dir / "coverage_matrix.json", build_requirement_coverage(graph).as_dict())
             _write_json(output_dir / "issues.json", [])
             _write_json(output_dir / "audit.json", {"events": []})
+            _write_json(output_dir / "metadata.json", scenario_output.metadata.as_dict())
             execution.update(
                 {
                     "status": "completed",
@@ -294,6 +304,7 @@ def _run_case_inner(
                     "relation_count": len(graph.relations),
                     "cas_probe": {},
                     "scenario_controls": summary["scenario_controls"],
+                    "metadata": scenario_output.metadata.as_dict(),
                 }
             )
             return
@@ -330,13 +341,23 @@ def _run_case_inner(
         run = repository.load_run(project_id, summary.run_id)
         issues = repository.list_issues(project_id)
         audit = repository.audit_summary(project_id, summary.run_id)
-        cas_probe = _run_cas_probe(repository, project_id)
+        cas_probe = _run_cas_probe(repository, project_id) if contract.has_cas else {}
         _write_json(output_dir / "run_summary.json", to_primitive(summary))
         _write_json(output_dir / "run_ledger.json", to_primitive(run) if run else {})
         _write_json(output_dir / "model.json", _graph_payload(graph))
         _write_json(output_dir / "coverage_matrix.json", build_requirement_coverage(graph).as_dict())
         _write_json(output_dir / "issues.json", issues)
         _write_json(output_dir / "audit.json", audit)
+        ledger_payload = to_primitive(run) if run else {}
+        ledger_metadata = ledger_payload.get("metadata", ledger_payload) if isinstance(ledger_payload, Mapping) else {}
+        _write_json(output_dir / "metadata.json", _harness_metadata(
+            case,
+            contract,
+            graph,
+            runtime_config,
+            ledger_metadata,
+            execution_elapsed=time.time() - started,
+        ))
         execution.update(
             {
                 "status": "completed",
@@ -352,6 +373,7 @@ def _run_case_inner(
                     "repair": contract.has_repair,
                     "cas": contract.has_cas,
                 },
+                "metadata": json.loads((output_dir / "metadata.json").read_text(encoding="utf-8")),
             }
         )
     except BaseException as exc:  # Persist the failure before the child exits.
@@ -460,4 +482,55 @@ def run_case(
         if (output_dir / "audit.json").exists()
         else {},
         "cas_probe": execution.get("cas_probe", {}),
+        "metadata": json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+        if (output_dir / "metadata.json").exists()
+        else {},
     }
+
+
+def _harness_metadata(
+    case: Mapping[str, object],
+    contract,
+    graph,
+    runtime_config: Mapping[str, object] | None,
+    ledger_metadata: Mapping[str, object],
+    *,
+    execution_elapsed: float,
+) -> dict[str, object]:
+    config = runtime_config or {}
+    model_input = model_input_for_case(case)
+    fallback_context = {
+        "scenario": contract.scenario.value,
+        "model": config.get("model", "rule-runtime"),
+        "provider": config.get("provider_id", config.get("provider", "offline")),
+        "case_input": model_input,
+        "controls": {
+            "verifier": contract.has_verifier,
+            "repair": contract.has_repair,
+            "cas": contract.has_cas,
+        },
+    }
+    prompt_hash = ledger_metadata.get("prompt_hash") or canonical_hash(fallback_context)
+    task_spec_hash = ledger_metadata.get("task_spec_hash") or canonical_hash(TASK_SPEC)
+    return {
+        "scenario": contract.scenario.value,
+        "model": str(config.get("model", "rule-runtime")),
+        "provider": str(config.get("provider_id", config.get("provider", "offline"))),
+        "prompt_hash": str(prompt_hash),
+        "task_spec_hash": str(task_spec_hash),
+        "temperature": _as_float(config.get("temperature")),
+        "input_hash": canonical_hash(model_input),
+        "token_usage": ledger_metadata.get("token_usage") if isinstance(ledger_metadata.get("token_usage"), Mapping) else None,
+        "latency_ms": max(0, int(execution_elapsed * 1000)),
+        "graph_hash": graph.snapshot_hash,
+        "verifier_enabled": contract.has_verifier,
+        "repair_enabled": contract.has_repair,
+        "cas_enabled": contract.has_cas,
+    }
+
+
+def _as_float(value: object) -> float | None:
+    try:
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None

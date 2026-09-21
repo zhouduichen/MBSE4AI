@@ -12,6 +12,7 @@ from rflp_lite.methodology.vertical_coverage import (
     resolve_rflp_paths,
 )
 from rflp_lite.methodology.vv_contract import missing_vv_plan_fields
+from rflp_lite.methodology.coverage_status import coverage_result
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,9 +108,15 @@ def build_requirement_coverage(graph: ModelGraph) -> CoverageMatrix:
         if not entity.meta.source_ids and not entity.meta.evidence_ids
         and not any(entity.id in {relation.source_id, relation.target_id} for relation in graph.relations)
     )
-    ratio = lambda value: value / total if total else 0.0
+    ratio = lambda value: value / total if total else None
+    complete_count = count(lambda row: row.passed)
+    aggregate = coverage_result(complete_count, total)
     metrics = {
         "requirement_count": total,
+        "covered_count": complete_count,
+        "coverage": aggregate["coverage"],
+        "status": aggregate["status"],
+        "coverage_status": aggregate["status"],
         "r_to_f_coverage": ratio(count(lambda row: bool(row.functions))),
         "r_to_f_to_l_coverage": ratio(count(lambda row: bool(row.logical_components))),
         "r_to_f_to_l_to_p_coverage": ratio(count(lambda row: bool(row.physical_blocks))),
@@ -123,8 +130,8 @@ def build_requirement_coverage(graph: ModelGraph) -> CoverageMatrix:
     return CoverageMatrix(tuple(rows), metrics)
 
 
-def _verification_pass_criteria_coverage(graph: ModelGraph) -> float:
+def _verification_pass_criteria_coverage(graph: ModelGraph) -> float | None:
     cases = [entity for entity in graph.entities if entity.kind is EntityKind.VERIFICATION_CASE]
     if not cases:
-        return 0.0
+        return None
     return sum(1 for entity in cases if not missing_vv_plan_fields(entity.payload)) / len(cases)

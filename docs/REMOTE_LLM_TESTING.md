@@ -136,12 +136,14 @@ RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-profile \
   --case CASE-04 \
   --repeats 1 \
   --timeout 900 \
-  --baseline bare
+  --compare-a-e
 ```
 
-The result is an explicit LLM-track report. It must be kept separate from the
-deterministic offline Harness acceptance and must not be described as a local
-model test.
+The result is an explicit same-model A–E LLM-track comparison. It must be kept
+separate from the deterministic offline Harness acceptance and must not be
+described as a local model test. The report records the scenario controls and
+the model/provider, prompt/task/input/graph hashes, temperature, token usage,
+latency, verifier, repair, and CAS settings for every scenario.
 
 For the compatibility/diagnostic 23-task lifecycle, use the same isolated
 profile with `--path lifecycle`:
@@ -155,7 +157,7 @@ RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-profile \
   --case CASE-04 \
   --repeats 1 \
   --timeout 2400 \
-  --baseline harness
+  --scenario E_full_harness
 ```
 
 When the configured Runtime advertises parallel support, this path dispatches
@@ -187,7 +189,7 @@ RFLP_CONFIG_DIR=/tmp/ai4mbse-bridge-config \
   --case CASE-05 \
   --repeats 1 \
   --timeout 300 \
-  --baseline harness
+  --scenario E_full_harness
 ```
 
 Observed result: `ACCEPTED`, `100 / 100`, P0 `6 / 6`, 37 entities, 54

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from rflp_lite.domain.errors import ContractViolation
-from rflp_lite.methodology.closure import evaluate_strict_closure
+from rflp_lite.methodology.closure import evaluate_release_closure
 from rflp_lite.methodology.gates import global_gate
 
 
@@ -43,7 +43,7 @@ class ClosureService:
         graph = self.repository.load_graph(project_id)
         issue_reader = getattr(self.repository, "list_issues", None)
         issue_records = issue_reader(project_id) if callable(issue_reader) else ()
-        assessment = evaluate_strict_closure(graph, issue_records=issue_records)
+        assessment = evaluate_release_closure(graph, issue_records=issue_records)
         if not assessment.passed:
             result = ClosureResult(
                 project_id,

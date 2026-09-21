@@ -65,8 +65,8 @@ def test_derived_requirement_precision_is_neutral_when_no_technical_requirement_
     })
 
     assert result["derived_requirement_count"] == 0
-    assert result["derived_requirement_precision"] == 1.0
-    assert next(item for item in result["findings"] if item["test_id"] == "T8")["status"] == "PASS"
+    assert result["derived_requirement_precision"] is None
+    assert next(item for item in result["findings"] if item["test_id"] == "T8")["status"] == "N/A"
 
 
 def test_case05_validator_computes_both_known_conflicts_and_requires_signal() -> None:

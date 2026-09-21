@@ -32,7 +32,7 @@ TARGETS = {
 }
 
 
-def _numeric_values(values: list[object], *, missing: float | None = 0.0) -> float | None:
+def _numeric_values(values: list[object], *, missing: float | None = None) -> float | None:
     numeric = [float(item) for item in values if isinstance(item, (int, float)) and not isinstance(item, bool)]
     return round(sum(numeric) / len(numeric), 6) if numeric else missing
 
@@ -55,7 +55,7 @@ def compute_metrics(case_results: list[Mapping[str, object]]) -> dict[str, objec
             ]
         else:
             values = [metrics.get(key) for metrics in per_case.values()]
-        aggregate[key] = _numeric_values(values, missing=None if key == "derived_requirement_precision" else 0.0)
+        aggregate[key] = _numeric_values(values)
     aggregate["iteration_signal"] = any(bool(metrics.get("iteration_signal")) for metrics in per_case.values())
     aggregate["per_case"] = per_case
     return aggregate
@@ -244,7 +244,7 @@ def render_benchmark_report(summary: Mapping[str, object]) -> str:
     lines.extend(["", "## 4. Metrics", "", "| Metric | Observed | Target |", "| ------ | -------: | -----: |"])
     for key, target in TARGETS.items():
         observed = metrics.get(key)
-        display = "NOT_IMPLEMENTED" if observed is None else f"{float(observed):.3f}"
+        display = "N/A" if observed is None else f"{float(observed):.3f}"
         lines.append(f"| {key} | {display} | {target:.2f} |")
     lines.extend(["", "## 5. P0 Failures", ""])
     p0 = score.get("p0", {})
@@ -271,14 +271,18 @@ def render_benchmark_report(summary: Mapping[str, object]) -> str:
         for key, value in track_metrics.items():
             if key == "per_case":
                 continue
-            lines.append(f"| {key} | {value} |")
-    bare = summary.get("bare_llm_baseline")
-    if isinstance(bare, Mapping):
-        lines.extend(["", "## 15. Bare LLM Baseline", "", "This baseline uses the same input and configured model without methodology workflow, gates, or repair.", "", "| Metric | Observed |", "| ------ | -------: |"])
-        bare_metrics = bare.get("metrics", {})
-        if isinstance(bare_metrics, Mapping):
-            for key, value in bare_metrics.items():
-                lines.append(f"| {key} | {value} |")
+            lines.append(f"| {key} | {'N/A' if value is None else value} |")
+    scenario_metadata = summary.get("metadata", {}).get("scenario_metadata", ()) if isinstance(summary.get("metadata", {}), Mapping) else ()
+    if scenario_metadata:
+        lines.extend(["", "## 15. Reproducibility Metadata", "", "| Scenario | Model | Provider | Input Hash | Graph Hash | Verifier | Repair | CAS |", "| -------- | ----- | -------- | ---------- | ---------- | -------- | ------ | --- |"])
+        for item in scenario_metadata:
+            if not isinstance(item, Mapping):
+                continue
+            lines.append(
+                f"| {item.get('scenario', '')} | {item.get('model', '')} | {item.get('provider', '')} | "
+                f"`{item.get('input_hash', '')}` | `{item.get('graph_hash', '')}` | "
+                f"{item.get('verifier_enabled', '')} | {item.get('repair_enabled', '')} | {item.get('cas_enabled', '')} |"
+            )
     return "\n".join(lines)
 
 
@@ -306,9 +310,12 @@ def render_traceability_report(summary: Mapping[str, object]) -> str:
             else:
                 status = "Broken"
                 broken += 1
-            lines.append(f"| {result.get('case_id', '')} | {requirement_id} | {'PASS' if trace.get('upstream_traceability', 0) else 'FAIL'} | {'PASS' if trace.get('upstream_traceability', 0) else 'FAIL'} | {'PASS' if trace.get('use_case_traceability', 0) else 'FAIL'} | {'PASS' if trace.get('activity_traceability', 0) else 'FAIL'} | {'PASS' if values['Function'] else 'FAIL'} | {'PASS' if values['Logical'] else 'FAIL'} | {'PASS' if values['Physical'] else 'FAIL'} | {'PASS' if values['Verification'] else 'FAIL'} | {status} |")
+            def cell(value: object) -> str:
+                return "N/A" if value is None else "PASS" if value else "FAIL"
+
+            lines.append(f"| {result.get('case_id', '')} | {requirement_id} | {cell(trace.get('upstream_traceability'))} | {cell(trace.get('upstream_traceability'))} | {cell(trace.get('use_case_traceability'))} | {cell(trace.get('activity_traceability'))} | {cell(values['Function'])} | {cell(values['Logical'])} | {cell(values['Physical'])} | {cell(values['Verification'])} | {status} |")
     total = complete + partial + broken
-    lines.extend(["", f"Complete Trace %: {complete / total:.3f}" if total else "Complete Trace %: 0.000", f"Partial Trace %: {partial / total:.3f}" if total else "Partial Trace %: 0.000", f"Broken Trace %: {broken / total:.3f}" if total else "Broken Trace %: 0.000", "Orphan %: see benchmark metrics."])
+    lines.extend(["", f"Complete Trace %: {complete / total:.3f}" if total else "Complete Trace %: N/A", f"Partial Trace %: {partial / total:.3f}" if total else "Partial Trace %: N/A", f"Broken Trace %: {broken / total:.3f}" if total else "Broken Trace %: N/A", "Orphan %: see benchmark metrics."])
     return "\n".join(lines) + "\n"
 
 
@@ -334,7 +341,53 @@ def write_reports(summary: Mapping[str, object], report_dir: Path) -> None:
         "track_status": summary.get("track_status", "NOT_RUN"),
         "metrics": summary.get("metrics", {}),
         "track_metrics": summary.get("track_metrics", {}),
-        "bare_llm_baseline": summary.get("bare_llm_baseline", {}),
         "score": summary.get("score", {}),
     }) + "\n", encoding="utf-8")
     (report_dir / "failures.json").write_text(canonical_json(summary.get("failures", [])) + "\n", encoding="utf-8")
+
+
+def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
+    lines = [
+        "# A–E Same-Model Benchmark Comparison",
+        "",
+        f"Status: **{comparison.get('status', 'not_recorded')}**",
+        "",
+        f"Same model/provider: **{comparison.get('same_model_provider', 'N/A')}**; same input: **{comparison.get('same_input', 'N/A')}**; same task spec: **{comparison.get('same_task_spec', 'N/A')}**",
+        "",
+        "| Scenario | Model | Provider | Input Hash | Task Spec Hash | Graph Hashes | Verifier | Repair | CAS |",
+        "| -------- | ----- | -------- | ---------- | -------------- | ------------ | -------- | ------ | --- |",
+    ]
+    scenarios = comparison.get("scenarios", {})
+    for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
+        metadata = payload.get("metadata", {}) if isinstance(payload, Mapping) else {}
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        graph_hashes = metadata.get("graph_hashes", ())
+        lines.append(
+            f"| {scenario} | {metadata.get('model', '')} | {metadata.get('provider', '')} | "
+            f"{chr(96)}{metadata.get('input_hash', '')}{chr(96)} | {chr(96)}{metadata.get('task_spec_hash', '')}{chr(96)} | "
+            f"{chr(96)}{', '.join(str(item) for item in graph_hashes)}{chr(96)} | "
+            f"{metadata.get('verifier_enabled', '')} | {metadata.get('repair_enabled', '')} | {metadata.get('cas_enabled', '')} |"
+        )
+    lines.extend(["", "## Run metadata", ""])
+    for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
+        metadata = payload.get("metadata", {}) if isinstance(payload, Mapping) else {}
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        lines.append(
+            f"- `{scenario}`: prompt_hash=`{metadata.get('prompt_hash', '')}`, "
+            f"temperature={metadata.get('temperature', 'N/A')}, "
+            f"token_usage={metadata.get('token_usage', 'N/A')}, "
+            f"latency_ms={metadata.get('latency_ms', 'N/A')}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def write_scenario_comparison(comparison: Mapping[str, object], report_dir: Path) -> None:
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "a_to_e_comparison.md").write_text(
+        render_scenario_comparison(comparison),
+        encoding="utf-8",
+    )
+    (report_dir / "a_to_e_comparison.json").write_text(
+        canonical_json(comparison) + "\n",
+        encoding="utf-8",
+    )

@@ -9,6 +9,7 @@ from rflp_lite.domain.entities import Entity, EntityKind, EntityStatus
 from rflp_lite.domain.model import ModelGraph
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.completion import CompletionResult, evaluate_vertical_stage
+from rflp_lite.methodology.coverage_status import coverage_result
 from rflp_lite.methodology.architecture_synthesis import (
     ArchitectureSynthesis,
     is_unknown_measurement,
@@ -423,9 +424,9 @@ class MethodologyEngine:
 
         if not requirements:
             metrics.update({
-                "requirement_quality_coverage": 1.0,
-                "requirement_verification_method_coverage": 1.0,
-                "requirement_constraint_provenance_coverage": 1.0,
+                "requirement_quality_coverage": None,
+                "requirement_verification_method_coverage": None,
+                "requirement_constraint_provenance_coverage": None,
             })
             return
         quality_count = 0
@@ -592,7 +593,9 @@ class MethodologyEngine:
         metrics["logical_component_count"] = len(components)
         states = _ready(index, EntityKind.STATE)
         metrics["logical_state_count"] = len(states)
-        metrics["logical_state_model_coverage"] = 1.0 if states else 0.0
+        metrics["logical_state_model_coverage"] = (
+            None if not components else 1.0 if states else 0.0
+        )
         metrics["logical_allocation_coverage"] = _ratio(len(assigned), len(functions))
         metrics["logical_partition_count"] = len(components)
         if functions and not components:
@@ -792,7 +795,7 @@ class MethodologyEngine:
             metrics.update({
                 "branch_scenario_total": 0,
                 "branch_scenario_complete": 0,
-                "branch_execution_coverage": 0.0,
+                "branch_execution_coverage": None,
             })
         if incomplete_case_ids:
             findings.append(MethodologyFinding(
@@ -1040,7 +1043,7 @@ def _record_vv_case_metrics(metrics, stats: _VvAnalysisStats, requirements, bran
         "vv_scope_mismatch_count": stats.vv_scope_cases - stats.vv_scope_matches,
         "activity_branch_coverage": (
             _ratio(len(set(branch_names) & stats.covered_branches), len(set(branch_names)))
-            if branch_names else 1.0
+            if branch_names else None
         ),
     })
 
@@ -1087,7 +1090,7 @@ def _branch_scenario_metrics(cases, activities):
                 len(required_types),
             )
             if scenarios
-            else 0.0
+            else None
         ),
         "branch_execution_coverage": _ratio(len(executable), len(scenarios)),
     }
@@ -1569,5 +1572,5 @@ def _meaningful_requirement_text(value: str) -> bool:
     }
 
 
-def _ratio(numerator: int, denominator: int) -> float:
-    return round(numerator / denominator, 6) if denominator else 0.0
+def _ratio(numerator: int, denominator: int) -> float | None:
+    return coverage_result(numerator, denominator)["coverage"]

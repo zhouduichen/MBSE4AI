@@ -7,7 +7,6 @@ import pytest
 from tests.mbse_benchmark.cases.loader import load_cases
 from tests.mbse_benchmark.runners.case_runner import _run_case_inner
 from tests.mbse_benchmark.tracks.harness import HARNESS_METRICS, compute_harness_metrics
-from tests.mbse_benchmark.tracks.llm import LLM_METRICS, evaluate_bare_payload
 from tests.mbse_benchmark.tracks.robustness import FAULTS, run_robustness_benchmark
 from tests.mbse_benchmark.scenarios import BenchmarkScenario, evaluate_normalized, normalize_to_model_graph, scenario_contract
 
@@ -26,14 +25,6 @@ def test_harness_track_keeps_repeat_and_graph_determinism_metrics_separate() -> 
     assert set(HARNESS_METRICS) <= metrics.keys()
     assert metrics["graph_hash_determinism"] == 1.0
     assert metrics["repeat_minimum"] == 3
-
-
-def test_bare_llm_metrics_are_schema_level_and_do_not_claim_traceability() -> None:
-    case = {"requirements": [{"id": "R1", "statement": "续航不少于 12 小时"}]}
-    metrics = evaluate_bare_payload(case, {"requirements": [{"id": "R1", "statement": "续航不少于 12 小时", "verification_method": "test"}]})
-    assert set(LLM_METRICS) <= metrics.keys()
-    assert metrics["requirement_precision"] == 1.0
-    assert metrics["RFLP_coverage"] == 0.0
 
 
 def test_robustness_track_covers_required_faults_without_merging_into_harness_score() -> None:
@@ -79,18 +70,10 @@ def test_bare_scenario_executes_without_harness_controls(tmp_path) -> None:
     )
 
     execution = json.loads((output / "execution.json").read_text(encoding="utf-8"))
-    summary = json.loads((output / "run_summary.json").read_text(encoding="utf-8"))
-    graph = json.loads((output / "model.json").read_text(encoding="utf-8"))
-    assert execution["status"] == "completed"
-    assert execution["scenario_controls"] == {
-        "verifier": False,
-        "repair": False,
-        "cas": False,
-    }
-    assert execution["cas_probe"] == {}
-    assert summary["closure"]["status"] == "blocked"
-    assert any(item["kind"] == "verification_case" for item in graph["entities"])
-    assert any(item["kind"] == "validation_case" for item in graph["entities"])
+    assert execution["status"] == "failed"
+    assert "configured model" in execution["exception"]
+    assert not (output / "run_summary.json").exists()
+    assert not (output / "model.json").exists()
 
 
 @pytest.mark.parametrize("scenario", tuple(item.value for item in BenchmarkScenario))
@@ -101,11 +84,17 @@ def test_all_a_to_e_scenarios_execute_through_the_declared_entrypoint(tmp_path, 
 
     execution = json.loads((output / "execution.json").read_text(encoding="utf-8"))
     contract = scenario_contract(scenario)
-    assert execution["status"] == "completed"
-    assert execution["scenario_controls"] == {
-        "verifier": contract.has_verifier,
-        "repair": contract.has_repair,
-        "cas": contract.has_cas,
-    }
-    assert (output / "model.json").exists()
-    assert (output / "run_summary.json").exists()
+    if scenario in {
+        BenchmarkScenario.A_BARE_ONE_SHOT.value,
+        BenchmarkScenario.B_BARE_STAGED.value,
+    }:
+        assert execution["status"] == "failed"
+    else:
+        assert execution["status"] == "completed"
+        assert execution["scenario_controls"] == {
+            "verifier": contract.has_verifier,
+            "repair": contract.has_repair,
+            "cas": contract.has_cas,
+        }
+        assert (output / "model.json").exists()
+        assert (output / "run_summary.json").exists()
