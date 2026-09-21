@@ -27,6 +27,7 @@ from tests.mbse_benchmark.scenarios import (
 from tests.mbse_benchmark.runners.scenario_pipeline import (
     EXTERNAL_EVALUATOR_ID,
     ExternalEvaluator,
+    MODEL_GRAPH_NORMALIZER_ID,
     ModelGraphNormalizer,
 )
 from tests.mbse_benchmark.runners.experiment_contract import BenchmarkInputEnvelope
@@ -204,6 +205,7 @@ def run_benchmark(
                     else None
                 )
                 metadata["evaluator_id"] = evaluator.evaluator_id
+                metadata["normalizer_id"] = normalizer.normalizer_id
             repeat_validation = evaluator.evaluate(
                 input_envelope,
                 graph,
@@ -294,6 +296,7 @@ def run_benchmark(
         "task_spec_hash": ledger_metadata["task_spec_hash"],
         "evaluation_spec_hash": evaluation_spec.evaluation_spec_hash,
         "evaluator_id": evaluator.evaluator_id,
+        "normalizer_id": normalizer.normalizer_id,
         "configuration": "offline RuleRuntime; isolated workspace; no external model" if track == BenchmarkTrack.HARNESS.value else "explicit LLM profile; isolated workspace; provider credentials are not written to reports",
         "cases": [str(case["case_id"]) for case in cases],
         "repeats": max(1, repeats),
@@ -383,6 +386,8 @@ def run_scenario_comparison(
         "profile": profile,
         "model": str(runtime_config.get("model", "")),
         "provider": str(runtime_config.get("provider_id", runtime_config.get("provider", ""))),
+        "comparison_mode": comparison_mode,
+        "total_output_token_budget": total_output_token_budget,
         "scenarios": {},
     }
     for scenario, summary in scenario_summaries.items():
@@ -405,6 +410,7 @@ def run_scenario_comparison(
                 "task_spec_hash": first.get("task_spec_hash"),
                 "evaluation_spec_hash": first.get("evaluation_spec_hash"),
                 "evaluator_id": first.get("evaluator_id", EXTERNAL_EVALUATOR_ID),
+                "normalizer_id": first.get("normalizer_id", MODEL_GRAPH_NORMALIZER_ID),
                 "temperature": first.get("temperature"),
                 "benchmark_token_budget": first.get("benchmark_token_budget"),
                 "token_usage": first.get("token_usage"),
@@ -510,6 +516,9 @@ def run_scenario_comparison(
     comparison["same_evaluator"] = bool(all_records) and len({
         item.get("evaluator_id") for item in all_records
     }) == 1 and all(item.get("evaluator_id") for item in all_records)
+    comparison["same_normalizer"] = bool(all_records) and len({
+        item.get("normalizer_id") for item in all_records
+    }) == 1 and all(item.get("normalizer_id") for item in all_records)
     comparison["same_temperature"] = bool(all_records) and len({
         item.get("temperature") for item in all_records
     }) == 1
@@ -573,6 +582,7 @@ def run_scenario_comparison(
             "same_task_spec",
             "same_evaluation_spec",
             "same_evaluator",
+            "same_normalizer",
             "same_temperature",
             "budget_comparable",
             "ablation_contract_valid",

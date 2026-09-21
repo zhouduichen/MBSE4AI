@@ -31,6 +31,9 @@ TASK_SPEC: Mapping[str, object] = {
 EXTERNAL_EVALUATOR_ID = (
     "tests.mbse_benchmark.runners.scenario_pipeline.ExternalEvaluator:v0.3.2"
 )
+MODEL_GRAPH_NORMALIZER_ID = (
+    "tests.mbse_benchmark.runners.scenario_pipeline.ModelGraphNormalizer:v0.3.2"
+)
 
 _ENTITY_KINDS = tuple(item.value for item in EntityKind)
 _ENTITY_STATUSES = tuple(item.value for item in EntityStatus)
@@ -98,6 +101,7 @@ class RunMetadata:
     gate_enabled: bool
     repair_enabled: bool
     cas_enabled: bool
+    normalizer_id: str = MODEL_GRAPH_NORMALIZER_ID
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -115,6 +119,7 @@ class RunMetadata:
             "gate_enabled": self.gate_enabled,
             "repair_enabled": self.repair_enabled,
             "cas_enabled": self.cas_enabled,
+            "normalizer_id": self.normalizer_id,
         }
 
 
@@ -152,6 +157,8 @@ class ScenarioOutput:
 
 class ModelGraphNormalizer:
     """Convert every scenario output to the canonical ModelGraph shape."""
+
+    normalizer_id = MODEL_GRAPH_NORMALIZER_ID
 
     def normalize(self, value: object, *, project_id: str = "benchmark") -> ModelGraph:
         return self.normalize_with_audit(value, project_id=project_id).graph
@@ -615,6 +622,7 @@ def _config_float(model: object, key: str) -> float | None:
 
 __all__ = [
     "EXTERNAL_EVALUATOR_ID",
+    "MODEL_GRAPH_NORMALIZER_ID",
     "ExternalEvaluator",
     "MODEL_GRAPH_SCHEMA",
     "ModelGraphNormalizer",
