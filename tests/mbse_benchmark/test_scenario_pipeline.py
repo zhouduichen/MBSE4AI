@@ -63,7 +63,8 @@ def test_one_shot_and_staged_scenarios_call_the_same_model_without_expected_grap
 
     assert len(model.requests) == 6
     assert len(model.requests[0].user_payload["case_input"]["scenarios"]) == 1
-    assert all("requirements" not in request.user_payload["case_input"] for request in model.requests)
+    assert all("requirements" in request.user_payload["case_input"] for request in model.requests)
+    assert one_shot.metadata.input_hash == staged.metadata.input_hash
     assert one_shot.metadata.model == staged.metadata.model == "test-model"
     assert one_shot.metadata.provider == staged.metadata.provider == "test-provider"
     assert one_shot.metadata.verifier_enabled is False

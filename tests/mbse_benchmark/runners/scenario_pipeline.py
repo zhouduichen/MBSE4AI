@@ -13,12 +13,17 @@ from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.ports.generative_model import GenerationRequest, GenerationResponse, GenerativeModel
 
 from tests.mbse_benchmark.scenarios import BenchmarkScenario, ScenarioContract
+from tests.mbse_benchmark.runners.experiment_contract import (
+    BenchmarkInputEnvelope,
+    EvaluationSpec,
+    assert_model_visible_payload,
+)
 from tests.mbse_benchmark.validators.case import validate_case
 
 
 TASK_SPEC: Mapping[str, object] = {
-    "methodology_version": "v0.3.1",
-    "input_rule": "Generate only from the supplied system brief and context; do not use reference outputs.",
+    "methodology_version": "v0.3.2",
+    "input_rule": "Generate only from the complete supplied declared case input; do not use evaluator-only reference outputs.",
     "graph_rule": "Return a typed ModelGraph with RFLP and verification/validation relations.",
 }
 
@@ -235,20 +240,38 @@ class ExternalEvaluator:
 
     def evaluate(
         self,
-        case: Mapping[str, object],
+        case: Mapping[str, object] | BenchmarkInputEnvelope,
         graph: ModelGraph,
-        expectations: Mapping[str, object],
+        expectations: Mapping[str, object] | EvaluationSpec,
         *,
         execution: Mapping[str, object] | None = None,
         raw_result: Mapping[str, object] | None = None,
         repeats: list[Mapping[str, object]] | None = None,
     ) -> dict[str, object]:
+        input_envelope = (
+            case
+            if isinstance(case, BenchmarkInputEnvelope)
+            else BenchmarkInputEnvelope.from_case(case)
+        )
+        evaluation_spec = (
+            expectations
+            if isinstance(expectations, EvaluationSpec)
+            else EvaluationSpec.from_expectations(expectations)
+        )
         observed = dict(raw_result or {})
         observed.update({
             "graph": self.normalizer.payload(graph),
             "execution": dict(execution or observed.get("execution", {"status": "completed"})),
         })
-        return validate_case(case, observed, expectations, repeats=repeats)
+        result = validate_case(
+            input_envelope.payload,
+            observed,
+            evaluation_spec.payload,
+            repeats=repeats,
+        )
+        result["input_hash"] = input_envelope.input_hash
+        result["evaluation_spec_hash"] = evaluation_spec.evaluation_spec_hash
+        return result
 
 
 class ScenarioRunner:
@@ -259,19 +282,26 @@ class ScenarioRunner:
 
     def run(
         self,
-        case: Mapping[str, object],
+        case: Mapping[str, object] | BenchmarkInputEnvelope,
         contract: ScenarioContract,
         model: GenerativeModel,
         *,
         project_id: str,
         token_budget: int = 3000,
+        evaluation_spec: EvaluationSpec | None = None,
     ) -> ScenarioOutput:
         if contract.scenario not in {
             BenchmarkScenario.A_BARE_ONE_SHOT,
             BenchmarkScenario.B_BARE_STAGED,
         }:
             raise ValueError(f"ScenarioRunner only owns bare scenarios: {contract.scenario.value}")
-        model_input = model_input_for_case(case)
+        input_envelope = (
+            case
+            if isinstance(case, BenchmarkInputEnvelope)
+            else BenchmarkInputEnvelope.from_case(case)
+        )
+        model_input = dict(input_envelope.payload)
+        visible_spec = evaluation_spec or EvaluationSpec.from_expectations({})
         responses: list[GenerationResponse] = []
         requests: list[GenerationRequest] = []
         payload: Mapping[str, object] = {
@@ -299,6 +329,7 @@ class ScenarioRunner:
                 MODEL_GRAPH_SCHEMA,
                 token_budget,
             )
+            assert_model_visible_payload(user_payload, visible_spec)
             requests.append(request)
             response = model.complete_json(request)
             responses.append(response)
@@ -321,7 +352,7 @@ class ScenarioRunner:
             ]),
             task_spec_hash=canonical_hash(TASK_SPEC),
             temperature=temperature,
-            input_hash=canonical_hash(model_input),
+            input_hash=input_envelope.input_hash,
             token_usage=usage,
             latency_ms=sum(int(getattr(item, "duration_ms", 0) or 0) for item in responses) or duration_ms,
             graph_hash=graph.snapshot_hash,
@@ -332,12 +363,12 @@ class ScenarioRunner:
         return ScenarioOutput(graph, metadata, tuple(responses))
 
 
-def model_input_for_case(case: Mapping[str, object]) -> dict[str, object]:
-    return {
-        key: case.get(key)
-        for key in ("case_id", "system", "brief", "stakeholders", "lifecycle_stages", "scenarios")
-        if key in case
-    }
+def model_input_for_case(case: Mapping[str, object] | BenchmarkInputEnvelope) -> dict[str, object]:
+    """Return the complete declared input, including visible requirements."""
+
+    if isinstance(case, BenchmarkInputEnvelope):
+        return dict(case.payload)
+    return dict(BenchmarkInputEnvelope.from_case(case).payload)
 
 
 def _system_prompt(stage: str) -> str:
