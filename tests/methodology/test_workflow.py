@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from rflp_lite.application.requirement_input import RequirementInputService
+from rflp_lite.application.model_service import ModelService
+from rflp_lite.application.review_service import ReviewService
 from rflp_lite.domain.entities import EntityKind, make_entity
 from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation
 from rflp_lite.domain.model import AddEntity, Patch, Relate
@@ -15,6 +17,17 @@ from rflp_lite.repository.port import Step
 from rflp_lite.methodology.tasks import tasks_for_phase
 from rflp_lite.repository.sqlite import SQLiteModelRepository
 from rflp_lite.runtime.rule_based import RuleRuntime
+
+
+def _accept_input_requirements(repository):
+    service = ReviewService(ModelService(repository))
+    for entity in repository.load_graph("p1").entities:
+        if entity.kind is EntityKind.REQUIREMENT:
+            service.accept_entity(
+                "p1",
+                entity.id,
+                expected_revision=repository.load_graph("p1").revision,
+            )
 
 
 class FakeRuntime:
@@ -283,6 +296,7 @@ def test_configured_full_lifecycle_parallelizes_only_independent_groups(tmp_path
     RequirementInputService(repository, "p1").ensure_text_requirements(
         "系统应支持人工接管"
     )
+    _accept_input_requirements(repository)
     runtime = ParallelTrackingRuntime()
     runner = WorkflowRunner(repository, repository, runtime)
     runner.runtime_selection = SimpleNamespace(
@@ -291,11 +305,13 @@ def test_configured_full_lifecycle_parallelizes_only_independent_groups(tmp_path
 
     summary = runner.run("p1", force_run=True)
 
-    assert summary.status is RunStatus.COMPLETED
+    assert summary.status is RunStatus.BLOCKED
     assert runtime.max_active >= 2
     assert runtime.max_active <= runtime.max_parallel_requests
     assert summary.phase is Phase.CLOSURE
     assert len(summary.completed_tasks) == 23
+    assert summary.closure["status"] == "blocked"
+    assert any(item.get("code") == "requires_human_review" for item in summary.closure["issues"])
     stored = repository.load_run("p1", summary.run_id)
     assert stored is not None
     assert all(step.status == StepStatus.COMPLETED.value for step in stored.steps)
@@ -306,6 +322,7 @@ def test_configured_transport_gap_recovers_complete_lifecycle(tmp_path):
     repository = SQLiteModelRepository(tmp_path / "model.db")
     repository.ensure_project("p1")
     RequirementInputService(repository, "p1").ensure_text_requirements("系统应支持人工接管")
+    _accept_input_requirements(repository)
     runner = WorkflowRunner(repository, repository, ConfiguredTransportRuntime())
     runner.runtime_selection = SimpleNamespace(
         mode="configured", profile_id="test-llm", provider_id="test", model_id="test"
@@ -313,10 +330,11 @@ def test_configured_transport_gap_recovers_complete_lifecycle(tmp_path):
 
     summary = runner.run("p1", force_run=True)
 
-    assert summary.status is RunStatus.COMPLETED
+    assert summary.status is RunStatus.BLOCKED
     assert len(summary.completed_tasks) == 23
     assert "lifecycle:recovered_by_rule_runtime" in " ".join(summary.diagnostics)
     assert repository.load_graph("p1").relations
+    assert summary.closure["status"] == "blocked"
 
 
 def test_lifecycle_fallback_enriches_sparse_imported_requirement(tmp_path):
@@ -352,6 +370,7 @@ def test_lifecycle_transport_fallback_recovers_hardware_named_requirement(tmp_pa
     RequirementInputService(repository, "p1").ensure_text_requirements(
         "无人机系统通信链路应稳定，支持高清视频与传感器数据回传"
     )
+    _accept_input_requirements(repository)
     runner = WorkflowRunner(repository, repository, ConfiguredTransportRuntime())
     runner.runtime_selection = SimpleNamespace(
         mode="configured", profile_id="test-llm", provider_id="test", model_id="test"
@@ -359,7 +378,7 @@ def test_lifecycle_transport_fallback_recovers_hardware_named_requirement(tmp_pa
 
     summary = runner.run("p1", force_run=True)
 
-    assert summary.status is RunStatus.COMPLETED
+    assert summary.status is RunStatus.BLOCKED
     functions = [
         item for item in repository.load_graph("p1").entities
         if item.kind is EntityKind.FUNCTION
@@ -367,6 +386,7 @@ def test_lifecycle_transport_fallback_recovers_hardware_named_requirement(tmp_pa
     assert functions
     assert all("传感器" not in item.meta.name for item in functions)
     assert "传感器" in functions[0].payload["behavior"]
+    assert summary.closure["status"] == "blocked"
 
 
 def test_non_completed_patch_is_rejected_before_repository_append(tmp_path):

@@ -69,17 +69,13 @@ def rflp_gate(graph: ModelGraph) -> GateResult:
         key=lambda entity: entity.id,
     ))
     if not ready_requirements:
-        assessment = evaluate_strict_closure(graph)
-        issues = tuple(
-            CoverageGap(issue.code, "architecture", issue.entity_ids)
-            for issue in assessment.issues
-            if issue.code in {
-                "empty_requirement_scope", "no_accepted_requirements",
-                "requirement_not_accepted", "missing_function", "missing_logical",
-                "missing_physical", "unresolved_candidate", "inactive_trace_entity",
-            }
+        return GateResult(
+            "P-Gate",
+            False,
+            (CoverageGap("no_ready_requirements", "architecture"),),
+            Phase.FUNCTIONAL,
+            (),
         )
-        return GateResult("P-Gate", False, issues or (CoverageGap("no_ready_requirements", "architecture"),), Phase.FUNCTIONAL, ())
     missing = []
     checks: list[dict[str, object]] = []
     for requirement in ready_requirements:

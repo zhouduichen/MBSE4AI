@@ -1904,7 +1904,11 @@ def _promote_generated_entities(patch: Patch, *, validated: bool = True) -> Patc
             )
         else:
             operations.append(operation)
-    return replace(patch, operations=tuple(operations))
+    return replace(
+        patch,
+        operations=tuple(operations),
+        authority="verifier" if validated else patch.authority,
+    )
 
 
 def _preserve_existing_bridge_content(graph, patch: Patch) -> Patch:
@@ -1940,6 +1944,7 @@ def _preserve_existing_bridge_content(graph, patch: Patch) -> Patch:
         tuple(operations),
         patch.reason,
         patch.expected_revision,
+        authority=patch.authority,
     )
 
 

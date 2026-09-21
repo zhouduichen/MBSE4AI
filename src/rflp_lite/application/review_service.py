@@ -51,9 +51,17 @@ class ReviewService:
         if expected_revision is None:
             expected_revision = graph.revision
         task_id = f"review.{action}"
-        patch = Patch.create(project_id, task_id, (UpdateEntity(entity_id, fields),), reason, int(expected_revision))
+        patch = Patch.create(
+            project_id,
+            task_id,
+            (UpdateEntity(entity_id, fields),),
+            reason,
+            int(expected_revision),
+            authority="user",
+        )
         revision = self.model_service.apply_patch(project_id, patch, int(expected_revision))
-        self.repository.record_audit(project_id, f"review.{action}", {"entity_id": entity_id, "patch_id": patch.id, "revision": revision.sequence, "previous_status": entity.meta.status.value, "status": fields.get("status", entity.meta.status.value), "producer": fields.get("producer", entity.meta.producer.value), "reason": reason})
+        impact = self.impact_planner.plan(graph, (entity_id,))
+        self.repository.record_audit(project_id, f"review.{action}", {"entity_id": entity_id, "patch_id": patch.id, "revision": revision.sequence, "previous_status": entity.meta.status.value, "status": fields.get("status", entity.meta.status.value), "producer": fields.get("producer", entity.meta.producer.value), "reason": reason, "actor": "user", "impact": impact.as_dict(), "impact_invalidated": action == "edit"})
         return ReviewCommandResult(project_id, entity_id, action, entity.meta.status.value, str(fields.get("status", entity.meta.status.value)), asdict(revision), patch.id, f"review.{action}")
 
     def accept_entity(self, project_id: str, entity_id: str, *, expected_revision: int | None = None) -> ReviewCommandResult:
@@ -91,7 +99,7 @@ class ReviewService:
             next_payload["statement"] = str(statement).strip()
         if not next_payload and name is None:
             raise ContractViolation("edit requires statement, name, or payload")
-        fields: Mapping[str, object] = {"producer": Producer.USER.value, "payload": {**next_payload, "user_modified": True}}
+        fields: Mapping[str, object] = {"producer": Producer.USER.value, "payload": {**next_payload, "user_modified": True, "trace_status": "stale", "stale_reason": "manual_review_edit"}}
         if name is not None:
             fields["name"] = str(name).strip()
         if entity.meta.status is not EntityStatus.CANDIDATE:

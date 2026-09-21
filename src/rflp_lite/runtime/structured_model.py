@@ -2139,6 +2139,7 @@ def _rebase_patch(patch: Patch, expected_revision: int) -> Patch:
         patch.operations,
         patch.reason,
         expected_revision,
+        patch.authority,
     )
 
 

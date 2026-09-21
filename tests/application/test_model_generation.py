@@ -2998,7 +2998,7 @@ def test_feedback_transport_failure_keeps_applied_stage_for_downstream_work(
         EntityKind.FUNCTION,
         "执行人工接管",
         {"decomposition": ["接收接管指令", "执行接管", "反馈状态"]},
-        status=EntityStatus.VALIDATED,
+        status=EntityStatus.CANDIDATE,
         producer=Producer.LLM,
     )
     patch = Patch.create(

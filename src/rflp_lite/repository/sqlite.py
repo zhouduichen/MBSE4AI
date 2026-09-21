@@ -257,8 +257,8 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
                 (f"revision-{graph.revision}", project_id, graph.revision, revision.parent_id, revision.reason, _json(snapshot), revision.snapshot_hash, revision.run_id, time.time()),
             )
             self._connection.execute(
-                "INSERT INTO patches(id, run_id, task_id, operations_json, reason, status, input_hash, output_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (patch.id, run_id, patch.task_id, _json([_operation_dict(item) for item in patch.operations]), patch.reason, "applied", canonical_hash((project_id, expected_revision, patch.id)), graph.snapshot_hash),
+                "INSERT INTO patches(id, run_id, task_id, operations_json, reason, status, input_hash, output_hash, authority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (patch.id, run_id, patch.task_id, _json([_operation_dict(item) for item in patch.operations]), patch.reason, "applied", canonical_hash((project_id, expected_revision, patch.id)), graph.snapshot_hash, patch.authority),
             )
             self._connection.execute(
                 "INSERT INTO audit_events(project_id, kind, payload) VALUES (?, ?, ?)",
@@ -477,7 +477,7 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
     def list_patches(self, project_id: str) -> tuple[Mapping[str, object], ...]:
         with self._lock:
             rows = self._connection.execute(
-                "SELECT p.id, p.run_id, p.task_id, p.operations_json, p.reason, p.status, p.input_hash, p.output_hash, p.provider_id, p.model_id, r.sequence AS revision FROM patches p LEFT JOIN revisions r ON r.project_id = ? AND r.snapshot_hash = p.output_hash WHERE r.project_id = ? ORDER BY r.sequence, p.id",
+                "SELECT p.id, p.run_id, p.task_id, p.operations_json, p.reason, p.status, p.input_hash, p.output_hash, p.provider_id, p.model_id, p.authority, r.sequence AS revision FROM patches p LEFT JOIN revisions r ON r.project_id = ? AND r.snapshot_hash = p.output_hash WHERE r.project_id = ? ORDER BY r.sequence, p.id",
                 (project_id, project_id),
             ).fetchall()
         result = []

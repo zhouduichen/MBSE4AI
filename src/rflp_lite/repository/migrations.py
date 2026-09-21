@@ -172,6 +172,7 @@ def _apply_core_schema(connection: sqlite3.Connection) -> None:
     _ensure_columns(connection, "patches", {
         "input_hash": "TEXT NOT NULL DEFAULT ''", "output_hash": "TEXT NOT NULL DEFAULT ''",
         "provider_id": "TEXT NOT NULL DEFAULT ''", "model_id": "TEXT NOT NULL DEFAULT ''",
+        "authority": "TEXT NOT NULL DEFAULT 'task'",
     })
     _ensure_columns(connection, "revisions", {"created_at": "REAL NOT NULL DEFAULT 0"})
 
@@ -201,7 +202,8 @@ def _apply_ledger_schema(connection: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS patches (
             id TEXT PRIMARY KEY, run_id TEXT REFERENCES runs(id) ON DELETE CASCADE, task_id TEXT NOT NULL,
             operations_json TEXT NOT NULL, reason TEXT NOT NULL, status TEXT NOT NULL,
-            input_hash TEXT NOT NULL DEFAULT '', output_hash TEXT NOT NULL DEFAULT '', provider_id TEXT NOT NULL DEFAULT '', model_id TEXT NOT NULL DEFAULT ''
+            input_hash TEXT NOT NULL DEFAULT '', output_hash TEXT NOT NULL DEFAULT '', provider_id TEXT NOT NULL DEFAULT '', model_id TEXT NOT NULL DEFAULT '',
+            authority TEXT NOT NULL DEFAULT 'task'
         );
         CREATE TABLE IF NOT EXISTS closures (
             project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE, run_id TEXT NOT NULL, revision INTEGER NOT NULL,

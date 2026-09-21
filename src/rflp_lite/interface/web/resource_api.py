@@ -1432,10 +1432,26 @@ async def patch_entity(request: Request, project_id: str, entity_id: str):
         fields = payload.get("field_patch", payload.get("fields", {}))
         if not isinstance(fields, Mapping):
             raise ContractViolation("field_patch must be an object")
-        graph = _services(request).model(project_id).graph(project_id)
-        patch = Patch.create(project_id, "user.entity_patch", (UpdateEntity(entity_id, fields),), "user entity edit", expected_revision)
-        revision = _services(request).model(project_id).apply_patch(project_id, patch, expected_revision)
-        return {"status": "ok", "revision": asdict(revision)}
+        forbidden = {"status", "producer"} & set(fields)
+        if forbidden:
+            raise ContractViolation(
+                "generic entity PATCH cannot modify lifecycle metadata; use ReviewService"
+            )
+        unknown = set(fields) - {"name", "payload", "statement"}
+        if unknown:
+            raise ContractViolation(f"manual entity edit fields are not reviewable: {sorted(unknown)}")
+        raw_payload = fields.get("payload")
+        if raw_payload is not None and not isinstance(raw_payload, Mapping):
+            raise ContractViolation("payload must be an object")
+        result = _services(request).review(project_id).edit_entity(
+            project_id,
+            entity_id,
+            statement=str(fields["statement"]) if fields.get("statement") is not None else None,
+            name=str(fields["name"]) if fields.get("name") is not None else None,
+            payload=dict(raw_payload) if isinstance(raw_payload, Mapping) else None,
+            expected_revision=expected_revision,
+        )
+        return {"status": "ok", "review": result.as_dict(), "revision": result.revision}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 
@@ -1469,6 +1485,7 @@ async def _run_review_command(request: Request, project_id: str, entity_id: str,
         response["controller"] = generation.controller_plan(
             project_id,
             changed_entity_ids=(entity_id,),
+            include_llm=False,
         )
     return response
 
