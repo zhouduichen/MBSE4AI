@@ -15,8 +15,10 @@ from rflp_lite.adapters.llm_client import (
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.errors import AdapterFailure, StructuredOutputFailure, TransportFailure
 from rflp_lite.ports.generative_model import (
+    GenerationCallEvent,
     GenerationRequest,
     GenerationResponse,
+    TelemetrySink,
     add_simplified_chinese_instruction,
 )
 from rflp_lite.ports.token_budget import estimate_tokens
@@ -34,6 +36,31 @@ _PROVIDER_SCHEMA_META_KEYS = frozenset({
 # tokenizer.  The extra bounded margin keeps a 16k endpoint from rejecting a
 # request that the provider-neutral estimator considers just inside the limit.
 _OPENAI_CONTEXT_TOKEN_SAFETY_MARGIN = 5376
+
+
+def _usage_count(usage: Mapping[str, object], *keys: str) -> int:
+    for key in keys:
+        value = usage.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return max(0, int(value))
+    return 0
+
+
+def _estimate_cost(
+    usage: Mapping[str, object],
+    config: Mapping[str, object],
+) -> float | None:
+    input_price = config.get("input_cost_per_1m_tokens")
+    output_price = config.get("output_cost_per_1m_tokens")
+    if not isinstance(input_price, (int, float)) or isinstance(input_price, bool):
+        return None
+    if not isinstance(output_price, (int, float)) or isinstance(output_price, bool):
+        return None
+    value = (
+        _usage_count(usage, "input_tokens", "prompt_tokens") * float(input_price)
+        + _usage_count(usage, "output_tokens", "completion_tokens") * float(output_price)
+    ) / 1_000_000
+    return round(value, 8)
 
 
 class _InvalidStructuredResponse(ValueError):
@@ -830,10 +857,66 @@ class OpenAICompatibleModel:
         config: dict[str, object],
         *,
         complete: Callable[..., str] = chat_completion,
+        telemetry_sink: TelemetrySink | None = None,
     ) -> None:
         self._config = dict(config)
         self._complete = complete
+        self._telemetry_sink = telemetry_sink
         self._configure_remote_controls()
+
+    def _transport_call(
+        self,
+        request: GenerationRequest,
+        call_config: Mapping[str, object],
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int,
+        attempt_kind: str,
+    ) -> object:
+        started = time.monotonic()
+        try:
+            raw = self._complete(call_config, messages, max_tokens=max_tokens)
+        except Exception:
+            self._emit_call_event(
+                request,
+                attempt_kind,
+                started,
+                status="failed",
+                raw=None,
+            )
+            raise
+        self._emit_call_event(
+            request,
+            attempt_kind,
+            started,
+            status="completed",
+            raw=raw,
+        )
+        return raw
+
+    def _emit_call_event(
+        self,
+        request: GenerationRequest,
+        attempt_kind: str,
+        started: float,
+        *,
+        status: str,
+        raw: object,
+    ) -> None:
+        if self._telemetry_sink is None:
+            return
+        usage = getattr(raw, "usage", {})
+        usage = dict(usage) if isinstance(usage, Mapping) else {}
+        self._telemetry_sink(GenerationCallEvent(
+            lens_id=request.lens_id,
+            attempt_kind=attempt_kind,
+            provider_id=str(self._config.get("id", self._config.get("provider", "openai-compatible"))),
+            model_id=str(self._config.get("model", "")),
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+            status=status,
+            usage=usage,
+            estimated_cost_usd=_estimate_cost(usage, self._config),
+        ))
 
     def _configure_remote_controls(self) -> None:
         self._configure_output_controls()
@@ -1188,9 +1271,7 @@ class OpenAICompatibleModel:
                 ) from initial_error
             repaired = True
             try:
-                repaired_raw = self._complete(
-                    call_config,
-                    repair_messages := self._repair_messages(
+                repair_messages = self._repair_messages(
                         request,
                         raw,
                         validation_issue=str(initial_error),
@@ -1199,8 +1280,12 @@ class OpenAICompatibleModel:
                             and
                             not native_ollama
                             and structured_output_mode in {"json_object", "json", "none"}
-                        ),
-                    ),
+                        )
+                )
+                repaired_raw = self._transport_call(
+                    request,
+                    call_config,
+                    repair_messages,
                     max_tokens=_fit_context_window(
                         self._config,
                         repair_messages,
@@ -1208,6 +1293,7 @@ class OpenAICompatibleModel:
                         extra_tokens=transport_extra_tokens,
                         safety_margin=transport_safety_margin,
                     ),
+                    attempt_kind="structural_repair",
                 )
                 self._ensure_complete(repaired_raw)
                 payload = self._parse_and_validate(
@@ -1302,7 +1388,13 @@ class OpenAICompatibleModel:
             safety_margin=transport_safety_margin,
         )
         try:
-            raw = self._complete(call_config, messages, max_tokens=max_tokens)
+            raw = self._transport_call(
+                request,
+                call_config,
+                messages,
+                max_tokens=max_tokens,
+                attempt_kind="initial",
+            )
         except Exception as exc:
             if isinstance(exc, AdapterFailure):
                 raise

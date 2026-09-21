@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Mapping, Protocol
 
 
@@ -42,6 +43,23 @@ class GenerationResponse:
     status: str = "completed"
     finish_reason: str = ""
     usage: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationCallEvent:
+    """One actual provider transport attempt, including hidden retries."""
+
+    lens_id: str
+    attempt_kind: str
+    provider_id: str
+    model_id: str
+    duration_ms: int
+    status: str
+    usage: Mapping[str, object] = field(default_factory=dict)
+    estimated_cost_usd: float | None = None
+
+
+TelemetrySink = Callable[[GenerationCallEvent], None]
 
 
 class GenerativeModel(Protocol):

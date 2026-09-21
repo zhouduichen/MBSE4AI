@@ -208,6 +208,28 @@ def test_adapter_parses_json_and_records_hashes():
     assert calls[0][2] == 1200
 
 
+def test_adapter_telemetry_counts_structural_repair_transport_attempt():
+    calls = []
+    events = []
+
+    def complete(_config, _messages, *, max_tokens=None):
+        calls.append(max_tokens)
+        return "not-json" if len(calls) == 1 else '{"items": []}'
+
+    model = OpenAICompatibleModel(
+        {"model": "local"},
+        complete=complete,
+        telemetry_sink=events.append,
+    )
+
+    result = model.complete_json(request())
+
+    assert result.payload == {"items": []}
+    assert [event.attempt_kind for event in events] == ["initial", "structural_repair"]
+    assert all(event.status == "completed" for event in events)
+    assert len(calls) == 2
+
+
 def test_adapter_fits_output_to_configured_context_window():
     calls = []
 

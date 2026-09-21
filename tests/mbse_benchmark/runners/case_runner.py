@@ -26,6 +26,7 @@ from tests.mbse_benchmark.scenarios import (
 )
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
+    ExperimentTelemetry,
     input_sha256,
 )
 from tests.mbse_benchmark.runners.scenario_pipeline import (
@@ -260,6 +261,7 @@ def _run_case_inner(
         "started_at": started,
     }
     services = None
+    telemetry_events: list[object] = []
     try:
         contract = scenario_contract(scenario)
         if contract.scenario in {
@@ -270,7 +272,10 @@ def _run_case_inner(
                 raise ValueError(
                     "A/B benchmark scenarios require the explicit configured model used by E"
                 )
-            model = OpenAICompatibleModel(dict(runtime_config))
+            model = OpenAICompatibleModel(
+                dict(runtime_config),
+                telemetry_sink=telemetry_events.append,
+            )
             scenario_output = ScenarioRunner(ModelGraphNormalizer()).run(
                 input_envelope,
                 contract,
@@ -310,6 +315,12 @@ def _run_case_inner(
             metadata["normalization_audit"] = scenario_output.normalization_audit.as_dict()
             metadata["input_byte_length"] = len(input_envelope.canonical_bytes)
             metadata["input_sha256"] = input_sha256(input_envelope)
+            metadata["telemetry"] = ExperimentTelemetry.from_events(
+                telemetry_events,
+                wall_latency_ms=int((time.time() - started) * 1000),
+                input_cost_per_1m_tokens=_as_float(runtime_config.get("input_cost_per_1m_tokens")),
+                output_cost_per_1m_tokens=_as_float(runtime_config.get("output_cost_per_1m_tokens")),
+            ).as_dict()
             _write_json(output_dir / "metadata.json", metadata)
             execution.update(
                 {
@@ -329,7 +340,10 @@ def _run_case_inner(
             )
             return
         runtime = (
-            StructuredModelRuntime(OpenAICompatibleModel(dict(runtime_config)))
+            StructuredModelRuntime(OpenAICompatibleModel(
+                dict(runtime_config),
+                telemetry_sink=telemetry_events.append,
+            ))
             if runtime_config
             else None
         )
@@ -376,6 +390,7 @@ def _run_case_inner(
             graph,
             runtime_config,
             ledger_metadata,
+            telemetry_events=telemetry_events,
             execution_elapsed=time.time() - started,
         ))
         execution.update(
@@ -519,6 +534,7 @@ def _harness_metadata(
     runtime_config: Mapping[str, object] | None,
     ledger_metadata: Mapping[str, object],
     *,
+    telemetry_events: list[object],
     execution_elapsed: float,
 ) -> dict[str, object]:
     config = runtime_config or {}
@@ -536,6 +552,12 @@ def _harness_metadata(
     }
     prompt_hash = ledger_metadata.get("prompt_hash") or canonical_hash(fallback_context)
     task_spec_hash = ledger_metadata.get("task_spec_hash") or canonical_hash(TASK_SPEC)
+    telemetry = ExperimentTelemetry.from_events(
+        telemetry_events,
+        wall_latency_ms=int(execution_elapsed * 1000),
+        input_cost_per_1m_tokens=_as_float(config.get("input_cost_per_1m_tokens")),
+        output_cost_per_1m_tokens=_as_float(config.get("output_cost_per_1m_tokens")),
+    )
     return {
         "scenario": contract.scenario.value,
         "model": str(config.get("model", "rule-runtime")),
@@ -553,6 +575,7 @@ def _harness_metadata(
         "gate_enabled": contract.gate_enabled,
         "repair_enabled": contract.has_repair,
         "cas_enabled": contract.has_cas,
+        "telemetry": telemetry.as_dict(),
     }
 
 
