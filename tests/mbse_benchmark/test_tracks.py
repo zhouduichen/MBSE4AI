@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pytest
 
 from tests.mbse_benchmark.cases.loader import load_cases
 from tests.mbse_benchmark.runners.case_runner import _run_case_inner
@@ -39,6 +40,15 @@ def test_robustness_track_covers_required_faults_without_merging_into_harness_sc
     summary = run_robustness_benchmark()
     assert tuple(summary["faults"]) == FAULTS
     assert summary["metrics"]["detection_rate"] == 1.0
+    assert summary["metrics"]["root_cause_localization_rate"] == 1.0
+    assert all(item["evidence"].get("repository") == "SQLiteModelRepository" for item in summary["case_results"])
+    assert all(
+        item["evidence"].get("lease_protected_cas") is True
+        or item["evidence"].get("fault_injection_rejected") is True
+        or item["evidence"].get("cas_and_lifecycle_rejection") is True
+        or item["evidence"].get("verifier")
+        for item in summary["case_results"]
+    )
     locked = next(item for item in summary["case_results"] if item["fault_id"] == "locked_user_edit_conflict")
     assert locked["requires_human_review"] is True
     assert locked["repair_success"] is False
@@ -81,3 +91,21 @@ def test_bare_scenario_executes_without_harness_controls(tmp_path) -> None:
     assert summary["closure"]["status"] == "blocked"
     assert any(item["kind"] == "verification_case" for item in graph["entities"])
     assert any(item["kind"] == "validation_case" for item in graph["entities"])
+
+
+@pytest.mark.parametrize("scenario", tuple(item.value for item in BenchmarkScenario))
+def test_all_a_to_e_scenarios_execute_through_the_declared_entrypoint(tmp_path, scenario) -> None:
+    case = load_cases(Path("tests/mbse_benchmark/cases"))[0]
+    output = tmp_path / scenario
+    _run_case_inner(case, output, scenario=scenario)
+
+    execution = json.loads((output / "execution.json").read_text(encoding="utf-8"))
+    contract = scenario_contract(scenario)
+    assert execution["status"] == "completed"
+    assert execution["scenario_controls"] == {
+        "verifier": contract.has_verifier,
+        "repair": contract.has_repair,
+        "cas": contract.has_cas,
+    }
+    assert (output / "model.json").exists()
+    assert (output / "run_summary.json").exists()

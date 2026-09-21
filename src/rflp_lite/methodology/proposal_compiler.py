@@ -251,10 +251,14 @@ def _effective_policy(request: TaskExecutionRequest, allowed_kinds: set[EntityKi
     policy = request.patch_policy
     if policy.writable_kinds:
         return policy
+    # Missing task policy is a deny-by-default condition.  Never interpret a
+    # legacy/empty envelope as permission to emit every RelationPredicate.
     return PatchPolicy(
         writable_kinds=frozenset(allowed_kinds),
-        writable_fields=frozenset({"name", "status", "confidence", "payload", "lifecycle_ids", "evidence_ids"}),
-        allowed_predicates=frozenset(RelationPredicate),
+        writable_fields=frozenset({"name", "confidence", "payload", "lifecycle_ids", "evidence_ids"}),
+        allowed_predicates=frozenset(),
+        allowed_entity_scope="context_and_outputs",
+        max_operations=0,
     )
 
 

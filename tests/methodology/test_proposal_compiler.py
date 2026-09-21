@@ -325,6 +325,26 @@ def test_proposal_schema_requires_semantic_fields_without_patch_operations():
     assert "kind" not in field_patch["properties"]
 
 
+def test_empty_task_policy_fails_closed_instead_of_allowing_all_predicates():
+    task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
+    request = TaskExecutionRequest(
+        task.id,
+        "v2.1",
+        ContextBundle("p1", task.id, 0, (make_entity(EntityKind.CONCERN, "安全"),)),
+        (),
+        output_contract(task),
+        100,
+    )
+    with pytest.raises(ContractViolation, match="outside write scope"):
+        compile_task_proposal(request, _proposal(
+            entities=[],
+            relations=[{
+                "source_ref": "missing",
+                "predicate": RelationPredicate.DERIVED_FROM.value,
+                "target_ref": "missing",
+                "evidence_ids": [],
+            }],
+        ))
 def test_singleton_payload_schema_is_enforced_at_the_structural_boundary():
     task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
     payload_schema = output_contract(task)["properties"]["entities"]["items"]["properties"]["payload"]

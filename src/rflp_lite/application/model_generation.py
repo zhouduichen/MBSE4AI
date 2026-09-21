@@ -25,6 +25,7 @@ from rflp_lite.methodology.engine import MethodologyEngine, MethodologyReport
 from rflp_lite.methodology.controller import ControllerPlan, ControllerProposal, SystemsEngineeringController
 from rflp_lite.methodology.llm_controller import LLMController
 from rflp_lite.methodology.impact import ImpactPlan, TypedImpactPlanner
+from rflp_lite.methodology.lease import heartbeat_scope
 from rflp_lite.methodology.architecture_persistence import (
     enrich_architecture_patch,
     enrich_vertical_patch,
@@ -1354,15 +1355,15 @@ class ModelGenerationService:
                 0,
             )
         )
-        response = self.executor.execute(
-            task,
-            context,
-            self.methodology_version,
-            evidence_bundle=context.evidence,
-            token_budget=self.output_budget,
-            graph=graph,
-        )
-        self._heartbeat_lease(project_id, run_id)
+        with heartbeat_scope(lambda: self._heartbeat_lease(project_id, run_id)):
+            response = self.executor.execute(
+                task,
+                context,
+                self.methodology_version,
+                evidence_bundle=context.evidence,
+                token_budget=self.output_budget,
+                graph=graph,
+            )
         if response.status is not StepStatus.COMPLETED:
             if response.validation_feedback:
                 self._save_validation_feedback_issues(

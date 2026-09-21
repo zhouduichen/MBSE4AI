@@ -38,6 +38,28 @@ def _has_text(value: object, terms: tuple[str, ...]) -> bool:
     return any(term.casefold() in text for term in terms)
 
 
+def _has_gate_recovery(audit_events: list[Mapping[str, object]]) -> bool:
+    """Require repair, a fresh passing Gate, and issue resolution in order."""
+
+    for index, event in enumerate(audit_events):
+        if str(event.get("kind", "")).casefold() != "repair.applied":
+            continue
+        later = audit_events[index + 1:]
+        passed_gate = any(
+            str(item.get("kind", "")).casefold() == "gate.evaluated"
+            and isinstance(item.get("payload"), Mapping)
+            and item["payload"].get("passed") is True
+            for item in later
+        )
+        resolved_issue = any(
+            str(item.get("kind", "")).casefold() == "issue.resolved"
+            for item in later
+        )
+        if passed_gate and resolved_issue:
+            return True
+    return False
+
+
 def evaluate_harness_case(result: Mapping[str, object]) -> dict[str, object]:
     repeats = result.get("repeat_results", ())
     repeat_results = [item for item in repeats if isinstance(item, Mapping)]
@@ -95,7 +117,7 @@ def evaluate_harness_case(result: Mapping[str, object]) -> dict[str, object]:
         "graph_hash_determinism": 1.0 if complete_graphs and len({item[1] for item in signatures}) <= 1 else 0.0,
         "rflp_trace_coverage": float(coverage_metrics.get("r_to_f_to_l_to_p_coverage", traceability.get("architecture_traceability", 0.0)) or 0.0),
         "gate_detection": 1.0 if gate_evidence or consistency.get("conflict_signals") else 0.0,
-        "repair_recovery": 1.0 if repair_evidence else 0.0,
+        "repair_recovery": 1.0 if repair_evidence and _has_gate_recovery(audit_events) else 0.0,
         "cas_lock_protection": 1.0 if isinstance(primary.get("cas_probe"), Mapping) and primary["cas_probe"].get("stale_write_rejected") is True else 0.0,
         "closure_manifest": 1.0 if isinstance(summary.get("closure"), Mapping) and summary["closure"].get("manifest") else 0.0,
         "audit_completeness": 1.0 if run_ledger and steps and audit_events else 0.0,

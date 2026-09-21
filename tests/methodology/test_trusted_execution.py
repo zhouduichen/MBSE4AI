@@ -15,6 +15,7 @@ from rflp_lite.methodology.contracts import (
     TaskExecutionResponse,
 )
 from rflp_lite.methodology.executor import TaskExecutor
+from rflp_lite.methodology.lease import heartbeat_scope
 from rflp_lite.methodology.tasks import task_catalog
 from rflp_lite.methodology.workflow import WorkflowRunner
 from rflp_lite.repository.port import Run
@@ -98,6 +99,15 @@ def test_completed_run_cannot_be_reclaimed(tmp_path):
     repository.create_run(Run("run-1", "p1", Phase.OPERATIONAL.value, RunStatus.COMPLETED.value))
 
     assert not repository.claim_run("p1", "run-1", "late-worker", time.time())
+
+
+def test_long_provider_scope_refreshes_lease_during_blocking_call():
+    heartbeats = []
+
+    with heartbeat_scope(lambda: heartbeats.append(time.monotonic()), interval_seconds=0.1):
+        time.sleep(0.23)
+
+    assert len(heartbeats) >= 2
 
 
 def test_workflow_claim_failure_returns_terminal_blocked_summary(tmp_path):

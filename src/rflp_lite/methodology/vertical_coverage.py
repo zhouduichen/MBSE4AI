@@ -228,7 +228,10 @@ def resolve_vertical_coverage(
         _resolve_row(graph, requirement, stage_value)
         for requirement in _stage_requirements(graph, stage_value)
     )
-    return VerticalCoverage(stage_name, rows, all(not row.missing for row in rows))
+    # ``all(())`` is vacuously true, but an empty Requirement set is not a
+    # completed engineering stage.  Keep stage coverage non-vacuous just like
+    # strict Closure and the phase gates.
+    return VerticalCoverage(stage_name, rows, bool(rows) and all(not row.missing for row in rows))
 
 
 def build_requirement_worklist(

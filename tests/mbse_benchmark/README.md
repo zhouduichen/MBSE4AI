@@ -67,7 +67,7 @@ Track B 必须显式指定 LLM profile；它会把 Harness + 同一模型与裸 
 ./.venv/bin/python tests/mbse_benchmark/run_benchmark.py --track llm --profile <profile-id> --case CASE-01
 ```
 
-Track C 使用离线故障目录，单独报告检测、定位、修复和回归指标：
+Track C 使用临时 SQLite ModelRepository 和真实 WorkflowRunner lease/CAS 边界注入故障，经过 Gate/外部 Verifier 检测、最小修复和重跑后，单独报告检测、定位、修复和回归指标：
 
 ```bash
 ./.venv/bin/python tests/mbse_benchmark/run_benchmark.py --track robustness

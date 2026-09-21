@@ -26,6 +26,7 @@ from rflp_lite.methodology.architecture_persistence import enrich_architecture_p
 from rflp_lite.methodology.executor import TaskExecutor
 from rflp_lite.methodology.gates import GateResult, gate_for_phase
 from rflp_lite.methodology.identity import RunIdentity
+from rflp_lite.methodology.lease import heartbeat_scope
 from rflp_lite.methodology.repair import patch_for_plan, plan_repair
 from rflp_lite.methodology.repair_context import build_repair_context
 from rflp_lite.methodology.repair_planner import plan as plan_repair_task
@@ -462,18 +463,20 @@ class WorkflowRunner:
             started = prepared.started
         context_hash = canonical_hash(context)
         try:
-            response = (
-                prepared.future.result()
-                if prepared is not None
-                else self.executor.execute(
-                    task,
-                    context,
-                    self.methodology_version,
-                    token_budget=self._output_budget(),
-                    graph=current,
+            with heartbeat_scope(
+                lambda: self._heartbeat_lease(project_id, identity.run_id),
+            ):
+                response = (
+                    prepared.future.result()
+                    if prepared is not None
+                    else self.executor.execute(
+                        task,
+                        context,
+                        self.methodology_version,
+                        token_budget=self._output_budget(),
+                        graph=current,
                     )
                 )
-            self._heartbeat_lease(project_id, identity.run_id)
             if prepared is not None and response.patch is not None:
                 rebased = _rebase_parallel_patch(
                     project_id, task.id, response.patch, current
@@ -1215,7 +1218,10 @@ class WorkflowRunner:
             graph, evidence=tuple(self.model_repository.list_evidence(project_id)),
         )
         repair_task = plan_repair_task(context)
-        proposal = LLMRepairStrategy(self.executor).propose(context, repair_task)
+        with heartbeat_scope(
+            lambda: self._heartbeat_lease(project_id, effective_run_id),
+        ):
+            proposal = LLMRepairStrategy(self.executor).propose(context, repair_task)
         if proposal is None or proposal.patch is None:
             proposal = RuleFallbackRepairStrategy().propose(graph, context, repair_task)
         patch = proposal.patch

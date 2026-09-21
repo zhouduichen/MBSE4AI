@@ -71,6 +71,15 @@ def _row(result, requirement_id):
     return next(item for item in result.rows if item.requirement_id == requirement_id)
 
 
+def test_empty_requirement_scope_is_not_vacuously_covered():
+    graph = ModelGraph("empty", (), (), 0)
+
+    result = resolve_vertical_coverage(graph, "functional")
+
+    assert result.rows == ()
+    assert result.passed is False
+
+
 def test_functional_coverage_names_the_requirement_missing_a_live_function():
     graph, first, second = _two_requirement_graph()
 

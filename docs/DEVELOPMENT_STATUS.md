@@ -1,7 +1,7 @@
 # 开发状态
 
-**更新时间：** 2026-09-20
-**产品版本：** rflp-lite 0.2.0
+**更新时间：** 2026-09-21
+**产品版本：** rflp-lite 0.3.0
 **方法论协议：** v2.1
 
 ## 已完成
@@ -17,6 +17,12 @@
 | 运行可追溯 | active profile/provider/model、TaskSpec/prompt/context/input/output hash、step ledger、lease/heartbeat |
 | 方法论智能化重构 | 23 个独立版本化 Prompt、可执行 Validator、谓词感知 Coverage Matrix、局部语义 Repair、Completion/Failure DSL、分层 Context Planner |
 | Benchmark 三轨 | Harness deterministic、显式 LLM + same-model bare baseline、Agent robustness faults 分开运行和报告，不共享总分 |
+| Trusted Closure | Closure 对空作用域、零 Accepted/Locked Requirement、不完整 R→F→L→P→V&V、候选/回退占位和未解决 Issue 非空通过；垂直阶段覆盖同样禁止空集真值通过 |
+| Lifecycle authority | LLM、Verifier、User、Task 和 Acceptance Policy 的状态迁移权限显式区分；通用 PATCH 不得伪造 status/producer，Review 降级旧事实并保留影响审计 |
+| Verifier-grounded retry | 结构化输出、语义关系、PatchPolicy 和 V&V 反馈均进入有界重试；Verifier 失败写入结构化 feedback，不得在未重跑 Gate 时宣称恢复 |
+| Run lease safety | Provider/Repair 长调用期间由后台 heartbeat 保持租约；所有 run-owned CAS 仍需当前 lease，完成/取消 Run 不可被重新认领 |
+| Least-privilege task contract | 23 个 TaskSpec 使用显式输入/输出类型、谓词白名单、字段白名单、上下文范围和操作上限；缺少策略的旧请求 fail-closed |
+| v0.3 Benchmark validity | A–E 场景入口均执行并记录 verifier/repair/CAS 控制差异；Robustness 十类故障通过真实 SQLiteModelRepository、WorkflowRunner lease/CAS、Gate、外部 Verifier 和重跑链路，检测率与根因定位率均为 1.0 |
 | 资源服务 | Project、Analysis、Model、Evidence、Render、Settings 服务及统一依赖组装 |
 | CLI / Web | `ai4mbse` 命令、完整 Analysis 工作流页、Trace 页、连接测试和 JSON/SVG/DOT/SysML-lite 导出 |
 | CLI 单次模型选择 | `analyze generate --profile <id>` 可为本次五阶段生成选择已保存 Profile，不修改 active profile；适用于远程 SSH/Tailscale 模型验收 |
