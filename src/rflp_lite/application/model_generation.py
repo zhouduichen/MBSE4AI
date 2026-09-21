@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import time
+from functools import wraps
 from collections.abc import Mapping, Sequence
 from uuid import uuid4
 
@@ -171,6 +172,21 @@ class _StageAttemptResult:
     started_at: float = 0.0
 
 
+def _release_new_leases(method):
+    """Release leases acquired by one public generation operation."""
+
+    @wraps(method)
+    def wrapped(self, project_id, *args, **kwargs):
+        leases_before = set(self._leases)
+        try:
+            return method(self, project_id, *args, **kwargs)
+        finally:
+            for run_id in set(self._leases) - leases_before:
+                self._release_lease(project_id, run_id)
+
+    return wrapped
+
+
 class ModelGenerationService:
     """Run the product's five-stage model generation path."""
 
@@ -188,6 +204,7 @@ class ModelGenerationService:
         methodology_version: str = "v2.1",
         output_budget: int | None = None,
         input_preparation: InputPreparationService | None = None,
+        verifier_enabled: bool = True,
     ) -> None:
         self.repository = repository
         self.runtime = runtime
@@ -210,7 +227,8 @@ class ModelGenerationService:
             audit_kind="model_generation.input_intake",
             output_budget=self.output_budget,
         )
-        self.executor = TaskExecutor(runtime)
+        self.verifier_enabled = verifier_enabled
+        self.executor = TaskExecutor(runtime, verifier_enabled=verifier_enabled)
         self._leases: dict[str, str] = {}
 
     def generate(
@@ -441,6 +459,7 @@ class ModelGenerationService:
             tuple(changed_entity_ids),
         )
 
+    @_release_new_leases
     def reanalyze(
         self,
         project_id: str,
@@ -567,6 +586,7 @@ class ModelGenerationService:
             },
         )
 
+    @_release_new_leases
     def continue_generation(
         self,
         project_id: str,
@@ -1168,7 +1188,10 @@ class ModelGenerationService:
                 bridge_response.patch,
                 bridge_semantic_invalid,
             )
-        patch = _promote_generated_entities(bridge_response.patch, validated=True)
+        patch = _promote_generated_entities(
+            bridge_response.patch,
+            validated=self.verifier_enabled,
+        )
         revision = self._append_run_patch(
             project_id, patch, graph.revision, run_id
         ).sequence
@@ -1384,7 +1407,10 @@ class ModelGenerationService:
                 context,
                 response,
             )
-            patch = _promote_generated_entities(response.patch, validated=not semantic_invalid)
+            patch = _promote_generated_entities(
+                response.patch,
+                validated=self.verifier_enabled and not semantic_invalid,
+            )
             revision = self._append_run_patch(
                 project_id, patch, graph.revision, run_id
             ).sequence
@@ -1802,6 +1828,7 @@ class ModelGenerationService:
         return (
             self._mode() == "configured"
             and hasattr(self.runtime, "model")
+            and self.verifier_enabled
             and bool(
                 getattr(
                     self.runtime.model,

@@ -2,7 +2,7 @@ import pytest
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus, make_entity
 from rflp_lite.domain.errors import ContractViolation
-from rflp_lite.domain.model import ModelGraph, Patch, UpdateEntity, apply_patch
+from rflp_lite.domain.model import Deprecate, ModelGraph, Patch, UpdateEntity, apply_patch
 from rflp_lite.domain.lifecycle_policy import LifecycleActor, transition_status
 
 
@@ -55,3 +55,18 @@ def test_verifier_can_only_promote_candidate_to_validated():
 
     assert result.entity_index[entity.id].meta.status is EntityStatus.VALIDATED
 
+
+def test_llm_cannot_deprecate_an_existing_entity():
+    entity = make_entity(EntityKind.REQUIREMENT, "需求")
+    graph = ModelGraph("p1", (entity,))
+    patch = Patch.create(
+        "p1",
+        "llm.patch",
+        (Deprecate(entity.id),),
+        "模型建议废弃",
+        graph.revision,
+        authority=LifecycleActor.LLM.value,
+    )
+
+    with pytest.raises(ContractViolation, match="LLM cannot change lifecycle status"):
+        apply_patch(graph, patch)

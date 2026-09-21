@@ -125,6 +125,7 @@ class V2Services:
             llm_controller=LLMController(selection.controller_model),
             context_builder=ContextBuilder(retrieval_engine),
             tool_layer=EngineeringToolLayer(repository, retrieval_engine=retrieval_engine),
+            verifier_enabled=self.verifier_enabled,
         )
 
     def _selection_config(self, profile_id: str | None) -> Mapping[str, object] | None:

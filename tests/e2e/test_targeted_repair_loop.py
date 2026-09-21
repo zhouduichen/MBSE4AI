@@ -27,3 +27,4 @@ def test_targeted_repair_prefers_llm_then_uses_rule_fallback(tmp_path):
     assert repaired
     assert repaired[0].meta.producer.value == "rule"
     assert "strategy=rule_fallback" in summary.diagnostics
+    assert repository.load_run("p1", "repair-issue-1").lease == ""

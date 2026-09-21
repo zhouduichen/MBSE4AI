@@ -92,6 +92,14 @@ def test_expired_or_wrong_run_lease_blocks_cas(tmp_path):
         repository.append_patch("p1", patch, 0, run_id="run-1", lease="lease-a")
 
 
+def test_completed_run_cannot_be_reclaimed(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    repository.create_run(Run("run-1", "p1", Phase.OPERATIONAL.value, RunStatus.COMPLETED.value))
+
+    assert not repository.claim_run("p1", "run-1", "late-worker", time.time())
+
+
 def test_workflow_claim_failure_returns_terminal_blocked_summary(tmp_path):
     repository = SQLiteModelRepository(tmp_path / "model.db")
     repository.ensure_project("p1")

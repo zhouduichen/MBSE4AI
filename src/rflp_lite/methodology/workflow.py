@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 from concurrent.futures import ThreadPoolExecutor
+from functools import wraps
 import time
 from uuid import uuid4
 
@@ -51,6 +52,21 @@ class RunLeaseUnavailable(ContractViolation):
         self.project_id = project_id
         self.run_id = run_id
         super().__init__(f"run lease unavailable: {project_id}/{run_id}")
+
+
+def _release_new_leases(method):
+    """Release leases acquired by one public workflow operation."""
+
+    @wraps(method)
+    def wrapped(self, project_id, *args, **kwargs):
+        leases_before = set(self._leases)
+        try:
+            return method(self, project_id, *args, **kwargs)
+        finally:
+            for run_id in set(self._leases) - leases_before:
+                self._release_lease(project_id, run_id)
+
+    return wrapped
 
 
 # These are dependency-safe only after the preceding group has committed its
@@ -181,6 +197,7 @@ class LifecycleOrchestrator:
                 )
             gate = self.runner.gate(project_id, phase, run_id=identity.run_id)
             gate_snapshot.append(self.runner._gate_payload(gate, phase))
+            repair_issue_ids: set[str] = set()
             for repair_round in range(max(0, max_repair_rounds) + 1):
                 if gate.passed:
                     break
@@ -199,6 +216,7 @@ class LifecycleOrchestrator:
                 before_gap = tuple(sorted((item.code, item.entity_ids) for item in gate.issues))
                 for issue in gate.issues:
                     issue_id = self.runner._issue_id(project_id, gate, issue)
+                    repair_issue_ids.add(issue_id)
                     try:
                         repaired = self.runner.repair(project_id, issue_id, run_id=identity.run_id, repair_round=repair_round + 1)
                         diagnostics.extend(repaired.diagnostics)
@@ -211,6 +229,12 @@ class LifecycleOrchestrator:
                         diagnostics.extend(rerun.diagnostics)
                 gate = self.runner.gate(project_id, phase, run_id=identity.run_id)
                 gate_snapshot.append(self.runner._gate_payload(gate, phase))
+                if gate.passed:
+                    self.runner._resolve_issues(
+                        project_id,
+                        repair_issue_ids,
+                        identity.run_id,
+                    )
                 if not gate.passed:
                     after_graph = self.runner.model_repository.load_graph(project_id)
                     after_gap = tuple(sorted((item.code, item.entity_ids) for item in gate.issues))
@@ -1168,14 +1192,24 @@ class WorkflowRunner:
             return self.orchestrator.run(project_id, run_id=run_id)
         return self._run_phase(project_id, Phase(stored.phase), run_id=run_id)
 
+    @_release_new_leases
     def repair(self, project_id: str, issue_id: str, *, run_id: str | None = None, repair_round: int = 1) -> RunSummary:
         issues = self.model_repository.list_issues(project_id)
         issue = next((item for item in issues if item.get("id") == issue_id), None)
         if issue is None:
             raise ContractViolation(f"repair requires a registered issue: {issue_id}")
+        effective_run_id = run_id or f"repair-{issue_id}"
+        if effective_run_id not in self._leases:
+            # A standalone repair worker must own the run before it asks the
+            # provider for a proposal.  Otherwise two workers can both spend
+            # effort and race to apply different repairs.
+            self._ensure_run(
+                project_id,
+                run_id=effective_run_id,
+                phase=Phase.OPERATIONAL,
+            )
         graph = self.model_repository.load_graph(project_id)
         code = str(issue.get("code", "issue"))
-        effective_run_id = run_id or f"repair-{issue_id}"
         context = build_repair_context(
             project_id, effective_run_id, issue_id, {**issue, "failing_gate": issue.get("suggested_rollback", "")},
             graph, evidence=tuple(self.model_repository.list_evidence(project_id)),
@@ -1198,15 +1232,7 @@ class WorkflowRunner:
         repair_response = TaskExecutionResponse(StepStatus.COMPLETED, patch=patch)
         repair_spec = repair_task.as_task_spec(context)
         self.executor.validate_response(project_id, repair_spec, graph, ContextBundle(project_id, repair_spec.id, graph.revision, context.local_entities, context.local_relations, context.evidence), repair_response)
-        self._ensure_run(
-            project_id,
-            run_id=effective_run_id,
-            phase=_phase_for_repair_task(repair_task.target_task_id),
-        )
-        try:
-            self._append_run_patch(project_id, patch, graph.revision, effective_run_id)
-        finally:
-            self._release_lease(project_id, effective_run_id)
+        self._append_run_patch(project_id, patch, graph.revision, effective_run_id)
         if run_id and self.run_repository.load_run(project_id, run_id) is not None:
             prompt = self.executor.prompts.resolve(repair_spec.prompt_template_id)
             self.run_repository.update_step(Step(
@@ -1248,6 +1274,34 @@ class WorkflowRunner:
                 saver(project_id, {"id": self._issue_id(project_id, result, gap), "code": gap.code, "severity": "error", "entity_ids": list(gap.entity_ids), "suggested_rollback": result.rollback_phase.value if result.rollback_phase else None, "run_id": run_id})
         self._record_audit(project_id, "gate.evaluated", {"run_id": run_id, "gate_id": result.gate_id, "phase": phase.value, "passed": result.passed, "issues": [gap.code for gap in result.issues]})
         return result
+
+    def _resolve_issues(
+        self,
+        project_id: str,
+        issue_ids: set[str],
+        run_id: str,
+    ) -> None:
+        """Resolve only issues whose repair has passed a fresh Gate."""
+
+        if not issue_ids:
+            return
+        saver = getattr(self.model_repository, "save_issue", None)
+        reader = getattr(self.model_repository, "list_issues", None)
+        if not callable(saver) or not callable(reader):
+            return
+        for issue in reader(project_id):
+            issue_id = str(issue.get("id", ""))
+            if issue_id not in issue_ids or issue.get("status") == "resolved":
+                continue
+            resolved = dict(issue)
+            resolved["status"] = "resolved"
+            resolved["run_id"] = run_id
+            saver(project_id, resolved)
+            self._record_audit(project_id, "issue.resolved", {
+                "run_id": run_id,
+                "issue_id": issue_id,
+                "code": issue.get("code", "issue"),
+            })
 
     def _issue_id(self, project_id: str, result: GateResult, gap: CoverageGap) -> str:
         graph = self.model_repository.load_graph(project_id)

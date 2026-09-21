@@ -45,7 +45,12 @@ class CoverageMatrix:
 def _accepted_requirements(graph: ModelGraph):
     return tuple(sorted(
         (entity for entity in graph.entities
-         if entity.kind is EntityKind.REQUIREMENT and entity.meta.status is EntityStatus.ACCEPTED),
+         if entity.kind is EntityKind.REQUIREMENT
+         and entity.meta.status in {
+             EntityStatus.VALIDATED,
+             EntityStatus.ACCEPTED,
+             EntityStatus.LOCKED,
+         }),
         key=lambda entity: entity.id,
     ))
 

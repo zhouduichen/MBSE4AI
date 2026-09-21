@@ -97,6 +97,17 @@ def validate_patch_lifecycle(graph, patch) -> None:
                 if authority is not LifecycleActor.VERIFIER:
                     raise ContractViolation("LLM-created entities must start as candidate")
             continue
+        # Avoid importing domain.model here: model.apply_patch owns the call
+        # into this policy and the two modules must remain acyclic.
+        if type(operation).__name__ == "Deprecate":
+            entity = index.get(operation.entity_id)
+            if entity is None:
+                continue
+            if entity.meta.status is EntityStatus.LOCKED:
+                raise ContractViolation("only user review unlock may leave locked status")
+            if authority is LifecycleActor.LLM:
+                raise ContractViolation("LLM cannot change lifecycle status")
+            continue
         if not hasattr(operation, "field_patch"):
             continue
         entity = index.get(operation.entity_id)

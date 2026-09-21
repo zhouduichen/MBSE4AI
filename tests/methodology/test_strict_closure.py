@@ -142,3 +142,13 @@ def test_complete_accepted_graph_passes_strict_closure_and_global_gate():
     assert result.requirement_ids
     assert global_gate(graph).passed is True
 
+
+def test_locked_requirement_remains_in_coverage_scope():
+    graph = _graph(requirement_status=EntityStatus.LOCKED)
+
+    matrix = build_requirement_coverage(graph)
+    result = evaluate_strict_closure(graph)
+
+    assert matrix.metrics["requirement_count"] == 1
+    assert matrix.metrics["r_to_f_coverage"] == 1.0
+    assert result.passed is True

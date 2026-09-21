@@ -633,7 +633,7 @@ class SQLiteModelRepository(ModelRepository, RunRepository):
     def claim_run(self, project_id: str, run_id: str, lease: str, now: float) -> bool:
         with self._transaction():
             cursor = self._connection.execute(
-                "UPDATE runs SET lease = ?, heartbeat = ? WHERE id = ? AND project_id = ? AND (lease = '' OR heartbeat < ?)",
+                "UPDATE runs SET lease = ?, heartbeat = ? WHERE id = ? AND project_id = ? AND status NOT IN ('completed', 'cancelled') AND (lease = '' OR heartbeat < ?)",
                 (lease, now, run_id, project_id, now - _RUN_LEASE_TIMEOUT_SECONDS),
             )
             return cursor.rowcount == 1
