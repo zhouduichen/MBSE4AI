@@ -10,6 +10,7 @@ from tests.mbse_benchmark.runners.experiment_contract import (
     GenerationCallEvent,
     assert_model_visible_payload,
     numeric_projection,
+    runtime_provider_id,
     summarize_repeats,
 )
 
@@ -129,3 +130,10 @@ def test_numeric_projection_keeps_nested_semantic_governance_and_telemetry_metri
         "semantic.trace_accuracy": 0.75,
         "governance.release_closure.issue_count": 2.0,
     }
+
+
+def test_runtime_provider_identity_is_stable_across_profile_shapes() -> None:
+    assert runtime_provider_id({"id": "profile-a", "provider": "openai-compatible"}) == "profile-a"
+    assert runtime_provider_id({"provider_id": "provider-a", "id": "profile-a"}) == "provider-a"
+    assert runtime_provider_id({"provider": "openai-compatible"}) == "openai-compatible"
+    assert runtime_provider_id(None) == "offline"

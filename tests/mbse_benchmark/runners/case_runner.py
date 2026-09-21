@@ -28,6 +28,7 @@ from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
     ExperimentTelemetry,
     input_sha256,
+    runtime_provider_id,
 )
 from tests.mbse_benchmark.runners.scenario_pipeline import (
     ModelGraphNormalizer,
@@ -572,7 +573,7 @@ def _harness_metadata(
     fallback_context = {
         "scenario": contract.scenario.value,
         "model": config.get("model", "rule-runtime"),
-        "provider": config.get("provider_id", config.get("provider", "offline")),
+        "provider": runtime_provider_id(config),
         "input_hash": input_envelope.input_hash,
         "controls": {
             "verifier": contract.has_verifier,
@@ -594,7 +595,7 @@ def _harness_metadata(
     return {
         "scenario": contract.scenario.value,
         "model": str(config.get("model", "rule-runtime")),
-        "provider": str(config.get("provider_id", config.get("provider", "offline"))),
+        "provider": runtime_provider_id(config),
         "prompt_hash": str(prompt_hash),
         "task_spec_hash": str(task_spec_hash),
         "temperature": _as_float(config.get("temperature")),

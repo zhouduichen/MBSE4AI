@@ -180,6 +180,17 @@ def _has_numeric_value(usage: Mapping[str, object], *keys: str) -> bool:
     )
 
 
+def runtime_provider_id(config: Mapping[str, object] | None) -> str:
+    """Return one stable provider identity for every benchmark execution path."""
+
+    values = config or {}
+    for key in ("provider_id", "id", "provider"):
+        value = str(values.get(key, "")).strip()
+        if value:
+            return value
+    return "offline"
+
+
 @dataclass(frozen=True, slots=True)
 class BenchmarkInputEnvelope:
     """The exact case bytes that every scenario is allowed to observe."""

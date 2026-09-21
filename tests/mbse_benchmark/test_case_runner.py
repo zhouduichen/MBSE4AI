@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from tests.mbse_benchmark.runners.case_runner import _run_analysis
+from rflp_lite.domain.model import ModelGraph
+from tests.mbse_benchmark.runners.case_runner import (
+    _harness_metadata,
+    _run_analysis,
+)
+from tests.mbse_benchmark.runners.experiment_contract import BenchmarkInputEnvelope
+from tests.mbse_benchmark.scenarios import BenchmarkScenario, scenario_contract
 
 
 class _GenerationService:
@@ -74,3 +80,26 @@ def test_lifecycle_benchmark_path_keeps_legacy_workflow_entrypoint() -> None:
     assert result == "lifecycle-result"
     assert services.analysis_service.calls == ["case-04"]
     assert services.generation_service.calls == []
+
+
+def test_harness_metadata_uses_the_same_profile_identity_as_bare_adapter() -> None:
+    metadata = _harness_metadata(
+        BenchmarkInputEnvelope.from_case({
+            "case_id": "CASE-01",
+            "system": "测试系统",
+            "stakeholders": [],
+            "lifecycle_stages": [],
+            "scenarios": [],
+            "requirements": [],
+        }),
+        scenario_contract(BenchmarkScenario.E_FULL_HARNESS),
+        ModelGraph("case-01", (), (), 0),
+        {"id": "profile-a", "provider": "openai-compatible", "model": "model-a"},
+        {},
+        telemetry_events=[],
+        comparison_mode="natural",
+        total_output_token_budget=None,
+        execution_elapsed=0.001,
+    )
+
+    assert metadata["provider"] == "profile-a"
