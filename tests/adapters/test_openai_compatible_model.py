@@ -251,6 +251,19 @@ def test_budget_matched_adapter_stops_after_measured_output_cap():
     assert calls == [5]
 
 
+def test_budget_matched_adapter_fails_closed_without_output_usage():
+    class Response(str):
+        usage = {"total_tokens": 5}
+
+    model = OpenAICompatibleModel(
+        {"model": "local", "benchmark_total_output_token_budget": 5},
+        complete=lambda *_args, **_kwargs: Response('{"items": []}'),
+    )
+
+    with pytest.raises(AdapterFailure, match="output token usage unavailable"):
+        model.complete_json(request())
+
+
 def test_adapter_fits_output_to_configured_context_window():
     calls = []
 

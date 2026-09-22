@@ -129,6 +129,13 @@ def run_benchmark(
     total_output_token_budget: int | None = None,
     evaluator: ExternalEvaluator | None = None,
 ) -> dict[str, object]:
+    if comparison_mode not in {"natural", "budget_matched"}:
+        raise ValueError(f"unknown comparison mode: {comparison_mode}")
+    if comparison_mode == "budget_matched":
+        if total_output_token_budget is None or int(total_output_token_budget) <= 0:
+            raise ValueError("budget_matched comparison requires a positive total output token budget")
+    elif total_output_token_budget is not None:
+        raise ValueError("total output token budget is only valid for budget_matched comparison")
     if track not in {item.value for item in BenchmarkTrack if item is not BenchmarkTrack.ROBUSTNESS}:
         raise ValueError(f"run_benchmark only executes harness or llm tracks: {track}")
     if track == BenchmarkTrack.LLM.value and not runtime_config:
@@ -553,9 +560,17 @@ def run_scenario_comparison(
     if comparison_mode == "budget_matched":
         budgets = {item.get("total_output_token_budget") for item in all_records}
         comparison["budget_comparable"] = bool(all_records) and modes == {comparison_mode} and len(budgets) == 1 and None not in budgets
+        comparison["budget_enforced"] = bool(all_records) and all(
+            isinstance(item.get("telemetry"), Mapping)
+            and item["telemetry"].get("budget_within_cap") is True
+            and isinstance(item["telemetry"].get("output_tokens"), (int, float))
+            and int(item["telemetry"].get("output_tokens", 0)) <= int(item.get("total_output_token_budget", 0))
+            for item in all_records
+        )
     else:
         budgets = {item.get("benchmark_token_budget") for item in all_records}
         comparison["budget_comparable"] = bool(all_records) and modes == {comparison_mode} and len(budgets) == 1 and None not in budgets
+        comparison["budget_enforced"] = True
     comparison["ablation_contract_valid"] = all(
         all(
             all(record.get(key) == expected.get(key) for key in expected)
@@ -628,6 +643,7 @@ def run_scenario_comparison(
             "ground_truth_isolated",
             "same_temperature",
             "budget_comparable",
+            "budget_enforced",
             "ablation_contract_valid",
             "execution_complete",
             "real_calls_observed",

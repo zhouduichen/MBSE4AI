@@ -46,6 +46,14 @@ def _usage_count(usage: Mapping[str, object], *keys: str) -> int:
     return 0
 
 
+def _has_usage_count(usage: Mapping[str, object], *keys: str) -> bool:
+    return any(
+        isinstance(usage.get(key), (int, float))
+        and not isinstance(usage.get(key), bool)
+        for key in keys
+    )
+
+
 def _estimate_cost(
     usage: Mapping[str, object],
     config: Mapping[str, object],
@@ -912,6 +920,28 @@ class OpenAICompatibleModel:
                 raw=None,
             )
             raise
+        usage = getattr(raw, "usage", {})
+        usage = usage if isinstance(usage, Mapping) else {}
+        if self._benchmark_output_budget is not None and not _has_usage_count(
+            usage,
+            "output_tokens",
+            "completion_tokens",
+            "eval_count",
+        ):
+            # A budget-matched comparison cannot claim a controlled total
+            # output budget when the provider does not report output usage.
+            # Record the completed transport as a measurement failure and
+            # stop before validation/repair can issue another unmeasured call.
+            self._emit_call_event(
+                request,
+                attempt_kind,
+                started,
+                status="failed",
+                raw=raw,
+            )
+            raise AdapterFailure(
+                "benchmark output token usage unavailable; cannot enforce budget"
+            )
         self._emit_call_event(
             request,
             attempt_kind,
@@ -920,8 +950,6 @@ class OpenAICompatibleModel:
             raw=raw,
         )
         if self._benchmark_output_budget is not None:
-            usage = getattr(raw, "usage", {})
-            usage = usage if isinstance(usage, Mapping) else {}
             output_tokens = _usage_count(usage, "output_tokens", "completion_tokens", "eval_count")
             self._benchmark_output_budget = max(0, self._benchmark_output_budget - output_tokens)
         return raw

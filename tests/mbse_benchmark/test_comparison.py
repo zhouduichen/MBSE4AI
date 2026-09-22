@@ -138,6 +138,7 @@ def _fake_comparison_record(scenario: str, repeat_index: int, mode: str) -> dict
             "wall_latency_ms": 7,
             "cost_status": "available",
             "estimated_cost_usd": 0.001,
+            "budget_within_cap": True,
         },
     }
 
@@ -201,3 +202,4 @@ def test_comparison_aggregator_records_all_evidence_invariants(
     assert comparison["latency_observed"] is True
     assert comparison["cost_observed"] is True
     assert comparison["budget_comparable"] is expected_budget
+    assert comparison["budget_enforced"] is True

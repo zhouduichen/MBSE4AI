@@ -52,6 +52,7 @@ class ExperimentTelemetry:
     comparison_mode: str
     total_output_token_budget: int | None
     budget_exhausted: bool
+    budget_within_cap: bool
 
     @classmethod
     def from_events(
@@ -123,6 +124,10 @@ class ExperimentTelemetry:
                 total_output_token_budget is not None
                 and output_tokens >= max(0, int(total_output_token_budget))
             ),
+            budget_within_cap=(
+                total_output_token_budget is None
+                or output_tokens <= max(0, int(total_output_token_budget))
+            ),
         )
 
     def as_dict(self) -> dict[str, object]:
@@ -144,6 +149,7 @@ class ExperimentTelemetry:
             "comparison_mode": self.comparison_mode,
             "total_output_token_budget": self.total_output_token_budget,
             "budget_exhausted": self.budget_exhausted,
+            "budget_within_cap": self.budget_within_cap,
         }
 
 
