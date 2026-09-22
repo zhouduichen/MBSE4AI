@@ -13,6 +13,7 @@ from rflp_lite.ports.generative_model import GenerationCallEvent, TelemetrySink
 
 
 _EVALUATOR_KEYS = frozenset({
+    "coverage",
     "coverage_expectations",
     "evaluation_spec",
     "evaluation_spec_hash",

@@ -41,6 +41,9 @@ def test_evaluator_spec_is_rejected_from_model_payload() -> None:
         assert_model_visible_payload({"evaluation_spec": spec.payload}, spec)
 
     with pytest.raises(ValueError, match="evaluator-only"):
+        assert_model_visible_payload({"coverage": spec.payload}, spec)
+
+    with pytest.raises(ValueError, match="evaluator-only"):
         assert_model_visible_payload({"known_conflicts": spec.payload}, spec)
 
     with pytest.raises(ValueError, match="evaluator-only"):
