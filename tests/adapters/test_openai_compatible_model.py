@@ -251,6 +251,33 @@ def test_budget_matched_adapter_stops_after_measured_output_cap():
     assert calls == [5]
 
 
+def test_budget_matched_adapter_shares_remaining_cap_across_calls():
+    calls = []
+
+    class Response(str):
+        def __new__(cls, output_tokens):
+            instance = str.__new__(cls, '{"items": []}')
+            instance.usage = {"output_tokens": output_tokens}
+            return instance
+
+    responses = iter((Response(3), Response(2)))
+
+    def complete(_config, _messages, *, max_tokens=None):
+        calls.append(max_tokens)
+        return next(responses)
+
+    model = OpenAICompatibleModel(
+        {"model": "local", "benchmark_total_output_token_budget": 5},
+        complete=complete,
+    )
+
+    assert model.complete_json(request()).payload == {"items": []}
+    assert model.complete_json(request()).payload == {"items": []}
+    with pytest.raises(AdapterFailure, match="budget exhausted"):
+        model.complete_json(request())
+    assert calls == [5, 2]
+
+
 def test_budget_matched_adapter_fails_closed_without_output_usage():
     class Response(str):
         usage = {"total_tokens": 5}
