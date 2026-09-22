@@ -553,9 +553,12 @@ def run_scenario_comparison(
         and item["evaluation_boundary"].get("model_visible") is False
         for item in all_records
     )
-    comparison["same_temperature"] = bool(all_records) and len({
-        item.get("temperature") for item in all_records
-    }) == 1
+    temperature_values = {item.get("temperature") for item in all_records}
+    comparison["same_temperature"] = (
+        bool(all_records)
+        and len(temperature_values) == 1
+        and None not in temperature_values
+    )
     modes = {str(item.get("comparison_mode", comparison_mode)) for item in all_records}
     if comparison_mode == "budget_matched":
         budgets = {item.get("total_output_token_budget") for item in all_records}

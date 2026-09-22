@@ -13,7 +13,9 @@ Configure these repository-level values:
   provider endpoint and credentials. The JSON `id` must equal the variable.
   It must also declare `input_cost_per_1m_tokens` and
   `output_cost_per_1m_tokens`; use `0` explicitly for a genuinely free local
-  endpoint so the comparison can still prove that cost was measured.
+  endpoint so the comparison can still prove that cost was measured. Declare
+  an explicit numeric `temperature` as well; a missing temperature is not
+  accepted as evidence that A–E used the same sampling configuration.
 
 Budget-matched runs also require a positive `--total-output-token-budget`. The
 provider must return an output-token count (`output_tokens`, `completion_tokens`,

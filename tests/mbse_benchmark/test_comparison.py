@@ -196,6 +196,7 @@ def test_comparison_aggregator_records_all_evidence_invariants(
 
     assert comparison["same_model_provider"] is True
     assert comparison["same_input"] is True
+    assert comparison["same_temperature"] is True
     assert comparison["ground_truth_isolated"] is True
     assert comparison["ablation_contract_valid"] is True
     assert comparison["token_usage_observed"] is True
@@ -203,3 +204,51 @@ def test_comparison_aggregator_records_all_evidence_invariants(
     assert comparison["cost_observed"] is True
     assert comparison["budget_comparable"] is expected_budget
     assert comparison["budget_enforced"] is True
+
+
+def test_comparison_rejects_missing_temperature(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cases = (CASE,)
+
+    def fake_run_benchmark(*args, **kwargs):
+        scenario = str(kwargs["scenario"])
+        records = [_fake_comparison_record(scenario, index, "natural") for index in range(1, 4)]
+        for record in records:
+            record["temperature"] = None
+        return {
+            "score": {"final_status": "ACCEPTED"},
+            "metrics": {},
+            "semantic_metrics": {"end_to_end_traceability": 0.5},
+            "governance_metrics": {},
+            "metadata": {"scenario_metadata": records},
+        }
+
+    monkeypatch.setattr(benchmark_runner_module, "run_benchmark", fake_run_benchmark)
+    monkeypatch.setattr(benchmark_runner_module, "load_cases", lambda _path: cases)
+    monkeypatch.setattr(
+        benchmark_runner_module,
+        "_persisted_input_audit",
+        lambda *args, **kwargs: {
+            "checked_count": 15,
+            "all_present": True,
+            "all_exact": True,
+            "records": [],
+        },
+    )
+
+    with pytest.raises(ValueError, match="comparison invariant"):
+        benchmark_runner_module.run_scenario_comparison(
+            Path("tests/mbse_benchmark/cases"),
+            tmp_path / "output",
+            repeats=3,
+            report_dir=tmp_path / "report",
+            profile="test-profile",
+            runtime_config={
+                "id": "profile-test",
+                "provider": "openai-compatible",
+                "model": "test-model",
+            },
+            comparison_mode="natural",
+        )
