@@ -571,9 +571,11 @@ def run_scenario_comparison(
             for item in all_records
         )
     else:
-        budgets = {item.get("benchmark_token_budget") for item in all_records}
-        comparison["budget_comparable"] = bool(all_records) and modes == {comparison_mode} and len(budgets) == 1 and None not in budgets
-        comparison["budget_enforced"] = True
+        # Natural mode deliberately exposes the model's unconstrained total
+        # work.  A/B have different call shapes (one-shot versus staged), so a
+        # shared per-call cap must not be reported as total-budget equivalence.
+        comparison["budget_comparable"] = "not_applicable"
+        comparison["budget_enforced"] = "not_applicable"
     comparison["ablation_contract_valid"] = all(
         all(
             all(record.get(key) == expected.get(key) for key in expected)

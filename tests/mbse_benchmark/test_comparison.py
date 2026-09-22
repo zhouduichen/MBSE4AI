@@ -145,7 +145,7 @@ def _fake_comparison_record(scenario: str, repeat_index: int, mode: str) -> dict
 
 @pytest.mark.parametrize(
     ("mode", "expected_budget"),
-    (("natural", True), ("budget_matched", True)),
+    (("natural", "not_applicable"), ("budget_matched", True)),
 )
 def test_comparison_aggregator_records_all_evidence_invariants(
     monkeypatch: pytest.MonkeyPatch,
@@ -202,8 +202,8 @@ def test_comparison_aggregator_records_all_evidence_invariants(
     assert comparison["token_usage_observed"] is True
     assert comparison["latency_observed"] is True
     assert comparison["cost_observed"] is True
-    assert comparison["budget_comparable"] is expected_budget
-    assert comparison["budget_enforced"] is True
+    assert comparison["budget_comparable"] == expected_budget
+    assert comparison["budget_enforced"] == expected_budget
 
 
 def test_comparison_rejects_missing_temperature(

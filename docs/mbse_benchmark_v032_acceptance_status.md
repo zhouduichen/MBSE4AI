@@ -17,7 +17,7 @@ PR：[zhouduichen/MBSE4AI#1](https://github.com/zhouduichen/MBSE4AI/pull/1)
 | 7 | total token usage | CONTRACT + FAIL-CLOSED | adapter transport telemetry；缺 usage 时 token evidence 不可用，budget-matched 直接失败 |
 | 8 | model call count | CONTRACT VERIFIED | transport-boundary `GenerationCallEvent` 聚合，包括 repair calls |
 | 9 | latency/cost | CONTRACT + FAIL-CLOSED | provider/wall latency 与 pricing telemetry；缺价格不伪造成本 |
-| 10 | natural 与 budget-matched | CONTRACT VERIFIED | 两种 comparison mode；budget-matched cap 跨调用共享并检查 `budget_within_cap`；缺失 temperature 时 comparison fail-closed |
+| 10 | natural 与 budget-matched | CONTRACT VERIFIED | 两种 comparison mode；natural mode 对总预算明确标记 `not_applicable`，只有 budget-matched 跨调用共享 cap 并检查 `budget_within_cap`；缺失 temperature 时 comparison fail-closed |
 | 11 | 3–5 repeats 与统计 | CONTRACT VERIFIED | comparison 至少 3 repeats，报告 mean/std/CI95 与 Quality-Cost |
 | 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对 `efb2e28` 均成功：[push run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35777412146)、[PR run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35777419341) |
 | 13 | main 要求 CI / quality | VERIFIED | branch protection `strict=true`、required context=`CI / quality`、required approvals=1 |
