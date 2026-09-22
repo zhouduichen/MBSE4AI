@@ -46,8 +46,10 @@ evidence.
 Enable variable `AI4MBSE_GPU_ENABLED=true` and register a Linux self-hosted
 runner with labels `self-hosted`, `linux`, and `gpu`. The runner must expose a
 working `nvidia-smi` command and the repository must contain GPU-tagged
-acceptance tests. The workflow fails instead of claiming PASS when no such test
-is present.
+acceptance tests. The repository's explicit test is
+`tests/integration/test_gpu_acceptance.py`; it is opt-in and verifies that
+`nvidia-smi` reports at least one visible device. The workflow fails instead of
+claiming PASS when that test is missing or the runner has no visible GPU.
 
 ## Evidence policy
 

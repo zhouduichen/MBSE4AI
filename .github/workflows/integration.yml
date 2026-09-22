@@ -124,10 +124,11 @@ jobs:
       - name: Confirm GPU runner
         run: nvidia-smi
       - name: Run GPU-tagged acceptance tests
+        env:
+          AI4MBSE_GPU_ACCEPTANCE: "1"
         run: |
-          mapfile -t gpu_tests < <(rg -l -i "gpu" tests --glob 'test_*.py' || true)
-          if [ "${#gpu_tests[@]}" -eq 0 ]; then
-            echo "No GPU-tagged tests are configured; refusing to claim a GPU acceptance PASS."
+          test -f tests/integration/test_gpu_acceptance.py || {
+            echo "Explicit GPU acceptance test is missing; refusing to claim a GPU acceptance PASS." >&2
             exit 1
-          fi
-          python -m pytest -q "${gpu_tests[@]}"
+          }
+          python -m pytest -q tests/integration/test_gpu_acceptance.py -m gpu
