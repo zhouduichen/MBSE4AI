@@ -21,11 +21,11 @@ PR：[zhouduichen/MBSE4AI#1](https://github.com/zhouduichen/MBSE4AI/pull/1)
 | 11 | 3–5 repeats 与统计 | CONTRACT VERIFIED | comparison 至少 3 repeats，报告 mean/std/CI95 与 Quality-Cost |
 | 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对 `259dd58` 均成功：[push run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35799332200)、[PR run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35799335846) |
 | 13 | main 要求 CI / quality | VERIFIED | branch protection `strict=true`、required context=`CI / quality`、required approvals=1 |
-| 14 | Integration schedule 不空跑 | VERIFIED | unconditional `contract` job；最新 contract run 成功：[run 35689707347](https://github.com/zhouduichen/MBSE4AI/actions/runs/35689707347) |
+| 14 | Integration schedule 不空跑 | CONTRACT VERIFIED; SCHEDULE PENDING | unconditional `contract` job 在手动触发下成功：[run 35689707347](https://github.com/zhouduichen/MBSE4AI/actions/runs/35689707347)；scheduled event 需在默认分支生效后再取得权威 run evidence |
 | 15 | Remote LLM/FreeCAD/GPU 真实 workflow | NOT YET PROVEN | GitHub 当前 self-hosted runners=0、Actions variables=0、secrets=0；对应 jobs 必须保持 SKIPPED，不能计为 PASS |
 
 ## 当前结论
 
-v0.3.2 的实验边界、隔离规则、预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；但完整目标尚未完成。只有配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner 后，才能运行 A–E 并把第 15 项从 `NOT YET PROVEN` 更新为真实 job PASS，同时取得可发表的 A–E 质量/成本结果。
+v0.3.2 的实验边界、隔离规则、预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；但完整目标尚未完成。第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner；之后才能取得可发表的 A–E 质量/成本结果。
 
 本地离线测试、contract job、skip 状态和 SSH 可达性检查都不能替代第 15 项的 GitHub integration evidence。
