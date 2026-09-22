@@ -15,6 +15,11 @@ Configure these repository-level values:
   `output_cost_per_1m_tokens`; use `0` explicitly for a genuinely free local
   endpoint so the comparison can still prove that cost was measured.
 
+Budget-matched runs also require a positive `--total-output-token-budget`. The
+provider must return an output-token count (`output_tokens`, `completion_tokens`,
+or native `eval_count`); without it the adapter fails closed, and any measured
+repeat above the cap makes the comparison invalid.
+
 For an operator-triggered run, supply the profile id through the workflow input
 and keep the JSON in the repository secret. The job runs
 `--compare-a-e --repeats 3 --comparison-mode natural`; a budget-matched

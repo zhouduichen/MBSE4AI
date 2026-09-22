@@ -147,6 +147,7 @@ cost_status
 comparison_mode
 total_output_token_budget
 budget_exhausted
+budget_within_cap
 ```
 
 Telemetry is collected at the adapter transport boundary so every real provider call is counted, including calls made during structural repair. Aggregated response metadata is insufficient when a runtime batches requests or hides repair calls.
@@ -154,7 +155,7 @@ Telemetry is collected at the adapter transport boundary so every real provider 
 Two supported modes are explicit:
 
 - `natural`: each scenario uses its normal configured generation limits;
-- `budget_matched`: all scenarios receive the same total output-token cap, and staged runs receive the remaining cap after each call. The manifest records the cap and `budget_exhausted` state.
+- `budget_matched`: all scenarios receive the same positive total output-token cap, and staged runs receive the remaining cap after each call. A provider must report output-token usage; otherwise the adapter fails closed. The comparison rejects any repeat whose measured output exceeds the cap and the manifest records both `budget_exhausted` and `budget_within_cap`.
 
 Token usage, call count, latency, and estimated cost are real measured values when the provider supplies usage and pricing metadata. Unknown pricing is reported as `cost_status=unavailable`, never as zero cost.
 
@@ -237,4 +238,3 @@ The implementation must add or update tests for:
 10. CI dependency installation and schedule-safe integration behavior.
 
 Local verification must pass pytest, Ruff, compileall, import lint, architecture budgets, and the robustness benchmark. The final handoff must include the local evidence, the GitHub run URL/status, the commit SHA, and any external integration checks that remain blocked by missing runners or credentials.
-
