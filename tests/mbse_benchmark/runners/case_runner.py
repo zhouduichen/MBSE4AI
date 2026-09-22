@@ -26,6 +26,7 @@ from tests.mbse_benchmark.scenarios import (
 )
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
+    EvaluationSpec,
     ExperimentTelemetry,
     input_sha256,
     runtime_provider_id,
@@ -237,6 +238,7 @@ def _run_case_inner(
     case: Mapping[str, object],
     output_dir: Path,
     runtime_config: Mapping[str, object] | None = None,
+    evaluation_spec: EvaluationSpec | None = None,
     analysis_path: str = "lifecycle",
     scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
     comparison_mode: str = "natural",
@@ -290,6 +292,7 @@ def _run_case_inner(
                 model,
                 project_id=project_id,
                 token_budget=int(effective_runtime_config.get("benchmark_token_budget", 3000) or 3000),
+                evaluation_spec=evaluation_spec,
             )
             graph = scenario_output.graph
             closure = evaluate_strict_closure(graph)
@@ -452,6 +455,7 @@ def _child_entry(
     case: Mapping[str, object],
     output_dir: str,
     runtime_config: Mapping[str, object] | None = None,
+    evaluation_spec: EvaluationSpec | None = None,
     analysis_path: str = "lifecycle",
     scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
     comparison_mode: str = "natural",
@@ -461,6 +465,7 @@ def _child_entry(
         case,
         Path(output_dir),
         runtime_config,
+        evaluation_spec,
         analysis_path,
         scenario,
         comparison_mode,
@@ -475,6 +480,7 @@ def run_case(
     repeat_index: int = 1,
     timeout_seconds: int = 60,
     runtime_config: Mapping[str, object] | None = None,
+    evaluation_spec: EvaluationSpec | None = None,
     analysis_path: str = "lifecycle",
     scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
     comparison_mode: str = "natural",
@@ -491,6 +497,7 @@ def run_case(
             dict(case),
             str(output_dir),
             dict(runtime_config) if runtime_config else None,
+            evaluation_spec,
             analysis_path,
             scenario,
             comparison_mode,

@@ -169,6 +169,7 @@ def run_benchmark(
                 repeat_index=index,
                 timeout_seconds=timeout_seconds,
                 runtime_config=runtime_config,
+                evaluation_spec=evaluation_spec,
                 analysis_path=analysis_path,
                 scenario=contract.scenario.value,
                 comparison_mode=comparison_mode,

@@ -38,8 +38,17 @@ def build_traceability_view(graph: ModelGraph, issues: tuple[Mapping[str, object
     for requirement in sorted((item for item in graph.entities if item.kind is EntityKind.REQUIREMENT), key=lambda item: item.id):
         status, gaps, trace = requirement_trace_status(graph, requirement)
         canonical = resolve_requirement_trace(graph, requirement.id)
-        coverage = sum(canonical.stage_coverage.values()) / 5 * 100
-        coverage_status = "pass" if canonical.complete else "fail"
+        row_coverage = coverage_result(
+            sum(bool(value) for value in canonical.stage_coverage.values()),
+            len(canonical.stage_coverage),
+            passed=canonical.complete,
+        )
+        coverage = (
+            round(float(row_coverage["coverage"]) * 100, 2)
+            if row_coverage["coverage"] is not None
+            else None
+        )
+        coverage_status = str(row_coverage["status"])
         row = TraceabilityRowView(
             requirement.id,
             requirement.meta.name,
