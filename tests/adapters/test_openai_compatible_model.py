@@ -264,6 +264,29 @@ def test_budget_matched_adapter_fails_closed_without_output_usage():
         model.complete_json(request())
 
 
+def test_adapter_uses_one_provider_identity_for_response_and_telemetry():
+    events = []
+
+    class Response(str):
+        usage = {"input_tokens": 2, "output_tokens": 3}
+
+    model = OpenAICompatibleModel(
+        {
+            "provider_id": "runtime-provider",
+            "id": "profile-id",
+            "provider": "openai-compatible",
+            "model": "local",
+        },
+        complete=lambda *_args, **_kwargs: Response('{"items": []}'),
+        telemetry_sink=events.append,
+    )
+
+    result = model.complete_json(request())
+
+    assert result.provider_id == "runtime-provider"
+    assert events[0].provider_id == "runtime-provider"
+
+
 def test_adapter_fits_output_to_configured_context_window():
     calls = []
 

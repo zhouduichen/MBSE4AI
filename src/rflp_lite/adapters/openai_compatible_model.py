@@ -54,6 +54,14 @@ def _has_usage_count(usage: Mapping[str, object], *keys: str) -> bool:
     )
 
 
+def _configured_provider_id(config: Mapping[str, object]) -> str:
+    for key in ("provider_id", "id", "provider", "label"):
+        value = str(config.get(key, "")).strip()
+        if value:
+            return value
+    return "openai-compatible"
+
+
 def _estimate_cost(
     usage: Mapping[str, object],
     config: Mapping[str, object],
@@ -889,6 +897,7 @@ class OpenAICompatibleModel:
             )
         except (TypeError, ValueError):
             self._benchmark_output_budget = None
+        self._provider_id = _configured_provider_id(self._config)
         self._configure_remote_controls()
 
     def _transport_call(
@@ -970,7 +979,7 @@ class OpenAICompatibleModel:
         self._telemetry_sink(GenerationCallEvent(
             lens_id=request.lens_id,
             attempt_kind=attempt_kind,
-            provider_id=str(self._config.get("id", self._config.get("provider", "openai-compatible"))),
+            provider_id=self._provider_id,
             model_id=str(self._config.get("model", "")),
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),
             status=status,
@@ -1308,11 +1317,7 @@ class OpenAICompatibleModel:
                     raw_response=str(raw or ""),
                     initial_raw_response=str(raw or ""),
                     schema_hash=canonical_hash(request.response_schema),
-                    provider_id=str(
-                        self._config.get(
-                            "id", self._config.get("label", "openai-compatible")
-                        )
-                    ),
+                    provider_id=self._provider_id,
                     model_id=str(self._config.get("model", "")),
                     finish_reason=str(getattr(raw, "done_reason", "")),
                     usage=getattr(raw, "usage", {}),
@@ -1324,7 +1329,7 @@ class OpenAICompatibleModel:
                     raw_response=str(raw or ""),
                     initial_raw_response=str(raw or ""),
                     schema_hash=canonical_hash(request.response_schema),
-                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    provider_id=self._provider_id,
                     model_id=str(self._config.get("model", "")),
                     finish_reason=str(getattr(raw, "done_reason", "")),
                     usage=getattr(raw, "usage", {}),
@@ -1370,7 +1375,7 @@ class OpenAICompatibleModel:
                     initial_raw_response=str(raw or ""),
                     schema_hash=canonical_hash(request.response_schema),
                     retry_count=1,
-                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    provider_id=self._provider_id,
                     model_id=str(self._config.get("model", "")),
                     finish_reason=str(getattr(repaired_raw, "done_reason", "")),
                     usage=getattr(repaired_raw, "usage", {}),
@@ -1379,7 +1384,7 @@ class OpenAICompatibleModel:
                 raise TransportFailure(
                     str(exc),
                     code=exc.code,
-                    provider_id=exc.provider_id or str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    provider_id=exc.provider_id or self._provider_id,
                     model_id=exc.model_id or str(self._config.get("model", "")),
                     raw_response=str(raw or ""),
                     initial_raw_response=str(raw or ""),
@@ -1391,7 +1396,7 @@ class OpenAICompatibleModel:
                     raise
                 raise TransportFailure(
                     _REPAIR_FAILURE,
-                    provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+                    provider_id=self._provider_id,
                     model_id=str(self._config.get("model", "")),
                     code="structural_retry_transport",
                     raw_response=str(raw or ""),
@@ -1461,7 +1466,7 @@ class OpenAICompatibleModel:
             raise TransportFailure(
                 "LLM completion failed",
                 code="completion_failed",
-                provider_id=str(self._config.get("id", self._config.get("provider", ""))),
+                provider_id=self._provider_id,
                 model_id=str(self._config.get("model", "")),
             ) from exc
         payload, repaired, final_raw = self._validate_or_repair(
@@ -1480,7 +1485,7 @@ class OpenAICompatibleModel:
             input_hash=canonical_hash((request.lens_id, request.user_payload, request.response_schema)),
             output_hash=canonical_hash(payload),
             repaired=repaired,
-            provider_id=str(self._config.get("id", self._config.get("label", "openai-compatible"))),
+            provider_id=self._provider_id,
             model_id=str(self._config.get("model", "")),
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),
             status="completed",
