@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
 更新时间：2026-09-22  
-审计提交：`cd548d0`  
+审计提交：`c604817`
 PR：[zhouduichen/MBSE4AI#1](https://github.com/zhouduichen/MBSE4AI/pull/1)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -19,7 +19,7 @@ PR：[zhouduichen/MBSE4AI#1](https://github.com/zhouduichen/MBSE4AI/pull/1)
 | 9 | latency/cost | CONTRACT + FAIL-CLOSED | provider/wall latency 与 pricing telemetry；缺价格不伪造成本 |
 | 10 | natural 与 budget-matched | CONTRACT VERIFIED | 两种 comparison mode；budget-matched cap 跨调用共享并检查 `budget_within_cap` |
 | 11 | 3–5 repeats 与统计 | CONTRACT VERIFIED | comparison 至少 3 repeats，报告 mean/std/CI95 与 Quality-Cost |
-| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对 `cd548d0` 均成功：[push run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35689499984)、[PR run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35689502829) |
+| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对 `c604817` 均成功：[push run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35689869450)、[PR run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35689872918) |
 | 13 | main 要求 CI / quality | VERIFIED | branch protection `strict=true`、required context=`CI / quality`、required approvals=1 |
 | 14 | Integration schedule 不空跑 | VERIFIED | unconditional `contract` job；最新 contract run 成功：[run 35689707347](https://github.com/zhouduichen/MBSE4AI/actions/runs/35689707347) |
 | 15 | Remote LLM/FreeCAD/GPU 真实 workflow | NOT YET PROVEN | GitHub 当前 self-hosted runners=0、Actions variables=0、secrets=0；对应 jobs 必须保持 SKIPPED，不能计为 PASS |
