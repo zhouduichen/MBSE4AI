@@ -4,6 +4,7 @@ from tests.mbse_benchmark.cases.loader import load_cases, load_expectations
 from tests.mbse_benchmark.validators.architecture import validate_architecture
 from tests.mbse_benchmark.validators.common import validate_structural_graph
 from tests.mbse_benchmark.validators.consistency import validate_consistency
+from tests.mbse_benchmark.validators.case import validate_case
 from tests.mbse_benchmark.validators.regression import validate_regression
 from tests.mbse_benchmark.validators.requirements import validate_requirements
 
@@ -86,6 +87,24 @@ def test_case05_validator_computes_both_known_conflicts_and_requires_signal() ->
 
     assert result["known_conflict_detection"] == 0.0
     assert result["false_satisfaction_signal"] is True
+
+
+def test_case_without_conflict_scope_is_not_applicable_not_full_coverage() -> None:
+    case = next(case for case in load_cases(__import__("pathlib").Path(__file__).parent / "cases") if case["case_id"] == "CASE-01")
+    expectations = load_expectations(__import__("pathlib").Path(__file__).parent / "expected")
+    graph = {
+        "project_id": "case-01",
+        "entities": [{"id": "req-1", "kind": "requirement", "name": "需求", "status": "accepted", "payload": {}}],
+        "relations": [],
+    }
+    result = validate_case(
+        case,
+        {"graph": graph, "issues": [], "run_summary": {}, "audit": {}},
+        expectations,
+    )
+
+    assert result["metrics"]["known_conflict_detection"] is None
+    assert next(item for item in result["findings"] if item["test_id"] == "T10")["status"] == "N/A"
 
 
 def test_orphan_rate_and_regression_are_deterministic() -> None:

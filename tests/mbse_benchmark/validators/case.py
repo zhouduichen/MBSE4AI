@@ -77,7 +77,7 @@ def validate_case(
         "trace_accuracy": traceability.get("end_to_end_traceability"),
         "RFLP_coverage": traceability.get("architecture_traceability"),
         "orphan_element_rate": architecture.get("orphan_element_rate"),
-        "known_conflict_detection": consistency.get("known_conflict_detection", 1.0 if case_id != "CASE-05" else 0.0),
+        "known_conflict_detection": consistency.get("known_conflict_detection"),
         "regression_stability": regression.get("regression_stability", 0.0),
         "orphan_test_case_rate": verification.get("orphan_test_case_rate"),
         "activity_branch_coverage": verification.get("activity_branch_coverage"),
