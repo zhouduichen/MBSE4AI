@@ -49,6 +49,10 @@ def test_evaluator_spec_is_rejected_from_model_payload() -> None:
     with pytest.raises(ValueError, match="evaluator-only"):
         assert_model_visible_payload({"expectedGraph": spec.payload}, spec)
 
+    future_spec = EvaluationSpec.from_expectations({"future_metric_target": {"value": 1}})
+    with pytest.raises(ValueError, match="evaluator-only"):
+        assert_model_visible_payload({"future_metric_target": future_spec.payload}, future_spec)
+
 
 def test_repeat_summary_reports_sample_dispersion_and_ci() -> None:
     summary = summarize_repeats([{"quality": 0.4}, {"quality": 0.6}, {"quality": 0.8}])

@@ -238,16 +238,27 @@ class EvaluationSpec:
 def assert_model_visible_payload(payload: object, evaluation_spec: EvaluationSpec) -> None:
     """Reject evaluator-only values before a request reaches a model."""
 
+    evaluator_key_tokens = _EVALUATOR_KEY_TOKENS | frozenset(
+        _key_token(key) for key in evaluation_spec.payload
+    )
+    _assert_model_visible_payload(payload, evaluation_spec, evaluator_key_tokens)
+
+
+def _assert_model_visible_payload(
+    payload: object,
+    evaluation_spec: EvaluationSpec,
+    evaluator_key_tokens: frozenset[str],
+) -> None:
     if payload is evaluation_spec or payload is evaluation_spec.payload:
         raise ValueError("evaluator-only EvaluationSpec cannot be model-visible")
     if isinstance(payload, Mapping):
         for key, value in payload.items():
-            if _key_token(key) in _EVALUATOR_KEY_TOKENS:
+            if _key_token(key) in evaluator_key_tokens:
                 raise ValueError(f"evaluator-only key is model-visible: {key}")
-            assert_model_visible_payload(value, evaluation_spec)
+            _assert_model_visible_payload(value, evaluation_spec, evaluator_key_tokens)
     elif isinstance(payload, (list, tuple)):
         for value in payload:
-            assert_model_visible_payload(value, evaluation_spec)
+            _assert_model_visible_payload(value, evaluation_spec, evaluator_key_tokens)
 
 
 def input_sha256(envelope: BenchmarkInputEnvelope) -> str:
