@@ -32,6 +32,7 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert "runs-on: [self-hosted, linux, gpu]" in text
     assert "AI4MBSE_LLM_PROFILE_JSON" in text
     assert "--compare-a-e" in text
+    assert "--path vertical" in text
     assert "--repeats 3" in text
     assert "--comparison-mode natural" in text
     assert "integration-remote-llm-${{ github.run_id }}" in text

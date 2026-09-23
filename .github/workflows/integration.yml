@@ -175,6 +175,7 @@ jobs:
           --track llm \
           --profile "$AI4MBSE_LLM_PROFILE" \
           --compare-a-e \
+          --path vertical \
           --repeats 3 \
           --comparison-mode natural \
           --output-root tests/mbse_benchmark/results/integration-remote \

@@ -24,7 +24,7 @@ repeat above the cap makes the comparison invalid.
 
 For an operator-triggered run, supply the profile id through the workflow input
 and keep the JSON in the repository secret. The job runs
-`--compare-a-e --repeats 3 --comparison-mode natural`; a budget-matched
+`--compare-a-e --path vertical --repeats 3 --comparison-mode natural`; a budget-matched
 publication run can be launched separately with the benchmark CLI. Natural mode
 records the unconstrained total work and reports budget comparability/enforcement
 as `not_applicable`; only budget-matched mode may claim a shared total cap.
