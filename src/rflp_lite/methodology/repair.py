@@ -26,6 +26,7 @@ _PHASES = {
     "function": Phase.FUNCTIONAL,
     "architecture": Phase.LOGICAL_PHYSICAL,
     "verification": Phase.ASSURANCE,
+    "validation": Phase.ASSURANCE,
     "evidence": Phase.OPERATIONAL,
 }
 
@@ -39,13 +40,13 @@ def plan_repair(report: CoverageReport, *, revision: int = 0) -> RepairPlan:
         "stakeholder": "stakeholder_analysis", "lifecycle": "lifecycle_analysis",
         "scenario": "scenario_exploration", "requirement": "stakeholder_requirements",
         "function": "function_identification", "architecture": "logical_analysis",
-        "verification": "verification_validation", "evidence": "system_definition",
+        "verification": "verification_validation", "validation": "verification_validation", "evidence": "system_definition",
     }
     labels = {
         "stakeholder": "待确认的利益相关方", "lifecycle": "待确认的生命周期阶段",
         "scenario": "待确认的场景假设", "requirement": "待确认的系统需求",
         "function": "待确认的系统功能", "architecture": "待确认的逻辑架构候选",
-        "verification": "待确认的验证用例", "evidence": "待补充的证据",
+        "verification": "待确认的验证用例", "validation": "待确认的确认用例", "evidence": "待补充的证据",
     }
     target_task = task_by_root[report.gaps[0].root_cause]
     for gap in report.gaps:
@@ -57,6 +58,7 @@ def plan_repair(report: CoverageReport, *, revision: int = 0) -> RepairPlan:
             "function": EntityKind.FUNCTION,
             "architecture": EntityKind.LOGICAL_COMPONENT,
             "verification": EntityKind.VERIFICATION_CASE,
+            "validation": EntityKind.VALIDATION_CASE,
             "evidence": EntityKind.EVIDENCE,
         }[gap.root_cause]
         entity = make_entity(

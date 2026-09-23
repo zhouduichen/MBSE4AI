@@ -43,6 +43,48 @@ def test_semantically_different_tasks_have_different_content_hashes():
     assert "logical" in logical.text
 
 
+def test_stakeholder_requirement_prompt_keeps_traceability_out_of_payload():
+    prompt = PromptRegistry().resolve("operational.stakeholder_requirements")
+
+    assert "payload" in prompt.text
+    assert "concern_ids" in prompt.text
+    assert "canonical entity id" in prompt.text
+
+
+def test_vertical_prompts_define_reanalysis_reuse_and_protection():
+    registry = PromptRegistry()
+
+    for template_id in (
+        "vertical.functional",
+        "vertical.logical",
+        "vertical.physical",
+        "vertical.verification_validation",
+    ):
+        prompt = registry.resolve(template_id)
+        assert "updates" in prompt.text
+        assert "canonical id" in prompt.text
+        assert "锁定" in prompt.text
+        assert "人工修改" in prompt.text
+
+
+def test_vertical_prompts_expose_typed_flow_and_closure_evidence():
+    registry = PromptRegistry()
+
+    functional = registry.resolve("vertical.functional")
+    assurance = registry.resolve("vertical.verification_validation")
+
+    assert "source_function_ids" in functional.text
+    assert "target_function_ids" in functional.text
+    assert "functional_behavior_ids" in functional.text
+    physical = registry.resolve("vertical.physical")
+    assert "impact_chain" in physical.text
+    assert "resolution_options" in physical.text
+    assert "feasibility_review" in assurance.text
+    assert "cross_analysis_status" in assurance.text
+    assert "verification_objective" in assurance.text
+    assert "execution_evidence_ids" in assurance.text
+
+
 def test_registered_template_text_change_changes_prompt_hash():
     first = PromptRegistry({"custom": "first"}).resolve("custom")
     second = PromptRegistry({"custom": "second"}).resolve("custom")

@@ -119,6 +119,12 @@ class ValidatorRegistry:
                 validator(subject)
             except ContractViolation:
                 raise
+            except MethodologyValidationError:
+                # Preserve routable methodology codes such as
+                # ``semantic_invalid`` for workflow-level repair/review
+                # handling.  Wrapping these as ``validator_failed`` hides
+                # the declared failure route from vertical generation.
+                raise
             except Exception as exc:
                 raise MethodologyValidationError("validator_failed", f"{validator_id}: {exc}") from exc
 

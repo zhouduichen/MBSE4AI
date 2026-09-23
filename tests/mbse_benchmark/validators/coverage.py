@@ -58,6 +58,11 @@ def validate_coverage(case: Mapping[str, object], graph: Mapping[str, object], e
     scenario_score = ratio(len(scenario_matches), len(expected_scenarios))
     scenario_recall = ratio(len(phrase_matches), len(required_phrases)) if required_phrases else scenario_score
 
+    def status(value: float | None, threshold: float) -> str:
+        if value is None:
+            return "N/A"
+        return "PASS" if value >= threshold else "FAIL"
+
     return {
         "stakeholder_coverage": stakeholder_score,
         "stakeholder_matched": stakeholder_matches,
@@ -71,8 +76,8 @@ def validate_coverage(case: Mapping[str, object], graph: Mapping[str, object], e
         "scenario_phrase_matched": phrase_matches,
         "scenario_phrase_expected": required_phrases,
         "findings": [
-            finding("T1", case_id, "PASS" if stakeholder_score >= 0.85 else "FAIL", severity="P1", category="stakeholder_coverage", expected=">= 85% stakeholder coverage", actual=stakeholder_score, root_cause="" if stakeholder_score >= 0.85 else "semantic stakeholder candidates are missing", recommended_fix="Improve stakeholder analysis to cover operational and lifecycle actors."),
-            finding("T2", case_id, "PASS" if lifecycle_score >= 0.90 else "FAIL", severity="P1", category="lifecycle_coverage", expected=">= 90% required lifecycle coverage", actual=lifecycle_score, root_cause="" if lifecycle_score >= 0.90 else "lifecycle stage coverage is incomplete", recommended_fix="Generate explicit lifecycle stages for the case scope."),
-            finding("T3", case_id, "PASS" if scenario_recall >= 0.85 else "FAIL", severity="P1", category="scenario_coverage", expected=">= 85% scenario recall", actual=scenario_recall, root_cause="" if scenario_recall >= 0.85 else "required normal/alternative/exception scenarios are missing", recommended_fix="Preserve scenario detail and abnormal branches through the workflow."),
+            finding("T1", case_id, status(stakeholder_score, 0.85), severity="P1", category="stakeholder_coverage", expected=">= 85% stakeholder coverage", actual=stakeholder_score, root_cause="" if stakeholder_score is None or stakeholder_score >= 0.85 else "semantic stakeholder candidates are missing", recommended_fix="Improve stakeholder analysis to cover operational and lifecycle actors."),
+            finding("T2", case_id, status(lifecycle_score, 0.90), severity="P1", category="lifecycle_coverage", expected=">= 90% required lifecycle coverage", actual=lifecycle_score, root_cause="" if lifecycle_score is None or lifecycle_score >= 0.90 else "lifecycle stage coverage is incomplete", recommended_fix="Generate explicit lifecycle stages for the case scope."),
+            finding("T3", case_id, status(scenario_recall, 0.85), severity="P1", category="scenario_coverage", expected=">= 85% scenario recall", actual=scenario_recall, root_cause="" if scenario_recall is None or scenario_recall >= 0.85 else "required normal/alternative/exception scenarios are missing", recommended_fix="Preserve scenario detail and abnormal branches through the workflow."),
         ],
     }

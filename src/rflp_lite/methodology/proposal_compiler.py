@@ -1,0 +1,655 @@
+"""Validate semantic TaskProposals and compile them into canonical Patches."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from typing import Mapping
+
+from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
+from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.model import AddEntity, Deprecate, Patch, Relate, UpdateEntity
+from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.methodology.contracts import TaskExecutionRequest
+from rflp_lite.methodology.policy import PatchPolicy
+
+
+_GRAPH_REFERENCE_FIELDS = frozenset({
+    "activity_ids",
+    "actor_ids",
+    "connected_component_ids",
+    "dependencies",
+    "dependency_ids",
+    "depends_on",
+    "depends_on_ids",
+    "functional_behavior_ids",
+    "functional_flow_ids",
+    "function_ids",
+    "from_stage_id",
+    "impact_entity_ids",
+    "internal_component_ids",
+    "logical_component_ids",
+    "logical_ids",
+    "logical_id",
+    "owner_id",
+    "physical_candidate_ids",
+    "physical_ids",
+    "requirement_ids",
+    "scenario_ids",
+    "shared_state_ids",
+    "source_context_ids",
+    "source_function_ids",
+    "source_logical_ids",
+    "source_physical_ids",
+    "source_requirement_ids",
+    "stakeholder_ids",
+    "target_function_ids",
+    "to_stage_id",
+})
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalEntity:
+    local_ref: str
+    kind: EntityKind
+    name: str
+    payload: Mapping[str, object]
+    confidence: float | None = None
+    source_ids: tuple[str, ...] = ()
+    evidence_ids: tuple[str, ...] = ()
+    lifecycle_ids: tuple[str, ...] = ()
+
+    @property
+    def ref(self) -> str:
+        """Compatibility for internal callers; the wire field is local_ref."""
+
+        return self.local_ref
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalRelation:
+    source_ref: str
+    predicate: RelationPredicate
+    target_ref: str
+    evidence_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalUpdate:
+    entity_id: str
+    field_patch: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalDeprecation:
+    entity_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class TaskProposal:
+    entities: tuple[ProposalEntity, ...]
+    relations: tuple[ProposalRelation, ...]
+    updates: tuple[ProposalUpdate, ...]
+    deprecations: tuple[ProposalDeprecation, ...]
+    reason: str
+    assumptions: tuple[str, ...] = ()
+    open_questions: tuple[str, ...] = ()
+    decision_records: tuple[Mapping[str, object], ...] = ()
+
+
+def proposal_schema(
+    output_kinds: tuple[EntityKind, ...] | list[EntityKind] | set[EntityKind],
+    schema_id: str,
+    payload_schemas: Mapping[str, Mapping[str, object]],
+    policy: PatchPolicy,
+) -> dict[str, object]:
+    """Build the provider-facing schema for one TaskProposal."""
+
+    kind_values = sorted(kind.value for kind in output_kinds)
+    entity_schema: dict[str, object] = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["local_ref", "name", "payload"],
+        "properties": {
+            "local_ref": {"type": "string", "minLength": 1},
+            "kind": {"enum": kind_values},
+            "name": {"type": "string", "minLength": 1},
+            "payload": {"type": "object"},
+            "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+            "source_ids": {"type": "array", "items": {"type": "string"}},
+            "evidence_ids": {"type": "array", "items": {"type": "string"}},
+            "lifecycle_ids": {"type": "array", "items": {"type": "string"}},
+        },
+    }
+    if len(kind_values) > 1:
+        entity_schema["required"].append("kind")
+        entity_schema["oneOf"] = _entity_kind_payload_branches(
+            kind_values, payload_schemas
+        )
+    if len(kind_values) == 1:
+        payload_schema = payload_schemas.get(kind_values[0])
+        if isinstance(payload_schema, Mapping):
+            entity_schema["properties"]["payload"] = dict(payload_schema)
+    relation_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["source_ref", "predicate", "target_ref", "evidence_ids"],
+        "properties": {
+            "source_ref": {"type": "string", "minLength": 1},
+            "predicate": {"enum": sorted(predicate.value for predicate in policy.allowed_predicates)},
+            "target_ref": {"type": "string", "minLength": 1},
+            "evidence_ids": {"type": "array", "items": {"type": "string"}},
+        },
+    }
+    if not policy.allowed_predicates:
+        relation_schema["properties"]["predicate"] = {"type": "string", "minLength": 1}
+    update_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["entity_id", "field_patch"],
+        "properties": {
+            "entity_id": {"type": "string", "minLength": 1},
+            "field_patch": {"type": "object"},
+        },
+    }
+    deprecation_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["entity_id"],
+        "properties": {"entity_id": {"type": "string", "minLength": 1}},
+    }
+    field_schemas = {
+        "name": {"type": "string"},
+        "status": {"type": "string"},
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "payload": {"type": "object"},
+        "lifecycle_ids": {"type": "array", "items": {"type": "string"}},
+        "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    }
+    field_patch_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "minProperties": 1,
+        "properties": {
+            field: field_schemas.get(
+                field,
+                {"type": ["string", "number", "boolean", "array", "object", "null"]},
+            )
+            for field in sorted(policy.writable_fields)
+        },
+    }
+    update_schema["properties"]["field_patch"] = field_patch_schema
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["entities", "relations", "updates", "deprecations", "reason"],
+        "properties": {
+            "entities": {"type": "array", "items": entity_schema, "maxItems": 32},
+            "relations": {
+                "type": "array",
+                "items": relation_schema,
+                "maxItems": 32 if policy.allowed_predicates else 0,
+            },
+            "updates": {"type": "array", "items": update_schema, "maxItems": 32},
+            "deprecations": {"type": "array", "items": deprecation_schema, "maxItems": 32},
+            "reason": {"type": "string", "maxLength": 300},
+            "assumptions": {"type": "array", "items": {"type": "string"}, "maxItems": 16},
+            "open_questions": {"type": "array", "items": {"type": "string"}, "maxItems": 16},
+            "decision_records": {
+                "type": "array",
+                "maxItems": 24,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["step", "decision", "basis"],
+                    "properties": {
+                        "step": {"type": "string", "minLength": 1},
+                        "decision": {"type": "string", "minLength": 1},
+                        "basis": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            },
+        },
+        "schema_id": schema_id,
+        "output_kinds": kind_values,
+        "x-payload-schemas": {str(key): dict(value) for key, value in payload_schemas.items()},
+        "patch_policy": {
+            "writable_kinds": sorted(kind.value for kind in policy.writable_kinds),
+            "writable_fields": sorted(policy.writable_fields),
+            "allowed_predicates": sorted(predicate.value for predicate in policy.allowed_predicates),
+            "max_operations": policy.max_operations,
+        },
+    }
+
+
+def _entity_kind_payload_branches(
+    kind_values: list[str],
+    payload_schemas: Mapping[str, Mapping[str, object]],
+) -> list[Mapping[str, object]]:
+    """Bind each multi-kind entity to its own payload contract.
+
+    The common entity envelope remains available for callers that inspect the
+    schema, while the provider-facing ``oneOf`` makes a multi-kind proposal
+    carry the same kind-specific fields that the compiler validates later.
+    Kinds without a dedicated payload schema intentionally keep an open object
+    payload so legacy task contracts remain compatible.
+    """
+
+    branches: list[Mapping[str, object]] = []
+    for kind_value in kind_values:
+        properties = {"kind": {"const": kind_value}}
+        payload_schema = payload_schemas.get(kind_value)
+        if isinstance(payload_schema, Mapping):
+            properties["payload"] = dict(payload_schema)
+        branches.append({
+            "type": "object",
+            "properties": properties,
+        })
+    return branches
+
+
+def _effective_policy(request: TaskExecutionRequest, allowed_kinds: set[EntityKind]) -> PatchPolicy:
+    policy = request.patch_policy
+    if policy.writable_kinds:
+        return policy
+    # Missing task policy is a deny-by-default condition.  Never interpret a
+    # legacy/empty envelope as permission to emit every RelationPredicate.
+    return PatchPolicy(
+        writable_kinds=frozenset(allowed_kinds),
+        writable_fields=frozenset({"name", "confidence", "payload", "lifecycle_ids", "evidence_ids"}),
+        allowed_predicates=frozenset(),
+        allowed_entity_scope="context_and_outputs",
+        max_operations=0,
+    )
+
+
+def _string(value: object, field: str) -> str:
+    result = str(value or "").strip()
+    if not result:
+        raise ContractViolation(f"task proposal field is required: {field}")
+    return result
+
+
+def _strings(value: object, field: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, (list, tuple)):
+        raise ContractViolation(f"task proposal field must be an array: {field}")
+    return tuple(dict.fromkeys(_string(item, field) for item in value))
+
+
+def _mapping(value: object, field: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ContractViolation(f"task proposal field must be an object: {field}")
+    return dict(value)
+
+
+def _decision_records(value: object) -> tuple[Mapping[str, object], ...]:
+    if value is None:
+        return ()
+    records = _arrays({"decision_records": value}, "decision_records")
+    result = []
+    for raw in records:
+        result.append({
+            "step": _string(raw.get("step"), "decision_records.step"),
+            "decision": _string(raw.get("decision"), "decision_records.decision"),
+            "basis": list(_strings(raw.get("basis"), "decision_records.basis")),
+        })
+    return tuple(result)
+
+
+def _arrays(payload: Mapping[str, object], field: str) -> list[Mapping[str, object]]:
+    value = payload.get(field)
+    if not isinstance(value, list):
+        raise ContractViolation(f"task proposal field must be an array: {field}")
+    result: list[Mapping[str, object]] = []
+    for item in value:
+        result.append(_mapping(item, field))
+    return result
+
+
+def _validate_schema(payload: Mapping[str, object], request: TaskExecutionRequest) -> None:
+    schema = {
+        key: value
+        for key, value in request.output_contract.items()
+        if key in {"type", "additionalProperties", "required", "properties", "allOf"}
+    }
+    if not schema:
+        return
+    try:
+        from jsonschema import SchemaError, ValidationError, validate
+        validate(dict(payload), schema)
+    except ImportError as exc:
+        raise ContractViolation("JSON schema validation is unavailable") from exc
+    except ValidationError as exc:
+        raise ContractViolation(f"task proposal schema is invalid: {exc.message}") from exc
+    except SchemaError as exc:
+        raise ContractViolation("task proposal schema is invalid") from exc
+
+
+def _validate_entity_payload(kind: EntityKind, payload: Mapping[str, object], request: TaskExecutionRequest) -> None:
+    schemas = request.output_contract.get("x-payload-schemas", {})
+    schema = schemas.get(kind.value) if isinstance(schemas, Mapping) else None
+    if not isinstance(schema, Mapping):
+        return
+    try:
+        from jsonschema import SchemaError, ValidationError, validate
+        validate(dict(payload), dict(schema))
+    except ValidationError as exc:
+        raise ContractViolation(f"invalid {kind.value} payload: {exc.message}") from exc
+    except SchemaError as exc:
+        raise ContractViolation(f"invalid {kind.value} payload schema") from exc
+
+
+def parse_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, object]) -> TaskProposal:
+    """Parse and validate the semantic proposal before any Patch is created."""
+
+    if "operations" in payload:
+        raise ContractViolation("task proposal cannot contain operations")
+    _validate_schema(payload, request)
+    entities: list[ProposalEntity] = []
+    refs: set[str] = set()
+    try:
+        allowed_kinds = {
+            EntityKind(str(value))
+            for value in request.output_contract.get("output_kinds", ())
+        }
+    except ValueError as exc:
+        raise ContractViolation("task proposal output kind contract is invalid") from exc
+    policy = _effective_policy(request, allowed_kinds)
+    for raw in _arrays(payload, "entities"):
+        local_ref = _string(raw.get("local_ref"), "entities.local_ref")
+        if local_ref in refs:
+            raise ContractViolation(f"duplicate task proposal local_ref: {local_ref}")
+        refs.add(local_ref)
+        try:
+            raw_kind = raw.get("kind")
+            if raw_kind is None and len(allowed_kinds) == 1:
+                kind = next(iter(allowed_kinds))
+            else:
+                kind = EntityKind(_string(raw_kind, "entities.kind"))
+        except ValueError as exc:
+            raise ContractViolation("task proposal entity kind is invalid") from exc
+        if kind not in allowed_kinds or kind not in policy.writable_kinds:
+            raise ContractViolation(f"task cannot propose output kind: {kind.value}")
+        entity_payload = _mapping(raw.get("payload"), "entities.payload")
+        _validate_entity_payload(kind, entity_payload, request)
+        confidence = raw.get("confidence")
+        if confidence is not None:
+            try:
+                confidence = float(confidence)
+            except (TypeError, ValueError) as exc:
+                raise ContractViolation("task proposal confidence must be numeric") from exc
+            if not 0.0 <= confidence <= 1.0:
+                raise ContractViolation("task proposal confidence must be between 0 and 1")
+        entities.append(ProposalEntity(
+            local_ref=local_ref,
+            kind=kind,
+            name=_string(raw.get("name"), "entities.name"),
+            payload=entity_payload,
+            confidence=confidence,
+            source_ids=_strings(raw.get("source_ids"), "entities.source_ids"),
+            evidence_ids=_strings(raw.get("evidence_ids"), "entities.evidence_ids"),
+            lifecycle_ids=_strings(raw.get("lifecycle_ids"), "entities.lifecycle_ids"),
+        ))
+    relations: list[ProposalRelation] = []
+    for raw in _arrays(payload, "relations"):
+        try:
+            predicate = RelationPredicate(_string(raw.get("predicate"), "relations.predicate"))
+        except ValueError as exc:
+            raise ContractViolation("task proposal relation predicate is invalid") from exc
+        if predicate not in policy.allowed_predicates:
+            raise ContractViolation(f"task relation predicate is outside write scope: {predicate.value}")
+        relations.append(ProposalRelation(
+            source_ref=_string(raw.get("source_ref"), "relations.source_ref"),
+            predicate=predicate,
+            target_ref=_string(raw.get("target_ref"), "relations.target_ref"),
+            evidence_ids=_strings(raw.get("evidence_ids"), "relations.evidence_ids"),
+        ))
+    updates: list[ProposalUpdate] = []
+    for raw in _arrays(payload, "updates"):
+        field_patch = _mapping(raw.get("field_patch"), "updates.field_patch")
+        unknown = set(field_patch) - set(policy.writable_fields)
+        if unknown:
+            raise ContractViolation(f"task cannot update fields outside write scope: {sorted(unknown)}")
+        updates.append(ProposalUpdate(_string(raw.get("entity_id"), "updates.entity_id"), field_patch))
+    deprecations = tuple(
+        ProposalDeprecation(_string(raw.get("entity_id"), "deprecations.entity_id"))
+        for raw in _arrays(payload, "deprecations")
+    )
+    reason = _string(payload.get("reason"), "reason")[:300]
+    return TaskProposal(
+        tuple(entities), tuple(relations), tuple(updates), deprecations, reason,
+        _strings(payload.get("assumptions"), "assumptions"),
+        _strings(payload.get("open_questions"), "open_questions"),
+        _decision_records(payload.get("decision_records")),
+    )
+
+
+def _resolve_ref(
+    ref: str,
+    ref_to_id: Mapping[str, str],
+    context_entities: Mapping[str, object],
+) -> str:
+    if ref in ref_to_id:
+        return ref_to_id[ref]
+    if ref in context_entities:
+        return ref
+    raise ContractViolation(f"task proposal reference is unknown: {ref}")
+
+
+def _in_scope(entity_id: str, context_entities: Mapping[str, object], output_ids: set[str], policy: PatchPolicy) -> bool:
+    scope = policy.allowed_entity_scope
+    if isinstance(scope, (set, frozenset, tuple, list)):
+        return entity_id in scope
+    if scope == "context":
+        return entity_id in context_entities
+    return entity_id in context_entities or entity_id in output_ids
+
+
+def _resolve_payload_reference(
+    value: object,
+    *,
+    kind: EntityKind,
+    field: str,
+    ref_to_id: Mapping[str, str],
+    known_ids: set[str],
+) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ContractViolation(
+            f"payload entity reference must be a non-empty string: {kind.value}.{field}"
+        )
+    reference = value.strip()
+    if reference in ref_to_id:
+        return ref_to_id[reference]
+    if reference in known_ids:
+        return reference
+    raise ContractViolation(
+        f"unknown payload entity reference: {reference} ({kind.value}.{field})"
+    )
+
+
+def _materialize_payload_references(
+    kind: EntityKind,
+    payload: Mapping[str, object],
+    ref_to_id: Mapping[str, str],
+    known_ids: set[str],
+) -> Mapping[str, object]:
+    """Resolve typed graph references without rewriting free-form payload text."""
+
+    def visit(value: object, field: str = "") -> object:
+        if isinstance(value, Mapping):
+            return {key: visit(item, str(key)) for key, item in value.items()}
+        if field in _GRAPH_REFERENCE_FIELDS:
+            if isinstance(value, list):
+                resolved = [
+                    _resolve_payload_reference(
+                        item,
+                        kind=kind,
+                        field=field,
+                        ref_to_id=ref_to_id,
+                        known_ids=known_ids,
+                    )
+                    for item in value
+                ]
+                return list(dict.fromkeys(resolved))
+            return _resolve_payload_reference(
+                value,
+                kind=kind,
+                field=field,
+                ref_to_id=ref_to_id,
+                known_ids=known_ids,
+            )
+        if isinstance(value, list):
+            return [visit(item, field) for item in value]
+        return value
+
+    result = visit(payload)
+    if not isinstance(result, dict):
+        raise ContractViolation(f"{kind.value} payload must be an object")
+    return result
+
+
+def compile_task_proposal(request: TaskExecutionRequest, payload: Mapping[str, object]) -> Patch | None:
+    """Validate one TaskProposal and compile it into a canonical Patch."""
+
+    proposal = parse_task_proposal(request, payload)
+    try:
+        allowed_kinds = {
+            EntityKind(str(value))
+            for value in request.output_contract.get("output_kinds", ())
+        }
+    except ValueError as exc:
+        raise ContractViolation("task proposal output kind contract is invalid") from exc
+    policy = _effective_policy(request, allowed_kinds)
+    context_entities = {item.id: item for item in request.context_bundle.entities}
+    operations = []
+    ref_to_id: dict[str, str] = {}
+    output_ids: set[str] = set()
+    pending_entities = []
+    for item in proposal.entities:
+        entity = make_entity(
+            item.kind,
+            item.name,
+            item.payload,
+            status=EntityStatus.CANDIDATE,
+            producer=Producer.LLM,
+            confidence=item.confidence,
+            source_ids=item.source_ids,
+            evidence_ids=item.evidence_ids,
+            lifecycle_ids=item.lifecycle_ids,
+            revision=request.context_bundle.revision,
+        )
+        ref_to_id[item.local_ref] = entity.id
+        if entity.id in context_entities:
+            # A completion retry may replay an already applied proposal. Keep
+            # its local reference resolvable, but do not attempt a second ADD.
+            # Explicit updates remain the only way to change the existing
+            # canonical entity.
+            continue
+        output_ids.add(entity.id)
+        pending_entities.append((item, entity))
+    known_ids = set(context_entities) | output_ids
+    materialized_payloads: dict[str, Mapping[str, object]] = {}
+    for item, entity in pending_entities:
+        materialized_payload = _materialize_payload_references(
+            item.kind,
+            item.payload,
+            ref_to_id,
+            known_ids,
+        )
+        materialized_payloads[entity.id] = materialized_payload
+        operations.append(AddEntity(replace(entity, payload=materialized_payload)))
+    relation_keys: set[tuple[str, RelationPredicate, str]] = set()
+    for item in proposal.relations:
+        source_id = _resolve_ref(item.source_ref, ref_to_id, context_entities)
+        target_id = _resolve_ref(item.target_ref, ref_to_id, context_entities)
+        if not _in_scope(source_id, context_entities, output_ids, policy) or not _in_scope(target_id, context_entities, output_ids, policy):
+            raise ContractViolation("task proposal relation endpoint is outside write scope")
+        operations.append(Relate(source_id, item.predicate, target_id, item.evidence_ids))
+        relation_keys.add((source_id, item.predicate, target_id))
+    if request.task_id == "lifecycle_analysis":
+        known_entities = dict(context_entities)
+        known_entities.update({entity.id: entity for _, entity in pending_entities})
+        stage_ids = {
+            entity_id
+            for entity_id, entity in known_entities.items()
+            if entity.kind is EntityKind.LIFECYCLE_STAGE
+        }
+        for item, entity in pending_entities:
+            if item.kind is not EntityKind.LIFECYCLE_TRANSITION:
+                continue
+            materialized_payload = materialized_payloads[entity.id]
+            for field in ("from_stage_id", "to_stage_id"):
+                stage_id = materialized_payload.get(field)
+                if stage_id is None:
+                    continue
+                if stage_id not in stage_ids:
+                    raise ContractViolation(
+                        f"lifecycle transition reference must target a lifecycle stage: {field}"
+                    )
+                key = (entity.id, RelationPredicate.DERIVED_FROM, stage_id)
+                if key in relation_keys:
+                    continue
+                operations.append(Relate(entity.id, RelationPredicate.DERIVED_FROM, stage_id))
+                relation_keys.add(key)
+    for item in proposal.updates:
+        entity = context_entities.get(item.entity_id)
+        if entity is None or entity.kind not in policy.writable_kinds:
+            raise ContractViolation(f"task cannot update entity outside write scope: {item.entity_id}")
+        field_patch = dict(item.field_patch)
+        if "payload" in item.field_patch:
+            payload_patch = _mapping(item.field_patch["payload"], "updates.field_patch.payload")
+            payload_patch = _materialize_payload_references(
+                entity.kind,
+                payload_patch,
+                ref_to_id,
+                known_ids,
+            )
+            merged_payload = {**dict(entity.payload), **payload_patch}
+            _validate_entity_payload(
+                entity.kind,
+                _payload_for_update_validation(entity.kind, merged_payload, request),
+                request,
+            )
+            field_patch["payload"] = payload_patch
+        operations.append(UpdateEntity(item.entity_id, field_patch))
+    for item in proposal.deprecations:
+        entity = context_entities.get(item.entity_id)
+        if entity is None or entity.kind not in policy.writable_kinds:
+            raise ContractViolation(f"task cannot deprecate entity outside write scope: {item.entity_id}")
+        operations.append(Deprecate(item.entity_id))
+    if policy.max_operations is not None and len(operations) > policy.max_operations:
+        raise ContractViolation("task proposal exceeds operation limit")
+    if not operations:
+        return None
+    return Patch.create(
+        request.context_bundle.project_id,
+        request.task_id,
+        tuple(operations),
+        proposal.reason,
+        request.context_bundle.revision,
+    )
+
+
+def _payload_for_update_validation(
+    kind: EntityKind,
+    payload: Mapping[str, object],
+    request: TaskExecutionRequest,
+) -> Mapping[str, object]:
+    """Validate the typed projection while preserving legacy graph metadata.
+
+    Imported entities may retain provenance or benchmark fields outside the
+    current typed payload schema. They remain in ModelGraph, but must not block
+    a valid semantic update to the typed projection of that entity.
+    """
+
+    schemas = request.output_contract.get("x-payload-schemas", {})
+    schema = schemas.get(kind.value) if isinstance(schemas, Mapping) else None
+    properties = schema.get("properties") if isinstance(schema, Mapping) else None
+    if (
+        not isinstance(schema, Mapping)
+        or schema.get("additionalProperties") is not False
+        or not isinstance(properties, Mapping)
+    ):
+        return payload
+    return {key: value for key, value in payload.items() if key in properties}

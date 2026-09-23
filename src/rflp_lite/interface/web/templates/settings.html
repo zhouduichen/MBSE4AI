@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-heading">
   <div><p class="eyebrow">运行配置</p><h1>设置</h1><p>管理模型配置，并测试下一次分析将使用的连接。</p></div>
-  <span class="status-badge info">仅本地</span>
+  <span class="status-badge info">应用本地 · 模型可远程</span>
 </div>
 
 <div class="metric-grid settings-metrics">
@@ -19,6 +19,7 @@
       <dt>配置</dt><dd>{{ runtime.profile_id }}</dd>
       <dt>服务</dt><dd>{{ runtime.provider_label }}</dd>
       <dt>模型</dt><dd>{{ runtime.model_label }}</dd>
+      <dt>模型位置</dt><dd>{{ runtime.model_location_label }}</dd>
       <dt>来源</dt><dd>{{ runtime.source_label }}</dd>
     </dl>
   </section>
@@ -46,12 +47,21 @@
       <div>
         <label class="field" for="profile-id">配置 ID<input id="profile-id" name="id" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" placeholder="例如：local-ollama"></label>
         <label class="field" for="profile-label">显示名称<input id="profile-label" name="label" placeholder="例如：本地 Ollama"></label>
-        <label class="field" for="profile-kind">服务类型<select id="profile-kind" name="kind"><option value="local">本地服务</option><option value="remote">远程服务</option></select></label>
+        <label class="field" for="profile-kind">连接端点<select id="profile-kind" name="kind"><option value="local">当前主机端点（含 SSH 隧道）</option><option value="remote">远程网络端点</option></select></label>
+        <label class="field" for="profile-model-location">模型所在位置<select id="profile-model-location" name="model_location"><option value="remote">远程服务器</option><option value="local">本机</option></select></label>
+        <span class="form-hint">SSH 隧道请选择“当前主机端点（含 SSH 隧道）”，模型位置仍选“远程服务器”；应用不会因此在本机启动模型。</span>
       </div>
       <div>
         <label class="field" for="profile-base-url">Base URL<input id="profile-base-url" name="base_url" type="url" required placeholder="http://127.0.0.1:11434/v1"></label>
         <label class="field" for="profile-model">模型名<input id="profile-model" name="model" required placeholder="例如：llama3.2"></label>
-        <label class="field" for="profile-timeout">超时（秒）<input id="profile-timeout" name="timeout_seconds" type="number" min="1" max="300" value="300" required></label>
+        <label class="field" for="profile-timeout">超时（秒）<input id="profile-timeout" name="timeout_seconds" type="number" min="1" max="900" value="300" required></label>
+        <label class="field" for="profile-context-window">上下文窗口<input id="profile-context-window" name="context_window" type="number" min="512" placeholder="例如：8192"></label>
+        <label class="field" for="profile-max-output-tokens">最大输出令牌<input id="profile-max-output-tokens" name="max_output_tokens" type="number" min="1" placeholder="例如：2048"></label>
+        <label class="field" for="profile-max-parallel-requests">最大并行请求数<input id="profile-max-parallel-requests" name="max_parallel_requests" type="number" min="1" max="4" value="2" required></label>
+        <label class="field" for="profile-temperature">Temperature<input id="profile-temperature" name="temperature" type="number" min="0" max="2" step="0.1" value="0"></label>
+        <label class="field" for="profile-seed">Seed（可选）<input id="profile-seed" name="seed" type="number" min="0" placeholder="固定随机种子"></label>
+        <label class="field" for="profile-structured-output-mode">结构化输出<select id="profile-structured-output-mode" name="structured_output_mode"><option value="json_schema">JSON Schema</option><option value="json_object">JSON Object</option><option value="none">关闭 provider 约束</option></select></label>
+        <label class="field" for="profile-reasoning-effort">推理模式<select id="profile-reasoning-effort" name="reasoning_effort"><option value="">服务默认</option><option value="none">关闭思考（适合结构化批处理）</option></select></label>
         <label class="field" for="profile-api-key">API Key（可选）<input id="profile-api-key" name="api_key" type="password" autocomplete="new-password" placeholder="留空则保留已有凭据"></label>
       </div>
     </div>
@@ -64,7 +74,7 @@
 <section class="panel">
   <div class="panel-head"><div><h2>模型配置</h2><p>页面只展示配置元数据，凭据不会进入页面或 API 响应。</p></div><span class="count-badge">{{ settings.profiles|length }} 个</span></div>
   {% if settings.profiles %}
-  <div class="profile-list">{% for profile in settings.profiles %}<article class="profile-card {% if profile.id == settings.active_id %}active{% endif %}"><div><strong>{{ profile.id }}</strong><span class="status-badge {% if profile.id == settings.active_id %}active{% else %}planned{% endif %}">{% if profile.id == settings.active_id %}活动{% else %}可用{% endif %}</span></div><p>{{ profile.label }} · {{ profile.provider_label }} · {{ profile.kind_label }} · {{ profile.base_url }}</p><small>{{ profile.model }} · API 密钥：{{ profile.credential_label }} · {{ profile.enabled_label }}</small><div class="profile-actions">{% if profile.id != settings.active_id %}<button class="button compact activate-profile" type="button" data-profile-id="{{ profile.id }}">激活</button>{% endif %}<button class="button compact danger delete-profile" type="button" data-profile-id="{{ profile.id }}">删除</button></div></article>{% endfor %}</div>
+  <div class="profile-list">{% for profile in settings.profiles %}<article class="profile-card {% if profile.id == settings.active_id %}active{% endif %}"><div><strong>{{ profile.id }}</strong><span class="status-badge {% if profile.id == settings.active_id %}active{% else %}planned{% endif %}">{% if profile.id == settings.active_id %}活动{% else %}可用{% endif %}</span></div><p>{{ profile.label }} · {{ profile.provider_label }} · {{ profile.model_location_label }} · {{ profile.kind_label }} · {{ profile.base_url }}</p><small>{{ profile.model }} · API 密钥：{{ profile.credential_label }} · {{ profile.enabled_label }}</small><div class="profile-actions">{% if profile.id != settings.active_id %}<button class="button compact activate-profile" type="button" data-profile-id="{{ profile.id }}">激活</button>{% endif %}<button class="button compact danger delete-profile" type="button" data-profile-id="{{ profile.id }}">删除</button></div></article>{% endfor %}</div>
   {% else %}<div class="mini-empty">暂无模型配置，请通过配置接口添加。</div>{% endif %}
 </section>
 
@@ -74,15 +84,25 @@
   const saveOutput = document.getElementById("profile-result");
   const presetSelect = document.getElementById("profile-preset");
   const providerSelect = document.getElementById("profile-provider");
-  const presetFields = ["id", "label", "provider", "kind", "base_url", "model"];
+  const presetFields = ["id", "label", "provider", "kind", "model_location", "base_url", "model", "context_window", "max_output_tokens", "max_parallel_requests", "temperature", "seed", "structured_output_mode", "reasoning_effort"];
   const setField = (name, value) => {
-    const field = document.getElementById("profile-" + (name === "base_url" ? "base-url" : name));
+    const fieldNames = {
+      base_url: "base-url",
+      context_window: "context-window",
+      max_output_tokens: "max-output-tokens",
+      max_parallel_requests: "max-parallel-requests",
+      model_location: "model-location",
+      reasoning_effort: "reasoning-effort",
+      structured_output_mode: "structured-output-mode",
+    };
+    const field = document.getElementById("profile-" + (fieldNames[name] || name));
     if (field && value !== undefined) field.value = value;
   };
   const applyPreset = (name, presets) => {
     const preset = presets[name];
     if (!preset) return;
     presetFields.forEach((field) => setField(field, preset[field]));
+    setField("model_location", preset.model_location || (preset.kind === "local" ? "local" : "remote"));
     if (providerSelect) providerSelect.value = preset.provider || "openai-compatible";
     document.getElementById("profile-api-key").value = "";
   };
@@ -119,6 +139,10 @@
     const payload = Object.fromEntries(formData.entries());
     payload.active = document.getElementById("profile-active").checked;
     payload.timeout_seconds = Number(payload.timeout_seconds || 300);
+    ["context_window", "max_output_tokens", "max_parallel_requests", "seed"].forEach((name) => {
+      if (payload[name] !== undefined && payload[name] !== "") payload[name] = Number(payload[name]);
+    });
+    payload.temperature = Number(payload.temperature || 0);
     saveOutput.hidden = false;
     saveOutput.textContent = "正在保存配置…";
     try {

@@ -40,19 +40,33 @@ def validate_consistency(case: Mapping[str, object], graph: Mapping[str, object]
     conflict_signals = []
     for conflict in expected_conflicts:
         conflict_id = str(conflict["conflict_id"])
-        signal = has_failure_signal(raw_result, (conflict_id, "conflict", "violate", "infeasible", "不满足", "冲突", "不可行", "失败"))
+        signal = has_failure_signal(raw_result, (conflict_id, "conflict", "violate", "infeasible", "不满足", "冲突", "不可行"))
         conflict_signals.append({**conflict, "detected": signal})
     detected = sum(1 for item in conflict_signals if item["detected"])
     conflict_score = ratio(detected, len(conflict_signals))
     false_satisfaction = bool(expected_conflicts) and not has_failure_signal(raw_result, ("conflict", "violate", "infeasible", "不满足", "冲突", "不可行")) and bool(by_kind(graph, "physical_block"))
     run_summary = raw_result.get("run_summary", {})
-    phase_results = run_summary.get("phase_results", ()) if isinstance(run_summary, Mapping) else ()
-    iteration_signal = has_failure_signal(raw_result, ("repair", "rollback", "rerun", "iteration", "修复", "回退", "重跑", "迭代"))
-    if isinstance(phase_results, list):
-        iteration_signal = iteration_signal or any(
-            isinstance(item, Mapping) and str(item.get("status", "")).casefold() in {"degraded", "blocked", "repairing"}
-            for item in phase_results
-        )
+    raw_summary = raw_result.get("run_summary", {})
+    summary_evidence = {}
+    if isinstance(raw_summary, Mapping):
+        summary_evidence = {
+            "status": raw_summary.get("status"),
+            "diagnostics": raw_summary.get("diagnostics", ()),
+            "phase_results": raw_summary.get("phase_results", ()),
+            "gate_results": raw_summary.get("gate_results", ()),
+            "closure_status": raw_summary.get("closure", {}).get("status")
+            if isinstance(raw_summary.get("closure"), Mapping)
+            else "",
+        }
+    lifecycle_evidence = normalize({
+        "issues": raw_result.get("issues", []),
+        "run_summary": summary_evidence,
+        "audit": raw_result.get("audit", {}),
+    })
+    iteration_signal = any(
+        normalize(term) in lifecycle_evidence
+        for term in ("repair", "rollback", "rerun", "iteration", "修复", "回退", "重跑", "迭代")
+    )
     impact_terms = {"scenario": False, "function": False, "battery": False, "power": False, "physical": False, "verification": False}
     haystack = normalize(raw_result)
     for term in impact_terms:
@@ -65,7 +79,7 @@ def validate_consistency(case: Mapping[str, object], graph: Mapping[str, object]
         "iteration_signal": iteration_signal,
         "change_impact_terms": impact_terms,
         "findings": [
-            finding("T9/T10", case_id, "PASS" if conflict_score == 1.0 else "FAIL" if expected_conflicts else "NOT_IMPLEMENTED", severity="P0", category="architecture_requirement_conflict", expected="detect CASE-05 weight and runtime conflicts", actual=conflict_signals, related_elements=["REQ-WEIGHT", "REQ-RUNTIME", "PHY-BATTERY", "PHY-CHASSIS", "PHY-MOTOR", "PHY-SENSOR", "PHY-COMPUTE"] if expected_conflicts else (), root_cause="physical design conflict is arithmetically present but no model issue/diagnostic indicates it" if expected_conflicts and conflict_score < 1.0 else "", recommended_fix="Add generic mass/energy/power feasibility checks to Assurance and prevent SATISFIED claims."),
+            finding("T10", case_id, "N/A" if not expected_conflicts else "PASS" if conflict_score == 1.0 else "FAIL", severity="P0", category="architecture_requirement_conflict", expected="detect CASE-05 weight and runtime conflicts", actual=conflict_signals, related_elements=["REQ-WEIGHT", "REQ-RUNTIME", "PHY-BATTERY", "PHY-CHASSIS", "PHY-MOTOR", "PHY-SENSOR", "PHY-COMPUTE"] if expected_conflicts else (), root_cause="physical design conflict is arithmetically present but no model issue/diagnostic indicates it" if expected_conflicts and conflict_score < 1.0 else "", recommended_fix="Add generic mass/energy/power feasibility checks to Assurance and prevent SATISFIED claims."),
             finding("T17", case_id, "PASS" if iteration_signal else "FAIL", severity="P0", category="iteration", expected="verification failure leads to diagnosis, modification, and re-verification", actual=iteration_signal, root_cause="no failure feedback or targeted iteration evidence is recorded" if not iteration_signal else "", recommended_fix="Persist failure-to-requirement impact and rerun the smallest affected stage."),
             finding("T18", case_id, "PASS" if all(impact_terms.values()) else "NOT_IMPLEMENTED", severity="P1", category="change_impact", expected="requirement change identifies affected design and verification elements", actual=impact_terms, root_cause="change impact analysis is not represented" if not all(impact_terms.values()) else "", recommended_fix="Add versioned impact traversal from requirement to scenario, function, power/physical design, and verification."),
             finding("T9", case_id, "FAIL" if false_satisfaction else "PASS", severity="P0", category="false_satisfied_architecture", expected="violated physical architecture must not be reported SATISFIED", actual=false_satisfaction, root_cause="physical blocks exist without a corresponding violation signal" if false_satisfaction else "", recommended_fix="Gate closure on numeric feasibility findings."),

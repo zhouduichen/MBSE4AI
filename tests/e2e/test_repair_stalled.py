@@ -11,7 +11,7 @@ class NoopRuntime:
         return TaskExecutionResponse(StepStatus.COMPLETED)
 
 
-def test_repair_stalled_stops_repeating_the_same_gate_gap(tmp_path):
+def test_semantic_failure_blocks_later_phases_and_closure(tmp_path):
     repository = SQLiteModelRepository(tmp_path / "model.db")
     repository.ensure_project("p1")
     entities = (
@@ -32,4 +32,6 @@ def test_repair_stalled_stops_repeating_the_same_gate_gap(tmp_path):
     summary = WorkflowRunner(repository, repository, NoopRuntime()).run("p1")
 
     assert summary.status.value == "degraded"
-    assert any("repair_stalled" in item for item in summary.diagnostics)
+    assert "completion_minimum_entities" in summary.diagnostics
+    assert summary.closure is not None
+    assert summary.closure["status"] == "blocked"

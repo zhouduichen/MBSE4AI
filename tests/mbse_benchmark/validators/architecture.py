@@ -30,13 +30,18 @@ def validate_architecture(graph: Mapping[str, object], case: Mapping[str, object
     orphan_rate = ratio(len(orphan), total)
     architecture_kinds = {str(item.get("kind", "")) for item in graph.get("entities", ()) if isinstance(item, Mapping)}
     implemented = {"function", "logical_component", "physical_block"} <= architecture_kinds
+    def status(value: float | None, threshold: float) -> str:
+        if value is None:
+            return "N/A"
+        return "PASS" if value <= threshold else "FAIL"
+
     return {
         "orphan_element_rate": orphan_rate,
         "orphan_ids": orphan,
         "orphan_by_kind": orphan_by_kind,
         "architecture_layers_present": sorted(architecture_kinds & {"function", "logical_component", "physical_block"}),
         "findings": [
-            finding("T16", str(case.get("case_id", graph.get("project_id", ""))), "PASS" if orphan_rate <= 0.05 else "FAIL", severity="P1", category="orphan_detection", expected="orphan element rate <= 5%", actual=orphan_rate, related_elements=orphan, root_cause="model elements have no trace or source" if orphan else "", recommended_fix="Require every generated node to carry a source relation or lifecycle rationale."),
+            finding("T16", str(case.get("case_id", graph.get("project_id", ""))), status(orphan_rate, 0.05), severity="P1", category="orphan_detection", expected="orphan element rate <= 5%", actual=orphan_rate, related_elements=orphan, root_cause="model elements have no trace or source" if orphan else "", recommended_fix="Require every generated node to carry a source relation or lifecycle rationale."),
             finding("T9/T11", str(case.get("case_id", graph.get("project_id", ""))), "PASS" if implemented else "NOT_IMPLEMENTED", severity="P1", category="architecture_layers", expected="Function, Logical, and Physical layers present", actual=sorted(architecture_kinds & {"function", "logical_component", "physical_block"}), root_cause="one or more RFLP layers are absent" if not implemented else "", recommended_fix="Implement the missing architecture stage before claiming RFLP coverage."),
         ],
     }

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rflp_lite.domain.entities import EntityStatus
+from rflp_lite.domain.entities import EntityKind, EntityStatus
 from rflp_lite.domain.errors import MethodologyValidationError
 from rflp_lite.domain.model import AddEntity, Deprecate, UpdateEntity
 from rflp_lite.methodology.validation import ValidationContext
@@ -17,6 +17,18 @@ def validate(context: ValidationContext) -> None:
     if patch.expected_revision != context.graph.revision:
         raise MethodologyValidationError("cas_conflict", "patch expected revision is stale")
     current = context.graph.entity_index
+    active_systems = {
+        entity.id for entity in context.graph.entities
+        if entity.kind is EntityKind.SYSTEM and entity.meta.status is not EntityStatus.DEPRECATED
+    }
+    if context.task.id == "system_definition" and active_systems and any(
+        isinstance(operation, AddEntity) and operation.entity.kind is EntityKind.SYSTEM
+        for operation in patch.operations
+    ):
+        raise MethodologyValidationError(
+            "identity_conflict",
+            "system_definition cannot add a second active SYSTEM",
+        )
     added: set[str] = set()
     for operation in patch.operations:
         if isinstance(operation, AddEntity):

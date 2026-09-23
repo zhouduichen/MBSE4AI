@@ -1,0 +1,64 @@
+{
+  "benchmark": "pr09-full-lifecycle-acceptance",
+  "commit": "7bf00c2",
+  "created_at": "2026-09-10T14:22:34+08:00",
+  "fixture": "tests/e2e/fixtures/campus_delivery_robot.json",
+  "workspace": "/private/tmp/ai4mbse-pr09-lifecycle.HDMZCv/campus-demo",
+  "database": "/private/tmp/ai4mbse-pr09-lifecycle.HDMZCv/campus-demo/.rflp/model.db",
+  "profile_id": "windows-5080-ollama",
+  "provider_id": "ollama",
+  "model_id": "qwen3.5:9b-q8_0",
+  "run_id": "run-efd26c35416b6c4b",
+  "run_status": "degraded",
+  "phase": "lifecycle",
+  "task_count": 23,
+  "task_status_counts": {
+    "completed": 0,
+    "degraded": 0,
+    "failed": 1,
+    "blocked": 22,
+    "queued": 0,
+    "running": 0
+  },
+  "failed_tasks": [
+    {
+      "task_id": "system_definition",
+      "failure_stage": "transport",
+      "code": "network_error",
+      "attempts": 2
+    }
+  ],
+  "blocked_tasks": {
+    "count": 22,
+    "reason": "blocked by system_definition transport failure",
+    "model_calls_made": 0
+  },
+  "llm_failure_funnel": {
+    "provider_calls": 2,
+    "provider_success": 0,
+    "structural_first_pass_success": 0,
+    "structural_retry_recovered": 0,
+    "structural_retry_exhausted": 0,
+    "transport_retry_exhausted": 1,
+    "semantic_rejection": 0,
+    "semantic_repair_success": 0,
+    "semantic_repair_exhausted": 0
+  },
+  "repository_integrity": {
+    "initial_revision": 1,
+    "final_revision": 1,
+    "initial_entity_count": 16,
+    "final_entity_count": 16,
+    "initial_relation_count": 28,
+    "final_relation_count": 28,
+    "run_patch_count": 0,
+    "invalid_repository_write_detected": false,
+    "issues_created": 0
+  },
+  "post_run_provider_health": {
+    "status": "unreachable",
+    "error_type": "TimeoutError",
+    "timeout_seconds": 10
+  },
+  "interpretation": "The first mandatory upstream task exhausted transport retries; the lifecycle terminated explainably, marked that task failed, marked all 22 dependent tasks blocked, skipped semantic repair, and made no model CAS write. The provider endpoint was unreachable during the post-run health check."
+}

@@ -1,0 +1,123 @@
+{
+  "experiment": "pr09-output-budget-narrow-sequential-chain",
+  "date": "2026-09-13",
+  "baseline_commit": "7bf00c2f9ab2e31287a7539b08e2ad7ee25258e4",
+  "budget": 3000,
+  "repetitions": 5,
+  "chain": ["system_definition", "stakeholder_analysis", "stakeholder_requirements"],
+  "fixture": "/Users/huangjiahao/Downloads/AI4MBSE/tests/e2e/fixtures/campus_delivery_robot.json",
+  "provider": {
+    "provider_id": "ollama",
+    "runtime_provider_id": "windows-5080-ollama",
+    "model": "qwen3.5:9b-q8_0",
+    "temperature": 0.0,
+    "seed": null,
+    "structured_output_mode": "json_schema",
+    "base_url": "http://100.88.143.10:11434/v1"
+  },
+  "fixed_context": {
+    "effective_context_budget": 2000,
+    "output_reserve": "historical default",
+    "prompt_reserve": 256
+  },
+  "runs": [
+    {
+      "repetition": 1,
+      "status": "degraded",
+      "failure_stage": "compiler",
+      "task_statuses": {"system_definition": "failed", "stakeholder_analysis": "blocked", "stakeholder_requirements": "blocked"},
+      "failure_class": "compiler.proposal_compile",
+      "duplicate_local_ref": "system-5b9833bef4d66e3a",
+      "provider_calls": [{"task_id": "system_definition", "call": "initial", "max_tokens": 3000, "finish_reason": "stop", "prompt_eval_count": 620, "eval_count": 684, "total_duration_ms": 26275.533, "response_size": 1603, "response_hash": "868c67f330f7da738e2f74a2ddb111f30012bb60bed7ba582a36b44462444371"}],
+      "initial_max_tokens": 3000,
+      "repair_max_tokens": null,
+      "revision_delta": 0,
+      "failed_or_blocked_with_patch": 0
+    },
+    {
+      "repetition": 2,
+      "status": "degraded",
+      "failure_stage": "compiler",
+      "task_statuses": {"system_definition": "failed", "stakeholder_analysis": "blocked", "stakeholder_requirements": "blocked"},
+      "failure_class": "compiler.proposal_compile",
+      "duplicate_local_ref": "system-5b9833bef4d66e3a",
+      "provider_calls": [{"task_id": "system_definition", "call": "initial", "max_tokens": 3000, "finish_reason": "stop", "prompt_eval_count": 620, "eval_count": 684, "total_duration_ms": 13528.066, "response_size": 1603, "response_hash": "868c67f330f7da738e2f74a2ddb111f30012bb60bed7ba582a36b44462444371"}],
+      "initial_max_tokens": 3000,
+      "repair_max_tokens": null,
+      "revision_delta": 0,
+      "failed_or_blocked_with_patch": 0
+    },
+    {
+      "repetition": 3,
+      "status": "degraded",
+      "failure_stage": "structural",
+      "task_statuses": {"system_definition": "failed", "stakeholder_analysis": "blocked", "stakeholder_requirements": "blocked"},
+      "failure_class": "structural.json_decode",
+      "provider_calls": [
+        {"task_id": "system_definition", "call": "initial", "max_tokens": 3000, "finish_reason": "", "eval_count": null, "prompt_eval_count": null, "response_size": 1776, "response_hash": "f7cf1fba89ef310c7331c8ef64b3e40e4454d6f1d268a88afc9d45037b232923"},
+        {"task_id": "system_definition", "call": "repair", "max_tokens": 3000, "finish_reason": "", "eval_count": null, "prompt_eval_count": null, "response_size": 0, "response_hash": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"}
+      ],
+      "initial_max_tokens": 3000,
+      "repair_max_tokens": 3000,
+      "revision_delta": 0,
+      "failed_or_blocked_with_patch": 0
+    },
+    {
+      "repetition": 4,
+      "status": "degraded",
+      "failure_stage": "transport",
+      "task_statuses": {"system_definition": "failed", "stakeholder_analysis": "blocked", "stakeholder_requirements": "blocked"},
+      "failure_class": "transport.network_error",
+      "provider_calls": [
+        {"task_id": "system_definition", "call": "initial", "max_tokens": 3000, "exception_type": "TransportFailure", "duration_ms": 300007.088},
+        {"task_id": "system_definition", "call": "repair", "max_tokens": 3000, "exception_type": "TransportFailure", "duration_ms": 75003.439}
+      ],
+      "initial_max_tokens": 3000,
+      "repair_max_tokens": 3000,
+      "revision_delta": 0,
+      "failed_or_blocked_with_patch": 0
+    },
+    {
+      "repetition": 5,
+      "status": "degraded",
+      "failure_stage": "transport",
+      "task_statuses": {"system_definition": "failed", "stakeholder_analysis": "blocked", "stakeholder_requirements": "blocked"},
+      "failure_class": "transport.network_error",
+      "provider_calls": [
+        {"task_id": "system_definition", "call": "initial", "max_tokens": 3000, "exception_type": "TransportFailure", "duration_ms": 75002.016},
+        {"task_id": "system_definition", "call": "repair", "max_tokens": 3000, "exception_type": "TransportFailure", "duration_ms": 75002.795}
+      ],
+      "initial_max_tokens": 3000,
+      "repair_max_tokens": 3000,
+      "revision_delta": 0,
+      "failed_or_blocked_with_patch": 0
+    }
+  ],
+  "aggregate": {
+    "task_status": {"failed": 5, "blocked": 10},
+    "run_status": {"degraded": 5},
+    "provider_calls": 8,
+    "provider_transport_failures": 4,
+    "finish_reason": {"stop": 2},
+    "failure_classes": {"compiler.proposal_compile": 2, "structural.json_decode": 1, "transport.network_error": 2},
+    "structural_retry_invoked": 3,
+    "structural_retry_recovered": 0,
+    "structural_retry_exhausted": 3,
+    "compiler_failures": 2,
+    "duplicate_local_ref_count": 2,
+    "semantic_repair_invoked": 0,
+    "output_utilization": {"samples": 2, "average": 0.228, "min": 0.228, "max": 0.228},
+    "latency_ms": {"samples": 2, "average": 19901.8, "min": 13528.066, "max": 26275.533},
+    "initial_max_tokens": [3000],
+    "repair_max_tokens": [3000],
+    "failed_or_blocked_with_patch": 0,
+    "dependent_blocking_observed": true,
+    "revision_deltas": [0, 0, 0, 0, 0]
+  },
+  "interpretation": {
+    "chain_completed_runs": 0,
+    "budget_sufficiency_decision": "not_determinable",
+    "reason": "The matrix was contaminated by two repeatable compiler duplicate-local-ref failures and a provider outage affecting the final three repetitions. It provides no clean 3000-token chain for judging truncation recovery.",
+    "retry_budget_observation": "Where a structural retry occurred, initial_max_tokens and repair_max_tokens were both 3000; the retry did not create extra output space."
+  }
+}

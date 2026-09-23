@@ -1,0 +1,1 @@
+{"case_id":"CASE-05","elapsed_seconds":300.016083,"exception":"case exceeded 300s","exception_type":"TimeoutError","repeat_index":1,"status":"blocked","timeout_seconds":300}

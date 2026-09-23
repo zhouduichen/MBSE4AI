@@ -1,0 +1,1449 @@
+{
+  "experiment": "pr09-system-definition-identity-contract",
+  "date": "2026-09-13",
+  "code_commit": "6565397020f2b47142bbd5d22df5af2f18ca34d1",
+  "fixture": "/Users/huangjiahao/Downloads/AI4MBSE/tests/e2e/fixtures/campus_delivery_robot.json",
+  "provider": {
+    "display_name": "Windows 5080 Ollama",
+    "runtime_provider_id": "windows-5080-ollama",
+    "model": "qwen3.5:9b-q8_0",
+    "temperature": 0.0,
+    "seed": null,
+    "structured_output_mode": "json_schema"
+  },
+  "fixed": {
+    "max_output_tokens": 4000,
+    "chain": [
+      "system_definition"
+    ],
+    "prompt": "current system_definition.v1 plus common local_ref guidance",
+    "task_spec": "current system_definition TaskSpec"
+  },
+  "acceptance": {
+    "finish_reason_stop": "all successful calls",
+    "duplicate_local_ref": 0,
+    "identity_conflict": 0,
+    "compile_rate_minimum": 0.95,
+    "domain_validation_rate_minimum": 0.95,
+    "system_cardinality_correct": "one active SYSTEM",
+    "invalid_repository_write": 0
+  },
+  "budget": 4000,
+  "repetitions": 10,
+  "chain": [
+    "system_definition"
+  ],
+  "runs": [
+    {
+      "repetition": 1,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-j3v3zwen/budget-4000/repeat-01",
+      "summary": {
+        "run_id": "run-af752935ae624484",
+        "phase": "operational",
+        "status": "completed",
+        "completed_tasks": [
+          "system_definition"
+        ],
+        "failure_stage": null,
+        "diagnostics": []
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "completed",
+          "attempt": 1,
+          "output_patch_id": "patch-dd5eefdc96128633",
+          "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+          "provider_id": "windows-5080-ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {
+            "eval_count": 615,
+            "eval_duration": 12250381000,
+            "load_duration": 8280800,
+            "prompt_eval_count": 870,
+            "prompt_eval_duration": 175018000,
+            "total_duration": 12447297100
+          },
+          "duplicate_local_ref": "",
+          "json_parsed": true,
+          "schema_passed": true,
+          "compile_pass": true,
+          "domain_validation_pass": true,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 615,
+              "total_duration_ms": 12447.297,
+              "response_size": 1651,
+              "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+              "wall_duration_ms": 12612.322
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.15375
+          ],
+          "output_tokens": [
+            615
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 615,
+          "total_duration_ms": 12447.297,
+          "response_size": 1651,
+          "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+          "wall_duration_ms": 12612.322
+        }
+      ],
+      "ledger": {
+        "run_id": "run-af752935ae624484",
+        "run_status": "completed",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 2,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "completed",
+            "attempt": 1,
+            "output_patch_id": "patch-dd5eefdc96128633",
+            "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+            "provider_id": "windows-5080-ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {
+              "eval_count": 615,
+              "eval_duration": 12250381000,
+              "load_duration": 8280800,
+              "prompt_eval_count": 870,
+              "prompt_eval_duration": 175018000,
+              "total_duration": 12447297100
+            },
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 2,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 2,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-j3v3zwen/budget-4000/repeat-02",
+      "summary": {
+        "run_id": "run-5f77d9b1d8614952",
+        "phase": "operational",
+        "status": "completed",
+        "completed_tasks": [
+          "system_definition"
+        ],
+        "failure_stage": null,
+        "diagnostics": []
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "completed",
+          "attempt": 1,
+          "output_patch_id": "patch-dd5eefdc96128633",
+          "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+          "provider_id": "windows-5080-ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {
+            "eval_count": 615,
+            "eval_duration": 12117138000,
+            "load_duration": 8378300,
+            "prompt_eval_count": 870,
+            "prompt_eval_duration": 66828999,
+            "total_duration": 12229652800
+          },
+          "duplicate_local_ref": "",
+          "json_parsed": true,
+          "schema_passed": true,
+          "compile_pass": true,
+          "domain_validation_pass": true,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 615,
+              "total_duration_ms": 12229.653,
+              "response_size": 1651,
+              "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+              "wall_duration_ms": 12322.09
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.15375
+          ],
+          "output_tokens": [
+            615
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 615,
+          "total_duration_ms": 12229.653,
+          "response_size": 1651,
+          "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+          "wall_duration_ms": 12322.09
+        }
+      ],
+      "ledger": {
+        "run_id": "run-5f77d9b1d8614952",
+        "run_status": "completed",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 2,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "completed",
+            "attempt": 1,
+            "output_patch_id": "patch-dd5eefdc96128633",
+            "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+            "provider_id": "windows-5080-ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {
+              "eval_count": 615,
+              "eval_duration": 12117138000,
+              "load_duration": 8378300,
+              "prompt_eval_count": 870,
+              "prompt_eval_duration": 66828999,
+              "total_duration": 12229652800
+            },
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 2,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 3,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-j3v3zwen/budget-4000/repeat-03",
+      "summary": {
+        "run_id": "run-79b760f9bbf94288",
+        "phase": "operational",
+        "status": "completed",
+        "completed_tasks": [
+          "system_definition"
+        ],
+        "failure_stage": null,
+        "diagnostics": []
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "completed",
+          "attempt": 1,
+          "output_patch_id": "patch-dd5eefdc96128633",
+          "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+          "provider_id": "windows-5080-ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {
+            "eval_count": 615,
+            "eval_duration": 12089253000,
+            "load_duration": 8459300,
+            "prompt_eval_count": 870,
+            "prompt_eval_duration": 64794000,
+            "total_duration": 12178695300
+          },
+          "duplicate_local_ref": "",
+          "json_parsed": true,
+          "schema_passed": true,
+          "compile_pass": true,
+          "domain_validation_pass": true,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 615,
+              "total_duration_ms": 12178.695,
+              "response_size": 1651,
+              "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+              "wall_duration_ms": 12347.785
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.15375
+          ],
+          "output_tokens": [
+            615
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 615,
+          "total_duration_ms": 12178.695,
+          "response_size": 1651,
+          "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+          "wall_duration_ms": 12347.785
+        }
+      ],
+      "ledger": {
+        "run_id": "run-79b760f9bbf94288",
+        "run_status": "completed",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 2,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "completed",
+            "attempt": 1,
+            "output_patch_id": "patch-dd5eefdc96128633",
+            "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+            "provider_id": "windows-5080-ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {
+              "eval_count": 615,
+              "eval_duration": 12089253000,
+              "load_duration": 8459300,
+              "prompt_eval_count": 870,
+              "prompt_eval_duration": 64794000,
+              "total_duration": 12178695300
+            },
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 2,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 4,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-j3v3zwen/budget-4000/repeat-04",
+      "summary": {
+        "run_id": "run-8f13f0fc572c4b1f",
+        "phase": "operational",
+        "status": "completed",
+        "completed_tasks": [
+          "system_definition"
+        ],
+        "failure_stage": null,
+        "diagnostics": []
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "completed",
+          "attempt": 1,
+          "output_patch_id": "patch-dd5eefdc96128633",
+          "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+          "provider_id": "windows-5080-ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {
+            "eval_count": 615,
+            "eval_duration": 12246870000,
+            "load_duration": 8875700,
+            "prompt_eval_count": 870,
+            "prompt_eval_duration": 60368000,
+            "total_duration": 12330511500
+          },
+          "duplicate_local_ref": "",
+          "json_parsed": true,
+          "schema_passed": true,
+          "compile_pass": true,
+          "domain_validation_pass": true,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 615,
+              "total_duration_ms": 12330.512,
+              "response_size": 1651,
+              "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+              "wall_duration_ms": 12388.165
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.15375
+          ],
+          "output_tokens": [
+            615
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 615,
+          "total_duration_ms": 12330.512,
+          "response_size": 1651,
+          "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+          "wall_duration_ms": 12388.165
+        }
+      ],
+      "ledger": {
+        "run_id": "run-8f13f0fc572c4b1f",
+        "run_status": "completed",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 2,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "completed",
+            "attempt": 1,
+            "output_patch_id": "patch-dd5eefdc96128633",
+            "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+            "provider_id": "windows-5080-ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {
+              "eval_count": 615,
+              "eval_duration": 12246870000,
+              "load_duration": 8875700,
+              "prompt_eval_count": 870,
+              "prompt_eval_duration": 60368000,
+              "total_duration": 12330511500
+            },
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 2,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 5,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-j3v3zwen/budget-4000/repeat-05",
+      "summary": {
+        "run_id": "run-9478252726bb4518",
+        "phase": "operational",
+        "status": "completed",
+        "completed_tasks": [
+          "system_definition"
+        ],
+        "failure_stage": null,
+        "diagnostics": []
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "completed",
+          "attempt": 1,
+          "output_patch_id": "patch-dd5eefdc96128633",
+          "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+          "provider_id": "windows-5080-ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {
+            "eval_count": 615,
+            "eval_duration": 12205342000,
+            "load_duration": 8225100,
+            "prompt_eval_count": 870,
+            "prompt_eval_duration": 60977000,
+            "total_duration": 12289311900
+          },
+          "duplicate_local_ref": "",
+          "json_parsed": true,
+          "schema_passed": true,
+          "compile_pass": true,
+          "domain_validation_pass": true,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 615,
+              "total_duration_ms": 12289.312,
+              "response_size": 1651,
+              "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+              "wall_duration_ms": 12384.722
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.15375
+          ],
+          "output_tokens": [
+            615
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 615,
+          "total_duration_ms": 12289.312,
+          "response_size": 1651,
+          "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+          "wall_duration_ms": 12384.722
+        }
+      ],
+      "ledger": {
+        "run_id": "run-9478252726bb4518",
+        "run_status": "completed",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 2,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "completed",
+            "attempt": 1,
+            "output_patch_id": "patch-dd5eefdc96128633",
+            "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+            "provider_id": "windows-5080-ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {
+              "eval_count": 615,
+              "eval_duration": 12205342000,
+              "load_duration": 8225100,
+              "prompt_eval_count": 870,
+              "prompt_eval_duration": 60977000,
+              "total_duration": 12289311900
+            },
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 2,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 6,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-j3v3zwen/budget-4000/repeat-06",
+      "summary": {
+        "run_id": "run-cfa3c9733de348fb",
+        "phase": "operational",
+        "status": "completed",
+        "completed_tasks": [
+          "system_definition"
+        ],
+        "failure_stage": null,
+        "diagnostics": []
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "completed",
+          "attempt": 1,
+          "output_patch_id": "patch-dd5eefdc96128633",
+          "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+          "provider_id": "windows-5080-ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {
+            "eval_count": 615,
+            "eval_duration": 12582491000,
+            "load_duration": 8946300,
+            "prompt_eval_count": 870,
+            "prompt_eval_duration": 64989999,
+            "total_duration": 12672308400
+          },
+          "duplicate_local_ref": "",
+          "json_parsed": true,
+          "schema_passed": true,
+          "compile_pass": true,
+          "domain_validation_pass": true,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 615,
+              "total_duration_ms": 12672.308,
+              "response_size": 1651,
+              "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+              "wall_duration_ms": 12760.85
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.15375
+          ],
+          "output_tokens": [
+            615
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 615,
+          "total_duration_ms": 12672.308,
+          "response_size": 1651,
+          "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+          "wall_duration_ms": 12760.85
+        }
+      ],
+      "ledger": {
+        "run_id": "run-cfa3c9733de348fb",
+        "run_status": "completed",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 2,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "completed",
+            "attempt": 1,
+            "output_patch_id": "patch-dd5eefdc96128633",
+            "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+            "provider_id": "windows-5080-ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {
+              "eval_count": 615,
+              "eval_duration": 12582491000,
+              "load_duration": 8946300,
+              "prompt_eval_count": 870,
+              "prompt_eval_duration": 64989999,
+              "total_duration": 12672308400
+            },
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 2,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 7,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-j3v3zwen/budget-4000/repeat-07",
+      "summary": {
+        "run_id": "run-153839ad05694f44",
+        "phase": "operational",
+        "status": "completed",
+        "completed_tasks": [
+          "system_definition"
+        ],
+        "failure_stage": null,
+        "diagnostics": []
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "completed",
+          "attempt": 1,
+          "output_patch_id": "patch-dd5eefdc96128633",
+          "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+          "provider_id": "windows-5080-ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {
+            "eval_count": 615,
+            "eval_duration": 12255882000,
+            "load_duration": 7557000,
+            "prompt_eval_count": 870,
+            "prompt_eval_duration": 61665000,
+            "total_duration": 12341170800
+          },
+          "duplicate_local_ref": "",
+          "json_parsed": true,
+          "schema_passed": true,
+          "compile_pass": true,
+          "domain_validation_pass": true,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 615,
+              "total_duration_ms": 12341.171,
+              "response_size": 1651,
+              "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+              "wall_duration_ms": 12514.916
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.15375
+          ],
+          "output_tokens": [
+            615
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 615,
+          "total_duration_ms": 12341.171,
+          "response_size": 1651,
+          "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+          "wall_duration_ms": 12514.916
+        }
+      ],
+      "ledger": {
+        "run_id": "run-153839ad05694f44",
+        "run_status": "completed",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 2,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "completed",
+            "attempt": 1,
+            "output_patch_id": "patch-dd5eefdc96128633",
+            "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+            "provider_id": "windows-5080-ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {
+              "eval_count": 615,
+              "eval_duration": 12255882000,
+              "load_duration": 7557000,
+              "prompt_eval_count": 870,
+              "prompt_eval_duration": 61665000,
+              "total_duration": 12341170800
+            },
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 2,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 8,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-j3v3zwen/budget-4000/repeat-08",
+      "summary": {
+        "run_id": "run-4004d5aa7be3463e",
+        "phase": "operational",
+        "status": "completed",
+        "completed_tasks": [
+          "system_definition"
+        ],
+        "failure_stage": null,
+        "diagnostics": []
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "completed",
+          "attempt": 1,
+          "output_patch_id": "patch-dd5eefdc96128633",
+          "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+          "provider_id": "windows-5080-ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {
+            "eval_count": 615,
+            "eval_duration": 12660500000,
+            "load_duration": 7095100,
+            "prompt_eval_count": 870,
+            "prompt_eval_duration": 61855000,
+            "total_duration": 12747840000
+          },
+          "duplicate_local_ref": "",
+          "json_parsed": true,
+          "schema_passed": true,
+          "compile_pass": true,
+          "domain_validation_pass": true,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 615,
+              "total_duration_ms": 12747.84,
+              "response_size": 1651,
+              "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+              "wall_duration_ms": 12803.407
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.15375
+          ],
+          "output_tokens": [
+            615
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 615,
+          "total_duration_ms": 12747.84,
+          "response_size": 1651,
+          "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+          "wall_duration_ms": 12803.407
+        }
+      ],
+      "ledger": {
+        "run_id": "run-4004d5aa7be3463e",
+        "run_status": "completed",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 2,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "completed",
+            "attempt": 1,
+            "output_patch_id": "patch-dd5eefdc96128633",
+            "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+            "provider_id": "windows-5080-ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {
+              "eval_count": 615,
+              "eval_duration": 12660500000,
+              "load_duration": 7095100,
+              "prompt_eval_count": 870,
+              "prompt_eval_duration": 61855000,
+              "total_duration": 12747840000
+            },
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 2,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 9,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-j3v3zwen/budget-4000/repeat-09",
+      "summary": {
+        "run_id": "run-f70c4b07fa5f4128",
+        "phase": "operational",
+        "status": "completed",
+        "completed_tasks": [
+          "system_definition"
+        ],
+        "failure_stage": null,
+        "diagnostics": []
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "completed",
+          "attempt": 1,
+          "output_patch_id": "patch-dd5eefdc96128633",
+          "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+          "provider_id": "windows-5080-ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {
+            "eval_count": 615,
+            "eval_duration": 12549070000,
+            "load_duration": 7646800,
+            "prompt_eval_count": 870,
+            "prompt_eval_duration": 60251000,
+            "total_duration": 12656512000
+          },
+          "duplicate_local_ref": "",
+          "json_parsed": true,
+          "schema_passed": true,
+          "compile_pass": true,
+          "domain_validation_pass": true,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 615,
+              "total_duration_ms": 12656.512,
+              "response_size": 1651,
+              "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+              "wall_duration_ms": 12775.901
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.15375
+          ],
+          "output_tokens": [
+            615
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 615,
+          "total_duration_ms": 12656.512,
+          "response_size": 1651,
+          "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+          "wall_duration_ms": 12775.901
+        }
+      ],
+      "ledger": {
+        "run_id": "run-f70c4b07fa5f4128",
+        "run_status": "completed",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 2,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "completed",
+            "attempt": 1,
+            "output_patch_id": "patch-dd5eefdc96128633",
+            "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+            "provider_id": "windows-5080-ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {
+              "eval_count": 615,
+              "eval_duration": 12549070000,
+              "load_duration": 7646800,
+              "prompt_eval_count": 870,
+              "prompt_eval_duration": 60251000,
+              "total_duration": 12656512000
+            },
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 2,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 10,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-j3v3zwen/budget-4000/repeat-10",
+      "summary": {
+        "run_id": "run-b068a5f82148424e",
+        "phase": "operational",
+        "status": "completed",
+        "completed_tasks": [
+          "system_definition"
+        ],
+        "failure_stage": null,
+        "diagnostics": []
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "completed",
+          "attempt": 1,
+          "output_patch_id": "patch-dd5eefdc96128633",
+          "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+          "provider_id": "windows-5080-ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {
+            "eval_count": 615,
+            "eval_duration": 12416109000,
+            "load_duration": 7977000,
+            "prompt_eval_count": 870,
+            "prompt_eval_duration": 64372000,
+            "total_duration": 12505685300
+          },
+          "duplicate_local_ref": "",
+          "json_parsed": true,
+          "schema_passed": true,
+          "compile_pass": true,
+          "domain_validation_pass": true,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 615,
+              "total_duration_ms": 12505.685,
+              "response_size": 1651,
+              "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+              "wall_duration_ms": 12647.623
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.15375
+          ],
+          "output_tokens": [
+            615
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 615,
+          "total_duration_ms": 12505.685,
+          "response_size": 1651,
+          "response_hash": "e627b60bc87af1b20957bb874f249e915ada31a64cebd7a545359bb55abd901d",
+          "wall_duration_ms": 12647.623
+        }
+      ],
+      "ledger": {
+        "run_id": "run-b068a5f82148424e",
+        "run_status": "completed",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 2,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "completed",
+            "attempt": 1,
+            "output_patch_id": "patch-dd5eefdc96128633",
+            "output_hash": "a5b0f3cf03e33935780ec5b4d5e210624aacb04f2ea7a58343bd30694e5251c3",
+            "provider_id": "windows-5080-ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {
+              "eval_count": 615,
+              "eval_duration": 12416109000,
+              "load_duration": 7977000,
+              "prompt_eval_count": 870,
+              "prompt_eval_duration": 64372000,
+              "total_duration": 12505685300
+            },
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 2,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    }
+  ],
+  "aggregate": {
+    "task_status": {
+      "completed": 10
+    },
+    "run_status": {
+      "completed": 10
+    },
+    "provider_calls": 10,
+    "provider_transport_failures": 0,
+    "finish_reason": {
+      "stop": 10
+    },
+    "failure_classes": {},
+    "structural_retry_invoked": 0,
+    "structural_retry_recovered": 0,
+    "structural_retry_exhausted": 0,
+    "compiler_failures": 0,
+    "duplicate_local_ref_count": 0,
+    "semantic_rejections": 0,
+    "semantic_repair_invoked": 0,
+    "output_utilization": {
+      "samples": 10,
+      "average": 0.15375,
+      "min": 0.15375,
+      "max": 0.15375
+    },
+    "latency_ms": {
+      "samples": 10,
+      "average": 12439.898,
+      "min": 12178.695,
+      "max": 12747.84
+    },
+    "initial_max_tokens": [
+      4000
+    ],
+    "repair_max_tokens": [],
+    "failed_or_blocked_with_patch": 0,
+    "dependent_blocking_observed": false,
+    "revision_deltas": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ]
+  }
+}

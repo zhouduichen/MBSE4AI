@@ -16,3 +16,13 @@ def test_task_spec_hash_changes_when_failure_route_changes():
     changed = replace(task, failure_routes=())
 
     assert task_spec_hash(task) != task_spec_hash(changed)
+
+
+def test_task_spec_hash_changes_when_relation_policy_changes():
+    task = next(item for item in task_catalog() if item.id == "stakeholder_requirements")
+    changed = replace(
+        task,
+        patch_policy=replace(task.patch_policy, allowed_predicates=frozenset()),
+    )
+
+    assert task_spec_hash(task) != task_spec_hash(changed)

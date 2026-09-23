@@ -2,10 +2,64 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.entities import EntityKind
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.methodology.contracts import CompletionCondition, ContextQuery, FailureAction, FailureRoute, Phase, TaskSpec
 from rflp_lite.methodology.policy import PatchPolicy
+from rflp_lite.methodology.proposal_compiler import proposal_schema
+from rflp_lite.methodology.vv_contract import VV_PLAN_FIELDS
+
+
+_TASK_ALLOWED_PREDICATES = {
+    "system_definition": frozenset(),
+    "stakeholder_analysis": frozenset({RelationPredicate.HAS_CONCERN}),
+    "stakeholder_requirements": frozenset({RelationPredicate.DERIVED_FROM}),
+    "lifecycle_analysis": frozenset({RelationPredicate.DERIVED_FROM}),
+    "scenario_exploration": frozenset({RelationPredicate.DERIVED_FROM}),
+    "use_case_analysis": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.PARTICIPATES_IN}),
+    "operational_scenario": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.PARTICIPATES_IN, RelationPredicate.OCCURS_IN}),
+    "activity_analysis": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.OCCURS_IN, RelationPredicate.DECOMPOSES}),
+    "system_requirement_derivation": frozenset({RelationPredicate.DERIVED_FROM}),
+    "function_identification": frozenset({RelationPredicate.SATISFIED_BY}),
+    "functional_decomposition": frozenset({RelationPredicate.DECOMPOSES, RelationPredicate.DERIVED_FROM, RelationPredicate.SATISFIED_BY}),
+    "functional_interaction": frozenset({RelationPredicate.EXCHANGES_WITH, RelationPredicate.DERIVED_FROM, RelationPredicate.PARTICIPATES_IN}),
+    "functional_scenario": frozenset({RelationPredicate.PARTICIPATES_IN, RelationPredicate.DERIVED_FROM}),
+    "functional_requirement": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.SATISFIED_BY}),
+    "logical_analysis": frozenset({RelationPredicate.ALLOCATED_TO, RelationPredicate.DERIVED_FROM, RelationPredicate.DECOMPOSES, RelationPredicate.CONNECTED_TO, RelationPredicate.EXCHANGES_WITH}),
+    "physical_candidates": frozenset({RelationPredicate.ALLOCATED_TO, RelationPredicate.REALIZED_BY, RelationPredicate.SATISFIED_BY, RelationPredicate.DERIVED_FROM, RelationPredicate.CONNECTED_TO}),
+    "allocation_tradeoff": frozenset({RelationPredicate.ALLOCATED_TO, RelationPredicate.REALIZED_BY, RelationPredicate.DERIVED_FROM}),
+    "technical_requirement": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.SATISFIED_BY}),
+    "interface_sequence_state": frozenset({RelationPredicate.CONNECTED_TO, RelationPredicate.EXCHANGES_WITH, RelationPredicate.DECOMPOSES, RelationPredicate.DERIVED_FROM}),
+    "fmea_stpa_hazard": frozenset({RelationPredicate.CAUSES, RelationPredicate.MITIGATED_BY, RelationPredicate.DERIVED_FROM}),
+    "reverse_feasibility": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.SATISFIED_BY, RelationPredicate.VERIFIED_BY, RelationPredicate.VALIDATED_BY}),
+    "verification_validation": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.VERIFIED_BY, RelationPredicate.VALIDATED_BY}),
+    "global_cross_analysis": frozenset({RelationPredicate.DERIVED_FROM, RelationPredicate.SATISFIED_BY, RelationPredicate.VERIFIED_BY, RelationPredicate.VALIDATED_BY, RelationPredicate.MITIGATED_BY}),
+}
+
+_TASK_WRITABLE_FIELDS = frozenset({"name", "confidence", "payload", "lifecycle_ids", "evidence_ids"})
+
+_TASK_EXAMPLES = {
+    "function_identification": (
+        "ADD Function(name='执行人工接管', payload={decomposition: [...]}) + "
+        "RELATE Requirement -satisfiedBy-> Function",
+    ),
+    "logical_analysis": (
+        "ADD LogicalComponent(name='接管控制逻辑', payload={responsibility: ...}) + "
+        "RELATE Function -allocatedTo-> LogicalComponent",
+    ),
+    "physical_candidates": (
+        "ADD PhysicalBlock(name='执行机构候选', payload={candidate_basis: ..., tradeoffs: [...]}) + "
+        "RELATE LogicalComponent -allocatedTo-> PhysicalBlock",
+    ),
+    "verification_validation": (
+        "ADD VerificationCase(payload={method, precondition, procedure, "
+        "expected_result, pass_fail_rule, environment, evidence_artifact}) + "
+        "RELATE Requirement -verifiedBy-> VerificationCase",
+    ),
+}
 
 
 def _task(
@@ -15,6 +69,9 @@ def _task(
     output_kinds: set[EntityKind],
     *,
     template: str | None = None,
+    completion_condition: CompletionCondition | None = None,
+    allowed_predicates: Iterable[RelationPredicate] | None = None,
+    max_operations: int = 32,
 ) -> TaskSpec:
     kinds = frozenset(input_kinds)
     routes = [FailureRoute("task_output_invalid", phase, FailureAction.RETRY, task_id)]
@@ -29,7 +86,15 @@ def _task(
         routes.extend((
             FailureRoute("missing_verification", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
             FailureRoute("broken_requirement_verification_trace", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
+            FailureRoute("missing_validation", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
+            FailureRoute("broken_requirement_validation_trace", Phase.ASSURANCE, FailureAction.REPAIR, task_id),
         ))
+    predicates = (
+        _TASK_ALLOWED_PREDICATES[task_id]
+        if allowed_predicates is None
+        else frozenset(allowed_predicates)
+    )
+    completion = completion_condition or CompletionCondition(frozenset(output_kinds), 0)
     return TaskSpec(
         task_id,
         phase,
@@ -41,36 +106,87 @@ def _task(
         validators=("schema", "identity", "reference", "evidence", "semantic", "patch_policy"),
         max_attempts=2,
         failure_routes=tuple(routes),
-        completion_condition=CompletionCondition(frozenset(output_kinds), 0),
-        patch_policy=PatchPolicy.for_task(input_kinds, output_kinds),
+        completion_condition=completion,
+        patch_policy=PatchPolicy(
+            writable_kinds=frozenset(output_kinds),
+            writable_fields=_TASK_WRITABLE_FIELDS,
+            allowed_predicates=predicates,
+            allowed_entity_scope="context_and_outputs",
+            max_operations=max_operations,
+        ),
+        preconditions=(
+            "context is revision-bound and may contain only declared input kinds",
+            "candidate output is generated against the current graph revision",
+        ),
+        postconditions=(
+            "writes only declared output kinds and task-allowlisted predicates",
+            "new generated entities remain CANDIDATE until verifier promotion",
+            f"completion={completion.required_output_kinds or 'no required output kind'}",
+        ),
+        examples=_TASK_EXAMPLES.get(task_id, ()),
     )
 
 
 def task_catalog() -> tuple[TaskSpec, ...]:
     return (
-        _task("system_definition", Phase.OPERATIONAL, {EntityKind.SYSTEM}, {EntityKind.SYSTEM}),
-        _task("stakeholder_analysis", Phase.OPERATIONAL, {EntityKind.SYSTEM, EntityKind.STAKEHOLDER}, {EntityKind.STAKEHOLDER, EntityKind.CONCERN}),
-        _task("stakeholder_requirements", Phase.OPERATIONAL, {EntityKind.STAKEHOLDER, EntityKind.CONCERN, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
+        _task(
+            "system_definition",
+            Phase.OPERATIONAL,
+            {EntityKind.SYSTEM},
+            {EntityKind.SYSTEM},
+            completion_condition=CompletionCondition(frozenset({EntityKind.SYSTEM}), 1),
+            allowed_predicates=frozenset(),
+        ),
+        _task(
+            "stakeholder_analysis",
+            Phase.OPERATIONAL,
+            {EntityKind.SYSTEM, EntityKind.STAKEHOLDER},
+            {EntityKind.STAKEHOLDER, EntityKind.CONCERN},
+            allowed_predicates={RelationPredicate.HAS_CONCERN},
+        ),
+        _task(
+            "stakeholder_requirements",
+            Phase.OPERATIONAL,
+            {EntityKind.STAKEHOLDER, EntityKind.CONCERN, EntityKind.REQUIREMENT},
+            {EntityKind.REQUIREMENT},
+            allowed_predicates={RelationPredicate.DERIVED_FROM},
+        ),
         _task("lifecycle_analysis", Phase.OPERATIONAL, {EntityKind.SYSTEM, EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE}, {EntityKind.LIFECYCLE_STAGE, EntityKind.LIFECYCLE_TRANSITION}),
-        _task("scenario_exploration", Phase.OPERATIONAL, {EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE, EntityKind.SCENARIO_HYPOTHESIS}, {EntityKind.SCENARIO_HYPOTHESIS}),
-        _task("use_case_analysis", Phase.OPERATIONAL, {EntityKind.SCENARIO_HYPOTHESIS, EntityKind.STAKEHOLDER, EntityKind.USE_CASE}, {EntityKind.USE_CASE}),
-        _task("operational_scenario", Phase.OPERATIONAL, {EntityKind.USE_CASE, EntityKind.STAKEHOLDER, EntityKind.OPERATIONAL_SCENARIO}, {EntityKind.OPERATIONAL_SCENARIO}),
-        _task("activity_analysis", Phase.OPERATIONAL, {EntityKind.OPERATIONAL_SCENARIO, EntityKind.ACTIVITY, EntityKind.REQUIREMENT}, {EntityKind.ACTIVITY}),
-        _task("system_requirement_derivation", Phase.OPERATIONAL, {EntityKind.ACTIVITY, EntityKind.OPERATIONAL_SCENARIO, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
+        _task(
+            "scenario_exploration",
+            Phase.OPERATIONAL,
+            {EntityKind.STAKEHOLDER, EntityKind.LIFECYCLE_STAGE, EntityKind.SCENARIO_HYPOTHESIS},
+            {EntityKind.SCENARIO_HYPOTHESIS},
+            allowed_predicates={RelationPredicate.DERIVED_FROM},
+        ),
+        _task("use_case_analysis", Phase.OPERATIONAL, {EntityKind.SCENARIO_HYPOTHESIS, EntityKind.STAKEHOLDER, EntityKind.USE_CASE, EntityKind.REQUIREMENT}, {EntityKind.USE_CASE}),
+        _task(
+            "operational_scenario",
+            Phase.OPERATIONAL,
+            {EntityKind.USE_CASE, EntityKind.STAKEHOLDER, EntityKind.OPERATIONAL_SCENARIO},
+            {EntityKind.OPERATIONAL_SCENARIO},
+            allowed_predicates={
+                RelationPredicate.DERIVED_FROM,
+                RelationPredicate.PARTICIPATES_IN,
+                RelationPredicate.OCCURS_IN,
+            },
+        ),
+        _task("activity_analysis", Phase.OPERATIONAL, {EntityKind.OPERATIONAL_SCENARIO, EntityKind.ACTIVITY, EntityKind.USE_CASE, EntityKind.REQUIREMENT, EntityKind.LIFECYCLE_STAGE}, {EntityKind.ACTIVITY}),
+        _task("system_requirement_derivation", Phase.OPERATIONAL, {EntityKind.ACTIVITY, EntityKind.OPERATIONAL_SCENARIO, EntityKind.USE_CASE, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
         _task("function_identification", Phase.FUNCTIONAL, {EntityKind.REQUIREMENT, EntityKind.USE_CASE, EntityKind.ACTIVITY}, {EntityKind.FUNCTION}),
         _task("functional_decomposition", Phase.FUNCTIONAL, {EntityKind.FUNCTION, EntityKind.REQUIREMENT}, {EntityKind.FUNCTION}),
         _task("functional_interaction", Phase.FUNCTIONAL, {EntityKind.FUNCTION, EntityKind.FUNCTIONAL_FLOW}, {EntityKind.FUNCTIONAL_FLOW}),
         _task("functional_scenario", Phase.FUNCTIONAL, {EntityKind.FUNCTION, EntityKind.FUNCTIONAL_SCENARIO}, {EntityKind.FUNCTIONAL_SCENARIO}),
-        _task("functional_requirement", Phase.FUNCTIONAL, {EntityKind.FUNCTION, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
+        _task("functional_requirement", Phase.FUNCTIONAL, {EntityKind.FUNCTION, EntityKind.ACTIVITY, EntityKind.USE_CASE, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
         _task("logical_analysis", Phase.LOGICAL_PHYSICAL, {EntityKind.FUNCTION, EntityKind.FUNCTIONAL_FLOW, EntityKind.REQUIREMENT}, {EntityKind.LOGICAL_COMPONENT}),
-        _task("physical_candidates", Phase.LOGICAL_PHYSICAL, {EntityKind.LOGICAL_COMPONENT, EntityKind.REQUIREMENT, EntityKind.EVIDENCE}, {EntityKind.PHYSICAL_BLOCK}),
+        _task("physical_candidates", Phase.LOGICAL_PHYSICAL, {EntityKind.FUNCTION, EntityKind.LOGICAL_COMPONENT, EntityKind.REQUIREMENT, EntityKind.EVIDENCE}, {EntityKind.PHYSICAL_BLOCK}),
         _task("allocation_tradeoff", Phase.LOGICAL_PHYSICAL, {EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK}, {EntityKind.PHYSICAL_BLOCK}),
-        _task("technical_requirement", Phase.LOGICAL_PHYSICAL, {EntityKind.PHYSICAL_BLOCK, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT}),
+        _task("technical_requirement", Phase.LOGICAL_PHYSICAL, {EntityKind.FUNCTION, EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK, EntityKind.ACTIVITY, EntityKind.USE_CASE, EntityKind.REQUIREMENT}, {EntityKind.REQUIREMENT, EntityKind.PHYSICAL_BLOCK}),
         _task("interface_sequence_state", Phase.ASSURANCE, {EntityKind.FUNCTION, EntityKind.LOGICAL_COMPONENT, EntityKind.INTERFACE, EntityKind.STATE}, {EntityKind.INTERFACE, EntityKind.STATE}),
         _task("fmea_stpa_hazard", Phase.ASSURANCE, {EntityKind.HAZARD, EntityKind.FAILURE_MODE, EntityKind.REQUIREMENT}, {EntityKind.HAZARD, EntityKind.FAILURE_MODE}),
+        _task("reverse_feasibility", Phase.ASSURANCE, {EntityKind.FUNCTION, EntityKind.ACTIVITY, EntityKind.USE_CASE, EntityKind.REQUIREMENT, EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK, EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}, {EntityKind.REQUIREMENT, EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}),
         _task("verification_validation", Phase.ASSURANCE, {EntityKind.REQUIREMENT, EntityKind.OPERATIONAL_SCENARIO, EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}, {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}),
-        _task("reverse_feasibility", Phase.ASSURANCE, {EntityKind.REQUIREMENT, EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK}, {EntityKind.REQUIREMENT}),
-        _task("global_cross_analysis", Phase.ASSURANCE, {EntityKind.REQUIREMENT, EntityKind.VERIFICATION_CASE, EntityKind.HAZARD}, {EntityKind.VERIFICATION_CASE}),
+        _task("global_cross_analysis", Phase.ASSURANCE, {EntityKind.REQUIREMENT, EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE, EntityKind.HAZARD}, {EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE}),
     )
 
 
@@ -111,105 +227,319 @@ def task_spec_hash(task: TaskSpec) -> str:
             "allowed_entity_scope": sorted(policy.allowed_entity_scope) if isinstance(policy.allowed_entity_scope, frozenset) else policy.allowed_entity_scope,
             "max_operations": policy.max_operations,
         },
+        "preconditions": task.preconditions,
+        "postconditions": task.postconditions,
+        "examples": task.examples,
     })
 
 
 def output_contract(task: TaskSpec) -> dict[str, object]:
-    """Return the single bounded JSON envelope accepted from a task runtime.
+    """Return the semantic TaskProposal schema accepted from a task runtime."""
 
-    The runtime intentionally accepts operations instead of a free-form
-    analysis dictionary.  This keeps the LLM useful for proposal generation
-    while leaving identity, relation typing, lock checks, and CAS semantics in
-    the domain/application layers.
-    """
+    payload_schemas = _payload_schemas(
+        strict_functional=task.id == "vertical.functional",
+        strict_logical=task.id == "vertical.logical",
+        strict_physical=task.id == "vertical.physical",
+    )
+    schema = proposal_schema(
+        tuple(sorted(task.output_kinds, key=lambda kind: kind.value)),
+        task.output_schema_id,
+        payload_schemas,
+        task.patch_policy,
+    )
+    if task.id == "system_definition":
+        schema["properties"]["updates"]["items"]["properties"]["field_patch"]["properties"]["payload"] = dict(
+            payload_schemas[EntityKind.SYSTEM.value]
+        )
+    schema["validators"] = list(task.validators)
+    schema["max_attempts"] = task.max_attempts
+    schema["preconditions"] = list(task.preconditions)
+    schema["postconditions"] = list(task.postconditions)
+    schema["examples"] = list(task.examples)
+    return schema
 
-    kind_values = [kind.value for kind in task.output_kinds]
-    payload_schemas = {
+
+def _payload_schemas(
+    *,
+    strict_functional: bool = False,
+    strict_logical: bool = False,
+    strict_physical: bool = False,
+) -> dict[str, dict[str, object]]:
+    schemas = {
+        EntityKind.SYSTEM.value: {
+            "type": "object", "additionalProperties": False,
+            "required": [
+                "mission", "system_boundary", "objectives",
+                "environment_assumptions", "exclusions", "open_questions",
+            ],
+            "properties": {
+                "mission": {"type": "string", "minLength": 1},
+                "system_boundary": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["inside", "outside"],
+                    "properties": {
+                        "inside": {"type": "array", "items": {"type": "string"}},
+                        "outside": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "objectives": {"type": "array", "items": {"type": "string"}},
+                "environment_assumptions": {"type": "array", "items": {"type": "string"}},
+                "exclusions": {"type": "array", "items": {"type": "string"}},
+                "open_questions": {"type": "array", "items": {"type": "string"}},
+            },
+        },
         EntityKind.REQUIREMENT.value: {
             "type": "object", "additionalProperties": False,
             "properties": {
+                "statement": {"type": "string"},
                 "level": {"enum": ["stakeholder", "system", "functional", "technical"]},
                 "type": {"enum": ["functional", "performance", "interface", "safety", "constraint"]},
                 "obligation": {"type": "string", "minLength": 1},
                 "verification_method": {"type": "string", "minLength": 1},
                 "rationale": {"type": "string"}, "source": {"type": "string"},
+                "requires_human_review": {"type": "boolean"},
+                "constraints": {"type": "object"},
+                "constraint_provenance": {"type": "array"},
+                "stakeholder_ids": {"type": "array", "items": {"type": "string"}},
+                "derived_by": {"type": "string"},
+                "functional_behavior_ids": {"type": "array", "items": {"type": "string"}},
+                "functional_requirement_status": {"type": "string"},
+                "source_requirement_ids": {"type": "array", "items": {"type": "string"}},
+                "source_physical_ids": {"type": "array", "items": {"type": "string"}},
+                "constraint_fields": {"type": "array", "items": {"type": "string"}},
+                "open_questions": {"type": "array", "items": {"type": "string"}},
+                "feasibility_review": {"type": "object"},
+            },
+        },
+        EntityKind.CONCERN.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "topic": {"type": "string", "minLength": 1},
+                "description": {"type": "string"},
+                "type": {"type": "string"},
+                "risk": {"type": "string"},
+                "goal": {"type": "string"},
+                "constraint": {"type": "string"},
+                "rationale": {"type": "string"},
+                "stakeholder_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        EntityKind.STATE.value: {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "values": {"type": "array", "items": {"type": "string"}},
+                "transitions": {"type": "array", "items": {"type": "string"}},
+                "owner_id": {"type": "string"},
             },
         },
         EntityKind.OPERATIONAL_SCENARIO.value: {
             "type": "object", "additionalProperties": False,
             "properties": {
-                "actor_ids": {"type": "array", "items": {"type": "string"}},
+                "description": {"type": "string"}, "context": {"type": "string"}, "actor_ids": {"type": "array", "items": {"type": "string"}},
                 "steps": {"type": "array"}, "exchanges": {"type": "array"},
                 "internal_component_ids": {"type": "array", "items": {"type": "string"}},
             },
         },
-        EntityKind.FUNCTIONAL_SCENARIO.value: {
-            "type": "object", "additionalProperties": False,
-            "properties": {"function_ids": {"type": "array", "items": {"type": "string"}}, "steps": {"type": "array"}},
-        },
-        EntityKind.VERIFICATION_CASE.value: {
+        EntityKind.LOGICAL_COMPONENT.value: _logical_payload_schema(),
+        EntityKind.VERIFICATION_CASE.value: _vv_payload_schema(include_cross_analysis=True),
+        EntityKind.VALIDATION_CASE.value: _vv_payload_schema(),
+        EntityKind.HAZARD.value: {
             "type": "object", "additionalProperties": False,
             "properties": {
-                "method": {"type": "string", "minLength": 1},
-                "pass_criteria": {"type": "string", "minLength": 1},
+                "description": {"type": "string", "minLength": 1},
                 "requirement_ids": {"type": "array", "items": {"type": "string"}},
-                "scenario_ids": {"type": "array", "items": {"type": "string"}},
+                "activity_ids": {"type": "array", "items": {"type": "string"}},
+                "branches": {"type": "array", "items": {"type": "string"}},
             },
         },
-        EntityKind.PHYSICAL_BLOCK.value: {
+        EntityKind.FAILURE_MODE.value: {
             "type": "object", "additionalProperties": False,
             "properties": {
-                "candidate_type": {"type": "string"}, "vendor": {"type": "string"},
-                "part_number": {"type": "string"}, "constraints": {"type": "array"},
-                "rationale": {"type": "string"},
+                "effect": {"type": "string", "minLength": 1},
+                "cause": {"type": "string", "minLength": 1},
+                "requirement_ids": {"type": "array", "items": {"type": "string"}},
+                "activity_ids": {"type": "array", "items": {"type": "string"}},
             },
         },
+        EntityKind.PHYSICAL_BLOCK.value: _physical_payload_schema(),
     }
-    operation = {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["op"],
+    if strict_functional:
+        schemas.update({
+            EntityKind.FUNCTION.value: {
+                "type": "object",
+                "required": ["decomposition"],
+                "properties": {
+                    "decomposition": {"type": ["string", "array"]},
+                },
+            },
+            EntityKind.FUNCTIONAL_FLOW.value: {
+                "type": "object",
+                "required": ["source_function_ids", "target_function_ids"],
+                "properties": {
+                    "source_function_ids": {
+                        "type": "array", "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                    "target_function_ids": {
+                        "type": "array", "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                },
+            },
+            EntityKind.FUNCTIONAL_SCENARIO.value: {
+                "type": "object",
+                "required": ["function_ids"],
+                "properties": {
+                    "function_ids": {
+                        "type": "array", "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                    "steps": {"type": "array"},
+                },
+            },
+        })
+    if strict_logical:
+        schemas[EntityKind.LOGICAL_COMPONENT.value]["required"] = [
+            "responsibility", "architecture_rationale"
+        ]
+        schemas[EntityKind.STATE.value]["required"] = ["owner_id"]
+    if strict_physical:
+        schemas[EntityKind.PHYSICAL_BLOCK.value] = {
+            **schemas[EntityKind.PHYSICAL_BLOCK.value],
+            "required": ["candidate_type", "selection_rationale"],
+        }
+    return schemas
+
+
+def _logical_payload_schema():
+    evidence_item = _architecture_evidence_item_schema()
+    return {
+        "type": "object", "additionalProperties": False,
         "properties": {
-            "op": {"enum": ["ADD", "UPDATE", "RELATE", "DEPRECATE"]},
-            "kind": {"enum": kind_values},
-            "name": {"type": "string", "minLength": 1},
-            "entity_id": {"type": "string"},
-            "source_id": {"type": "string"},
-            "target_id": {"type": "string"},
-            "predicate": {"type": "string"},
-            "payload": {"type": "object"},
-            "field_patch": {"type": "object"},
-            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-            "source_ids": {"type": "array", "items": {"type": "string"}},
-            "lifecycle_ids": {"type": "array", "items": {"type": "string"}},
-            "evidence_ids": {"type": "array", "items": {"type": "string"}},
+            "responsibility": {"type": "string"},
+            "function_id": {"type": "string"},
+            "allocation_strategy": {"type": "string"},
+            "partition_basis": {"type": "string"},
+            "dependencies": {"type": "array", "items": {"type": "string"}},
+            "dependency_evidence": {"type": "array", "items": {"type": "string"}},
+            "functional_flow_ids": {"type": "array", "items": {"type": "string"}},
+            "cross_component_flow_ids": {"type": "array", "items": {"type": "string"}},
+            "shared_state": {"type": "array", "items": {"type": "string"}},
+            "shared_state_ids": {"type": "array", "items": {"type": "string"}},
+            "timing_constraints": {"type": "array", "items": evidence_item},
+            "safety_isolation": {"type": "array", "items": evidence_item},
+            "safety_constraints": {"type": "array", "items": evidence_item},
+            "source_context_ids": {"type": "array", "items": {"type": "string"}},
+            "cohesion": {"type": ["string", "number"]},
+            "coupling": {"type": ["string", "number"]},
+            "interfaces": {"type": "array"},
+            "alternative_partitions": {"type": "array", "items": {"type": "string"}},
+            "architecture_rationale": {"type": "string"},
+            "architecture_variant": {"type": "string"},
+            "architecture_decision": {"type": "object"},
+            "architecture_reasoning": {"type": "object"},
+            "decision_records": {"type": "array"},
+            "assumptions": {"type": "array", "items": {"type": "string"}},
+            "open_questions": {"type": "array", "items": {"type": "string"}},
+            "blocked_by_locked_entity": {"type": "boolean"},
         },
     }
-    operation["allOf"] = [
-        {
-            "if": {"required": ["op", "kind"], "properties": {"op": {"const": "ADD"}, "kind": {"const": kind}}},
-            "then": {"properties": {"payload": schema}},
-        }
-        for kind, schema in payload_schemas.items()
-        if kind in kind_values
-    ]
+
+
+def _architecture_evidence_item_schema():
+    return {
+        "oneOf": [
+            {"type": "string"},
+            {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "function_ids": {"type": "array", "items": {"type": "string"}},
+                    "members": {"type": "array", "items": {"type": "string"}},
+                    "must_separate": {"type": "boolean"},
+                    "reason": {"type": "string"},
+                    "boundary": {"type": "string"},
+                },
+            },
+        ],
+    }
+
+
+def _vv_payload_schema(*, include_cross_analysis: bool = False):
+    properties = {
+        "method": {"type": "string", "minLength": 1},
+        "precondition": {"type": "string", "minLength": 1},
+        "test_condition": {"type": "string", "minLength": 1},
+        "input": {"type": "string", "minLength": 1},
+        "stimulus": {"type": "string", "minLength": 1},
+        "procedure": {"type": "string", "minLength": 1},
+        "expected_result": {"type": "string", "minLength": 1},
+        "pass_criteria": {"type": "string", "minLength": 1},
+        "requirement_ids": {"type": "array", "items": {"type": "string"}},
+        "scenario_ids": {"type": "array", "items": {"type": "string"}},
+        "activity_ids": {"type": "array", "items": {"type": "string"}},
+        "covered_branches": {"type": "array", "items": {"type": "string"}},
+        "evidence_ids": {"type": "array", "items": {"type": "string"}},
+        "execution_evidence_ids": {"type": "array", "items": {"type": "string"}},
+        "verification_objective": {"type": "string"},
+        "function_ids": {"type": "array", "items": {"type": "string"}},
+        "logical_component_ids": {"type": "array", "items": {"type": "string"}},
+        "physical_ids": {"type": "array", "items": {"type": "string"}},
+        "constraint_fields": {"type": "array", "items": {"type": "string"}},
+        "evidence_required": {"type": "boolean"},
+        "open_questions": {"type": "array", "items": {"type": "string"}},
+    }
+    if include_cross_analysis:
+        properties.update({
+            "cross_analysis_status": {"type": "string"},
+            "traceability_checked": {"type": "boolean"},
+        })
     return {
         "type": "object",
-        "schema_id": task.output_schema_id,
-        "output_kinds": kind_values,
-        "validators": list(task.validators),
-        "max_attempts": task.max_attempts,
         "additionalProperties": False,
-        "required": ["operations"],
+        "required": list(VV_PLAN_FIELDS),
+        "properties": properties,
+    }
+
+
+def _physical_payload_schema():
+    return {
+        "type": "object", "additionalProperties": False,
         "properties": {
-            "operations": {"type": "array", "items": operation, "maxItems": 32},
-            "reason": {"type": "string", "maxLength": 300},
-        },
-        "$defs": {"payload_schemas": payload_schemas},
-        "x-payload-schemas": payload_schemas,
-        "patch_policy": {
-            "writable_kinds": [kind.value for kind in task.patch_policy.writable_kinds],
-            "writable_fields": sorted(task.patch_policy.writable_fields),
-            "allowed_predicates": [item.value for item in task.patch_policy.allowed_predicates],
+            "candidate_type": {"type": "string"}, "solution_class": {"type": "string"},
+            "candidate_variant": {"type": "string"}, "vendor": {"type": "string"},
+            "part_number": {"type": "string"}, "constraints": {"type": ["array", "object"]},
+            "constraint_provenance": {"type": "array"},
+            "logical_id": {"type": "string"}, "measurement_status": {"type": "string"},
+            "technical_requirement_status": {"type": "string"},
+            "trade_study": {"type": "object"},
+            "source_logical_ids": {"type": "array", "items": {"type": "string"}},
+            "source_function_ids": {"type": "array", "items": {"type": "string"}},
+            "source_requirement_ids": {"type": "array", "items": {"type": "string"}},
+            "propagated_constraints": {"type": "object"},
+            "propagated_constraint_provenance": {"type": "array"},
+            "impact_chain": {"type": "object"},
+            "resolution_options": {"type": "array"},
+            "feasibility": {"type": "object"},
+            "alternatives": {"type": "array", "items": {"type": "string"}},
+            "selection_rationale": {"type": "string"},
+            "rationale": {"type": "string"},
+            "architecture_decision": {"type": "object"},
+            "feasibility_reasoning": {"type": "object"},
+            "system_budgets": {"type": "array"},
+            "open_questions": {"type": "array", "items": {"type": "string"}},
+            "mass_kg": {"type": ["number", "string", "null"]},
+            "power_w": {"type": ["number", "string", "null"]},
+            "compute": {"type": ["number", "string", "null"]},
+            "memory_mb": {"type": ["number", "string", "null"]},
+            "latency_ms": {"type": ["number", "string", "null"]},
+            "bandwidth_mbps": {"type": ["number", "string", "null"]},
+            "cost": {"type": ["number", "string", "null"]},
+            "thermal": {"type": ["number", "string", "null"]},
+            "reliability": {"type": ["number", "string", "null"]},
+            "availability": {"type": ["number", "string", "null"]},
+            "endurance_h": {"type": ["number", "string", "null"]},
+            "swap_c": {"type": "object"},
         },
     }

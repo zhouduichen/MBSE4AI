@@ -1,0 +1,206 @@
+name: Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Configured LLM profile ID for the same-model A–E comparison"
+        required: false
+        type: string
+      run_freecad:
+        description: "Run opt-in FreeCAD acceptance on a labelled runner"
+        required: true
+        default: false
+        type: boolean
+      run_gpu:
+        description: "Run opt-in GPU acceptance on a labelled runner"
+        required: true
+        default: false
+        type: boolean
+  schedule:
+    - cron: "17 2 * * 6"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  contract:
+    name: integration contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install project and integration dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,documents,web]"
+      - name: Run offline integration contract
+        run: |
+          python -m pytest -q tests/integration/test_integration_contract.py
+          python tests/mbse_benchmark/run_benchmark.py --track robustness
+      - name: Record external prerequisite status
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LLM_PROFILE: ${{ inputs.profile || vars.AI4MBSE_LLM_PROFILE }}
+          FREECAD_ENABLED: ${{ vars.AI4MBSE_FREECAD_ENABLED }}
+          GPU_ENABLED: ${{ vars.AI4MBSE_GPU_ENABLED }}
+        run: |
+          {
+            echo "## Integration prerequisites"
+            echo "- contract: PASS (offline contract and robustness benchmark executed)"
+            echo "- event: $EVENT_NAME"
+            if [ -n "$LLM_PROFILE" ]; then echo "- remote LLM profile: configured"; else echo "- remote LLM profile: NOT CONFIGURED"; fi
+            if [ "$FREECAD_ENABLED" = "true" ]; then echo "- FreeCAD runner: enabled by repository variable"; else echo "- FreeCAD runner: NOT ENABLED"; fi
+            if [ "$GPU_ENABLED" = "true" ]; then echo "- GPU runner: enabled by repository variable"; else echo "- GPU runner: NOT ENABLED"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  readiness:
+    name: external prerequisite readiness
+    needs: contract
+    runs-on: ubuntu-latest
+    if: ${{ always() && needs.contract.result == 'success' }}
+    env:
+      EVENT_NAME: ${{ github.event_name }}
+      LLM_PROFILE: ${{ inputs.profile || vars.AI4MBSE_LLM_PROFILE }}
+      LLM_PROFILE_JSON: ${{ secrets.AI4MBSE_LLM_PROFILE_JSON }}
+      FREECAD_ENABLED: ${{ inputs.run_freecad || vars.AI4MBSE_FREECAD_ENABLED }}
+      GPU_ENABLED: ${{ inputs.run_gpu || vars.AI4MBSE_GPU_ENABLED }}
+      CAD_SSH_HOST: ${{ secrets.AI4MBSE_CAD_SSH_HOST }}
+      FREECAD_COMMAND: ${{ secrets.AI4MBSE_FREECAD_COMMAND }}
+      CAD_REMOTE_ROOT: ${{ secrets.AI4MBSE_CAD_REMOTE_ROOT }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate requested external targets
+        shell: bash
+        run: |
+          set -u
+          errors=0
+          targets=0
+
+          if [ -n "$LLM_PROFILE" ]; then
+            targets=$((targets + 1))
+            if [ -z "$LLM_PROFILE_JSON" ]; then
+              echo "::error::Remote LLM target is selected but AI4MBSE_LLM_PROFILE_JSON is missing."
+              errors=$((errors + 1))
+            fi
+          fi
+
+          if [ "$FREECAD_ENABLED" = "true" ]; then
+            targets=$((targets + 1))
+            for name in CAD_SSH_HOST FREECAD_COMMAND CAD_REMOTE_ROOT; do
+              if [ -z "${!name}" ]; then
+                echo "::error::FreeCAD target is enabled but $name is missing."
+                errors=$((errors + 1))
+              fi
+            done
+            freecad_runners=$(gh api "repos/$GITHUB_REPOSITORY/actions/runners" --jq '[.runners[] | select(.status == "online") | select([.labels[].name] | index("freecad"))] | length')
+            if [ "$freecad_runners" -lt 1 ]; then
+              echo "::error::FreeCAD target is enabled but no online runner has the freecad label."
+              errors=$((errors + 1))
+            fi
+          fi
+
+          if [ "$GPU_ENABLED" = "true" ]; then
+            targets=$((targets + 1))
+            gpu_runners=$(gh api "repos/$GITHUB_REPOSITORY/actions/runners" --jq '[.runners[] | select(.status == "online") | select([.labels[].name] | index("gpu"))] | length')
+            if [ "$gpu_runners" -lt 1 ]; then
+              echo "::error::GPU target is enabled but no online runner has the gpu label."
+              errors=$((errors + 1))
+            fi
+          fi
+
+          if [ "$EVENT_NAME" = "schedule" ] && [ "$targets" -eq 0 ]; then
+            echo "::error::Scheduled Integration run has no configured external target; refusing to pass an offline-only scheduled run."
+            errors=$((errors + 1))
+          fi
+
+          {
+            echo "## External prerequisite readiness"
+            echo "- event: $EVENT_NAME"
+            echo "- requested targets: $targets"
+            echo "- readiness errors: $errors"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$errors" -ne 0 ]; then
+            exit 1
+          fi
+
+  remote-llm:
+    name: remote LLM A–E comparison
+    needs: [contract, readiness]
+    runs-on: ubuntu-latest
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.profile != '') || (github.event_name == 'schedule' && vars.AI4MBSE_LLM_PROFILE != '') }}
+    env:
+      RFLP_CONFIG_DIR: ${{ github.workspace }}/.rflp-config
+      AI4MBSE_LLM_PROFILE: ${{ inputs.profile || vars.AI4MBSE_LLM_PROFILE }}
+      AI4MBSE_LLM_PROFILE_JSON: ${{ secrets.AI4MBSE_LLM_PROFILE_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,documents,web]"
+      - name: Install the ephemeral LLM profile
+        run: |
+          test -n "$AI4MBSE_LLM_PROFILE"
+          test -n "$AI4MBSE_LLM_PROFILE_JSON" || { echo "AI4MBSE_LLM_PROFILE_JSON is required" >&2; exit 1; }
+          python - <<'PY'
+          import json
+          import os
+          from rflp_lite.application.llm_profiles import LLMProfileService
+
+          payload = json.loads(os.environ["AI4MBSE_LLM_PROFILE_JSON"])
+          if payload.get("id") != os.environ["AI4MBSE_LLM_PROFILE"]:
+              raise SystemExit("profile id does not match AI4MBSE_LLM_PROFILE")
+          for key in ("input_cost_per_1m_tokens", "output_cost_per_1m_tokens"):
+              value = payload.get(key)
+              if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                  raise SystemExit(f"{key} must be a non-negative number; use 0 for free inference")
+          LLMProfileService().save({**payload, "active": True})
+          PY
+      - name: Run same-model A–E comparison
+        run: python tests/mbse_benchmark/run_benchmark.py --track llm --profile "$AI4MBSE_LLM_PROFILE" --compare-a-e --repeats 3 --comparison-mode natural
+
+  freecad:
+    name: FreeCAD acceptance
+    needs: [contract, readiness]
+    runs-on: [self-hosted, linux, freecad]
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_freecad) || (github.event_name == 'schedule' && vars.AI4MBSE_FREECAD_ENABLED == 'true') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,documents,web]"
+      - name: Confirm FreeCAD runner and execute acceptance
+        env:
+          AI4MBSE_CAD_BACKEND: freecad-remote
+          AI4MBSE_CAD_SSH_HOST: ${{ secrets.AI4MBSE_CAD_SSH_HOST }}
+          AI4MBSE_FREECAD_COMMAND: ${{ secrets.AI4MBSE_FREECAD_COMMAND }}
+          AI4MBSE_CAD_REMOTE_ROOT: ${{ secrets.AI4MBSE_CAD_REMOTE_ROOT }}
+        run: |
+          test -n "$AI4MBSE_CAD_SSH_HOST" || { echo "FreeCAD SSH host is not configured" >&2; exit 1; }
+          command -v ssh
+          pytest -q tests/integration/test_freecad_remote.py
+
+  gpu:
+    name: GPU acceptance
+    needs: [contract, readiness]
+    runs-on: [self-hosted, linux, gpu]
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_gpu) || (github.event_name == 'schedule' && vars.AI4MBSE_GPU_ENABLED == 'true') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm GPU runner
+        run: nvidia-smi
+      - name: Run GPU-tagged acceptance tests
+        env:
+          AI4MBSE_GPU_ACCEPTANCE: "1"
+        run: |
+          test -f tests/integration/test_gpu_acceptance.py || {
+            echo "Explicit GPU acceptance test is missing; refusing to claim a GPU acceptance PASS." >&2
+            exit 1
+          }
+          python -m pytest -q tests/integration/test_gpu_acceptance.py -m gpu

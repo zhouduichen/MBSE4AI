@@ -3,12 +3,19 @@
 ## 产品主链路
 
 ```text
-Project → Documents / Evidence → Operational → Functional
-        → Logical / Physical → Assurance → Closure
-        → Typed ModelGraph → Gate / Repair → View / Export
+自然语言 / 文档 → Requirements → Functional → Logical → Physical → V&V
+              → Typed ModelGraph → SysML v2 subset / 可编辑模型
 ```
 
-这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `0.2.0`，方法论协议是 `v2.1`。每个项目使用独立工作区和数据库，项目之间不共享模型或证据。
+项目目标通过 `ProjectContextService` 进入同一条链：写入 System 的 mission/objectives，并以候选 Requirement 保留来源和后续 RFLP/V&V 追溯；自然语言、文档区域和已有输入由 `RequirementInputService` 统一去重与合并 provenance，避免五阶段生成和 23-task pipeline 产生不同的 Requirement 图；既有 SysML 直接导入 ModelGraph，其他 managed project 则只作为 Controller 的历史检索来源。
+
+这是一个本地模块化单体：Python 3.11、SQLite、FastAPI/Jinja/HTMX，以及可选的 OpenAI-compatible Runtime。产品版本是 `MBSE4AI v0.3.1`，方法论协议是 `v0.3.1`。每个项目使用独立工作区和数据库，正式模型和证据仍按项目隔离；Controller 可对其他 managed project 的 FTS 做只读历史检索，命中内容以 Evidence 回写当前项目。五阶段生成器是产品主入口；`WorkflowRunner` 保留完整 23-task 生命周期和单阶段调试能力，作为显式兼容/研究路径。
+
+完整 pipeline 由 `WorkflowRunner` 写入当前 ModelGraph revision 后，由应用层 `PipelineReportService` 做只读结果投影。它一次读取图，复用 `build_traceability_summary`、`MethodologyEngine` 和 `SystemsEngineeringController`，输出追溯指标、架构/物理工程结论和下一步动作；`AnalysisService`、Resource API 和 Web 页面共用这份投影，`report_revision/report_snapshot_hash` 与 deliverable 绑定。报告不是新的持久化事实，不创建 Run、Patch 或 Revision，也不触发 LLM；因此 API、刷新后的工作台和 SysML/交付包继续围绕同一个 ModelGraph 真源。
+
+P→V&V 使用同一条可复核的作用域：物理候选和可行性矩阵记录 Requirement→Function→LogicalComponent→PhysicalBlock 的 canonical IDs；出现实测约束冲突时，四类 Trade Study 选项携带冲突字段、受影响 ID 和回流任务/阶段，仍由用户决定是否重新分析。V&V Case 复用这组下游 IDs，并以统一的九字段可执行计划表达 `method`、`verification_objective`、`precondition`、`test_condition`、`input`、`stimulus`、`procedure`、`expected_result` 和 `pass_criteria`；`evidence_ids`/`execution_evidence_ids` 把输入资料、计划完整度和实际执行证据分开表示，计划完整不等于测试通过。
+
+输入边界会把需求中的显式功耗、质量、时延、带宽、成本和续航比较式规范化为 canonical `constraints`，并保留 `constraint_provenance`。这些字段沿 Requirement→Function→Logical→Physical 传播；物理值未知时仍进入 `needs_measurement`，只有实测值违反 `max_`/`min_` 边界才报告 `physical_constraint_conflict`。P 层对明确的 `max_*`/`min_*` 约束创建 `level=technical` Technical Requirement，以 `derivedFrom` 回接来源需求、以 `satisfiedBy` 连接物理候选；该技术需求复用来源需求的 RFLP 路径并拥有独立 V&V，未声明约束的需求不会额外拆分。
 
 ## 分层与依赖
 
@@ -20,32 +27,93 @@ adapters → ports + domain
 ```
 
 - `domain/`：Typed Entity、Relation、ModelGraph、Patch、Requirement 和稳定 ID；不依赖外层。
-- `methodology/`：23 个 TaskSpec、版本化任务专属 Prompt、四个 Phase、Context/Retrieval、Schema/Validator/Retry、PatchPolicy、谓词感知 Gate/Coverage Matrix、局部 Repair 和 LifecycleOrchestrator。
-- `application/`：Project、Analysis、Model、Evidence、Render、Settings 服务；只接收协议和工厂。
-- `repository/`：SQLite ModelRepository v2，保存 Graph、Evidence、Run、Step、Patch、Revision、Issue、Closure 和 FTS，并提供 lease/heartbeat。
-- `runtime/`：RuntimeFactory、结构化模型端口、OpenAI-compatible 适配和离线 RuleRuntime；每次运行动态解析 active profile。
+- `methodology/`：五个产品级 `VerticalStage` 合约和阶段 Prompt；纯 ModelGraph `MethodologyEngine` 负责 Logical 分区/State 信号、Physical 约束/可行性、V&V 九字段可执行计划与证据分层、Hazard/FailureMode 覆盖和四跳 Impact Analysis；23 个细粒度 TaskSpec、四个 Phase、Context/Retrieval、Schema/Validator/Retry、PatchPolicy、谓词感知 Gate/Coverage Matrix、局部 Repair 和 LifecycleOrchestrator 驱动显式的完整 23-task 生命周期，也保留单阶段调试能力。
+- `application/`：Project、ProjectContext、ModelGeneration、Analysis、Model、Evidence、V&V Execution、Engineering Tools、Render、EngineeringDeliverable、Settings、Tool Layer 服务；`ProjectContextService` 把用户目标写为 System intent 和候选 Requirement。`ModelGenerationService` 负责五阶段纵向编排、追溯摘要和 Controller 动作执行。`VvExecutionService` 接收用户或外部工具提供的明确 V&V outcome 和证据摘录，通过 CAS 回写 Case 的执行记录，并在同一 Revision 物化稳定 ID 的 `Evidence` 节点和 Case→Evidence `describedBy` 关系；失败时生成可追溯 Issue 和 Controller 迭代入口。`EngineeringToolService` 只执行组合根登记的适配器，将工具输出统一送入 V&V；内置 `model.constraint_check` 读取 Architecture Synthesis 的物理可行性矩阵，不能伪造测量。`EngineeringDeliverableService` 从单一 ModelGraph revision 组合 Requirements、RFLP、Traceability、V&V Plan、Architecture Report、SysML 和 manifest，并可导出固定成员顺序的 ZIP。`EngineeringToolLayer` 将文档/历史/本地 FTS 证据检索封装为受限工具；工具只采集，应用服务统一持久化 Evidence，待被 Case 使用的执行证据同时进入 ModelGraph。
+- `repository/`：SQLite ModelRepository v2，保存 Graph、文档 Source Region 对应的 `document_region` Evidence、Run、Step、Patch、Revision、Issue、Closure 和 FTS，并提供 lease/heartbeat。
+- `runtime/`：RuntimeFactory、结构化模型端口、OpenAI-compatible 适配和离线 RuleRuntime；每次运行按请求级 Profile、显式 Runtime config、active profile、离线 RuleRuntime 的顺序解析实际 Runtime。远程 Profile 未提供预算时使用 8192 token 上下文窗口和 4096 token 结构化输出预算，显式配置优先。
 - `adapters/`：文档解析、OCR 和模型/文档技术实现；由 `bootstrap/container.py` 组装。
-- `interface/`：`ai4mbse` CLI、FastAPI Resource API 和五个资源页面。
-- `tests/mbse_benchmark/tracks/`：Harness deterministic、显式 LLM/bare baseline、Agent robustness 三轨基准；各轨独立记录 runtime/profile/provider/model、方法论和哈希元数据。
+- `interface/`：`ai4mbse` CLI、FastAPI Resource API 和五个资源页面；Analysis 主入口默认调用五阶段产品生成，`mode=pipeline` 保留完整 23-task 生命周期，`phase` 仍可显式单阶段调试；CLI 的 `analyze generate --profile` 和 Web Analysis 的 `profile_id` 都只为本次请求选择已保存 Profile，不改变 active profile。
+- Web 页面使用独立的展示适配层把 VerticalStage、Completion、Methodology 和 Controller 的机器字段转换为用户可读的工程阶段、质量结论和下一步动作；原始任务/实体标识、运行台账和 payload 只在高级详情或稳定 data 属性中保留，不改变 API、ModelGraph 或执行边界。
+- `tests/mbse_benchmark/`：Harness、同模型 A–E 对照和 Agent robustness 三轨基准；A–E 统一经过 ScenarioContract、ScenarioRunner、ModelGraphNormalizer 和 ExternalEvaluator，各轨独立记录 runtime/profile/provider/model、方法论和哈希元数据。
+
+Benchmark 的 Coverage 只使用 PASS/FAIL/N/A 三态；空需求范围输出 `coverage: null` 和 `status: "not_applicable"`。Closure 明确拆为 Technical Closure（Validated/Accepted/Locked）与 Release Closure（Accepted/Locked），后者是正式交付门。
 
 ## 写入与恢复规则
 
 AI 或规则 Runtime 只返回结构化 TaskExecutionResponse。WorkflowRunner 将响应转换为局部 Patch，经实体字段、RelationPredicate、端点类型、状态、锁定标记和 expected revision 校验后提交。CAS 失败返回并发修改错误；`locked` 或 `user_modified` 的实体不能被自动覆盖。
 
-每次运行拥有稳定 `run_id`、methodology/task spec/prompt version、profile/provider/model、input/context/output hash、步骤状态和诊断。恢复运行跳过已完成步骤；Gate 失败会写入 Issue，Repair 只能应用小范围本地 Patch，并重新执行最小任务和 Gate。一次未指定 phase 的运行按 Operational → Functional → Logical/Physical → Assurance → Global Gate → Closure 执行；指定 phase 仍可用于单阶段调试。
+每次运行拥有稳定 `run_id`、methodology/task spec/prompt version、profile/provider/model、input/context/output hash、步骤状态和诊断。五阶段生成和完整 23-task 生命周期都按 Requirements → Functional → Logical → Physical → V&V 顺序写入同一份 ModelGraph；阶段之间保持串行，因为下游必须消费上游已提交的 canonical ID；同一阶段内互不依赖的 Requirement batches 可按 Provider 能力并行执行，全部 Proposal 合并后才进入 Validator/CAS。`RequirementInputService` 是两条用户入口共享的输入边界：按句子/列表项建立独立 Requirement，文本与文档可以组合，重复 statement 复用 canonical entity ID，并在新来源出现时通过 CAS 合并各自的 `document_region` source/evidence id；文档 Requirement 同时引用该 evidence id，补丁提交时由仓储将已有证据记录物化为同一 revision 的 `Evidence` 节点，随后计算每条 Requirement 的 RFLP、Verification、Validation 和端到端追溯。ContextBuilder 和五阶段生成器会把 Methodology Engine 的有界 `methodology_guidance`（当前阶段 findings、关键指标、架构候选、影响实体和推荐任务）放入下一次结构化 LLM 请求，使确定性工程判断参与生成而不只是事后验收；反馈回合默认只对本地/显式开启的 Profile 启用，远程 Profile 默认一次 Proposal pass 加 typed completion bridge，以避免每个批次重复产生 Provider 延迟；Step 的最终 `attempt`、StageResult 的 `attempts` 和 `model_generation.stage_feedback`/`stage_completed` audit 共同记录实际行为。若显式反馈回合仍不完整，阶段保持 `needs_review`，不把反馈次数当作完成度；离线 RuleRuntime 仍保持单次执行。没有远程模型时，23-task 离线 Runtime 和五阶段 fallback 都从 Function 的职责、显式分区键、共享状态和稳定 ID 形成逻辑分区，为每个分区生成 Physical candidate，并复制已有结构化约束；有 canonical 工程约束时，P 层同时生成技术需求并把物理候选作为直接约束对象；未知 SWaP-C 仍标记为 `needs_measurement`。离线 23-task Runtime 的 V&V 任务可以在一个受信任的 typed Patch 中批量写入多条需求的独立验证/确认记录；32-operation 上限仍约束结构化 LLM 输出。生成的 LLM 实体只有通过语义校验才进入可编辑的 `validated` 状态；语义失败实体保留为 `candidate`，写入 `semantic_invalid` Issue，人工可通过既有 Review/Edit/Lock 入口接管。每个任务/阶段还返回有界的 decision records，记录方法论步骤、结论和依据实体。LifecycleOrchestrator 会在任一任务语义失败时阻断后续阶段和 Closure，防止任务台账完成掩盖模型未完成。
+
+五阶段完成后，`MethodologyEngine` 只读当前 ModelGraph 并输出 findings、metrics、decisions、impact paths 和 recommended tasks；生成结果与 `review.reanalysis.requested` audit 共用同一报告格式。默认链在 R/F/L/P/V&V 中分别落下 System、Stakeholder、Lifecycle stage/transition、Scenario、Concern、State、Hazard、FailureMode、VerificationCase 和 ValidationCase 等可编辑对象；V&V 计划统一检查九个可执行字段，计划字段与执行 evidence 分开统计。默认 fallback 的 Function 会保留输入需求驱动的 decomposition，Physical candidate 会保留结构化 trade study 与选择依据。`VvExecutionService` 只接受明确的 `passed`/`failed`/`blocked`/`inconclusive` 结果和调用方提供的 claim/excerpt，不把计划生成当成执行。失败结果写回 Case、Evidence 和 Issue；`MethodologyEngine` 会报告 `verification_execution_failed`/`validation_execution_failed`，其 finding 和 Issue 实体集合包含驱动 Requirement 及 R→F→L→P 下游实体，并保留 impact paths。对真实 `failed` 结果，Controller 在 Assurance 页面提出功能重构、架构替换、需求调整或修订验证条件等 Trade Study 选项；用户选定后才沿影响链调用定向重分析，不自动盲目重跑。`architecture_synthesis` 是其中的可复用纯分析结果：Logical 候选由功能流、共享状态、显式依赖和当前分配形成，逐项记录 partitions、cross-component exchanges、shared-state cuts、coupling/cohesion 和评分；Physical feasibility matrix 记录每个候选的 requirement lineage、propagated constraints、conflicts、missing measurement fields 和 status。未知的物理 SWaP-C 值会被标记为 `needs_measurement`，约束冲突会被标记为 `physical_constraint_conflict`，不会直接提升为可行。`SystemsEngineeringController` 将这些反馈收敛为有限的下一步动作：缺证据时暂停等待输入，物理冲突或未评审逻辑分区时提出 Trade Study 选项，并在用户选定后按影响实体调用定向重分析。选定的决策会进入后续 `ContextBundle`、context hash 和结构化 LLM 请求，保证它不只是审计文字而是下一轮推理的输入。它不绕过 Review/CAS，也不替用户无审查地改变工程决策。
+
+结构化 LLM 路径还通过确定性产品级夹具验收一条完整五阶段链：自然语言输入经 `StructuredModelRuntime → TaskProposal Compiler → Validator → CAS` 形成可编辑的 R→F→L→P→V&V 图。Compiler 在 Patch 创建前把 Proposal 内 `local_ref` 物化为 canonical payload ID，并对明确白名单中的 F/L/P/V&V 图引用拒绝未知 ID；自由文本、外部 source ID 和 execution evidence ID 不被启发式改写。纵向阶段的大需求工作清单在配置的 OpenAI-compatible Runtime 上按配置批大小执行；同阶段的独立批次通过并发 Provider 请求并行，全部 Proposal 合并后才进入既有 Validator/CAS 边界，远程 Profile 默认单条批次以配合 GPU 服务的并发槽位。V&V context 显式带入 Activity 与 FunctionalScenario，验收同时覆盖 SysML 子集回读、revision-bound 编辑，以及用户选择物理 Trade Study 后只重入 Physical→V&V；锁定/人工修改锚点保留不变。该夹具验证的是结构化远程模型形状，不代表真实 Provider 稳定性，也不调用本机模型。
+
+离线 `VerticalRuleRuntime` 会消费已确认的有限决策字段并把它们落实到 ModelGraph：Logical 的 `dependency_cluster_search`、`one_component_per_function`、`shared_coordinator` 和 `current_dependency_partition` 生成带 `architecture_variant`/`architecture_decision` 的新组件、接口和状态，并只弃用未锁定且未被用户修改的旧层；Physical 的候选替换选项新增 `candidate_variant=alternative`，保留约束传播和 provenance。预算或需求类选项只记录决策和待确认问题，不修改实测值或 Requirement；锁定/用户修改的实体阻塞更新时生成未测量替代项。这样 Controller 选项会形成可比较、可追溯的版本，而不是只写入审计日志。
+
+模型页提供分层 ModelGraph 工作台，按 System Definition、Functional、Logical、Physical 和 V&V 展示真实实体及其来源、证据、关系和问题计数。实体可在页面内编辑、接受、拒绝、锁定、解锁或请求重新分析；编辑保留实体稳定 ID，通过新的 CAS Revision 记录用户来源，并让锁定实体拒绝后续修改。定向重分析沿现有 trace 用 `updates` 复用并刷新未被人工修改或锁定的派生对象，保留人工锚点和必要的待评审差异。Requirements 保持独立的需求工作台，避免把需求编辑与下游分层投影混在一起。分析输入门禁以 ModelGraph 为准：任意非 `DEPRECATED` 实体即可作为已有模型种子，空图仍需要需求或可读文档；若部分模型只有 Activity、Operational Scenario 或 System 上下文，离线/规则纵向 Runtime 会在 Requirements 阶段派生带 `source_context_ids` 和 `derived_from_kind` 的可 Review Requirement，并以 `derivedFrom` 回接来源，再交给后续 F/L/P/V&V；其他缺层和追溯缺口由 warnings/review findings 表达。
+
+Review 后的显式“继续生成下游”调用 `ModelGenerationService.continue_generation`，按实体所属层路由到下一个 VerticalStage，使用独立的 `vertical_continuation` Run。接受的实体不会被重复改写；锁定实体可作为只读上下文参与 Logical、Physical 或 V&V 推理。续行结束后重新计算 Traceability、Methodology 和 Controller，V&V 是终止层。
+
+`ModelGenerationService.iterate_controller` 提供有界的 Controller 迭代：每轮读取最新图、选择最高优先级动作，并复用单动作入口执行 `reanalyze` 或成功的 `collect_evidence`。它记录每轮 revision、Traceability 和 finding 变化；`trade_study`、`collect_input`、证据等待、无进展和预算耗尽分别成为明确停止状态。该迭代不新增模型状态机，也不绕过用户决策、CAS、锁定保护或结构化 LLM 边界。Resource API 的 `/controller/iterate` 和 Analysis 工作台的自动推进按钮使用同一返回结构。
+
+`EngineeringDeliverableService` 是只读的交付投影边界。它先加载一次图和 Issue，再生成带统一 revision/hash 的结构化 artifacts；V&V Plan 从 Verification/Validation 行派生，Architecture Report 同时检查 RFLP gaps 和 V&V gaps，因此后置需求未回接时会明确报告 BLOCKED。ZIP 包固定包含 `manifest.json`、`model.json`、`evidence.json`、`model.sysml`、`requirements.json`、`rflp.json`、`rflp.svg`、`traceability.json`、`vv-plan.json`、`vv-plan.md`、`architecture-report.json` 和 `architecture-report.md`。`rflp.svg` 与 RFLP JSON 来自同一图快照，便于直接查看 R→F→L→P 关系；`evidence.json` 是项目级证据库的确定性快照，含独立 evidence hash；实体、关系或 V&V payload 引用的已有证据会在模型补丁提交时物化为同一 revision 的 `Evidence` 节点，未绑定证据仍作为外部检索上下文保留；`model.json` 同时携带证据记录，实体/关系仍通过稳定 evidence IDs 引用，导出不会隐式创建 ModelGraph Revision。`model.sysml` 使用明确的声明属性表达实体 kind、name、status、来源、修订和 payload，核心关系使用 `satisfy`/`allocate`/`verify`/`validate` 语句；稳定 ID、非核心谓词和完整追溯通过元数据保留，导入器既能读取无注释声明，也能把声明属性编辑回写为 ModelGraph。
+
+编辑后的影响分析由纯 ModelGraph `TypedImpactPlanner` 计算，并以 revision-bound `ImpactPlan` 同时服务 Resource API、Review 和定向重分析；它不会调用本地模型或改变图，只负责把 typed 关系传播结果交给后续阶段和 Controller。
 
 ## 对外资源
 
 | 资源 | 入口 |
 |---|---|
-| 项目 / 文档 | `POST /projects`、`POST /projects/{id}/documents` |
-| 分析运行 | `POST /projects/{id}/analysis`、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}` |
-| 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities` |
+| 项目 / 目标 / 文档 | `POST /projects`、`POST /projects/{id}/goal`、`GET /projects/{id}/context`、`POST /projects/{id}/documents` |
+| 分析运行 | `POST /projects/{id}/analysis/runs`（异步创建五阶段产品 Run 并返回 `202`）；`POST /projects/{id}/analysis`（默认五阶段产品生成；`mode=pipeline` 为完整 23-task 生命周期兼容入口；`mode=phase` 为单阶段调试；成功响应中的 `run.deliverable` 绑定本次 revision/snapshot 并提供交付包入口）、`GET /projects/{id}/controller`、`POST /projects/{id}/controller/execute`（Controller 动作/Trade Study）、`POST /projects/{id}/controller/iterate`（有界自动推进安全动作）、`POST /projects/{id}/entities/{entity_id}/reanalyze/execute`（定向重分析）、`POST /projects/{id}/entities/{entity_id}/continue`（Review 后从下一层继续生成）、`POST /projects/{id}/vv/{case_id}/execute`（记录真实 V&V 结果并触发失败反馈）、`GET /projects/{id}/tools`、`POST /projects/{id}/vv/{case_id}/tools/{tool_id}/execute`（运行登记工具并统一写入 V&V）、`GET /projects/{id}/analysis`、`GET /projects/{id}/runs/{run_id}`（含五阶段进度投影） |
+| 模型 | `GET /projects/{id}/model`、`GET /projects/{id}/entities`、`GET /projects/{id}/entities/{entity_id}/impact`（Typed Impact Plan） |
 | 人工编辑 | `PATCH /projects/{id}/entities/{entity_id}` |
-| 视图 / 导出 | `GET /projects/{id}/views/{view_id}`、`POST /projects/{id}/export` |
-| 证据 / Issue | `GET /projects/{id}/evidence`、`GET /projects/{id}/issues`、`POST /projects/{id}/repair` |
+| 视图 / 导出 | `GET /projects/{id}/views/{view_id}`、`POST /projects/{id}/export`、`GET /projects/{id}/deliverables`、`GET /projects/{id}/deliverables/download`、`POST /projects/{id}/sysml/import`、`POST /projects/{id}/sysml/import/upload` |
+| 证据 / Issue | `GET /projects/{id}/evidence`、`GET /projects/{id}/issues`、`POST /projects/{id}/repair`；Controller 证据动作会先调用 Tool Layer 检索 |
 | Trace / 配置 | `GET /projects/{id}/trace`、`/model-profiles`、`POST /model-profiles/test` |
 
 ## 质量门禁
 
 仓库以 Golden fixture、领域/仓储/方法论/Runtime/API/E2E 测试、`compileall`、Import Linter 和架构预算作为验收基线。旧版智能发现、Concept/MDO、Project Bridge、测试执行、仿真、旧 Job/Baseline/TaskContract 和 MLflow 不属于 Core，已从主包和主测试集移除。
+
+## 当前纵向推理增强
+
+五阶段生成现在逐项计算其内部 23-task 完成检查，并把结果同时返回给工作台、写入阶段审计摘要、反馈到下一次 `methodology_guidance`。ContextBuilder 针对 Functional、Logical、Physical 和 V&V 以完整 ModelGraph 为源，按当前 context 预算只投影可见的逐需求 `requirement_worklist`，每项携带已有 canonical 目标、当前 RFLP/V&V 路径和确定性缺口，同时列出 `omitted_requirement_ids`；StructuredModelRuntime 优先复用这些 ID，只补当前阶段缺口，并显式保留有界投影的 `truncated` 标记。大输入阶段会在 wire boundary 按当前批次投影 Requirement、当前 typed targets、System 和一跳关系邻居，避免每个并发请求携带整张图并触发 Provider context window；来自 Proposal 的未知图引用会被隔离为缺失覆盖，不能污染 canonical ModelGraph。Logical 阶段读取功能依赖和功能流端点，支持有证据的传递聚类；没有明确边界证据的独立需求仍保持独立组件，同时在组件载荷中记录 flow、cross-component、内聚/耦合和备选分区证据。Physical 和 V&V 阶段对约束传播、可行性权衡和交叉分析字段执行同一套确定性完成检查；缺口会进入 `needs_review`，而不是伪报完整。
+
+追溯闭环另有共享的 `requirement_trace_scope` 规则：它沿需求派生链解析
+Function→LogicalComponent→PhysicalBlock，并合并技术需求的直接物理分配；
+`vv_scope_matches` 将 Verification/Validation payload 中的作用域与图关系逐项
+比较。作用域不一致时，`global_cross_analysis` 不通过，Methodology Engine 记录
+`vv_scope_mismatch` 及其受影响的 RFLP/V&V 实体，Controller 复用既有验证与确认
+重分析入口。这个检查不改变用户输入或执行证据，只避免陈旧计划被统计为闭环。
+
+产品投影统一由 `resolve_requirement_trace` 提供逐需求的 ready-only
+Requirement→Function→Logical→Physical→Verification/Validation 结果：只有
+`validated`、`accepted`、`locked` 目标进入语义覆盖，候选/废弃目标只保留在诊断和
+审查数据中；V&V Case 还必须通过同一份图派生作用域校验。Generation Summary、
+Traceability Matrix、Coverage Matrix、RFLP 视图、`/trace` API 和
+`traceability.json` 都消费这一解析结果，因此覆盖率、缺口、主路径和端到端完成数
+不会因投影入口不同而分叉；该解析器是纯 ModelGraph 读操作，不触发本地或远程模型。
+
+Methodology Engine 对候选状态也遵循同一完成度边界：候选 Function、Logical、
+Physical 和 V&V Case 仍会留在工作台、架构候选和约束可行性分析中，但不会进入已完成的
+功能覆盖、分配覆盖或 Verification/Validation 覆盖；候选 Physical 仍可用于发现功耗、
+续航等冲突和形成 Trade Study。这样语义失败输出既不会丢失 Review 上下文，也不会被
+统计为已经确认的工程事实。
+
+LogicalComponent.payload.architecture_reasoning 和
+PhysicalBlock.payload.feasibility_reasoning 是上述分析的持久化事实载荷：前者保存
+功能/功能流/依赖/共享状态/时序依据、候选分区及选择状态，后者保存 Requirement→Function
+→Logical→Physical 作用域、传播约束、测量缺口、明确冲突、可行性状态和回流选项。生成时
+由同一个 ModelGraph 预览计算并通过 Patch/CAS 写入；Workbench 直接展示 payload，SysML
+子集导入导出保留这些字段，避免把推理退化为只存在于审计日志中的结论。
+
+Methodology Engine v2 进一步把 Logical 的时序与安全边界变成可比较证据：多个 Function
+共享同一显式 `timing_constraints` 会形成时序协调 pair，结构化对象中的
+`function_ids`/`members` 只在端点全部解析为当前 canonical Function ID 时参与评分；显式
+`must_separate=true` 的 `safety_isolation`/`safety_constraints` 会形成隔离 pair。候选分别
+记录 `timing_cut_count`、`safety_violation_count` 和结构化违反摘要，并由当前分区的安全
+违反把 `logical_partition_needs_review` 路由到既有 Trade Study；纯自然语言安全字符串不
+会被猜测成硬约束。上述候选和指标从同一 `architecture_synthesis` 序列化结果进入
+Methodology guidance、Architecture Report、Workbench 和 SysML 往返，Physical 的
+`feasible`/`infeasible`/`needs_measurement` 契约保持不变。

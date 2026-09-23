@@ -1,0 +1,220 @@
+from pathlib import Path
+
+from rflp_lite.application.sysml_v2 import graph_to_sysml, sysml_to_graph
+from rflp_lite.bootstrap.v2 import build_v2_services
+from rflp_lite.domain.entities import EntityKind, make_entity
+from rflp_lite.domain.errors import ContractViolation
+from rflp_lite.domain.model import ModelGraph, Relation
+from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.methodology.architecture_reasoning import physical_reasoning_payload
+from rflp_lite.methodology.architecture_synthesis import synthesize_architecture
+
+
+def _complete_graph(project_id: str) -> ModelGraph:
+    system = make_entity(EntityKind.SYSTEM, "校园配送系统", {"mission": "完成配送"})
+    requirement = make_entity(EntityKind.REQUIREMENT, "系统应及时配送", {"statement": "系统应及时配送", "obligation": "系统应"})
+    function = make_entity(EntityKind.FUNCTION, "规划配送任务", {"behavior": "生成配送计划"})
+    logical = make_entity(EntityKind.LOGICAL_COMPONENT, "任务规划组件", {"responsibility": "规划"})
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "计算执行单元", {"candidate_type": "执行单元"})
+    verification = make_entity(EntityKind.VERIFICATION_CASE, "验证配送时效", {"method": "test", "pass_criteria": "满足时效"})
+    validation = make_entity(EntityKind.VALIDATION_CASE, "确认配送体验", {"method": "demonstration", "pass_criteria": "用户认可"})
+    entities = (system, requirement, function, logical, physical, verification, validation)
+    relations = (
+        Relation("rel-rf", requirement.id, RelationPredicate.SATISFIED_BY, function.id),
+        Relation("rel-fl", function.id, RelationPredicate.ALLOCATED_TO, logical.id),
+        Relation("rel-lp", logical.id, RelationPredicate.ALLOCATED_TO, physical.id),
+        Relation("rel-rv", requirement.id, RelationPredicate.VERIFIED_BY, verification.id),
+        Relation("rel-rc", requirement.id, RelationPredicate.VALIDATED_BY, validation.id),
+    )
+    return ModelGraph(project_id, entities, relations, revision=3)
+
+
+def test_sysml_subset_round_trips_entities_relations_and_payload():
+    graph = _complete_graph("p1")
+
+    text = graph_to_sysml(graph)
+    restored = sysml_to_graph(text, "p1")
+
+    assert "part def" in text
+    assert "requirement def" in text
+    assert "action def" in text
+    assert "attribute kind" in text
+    assert "attribute payload_json" in text
+    assert "satisfy" in text
+    assert {item.id for item in restored.entities} == {item.id for item in graph.entities}
+    assert {item.kind for item in restored.entities} == {item.kind for item in graph.entities}
+    assert {item.id: item.payload for item in restored.entities} == {item.id: item.payload for item in graph.entities}
+    assert {(item.source_id, item.predicate, item.target_id) for item in restored.relations} == {
+        (item.source_id, item.predicate, item.target_id) for item in graph.relations
+    }
+
+
+def test_sysml_declaration_edit_is_read_back_into_modelgraph():
+    graph = _complete_graph("p1")
+    exported = graph_to_sysml(graph)
+    edited = exported.replace(
+        'attribute name = "规划配送任务";',
+        'attribute name = "任务规划组件（人工编辑）";',
+        1,
+    )
+
+    restored = sysml_to_graph(edited, "p1")
+
+    function = next(item for item in restored.entities if item.kind is EntityKind.FUNCTION)
+    assert function.meta.name == "任务规划组件（人工编辑）"
+
+
+def test_sysml_reader_accepts_semantic_declarations_without_metadata_comments():
+    text = r'''package AI4MBSE_Model {
+  requirement def req_a {
+    attribute id = "requirement-1";
+    attribute name = "系统应完成任务";
+    attribute payload_json = "{\"statement\":\"系统应完成任务\"}";
+  }
+  action def function_a {
+    attribute id = "function-1";
+    attribute name = "执行任务";
+    attribute payload_json = "{\"behavior\":\"执行\"}";
+  }
+  satisfy req_a by function_a;
+}
+'''
+
+    restored = sysml_to_graph(text, "p1")
+
+    assert {item.id for item in restored.entities} == {"requirement-1", "function-1"}
+    assert restored.entity_index["requirement-1"].payload == {"statement": "系统应完成任务"}
+    assert restored.entity_index["function-1"].kind is EntityKind.FUNCTION
+    assert len(restored.relations) == 1
+    assert restored.relations[0].predicate is RelationPredicate.SATISFIED_BY
+
+
+def test_sysml_reader_rejects_missing_relation_endpoint():
+    text = """package AI4MBSE_Model {
+  // @entity: {"id":"system-1","kind":"system","name":"系统","payload":{}}
+  part def system_1;
+  // @relation: {"id":"rel-1","source_id":"system-1","predicate":"derivedFrom","target_id":"missing","evidence_ids":[]}
+}
+"""
+
+    try:
+        sysml_to_graph(text, "p1")
+    except ContractViolation as exc:
+        assert "endpoint" in str(exc)
+    else:
+        raise AssertionError("missing relation endpoint must be rejected")
+
+
+def test_sysml_round_trip_preserves_technical_requirement_trace_metadata():
+    root = make_entity(EntityKind.REQUIREMENT, "系统功耗需求", {"statement": "功耗受限"})
+    technical = make_entity(
+        EntityKind.REQUIREMENT,
+        "执行单元功耗技术约束",
+        {
+            "level": "technical",
+            "type": "constraint",
+            "constraints": {"max_power_w": 50},
+            "source_requirement_ids": [root.id],
+            "source_physical_ids": ["physical-1"],
+        },
+    )
+    physical = make_entity(EntityKind.PHYSICAL_BLOCK, "执行单元", {"power_w": None})
+    graph = ModelGraph(
+        "p1",
+        (root, technical, physical),
+        (
+            Relation("technical-root", technical.id, RelationPredicate.DERIVED_FROM, root.id),
+            Relation("technical-physical", technical.id, RelationPredicate.SATISFIED_BY, physical.id),
+        ),
+    )
+
+    restored = sysml_to_graph(graph_to_sysml(graph), "p1")
+
+    restored_technical = restored.entity_index[technical.id]
+    assert restored_technical.payload == technical.payload
+    assert any(
+        relation.source_id == technical.id
+        and relation.predicate is RelationPredicate.DERIVED_FROM
+        and relation.target_id == root.id
+        for relation in restored.relations
+    )
+    assert any(
+        relation.source_id == technical.id
+        and relation.predicate is RelationPredicate.SATISFIED_BY
+        and relation.target_id == physical.id
+        for relation in restored.relations
+    )
+
+
+def test_sysml_round_trip_preserves_system_budget_reasoning():
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "系统功耗预算",
+        {"level": "system", "constraints": {"max_power_w": 100}},
+    )
+    first = make_entity(EntityKind.PHYSICAL_BLOCK, "采集平台", {"power_w": 80})
+    second = make_entity(EntityKind.PHYSICAL_BLOCK, "执行平台", {"power_w": 30})
+    relations = (
+        Relation("requirement-first", requirement.id, RelationPredicate.SATISFIED_BY, first.id),
+        Relation("requirement-second", requirement.id, RelationPredicate.SATISFIED_BY, second.id),
+    )
+    graph = ModelGraph("p1", (requirement, first, second), relations)
+    synthesis = synthesize_architecture(graph)
+    reasoning = physical_reasoning_payload(
+        next(row for row in synthesis.physical_rows if row.physical_id == first.id)
+    )
+    first = first.__class__(first.meta, {**first.payload, "feasibility_reasoning": reasoning})
+    graph = ModelGraph("p1", (requirement, first, second), relations)
+
+    restored = sysml_to_graph(graph_to_sysml(graph), "p1")
+
+    persisted = restored.entity_index[first.id].payload["feasibility_reasoning"]
+    assert persisted["system_budgets"][0]["physical_ids"] == sorted((first.id, second.id))
+    assert persisted["system_budgets"][0]["status"] == "infeasible"
+
+
+def test_pipeline_sysml_round_trip_review_edit_and_deliverables(tmp_path: Path):
+    services = build_v2_services(tmp_path / "workspaces")
+    services.projects.create("robot")
+    services.requirements_input("robot").ensure_text_requirements(
+        "系统功耗不超过 50 W 且续航不少于 10 h"
+    )
+    services.analysis("robot").run("robot", force_new=True)
+    graph = services.model("robot").graph("robot")
+
+    imported = sysml_to_graph(graph_to_sysml(graph), "robot")
+
+    assert {item.id: item.kind for item in imported.entities} == {
+        item.id: item.kind for item in graph.entities
+    }
+    assert {item.id: dict(item.payload) for item in imported.entities} == {
+        item.id: dict(item.payload) for item in graph.entities
+    }
+    assert {
+        (item.source_id, item.predicate, item.target_id)
+        for item in imported.relations
+    } == {
+        (item.source_id, item.predicate, item.target_id)
+        for item in graph.relations
+    }
+
+    function = next(item for item in graph.entities if item.kind is EntityKind.FUNCTION)
+    services.review("robot").edit_entity(
+        "robot",
+        function.id,
+        payload={"review_note": "人工确认功能职责"},
+    )
+    edited = services.model("robot").graph("robot").entity_index[function.id]
+    assert edited.payload["review_note"] == "人工确认功能职责"
+
+    package = services.deliverables("robot").build("robot")
+    model_entities = package["artifacts"]["model"]["content"]["entities"]
+    assert any(
+        item["kind"] == EntityKind.REQUIREMENT.value
+        and item["payload"].get("level") == "technical"
+        for item in model_entities
+    )
+    assert "技术约束" in package["artifacts"]["sysml"]["content"]
+    assert package["artifacts"]["traceability"]["content"]["metrics"]
+    assert package["artifacts"]["vv_plan"]["content"]["rows"]
+    assert package["artifacts"]["rflp"]["content"]["edges"]

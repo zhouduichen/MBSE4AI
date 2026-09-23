@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 from typing import Callable
 
+from rflp_lite.application.requirement_intake import extract_requirement_constraints
 from rflp_lite.application.workspaces import (
     WorkspaceRef,
     create_managed_workspace,
@@ -90,15 +91,17 @@ class ProjectService:
             raise ContractViolation("requirement text is required")
         repository = self.repository(project_id)
         graph = repository.load_graph(project_id)
+        payload = {
+            "statement": clean,
+            "source": "user_input",
+            "requires_human_review": True,
+            "verification_method": "review",
+        }
+        payload.update(extract_requirement_constraints(clean))
         entity = make_entity(
             EntityKind.REQUIREMENT,
             clean,
-            {
-                "statement": clean,
-                "source": "user_input",
-                "requires_human_review": True,
-                "verification_method": "review",
-            },
+            payload,
             status=EntityStatus.CANDIDATE,
             producer=Producer.USER,
             confidence=1.0,
@@ -117,12 +120,7 @@ class ProjectService:
     def has_analysis_input(self, project_id: str) -> bool:
         repository = self.repository(project_id)
         graph = repository.load_graph(project_id)
-        if any(
-            item.kind is EntityKind.REQUIREMENT
-            and item.meta.status is not EntityStatus.DEPRECATED
-            and item.meta.producer in {Producer.USER, Producer.IMPORT}
-            for item in graph.entities
-        ):
+        if graph.has_active_entities:
             return True
         checker = getattr(repository, "has_documents", None)
         return bool(checker(project_id)) if callable(checker) else False
@@ -148,6 +146,16 @@ class ProjectService:
             raise ContractViolation("uploaded document is empty")
         destination = self.path(project_id) / "inputs" / safe_name
         destination.parent.mkdir(parents=True, exist_ok=True)
+
+        if destination.suffix.casefold() == ".json":
+            try:
+                fixture = json.loads(content.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ContractViolation("JSON document cannot be read") from exc
+            if isinstance(fixture, dict) and {"system", "stakeholders"} <= set(fixture):
+                destination.write_bytes(content)
+                return self.seed_fixture(project_id, fixture, source_path=destination)
+
         destination.write_bytes(content)
         return self._save_parsed_document(project_id, safe_name, content)
 
@@ -179,6 +187,19 @@ class ProjectService:
                 for region in parsed.regions
             ),
         )
+        for region in parsed.regions:
+            repository.save_evidence(
+                project_id,
+                {
+                    "id": region.id,
+                    "source_type": "document_region",
+                    "source_id": region.artifact_id,
+                    "locator": region.locator,
+                    "claim": " / ".join(region.heading_path) or region.locator or "文档片段",
+                    "excerpt": region.text,
+                    "relevance": 1.0,
+                },
+            )
         return {
             "document_id": parsed.artifact.id,
             "name": parsed.artifact.path,
@@ -220,7 +241,7 @@ class ProjectService:
             operations.append(AddEntity(entity))
             return entity.id
 
-        system_id = add(EntityKind.SYSTEM, str(fixture.get("system", "")), {"fixture": True})
+        system_id = add(EntityKind.SYSTEM, str(fixture.get("system", "")))
         stakeholder_ids = [add(EntityKind.STAKEHOLDER, str(item), {"fixture": True}) for item in fixture.get("stakeholders", ())]
         stage_ids = [add(EntityKind.LIFECYCLE_STAGE, str(item), {"fixture": True}) for item in fixture.get("lifecycle_stages", ())]
         scenario_ids = [add(EntityKind.SCENARIO_HYPOTHESIS, str(item), {"fixture": True}) for item in fixture.get("scenarios", ())]

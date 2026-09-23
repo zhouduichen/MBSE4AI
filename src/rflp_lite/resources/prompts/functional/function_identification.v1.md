@@ -20,13 +20,13 @@ accepted requirement 应有对应 function trace，或明确说明无需功能�
 每个 function 应能追溯到 requirement/use case/activity，不能编造行为。
 
 # Relation Rules
-Requirement 到 Function 使用 satisfiedBy 等允许关系，端点必须存在。
+Requirement 到 Function 使用 `satisfiedBy`：`source_ref` 必须是上下文中已有的 requirement canonical id，`target_ref` 必须是本次 entity 的 `local_ref`。不要把 use case 或 activity 当作 `satisfiedBy` 的 source，不要使用 `supportedBy`，也不要创建 Function→Function 的 `satisfiedBy` 关系。
 
 # Forbidden Behavior
 不得直接创建 physical block 或把产品名当 function。
 
 # Output Guidance
-函数粒度适中，使用明确动作和对象，保持可分解与可分配。
+只返回 TaskProposal；本 Task 只新增 function 和 Requirement→Function 关系，`updates` 与 `deprecations` 必须为空数组。不要输出 Patch、operation、kind/value/path 更新 DSL。
 
 # Self-check Before Emitting Patch
-检查名称是否为动词+对象、是否 solution-independent、每条需求是否有 trace。
+检查名称是否为动词+对象、是否 solution-independent、每条需求是否有 trace；逐条确认关系方向是 Requirement→Function，source 不是 use case/activity，且没有 `supportedBy`。

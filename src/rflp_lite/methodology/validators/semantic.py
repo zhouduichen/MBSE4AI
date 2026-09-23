@@ -9,6 +9,7 @@ from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.errors import MethodologyValidationError
 from rflp_lite.domain.model import AddEntity, UpdateEntity
 from rflp_lite.methodology.validation import ValidationContext
+from rflp_lite.methodology.vv_contract import missing_vv_plan_fields
 
 
 _HARDWARE_WORDS = re.compile(
@@ -38,7 +39,18 @@ def validate(context: ValidationContext) -> None:
         if kind is EntityKind.FUNCTION and _HARDWARE_WORDS.search(name):
             raise MethodologyValidationError("semantic_invalid", f"function name is solution-specific: {name}")
         if kind is EntityKind.VERIFICATION_CASE and not payload.get("fallback_placeholder"):
-            if not str(payload.get("method", "")).strip() or not str(payload.get("pass_criteria", "")).strip():
-                raise MethodologyValidationError("semantic_invalid", "verification case requires method and pass_criteria")
+            missing = missing_vv_plan_fields(payload)
+            if missing:
+                raise MethodologyValidationError(
+                    "semantic_invalid",
+                    f"verification case requires executable plan fields: {', '.join(missing)}",
+                )
+        if kind is EntityKind.VALIDATION_CASE and not payload.get("fallback_placeholder"):
+            missing = missing_vv_plan_fields(payload)
+            if missing:
+                raise MethodologyValidationError(
+                    "semantic_invalid",
+                    f"validation case requires executable plan fields: {', '.join(missing)}",
+                )
         if kind in {EntityKind.HAZARD, EntityKind.FAILURE_MODE} and not payload:
             raise MethodologyValidationError("semantic_invalid", f"{kind.value} payload is empty")

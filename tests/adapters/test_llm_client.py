@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from io import BytesIO
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -51,6 +51,94 @@ def test_chat_completion_uses_openai_compatible_endpoint(monkeypatch):
     assert captured["timeout"] == 7
 
 
+def test_chat_completion_retries_one_transient_remote_network_failure(monkeypatch):
+    calls = {"count": 0}
+
+    def fake_urlopen(_call, timeout):
+        assert timeout == 7
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise URLError("vLLM is restarting")
+        return _Response()
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        llm_client.time,
+        "sleep",
+        lambda seconds: calls.setdefault("sleep", seconds),
+    )
+    content = llm_client.chat_completion(
+        {
+            "model_location": "remote",
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+            "timeout_seconds": 7,
+        },
+        [{"role": "user", "content": "ping"}],
+    )
+
+    assert content == "OK"
+    assert calls["count"] == 2
+    assert calls["sleep"] == 2.0
+
+
+def test_chat_completion_does_not_retry_http_errors(monkeypatch):
+    calls = {"count": 0}
+
+    def fake_urlopen(_call, timeout):
+        assert timeout == 300
+        calls["count"] += 1
+        raise HTTPError(
+            "https://example.test/chat/completions",
+            400,
+            "bad request",
+            {},
+            BytesIO(b'{"error":{"message":"invalid schema"}}'),
+        )
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    with pytest.raises(AdapterFailure, match="invalid schema"):
+        llm_client.chat_completion(
+            {
+                "model_location": "remote",
+                "base_url": "https://example.test/v1",
+                "model": "model",
+            },
+            [{"role": "user", "content": "json"}],
+        )
+    assert calls["count"] == 1
+
+
+def test_chat_completion_sends_schema_to_openai_compatible_ssh_endpoint(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(call, timeout):
+        captured["body"] = json.loads(call.data.decode())
+        return _Response()
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    llm_client.chat_completion(
+        {
+            "kind": "local",
+            "provider": "openai-compatible",
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "task",
+                    "strict": True,
+                    "schema": {"type": "object", "required": ["items"]},
+                },
+            },
+        },
+        [{"role": "user", "content": "json"}],
+    )
+
+    assert captured["body"]["response_format"]["type"] == "json_schema"
+    assert captured["body"]["response_format"]["json_schema"]["strict"] is True
+
+
 def test_chat_completion_sends_structured_deepseek_options(monkeypatch):
     captured = {}
 
@@ -72,6 +160,48 @@ def test_chat_completion_sends_structured_deepseek_options(monkeypatch):
 
     assert captured["body"]["response_format"] == {"type": "json_object"}
     assert captured["body"]["thinking"] == {"type": "disabled"}
+
+
+def test_chat_completion_sends_remote_reasoning_controls(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(call, timeout):
+        captured["body"] = json.loads(call.data.decode())
+        return _Response()
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    llm_client.chat_completion(
+        {
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+            "reasoning_effort": "none",
+            "think": False,
+        },
+        [{"role": "user", "content": "json"}],
+    )
+
+    assert captured["body"]["reasoning_effort"] == "none"
+    assert captured["body"]["think"] is False
+
+
+def test_chat_completion_sends_remote_chat_template_controls(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(call, timeout):
+        captured["body"] = json.loads(call.data.decode())
+        return _Response()
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    llm_client.chat_completion(
+        {
+            "base_url": "http://127.0.0.1:18000/v1",
+            "model": "qwen3.5-controller",
+            "chat_template_kwargs": {"enable_thinking": False},
+        },
+        [{"role": "user", "content": "json"}],
+    )
+
+    assert captured["body"]["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 def test_chat_completion_sends_ollama_reasoning_control(monkeypatch):
@@ -208,6 +338,38 @@ def test_native_ollama_sends_explicit_context_budget(monkeypatch):
     )
 
     assert captured["body"]["options"]["num_ctx"] == 8192
+
+
+def test_native_ollama_uses_profile_sampling_controls_and_usage(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(call, timeout):
+        captured["body"] = json.loads(call.data.decode())
+        return _Response({
+            "message": {"content": '{"items": []}'},
+            "done_reason": "stop",
+            "prompt_eval_count": 12,
+            "eval_count": 7,
+        })
+
+    monkeypatch.setattr(llm_client.request, "urlopen", fake_urlopen)
+    content = llm_client.chat_completion(
+        {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3.5:9b",
+            "context_window": 8192,
+            "temperature": 0.2,
+            "seed": 42,
+        },
+        [{"role": "user", "content": "json"}],
+    )
+
+    assert content == '{"items": []}'
+    assert captured["body"]["options"]["temperature"] == 0.2
+    assert captured["body"]["options"]["seed"] == 42
+    assert content.done_reason == "stop"
+    assert content.usage == {"prompt_eval_count": 12, "eval_count": 7}
 
 
 def test_native_ollama_uses_supplied_json_schema(monkeypatch):

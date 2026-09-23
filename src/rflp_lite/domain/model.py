@@ -6,8 +6,9 @@ from dataclasses import dataclass, replace
 from typing import Mapping
 
 from rflp_lite.domain.canonical import canonical_hash
-from rflp_lite.domain.entities import Entity, EntityStatus
-from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation
+from rflp_lite.domain.entities import Entity, EntityStatus, Producer
+from rflp_lite.domain.errors import ConcurrentModificationError, ConflictError, ContractViolation
+from rflp_lite.domain.lifecycle_policy import validate_patch_lifecycle
 from rflp_lite.domain.relations import RelationPredicate, validate_endpoint_kinds
 
 
@@ -40,6 +41,10 @@ class ModelGraph:
     @property
     def entity_index(self) -> dict[str, Entity]:
         return {item.id: item for item in self.entities}
+
+    @property
+    def has_active_entities(self) -> bool:
+        return any(item.meta.status is not EntityStatus.DEPRECATED for item in self.entities)
 
     @property
     def snapshot_hash(self) -> str:
@@ -98,6 +103,7 @@ class Patch:
     operations: tuple[PatchOperation, ...]
     reason: str
     expected_revision: int
+    authority: str = "task"
 
     @classmethod
     def create(
@@ -107,9 +113,11 @@ class Patch:
         operations: tuple[PatchOperation, ...],
         reason: str,
         expected_revision: int,
+        *,
+        authority: str = "task",
     ) -> "Patch":
-        identity = (project_id, task_id, operations, reason, expected_revision)
-        return cls(f"patch-{canonical_hash(identity)[:16]}", project_id, task_id, operations, reason, expected_revision)
+        identity = (project_id, task_id, operations, reason, expected_revision, authority)
+        return cls(f"patch-{canonical_hash(identity)[:16]}", project_id, task_id, operations, reason, expected_revision, authority)
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +137,7 @@ def apply_patch(graph: ModelGraph, patch: Patch) -> ModelGraph:
         raise ConcurrentModificationError(
             f"stale ModelGraph revision: expected {patch.expected_revision}, current {graph.revision}"
         )
+    validate_patch_lifecycle(graph, patch)
     entities = graph.entity_index
     relations = {item.id: item for item in graph.relations}
     next_revision = graph.revision + 1
@@ -148,9 +157,17 @@ def apply_patch(graph: ModelGraph, patch: Patch) -> ModelGraph:
             entity = entities.get(operation.entity_id)
             if entity is None:
                 raise ContractViolation(f"entity not found: {operation.entity_id}")
-            if entity.meta.status is EntityStatus.LOCKED or bool(entity.payload.get("user_modified")):
+            explicit_unlock = (
+                patch.authority == "user"
+                and patch.task_id == "review.unlock"
+                and str(operation.field_patch.get("status", "")) == EntityStatus.ACCEPTED.value
+            )
+            explicit_review = patch.authority == "user"
+            if entity.meta.status is EntityStatus.LOCKED and not explicit_unlock:
+                raise ConflictError(f"entity is locked: {operation.entity_id}")
+            if bool(entity.payload.get("user_modified")) and not (explicit_unlock or explicit_review):
                 raise ContractViolation(f"entity is locked: {operation.entity_id}")
-            allowed = {"name", "status", "confidence", "payload", "lifecycle_ids", "evidence_ids"}
+            allowed = {"name", "status", "confidence", "payload", "source_ids", "lifecycle_ids", "evidence_ids", "producer"}
             unknown = set(operation.field_patch) - allowed
             if unknown:
                 raise ContractViolation(f"unsupported entity patch fields: {sorted(unknown)}")
@@ -165,11 +182,21 @@ def apply_patch(graph: ModelGraph, patch: Patch) -> ModelGraph:
             if "confidence" in operation.field_patch:
                 confidence = operation.field_patch["confidence"]
                 meta = replace(meta, confidence=float(confidence) if confidence is not None else None)
+            if "producer" in operation.field_patch:
+                try:
+                    meta = replace(meta, producer=Producer(str(operation.field_patch["producer"])))
+                except ValueError as exc:
+                    raise ContractViolation("unsupported entity producer") from exc
             if "lifecycle_ids" in operation.field_patch:
                 value = operation.field_patch["lifecycle_ids"]
                 if not isinstance(value, (list, tuple)):
                     raise ContractViolation("lifecycle_ids patch must be an array")
                 meta = replace(meta, lifecycle_ids=tuple(str(item) for item in value))
+            if "source_ids" in operation.field_patch:
+                value = operation.field_patch["source_ids"]
+                if not isinstance(value, (list, tuple)):
+                    raise ContractViolation("source_ids patch must be an array")
+                meta = replace(meta, source_ids=tuple(str(item) for item in value))
             if "evidence_ids" in operation.field_patch:
                 value = operation.field_patch["evidence_ids"]
                 if not isinstance(value, (list, tuple)):
