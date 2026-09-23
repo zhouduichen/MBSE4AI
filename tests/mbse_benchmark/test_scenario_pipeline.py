@@ -48,9 +48,15 @@ class RecordingModel:
 
     def complete_json(self, request):
         self.requests.append(request)
+        payload = _payload()
+        if request.response_schema is scenario_pipeline.MODEL_GRAPH_DELTA_SCHEMA:
+            payload = {
+                "entities": payload["entities"],
+                "relations": payload["relations"],
+            }
         return GenerationResponse(
             request.lens_id,
-            _payload(),
+            payload,
             "input-hash",
             "output-hash",
             False,
