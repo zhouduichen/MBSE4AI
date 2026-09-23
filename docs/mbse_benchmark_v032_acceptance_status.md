@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
 更新时间：2026-09-23  
-审计提交：`a2bcfb3`
+审计提交：`c441072`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -22,7 +22,7 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 | 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对当前分支最新提交均成功：[run 35862281850](https://github.com/zhouduichen/MBSE4AI/actions/runs/35862281850)、[run 35862286025](https://github.com/zhouduichen/MBSE4AI/actions/runs/35862286025) |
 | 13 | main 要求 CI / quality | VERIFIED | branch protection `strict=true`、required context=`CI / quality`、required approvals=1 |
 | 14 | Integration schedule 不空跑 | CONTRACT VERIFIED; SCHEDULE PENDING | 当前提交 `209b8af` 手动运行的 `integration contract` 与 `external prerequisite readiness` 均成功，offline robustness artifact 已上传，三个外部 job 明确为 SKIPPED：[run 35861617609](https://github.com/zhouduichen/MBSE4AI/actions/runs/35861617609)；scheduled event 需在默认分支生效后再取得权威 run evidence；若 schedule 没有任何外部目标，readiness 会明确失败而不是绿灯空跑 |
-| 15 | Remote LLM/FreeCAD/GPU 真实 workflow | NOT YET PROVEN | GitHub 当前 self-hosted runners=0、Actions variables=0、secrets=0。Jiayu-intern 已验证 managed vLLM `/v1/models` 与真实 chat completion/usage 可用；新的诊断运行证明 A 的真实 one-shot 4096-token 3 repeats 均可落盘，但尚未形成有效 A–E 比较：B staged 在 4096-token 下真实调用后以 `StructuredOutputFailure: provider output was truncated` 失败（约 1162s），提高到 8192-token 的单 repeat 仍在约 2072s 后截断。期间远端 vLLM 持续返回真实 HTTP 200，故当前边界是 staged structured-output/共享 GPU 吞吐，不是 `:8000` 未监听；无 deterministic fallback。GitHub 三个外部 jobs 仍不能计为 PASS |
+| 15 | Remote LLM/FreeCAD/GPU 真实 workflow | NOT YET PROVEN | GitHub 当前 self-hosted runners=0、Actions variables=0、secrets=0。Jiayu-intern 已验证 managed vLLM `/v1/models` 与真实 chat completion/usage 可用；A 的真实 one-shot 4096-token 3 repeats 均可落盘。代码提交 `c441072` 将 B staged 每次调用改为紧凑的 entities/relations delta schema，保持最终统一 ModelGraph、同一输入和 ExternalEvaluator；复验中已观察到多个真实 HTTP 200 staged completions，随后仍被远端 scheduler 中断：`controller-handoff-hold.state=worker_handoff`、GPU lease 转为 `[0,1,2,3] allocated`，vLLM shutdown 后 `rc=137`。因此尚未形成有效 A–E 比较；没有 deterministic fallback，GitHub 三个外部 jobs 仍不能计为 PASS |
 
 ## 当前结论
 
