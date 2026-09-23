@@ -1116,6 +1116,18 @@ class OpenAICompatibleModel:
         except (TypeError, ValueError):
             self.vertical_batch_output_token_budget = 3072
         try:
+            self.vertical_singleton_output_token_budget = max(
+                256,
+                int(
+                    self._config.get(
+                        "vertical_singleton_output_tokens",
+                        2048,
+                    )
+                ),
+            )
+        except (TypeError, ValueError):
+            self.vertical_singleton_output_token_budget = 2048
+        try:
             configured_parallelism = int(
                 self._config.get(
                     "max_parallel_requests",

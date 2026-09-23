@@ -73,9 +73,18 @@ def _comparison_runtime_config(
     profile_cap = _positive_int(shared.get("max_output_tokens"))
     profile_cap = profile_cap or _positive_int(shared.get("local_max_tokens"))
     call_budget = min(requested, profile_cap) if profile_cap else requested
+    if call_budget < 256:
+        raise ValueError(
+            "A–E comparison per-call token budget must be at least 256 tokens"
+        )
     shared["benchmark_token_budget"] = call_budget
     shared["max_output_tokens"] = call_budget
     shared["local_max_tokens"] = call_budget
+    # Structured vertical batches have their own defaults. Bind both the
+    # ordinary batch and singleton fallback to the same cap so an explicit
+    # comparison budget cannot silently diverge between A/B and Harness.
+    shared["vertical_batch_output_tokens"] = call_budget
+    shared["vertical_singleton_output_tokens"] = call_budget
     return shared, call_budget
 
 

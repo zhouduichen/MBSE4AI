@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tests.mbse_benchmark.runners.benchmark_runner import (
+    _comparison_runtime_config,
     _persisted_input_audit,
     run_scenario_comparison,
 )
@@ -93,6 +94,11 @@ def test_a_to_e_comparison_requires_three_repeats() -> None:
             profile="test",
             runtime_config={"model": "test", "provider": "test"},
         )
+
+
+def test_comparison_rejects_a_vertical_budget_below_runtime_floor() -> None:
+    with pytest.raises(ValueError, match="at least 256 tokens"):
+        _comparison_runtime_config({"benchmark_token_budget": 128})
 
 
 def _fake_comparison_record(scenario: str, repeat_index: int, mode: str) -> dict[str, object]:
@@ -211,6 +217,8 @@ def test_comparison_aggregator_records_all_evidence_invariants(
     assert comparison["budget_enforced"] == expected_budget
     assert {config["max_output_tokens"] for config in observed_runtime_configs} == {3000}
     assert {config["local_max_tokens"] for config in observed_runtime_configs} == {3000}
+    assert {config["vertical_batch_output_tokens"] for config in observed_runtime_configs} == {3000}
+    assert {config["vertical_singleton_output_tokens"] for config in observed_runtime_configs} == {3000}
 
 
 def test_comparison_rejects_missing_temperature(

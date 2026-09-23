@@ -97,6 +97,7 @@ def test_openai_compatible_remote_model_uses_mixed_r_backbone_by_default():
     assert remote.vertical_physical_batch_size == 1
     assert remote.vertical_vv_batch_size == 1
     assert remote.vertical_batch_output_token_budget == 3072
+    assert remote.vertical_singleton_output_token_budget == 2048
     assert local.automatic_vertical_stage_feedback is True
     assert local.automatic_vertical_stage_completion_bridge is True
     assert local.automatic_operational_completion is False
@@ -107,7 +108,19 @@ def test_openai_compatible_remote_model_uses_mixed_r_backbone_by_default():
     assert local.supports_vv_case_splitting is False
     assert local.vertical_vv_batch_size == 2
     assert local.vertical_batch_output_token_budget == 3072
+    assert local.vertical_singleton_output_token_budget == 2048
     assert opted_in.automatic_vertical_stage_feedback is True
+
+
+def test_openai_compatible_model_accepts_explicit_vertical_budget_caps():
+    model = OpenAICompatibleModel({
+        "model": "remote",
+        "vertical_batch_output_tokens": 3000,
+        "vertical_singleton_output_tokens": 3000,
+    })
+
+    assert model.vertical_batch_output_token_budget == 3000
+    assert model.vertical_singleton_output_token_budget == 3000
 
 
 def test_openai_compatible_model_can_disable_deterministic_completion_bridge():
