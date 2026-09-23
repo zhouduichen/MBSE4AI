@@ -19,9 +19,9 @@ PR：[zhouduichen/MBSE4AI#1](https://github.com/zhouduichen/MBSE4AI/pull/1)
 | 9 | latency/cost | CONTRACT + FAIL-CLOSED | provider/wall latency 与 pricing telemetry；缺价格不伪造成本 |
 | 10 | natural 与 budget-matched | CONTRACT VERIFIED | 两种 comparison mode；A–E 先统一 effective per-call output cap，并将 lifecycle/vertical batch 与 singleton fallback 都绑定到该 cap，记录 `call_output_token_budget`；公平性比较使用共同 benchmark task-spec hash，同时保留 Harness runtime task-spec hash；natural mode 对总预算明确标记 `not_applicable`，只有 budget-matched 跨调用共享 total cap 并检查 `budget_within_cap`；缺失 temperature 或 per-call cap 时 comparison fail-closed |
 | 11 | 3–5 repeats 与统计 | CONTRACT VERIFIED | comparison 至少 3 repeats，JSON/报告记录 mean/std/CI95 与 Quality-Cost；Markdown 另有显式 Repeat statistics 表；主表的 Calls/Tokens/Latency/Cost 明确使用 repeat mean |
-| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对 `ba33aed` 均成功：[push run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35808083391)、[PR run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35808086214) |
+| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对当前提交 `7672418` 均成功：[push run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35827820824)、[PR run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35827824962) |
 | 13 | main 要求 CI / quality | VERIFIED | branch protection `strict=true`、required context=`CI / quality`、required approvals=1 |
-| 14 | Integration schedule 不空跑 | CONTRACT VERIFIED; SCHEDULE PENDING | 当前 HEAD `2dd5939` 手动运行的 `contract` 与 `external prerequisite readiness` 均成功，三个外部 job 明确为 SKIPPED：[run 35808533166](https://github.com/zhouduichen/MBSE4AI/actions/runs/35808533166)；scheduled event 需在默认分支生效后再取得权威 run evidence；若 schedule 没有任何外部目标，readiness 会明确失败而不是绿灯空跑 |
+| 14 | Integration schedule 不空跑 | CONTRACT VERIFIED; SCHEDULE PENDING | 当前提交 `7672418` 手动运行的 `contract` 与 `external prerequisite readiness` 均成功，三个外部 job 明确为 SKIPPED：[run 35827842486](https://github.com/zhouduichen/MBSE4AI/actions/runs/35827842486)；scheduled event 需在默认分支生效后再取得权威 run evidence；若 schedule 没有任何外部目标，readiness 会明确失败而不是绿灯空跑 |
 | 15 | Remote LLM/FreeCAD/GPU 真实 workflow | NOT YET PROVEN | GitHub 当前 self-hosted runners=0、Actions variables=0、secrets=0；本次手动 run 中三个外部 jobs 保持 SKIPPED，不能计为 PASS；配置目标后 readiness 会检查 secret 与在线 runner label |
 
 ## 当前结论
