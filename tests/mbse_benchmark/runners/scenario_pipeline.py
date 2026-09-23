@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from pathlib import Path
 import time
 from typing import Mapping
 
@@ -17,6 +18,7 @@ from tests.mbse_benchmark.scenarios import BenchmarkScenario, ScenarioContract
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
     EvaluationSpec,
+    assert_model_visible_payload,
     assert_model_visible_payload_tokens,
     model_visible_key_tokens,
 )
@@ -412,27 +414,53 @@ class ExternalEvaluator:
 
     evaluator_id = EXTERNAL_EVALUATOR_ID
 
-    def __init__(self, normalizer: ModelGraphNormalizer | None = None):
+    def __init__(
+        self,
+        evaluation_spec: EvaluationSpec,
+        normalizer: ModelGraphNormalizer | None = None,
+    ):
+        self._evaluation_spec = evaluation_spec
         self.normalizer = normalizer or ModelGraphNormalizer()
-
-    @staticmethod
-    def model_visible_key_tokens(
-        expectations: Mapping[str, object] | EvaluationSpec,
-    ) -> frozenset[str]:
-        """Derive a value-free request guard from evaluator-owned facts."""
-
-        evaluation_spec = (
-            expectations
-            if isinstance(expectations, EvaluationSpec)
-            else EvaluationSpec.from_expectations(expectations)
+        self._model_visible_key_tokens = model_visible_key_tokens(evaluation_spec)
+        self._request_guard_hash = canonical_hash(
+            sorted(self._model_visible_key_tokens)
         )
-        return model_visible_key_tokens(evaluation_spec)
+
+    @classmethod
+    def from_expected_dir(
+        cls,
+        expected_dir: Path,
+        *,
+        normalizer: ModelGraphNormalizer | None = None,
+    ) -> "ExternalEvaluator":
+        """Construct the sole owner of the evaluator-only expectation files."""
+
+        from tests.mbse_benchmark.cases.loader import load_evaluation_spec
+
+        return cls(load_evaluation_spec(expected_dir), normalizer=normalizer)
+
+    @property
+    def evaluation_spec_hash(self) -> str:
+        return self._evaluation_spec.evaluation_spec_hash
+
+    @property
+    def request_guard_hash(self) -> str:
+        return self._request_guard_hash
+
+    def model_visible_key_tokens(self) -> frozenset[str]:
+        """Return an opaque, value-free guard for the generation worker."""
+
+        return self._model_visible_key_tokens
+
+    def assert_model_input_visible(self, payload: object) -> None:
+        """Validate coordinator input without exposing evaluator values."""
+
+        assert_model_visible_payload(payload, self._evaluation_spec)
 
     def evaluate(
         self,
         case: Mapping[str, object] | BenchmarkInputEnvelope,
         graph: ModelGraph,
-        expectations: Mapping[str, object] | EvaluationSpec,
         *,
         execution: Mapping[str, object] | None = None,
         raw_result: Mapping[str, object] | None = None,
@@ -442,11 +470,6 @@ class ExternalEvaluator:
             case
             if isinstance(case, BenchmarkInputEnvelope)
             else BenchmarkInputEnvelope.from_case(case)
-        )
-        evaluation_spec = (
-            expectations
-            if isinstance(expectations, EvaluationSpec)
-            else EvaluationSpec.from_expectations(expectations)
         )
         observed = dict(raw_result or {})
         observed.update({
@@ -459,7 +482,7 @@ class ExternalEvaluator:
         result = validate_case(
             input_envelope.payload,
             semantic_observed,
-            evaluation_spec.payload,
+            self._evaluation_spec.payload,
             repeats=repeats,
         )
         raw_audit = observed.get("normalization_audit")
@@ -488,7 +511,7 @@ class ExternalEvaluator:
         result["governance_metrics"] = governance_metrics
         result.setdefault("details", {})["governance"] = governance_metrics
         result["input_hash"] = input_envelope.input_hash
-        result["evaluation_spec_hash"] = evaluation_spec.evaluation_spec_hash
+        result["evaluation_spec_hash"] = self.evaluation_spec_hash
         return result
 
 

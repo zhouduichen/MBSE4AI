@@ -82,7 +82,9 @@ def test_one_shot_and_staged_scenarios_call_the_same_model_without_expected_grap
 def test_bare_runner_rejects_evaluator_only_aliases_before_model_call():
     model = RecordingModel()
     case = {**CASE, "expectedGraph": {"shortcut": True}}
-    evaluator = ExternalEvaluator()
+    evaluator = ExternalEvaluator(
+        EvaluationSpec.from_expectations({"shortcut": True}),
+    )
 
     with pytest.raises(ValueError, match="evaluator-only"):
         ScenarioRunner().run(
@@ -90,9 +92,7 @@ def test_bare_runner_rejects_evaluator_only_aliases_before_model_call():
             scenario_contract(BenchmarkScenario.A_BARE_ONE_SHOT),
             model,
             project_id="p1",
-            model_visible_key_tokens=evaluator.model_visible_key_tokens(
-                EvaluationSpec.from_expectations({"shortcut": True}),
-            ),
+            model_visible_key_tokens=evaluator.model_visible_key_tokens(),
         )
 
     assert model.requests == []
@@ -199,10 +199,9 @@ def test_external_evaluator_keeps_governance_out_of_semantic_input(monkeypatch):
         (),
     )
 
-    result = ExternalEvaluator().evaluate(
+    result = ExternalEvaluator(EvaluationSpec.from_expectations({})).evaluate(
         CASE,
         graph,
-        {},
         raw_result={
             "normalization_audit": {
                 "authority_violations": ["req-1"],

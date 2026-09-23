@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from rflp_lite.domain.canonical import canonical_hash, canonical_json
-from tests.mbse_benchmark.cases.loader import load_cases, load_evaluation_spec
+from tests.mbse_benchmark.cases.loader import load_cases
 from tests.mbse_benchmark.runners.case_runner import run_case
 from tests.mbse_benchmark.runners.report_builder import (
     build_failures,
@@ -33,7 +33,6 @@ from tests.mbse_benchmark.runners.scenario_pipeline import (
 )
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
-    assert_model_visible_payload,
     numeric_projection,
     runtime_provider_id,
     summarize_repeats,
@@ -191,17 +190,19 @@ def run_benchmark(
     contract = scenario_contract(scenario)
     validate_ablation_contracts()
     normalizer = evaluator.normalizer if evaluator is not None else ModelGraphNormalizer()
-    evaluator = evaluator or ExternalEvaluator(normalizer)
+    evaluator = evaluator or ExternalEvaluator.from_expected_dir(
+        cases_dir.parent / "expected",
+        normalizer=normalizer,
+    )
     cases = load_cases(cases_dir)
-    evaluation_spec = load_evaluation_spec(cases_dir.parent / "expected")
-    model_visible_key_tokens = evaluator.model_visible_key_tokens(evaluation_spec)
-    model_visible_guard_hash = canonical_hash(sorted(model_visible_key_tokens))
+    model_visible_key_tokens = evaluator.model_visible_key_tokens()
+    model_visible_guard_hash = evaluator.request_guard_hash
     if selected_case:
         cases = tuple(case for case in cases if str(case["case_id"]) == selected_case)
         if not cases:
             raise ValueError(f"unknown case: {selected_case}")
     for case in cases:
-        assert_model_visible_payload(case, evaluation_spec)
+        evaluator.assert_model_input_visible(case)
     output_root.mkdir(parents=True, exist_ok=True)
     case_results: list[dict[str, object]] = []
     for case in cases:
@@ -230,7 +231,7 @@ def run_benchmark(
         for repeat_result in repeat_results:
             metadata = repeat_result.get("metadata")
             if isinstance(metadata, Mapping):
-                metadata["evaluation_spec_hash"] = evaluation_spec.evaluation_spec_hash
+                metadata["evaluation_spec_hash"] = evaluator.evaluation_spec_hash
                 metadata["case_id"] = case_id
                 metadata["repeat_index"] = repeat_result.get("repeat_index")
             graph = (
@@ -270,7 +271,7 @@ def run_benchmark(
                 metadata["evaluation_boundary"] = {
                     "owner": evaluator.evaluator_id,
                     "model_visible": False,
-                    "evaluation_spec_hash": evaluation_spec.evaluation_spec_hash,
+                    "evaluation_spec_hash": evaluator.evaluation_spec_hash,
                     "ground_truth_payload_transmitted": False,
                     "request_guard": "value_free_evaluator_key_tokens",
                     "request_guard_hash": model_visible_guard_hash,
@@ -278,7 +279,6 @@ def run_benchmark(
             repeat_validation = evaluator.evaluate(
                 input_envelope,
                 graph,
-                evaluation_spec,
                 raw_result=repeat_result,
             )
             repeat_result["metrics"] = dict(
@@ -294,7 +294,7 @@ def run_benchmark(
                 repeat_validation.get("governance_metrics", {})
             )
             repeat_result["input_hash"] = input_envelope.input_hash
-            repeat_result["evaluation_spec_hash"] = evaluation_spec.evaluation_spec_hash
+            repeat_result["evaluation_spec_hash"] = evaluator.evaluation_spec_hash
             metric_record = _repeat_metric_record(
                 repeat_validation,
                 telemetry=metadata.get("telemetry", {})
@@ -320,7 +320,6 @@ def run_benchmark(
         validation = evaluator.evaluate(
             input_envelope,
             graph,
-            evaluation_spec,
             raw_result=primary,
             repeats=repeat_results,
         )
@@ -368,7 +367,7 @@ def run_benchmark(
         "methodology_version": "v2.1",
         "prompt_hash": ledger_metadata["prompt_hash"],
         "task_spec_hash": ledger_metadata["task_spec_hash"],
-        "evaluation_spec_hash": evaluation_spec.evaluation_spec_hash,
+        "evaluation_spec_hash": evaluator.evaluation_spec_hash,
         "evaluator_id": evaluator.evaluator_id,
         "normalizer_id": normalizer.normalizer_id,
         "configuration": "offline RuleRuntime; isolated workspace; no external model" if track == BenchmarkTrack.HARNESS.value else "explicit LLM profile; isolated workspace; provider credentials are not written to reports",
@@ -393,7 +392,7 @@ def run_benchmark(
             "methodology_version": "v2.1",
             "prompt_hash": ledger_metadata["prompt_hash"],
             "task_spec_hash": ledger_metadata["task_spec_hash"],
-            "evaluation_spec_hash": evaluation_spec.evaluation_spec_hash,
+            "evaluation_spec_hash": evaluator.evaluation_spec_hash,
             "commit": _git_value(["rev-parse", "HEAD"]),
             "cases": [str(case["case_id"]) for case in cases],
             "repeat": max(1, repeats),
@@ -435,7 +434,9 @@ def run_scenario_comparison(
     if int(repeats) < 3:
         raise ValueError("A–E comparison requires at least three repeats")
     validate_ablation_contracts()
-    shared_evaluator = ExternalEvaluator()
+    shared_evaluator = ExternalEvaluator.from_expected_dir(
+        cases_dir.parent / "expected",
+    )
     shared_runtime_config, call_output_token_budget = _comparison_runtime_config(
         runtime_config,
     )
