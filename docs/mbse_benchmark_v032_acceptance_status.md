@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
 更新时间：2026-09-23  
-审计提交：`95da5b1`
+审计提交：`209b8af`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -19,9 +19,9 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 | 9 | latency/cost | CONTRACT + FAIL-CLOSED | provider/wall latency 与 pricing telemetry；profile 保留显式 `0` 价格，缺价格仍为 unavailable，不伪造成本 |
 | 10 | natural 与 budget-matched | CONTRACT VERIFIED | 两种 comparison mode；A–E 先统一 effective per-call output cap，并将 lifecycle/vertical batch 与 singleton fallback 都绑定到该 cap，记录 `call_output_token_budget`；公平性比较使用共同 benchmark task-spec hash，同时保留 Harness runtime task-spec hash；natural mode 对总预算明确标记 `not_applicable`，只有 budget-matched 跨调用共享 total cap 并检查 `budget_within_cap`；缺失 temperature 或 per-call cap 时 comparison fail-closed |
 | 11 | 3–5 repeats 与统计 | CONTRACT VERIFIED | comparison 至少 3 repeats，JSON/报告记录 mean/std/CI95 与 Quality-Cost；Markdown 另有显式 Repeat statistics 表；主表的 Calls/Tokens/Latency/Cost 明确使用 repeat mean |
-| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对当前分支最新提交均成功：[run 35857294338](https://github.com/zhouduichen/MBSE4AI/actions/runs/35857294338)、[run 35857301483](https://github.com/zhouduichen/MBSE4AI/actions/runs/35857301483) |
+| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对当前分支最新提交均成功：[run 35861310697](https://github.com/zhouduichen/MBSE4AI/actions/runs/35861310697)、[run 35861311129](https://github.com/zhouduichen/MBSE4AI/actions/runs/35861311129)、[run 35861317006](https://github.com/zhouduichen/MBSE4AI/actions/runs/35861317006)、[run 35861317014](https://github.com/zhouduichen/MBSE4AI/actions/runs/35861317014) |
 | 13 | main 要求 CI / quality | VERIFIED | branch protection `strict=true`、required context=`CI / quality`、required approvals=1 |
-| 14 | Integration schedule 不空跑 | CONTRACT VERIFIED; SCHEDULE PENDING | 当前提交 `a3cd2e8` 手动运行的 `contract` 与 `external prerequisite readiness` 均成功，三个外部 job 明确为 SKIPPED：[run 35829189680](https://github.com/zhouduichen/MBSE4AI/actions/runs/35829189680)；scheduled event 需在默认分支生效后再取得权威 run evidence；若 schedule 没有任何外部目标，readiness 会明确失败而不是绿灯空跑 |
+| 14 | Integration schedule 不空跑 | CONTRACT VERIFIED; SCHEDULE PENDING | 当前提交 `209b8af` 手动运行的 `integration contract` 与 `external prerequisite readiness` 均成功，offline robustness artifact 已上传，三个外部 job 明确为 SKIPPED：[run 35861617609](https://github.com/zhouduichen/MBSE4AI/actions/runs/35861617609)；scheduled event 需在默认分支生效后再取得权威 run evidence；若 schedule 没有任何外部目标，readiness 会明确失败而不是绿灯空跑 |
 | 15 | Remote LLM/FreeCAD/GPU 真实 workflow | NOT YET PROVEN | GitHub 当前 self-hosted runners=0、Actions variables=0、secrets=0。Jiayu-intern 已验证 managed vLLM `/v1/models` 与真实 chat completion/usage 可用；正式 A–E run 记录了真实 provider 调用，但没有形成有效比较：4096-token run 期间 launcher 记录 `vLLM exited rc=137; returning to GPU queue`，512-token run 中 A/B 出现真实 JSON 截断/transport failure，C fail-closed 为 `ProviderCallFailure`（32/32 provider calls failed），无 deterministic fallback。GitHub 三个外部 jobs 仍不能计为 PASS |
 
 ## 当前结论
