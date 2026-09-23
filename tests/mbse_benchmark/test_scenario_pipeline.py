@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import pytest
 
+from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
+from rflp_lite.domain.model import ModelGraph
 from rflp_lite.ports.generative_model import GenerationResponse
 from tests.mbse_benchmark.runners.experiment_contract import EvaluationSpec
 from tests.mbse_benchmark.runners.scenario_pipeline import (
+    ExternalEvaluator,
     ModelGraphNormalizer,
     ScenarioRunner,
 )
+from tests.mbse_benchmark.runners import scenario_pipeline
 from tests.mbse_benchmark.scenarios import BenchmarkScenario, scenario_contract
 
 
@@ -119,6 +123,95 @@ def test_model_graph_normalizer_removes_model_lifecycle_authority_claims():
     assert entity.meta.producer.value == "llm"
     assert normalized.audit.authority_violations == ("req-1",)
     assert normalized.audit.claimed_statuses["req-1"] == "accepted"
+
+
+def test_semantic_projection_neutralizes_active_lifecycle_statuses():
+    graph = ModelGraph(
+        "p1",
+        (
+            make_entity(
+                EntityKind.REQUIREMENT,
+                "candidate requirement",
+                {"statement": "候选需求"},
+                status=EntityStatus.CANDIDATE,
+                producer=Producer.LLM,
+            ),
+            make_entity(
+                EntityKind.REQUIREMENT,
+                "accepted requirement",
+                {"statement": "已批准需求"},
+                status=EntityStatus.ACCEPTED,
+                producer=Producer.IMPORT,
+            ),
+            make_entity(
+                EntityKind.REQUIREMENT,
+                "locked requirement",
+                {"statement": "已锁定需求"},
+                status=EntityStatus.LOCKED,
+                producer=Producer.USER,
+            ),
+            make_entity(
+                EntityKind.REQUIREMENT,
+                "deprecated requirement",
+                {"statement": "已废弃需求"},
+                status=EntityStatus.DEPRECATED,
+                producer=Producer.USER,
+            ),
+        ),
+        (),
+    )
+
+    projected = ModelGraphNormalizer.semantic_projection(graph)
+
+    assert [entity.meta.status for entity in projected.entities[:3]] == [
+        EntityStatus.VALIDATED,
+        EntityStatus.VALIDATED,
+        EntityStatus.VALIDATED,
+    ]
+    assert projected.entities[3].meta.status is EntityStatus.DEPRECATED
+    assert graph.entities[1].meta.status is EntityStatus.ACCEPTED
+    assert graph.entities[2].meta.status is EntityStatus.LOCKED
+
+
+def test_external_evaluator_keeps_governance_out_of_semantic_input(monkeypatch):
+    observed: dict[str, object] = {}
+
+    def fake_validate_case(case, raw_result, expectations, *, repeats=None):
+        del case, expectations, repeats
+        observed["graph"] = raw_result["graph"]
+        return {"metrics": {"end_to_end_traceability": 1.0}}
+
+    monkeypatch.setattr(scenario_pipeline, "validate_case", fake_validate_case)
+    graph = ModelGraph(
+        "p1",
+        (
+            make_entity(
+                EntityKind.REQUIREMENT,
+                "accepted requirement",
+                {"statement": "已批准需求"},
+                status=EntityStatus.ACCEPTED,
+                producer=Producer.USER,
+            ),
+        ),
+        (),
+    )
+
+    result = ExternalEvaluator().evaluate(
+        CASE,
+        graph,
+        {},
+        raw_result={
+            "normalization_audit": {
+                "authority_violations": ["req-1"],
+                "lifecycle_claims": ["req-1"],
+            }
+        },
+    )
+
+    semantic_graph = observed["graph"]
+    assert semantic_graph["entities"][0]["status"] == "validated"
+    assert result["semantic_metrics"] == {"end_to_end_traceability": 1.0}
+    assert result["governance_metrics"]["authority_violation_count"] == 1
 
 
 def test_metadata_contains_reproducibility_fields():

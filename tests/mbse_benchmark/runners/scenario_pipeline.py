@@ -218,8 +218,23 @@ class ModelGraphNormalizer:
 
     @staticmethod
     def semantic_projection(graph: ModelGraph) -> ModelGraph:
-        """Return a private status-neutral graph for semantic scoring only."""
+        """Return a private lifecycle-neutral graph for semantic scoring only.
 
+        Semantic validators use ``validated``/``accepted``/``locked`` as
+        their active scope.  Leaving Harness-produced Accepted or Locked
+        entities unchanged would therefore let governance progress alter a
+        semantic score, while bare model output is normalized to Candidate.
+        Collapse every active lifecycle status to Validated for the private
+        semantic view; keep the original graph for governance and closure
+        evaluation, and preserve rejected/deprecated entities as inactive.
+        """
+
+        active_statuses = {
+            EntityStatus.CANDIDATE,
+            EntityStatus.VALIDATED,
+            EntityStatus.ACCEPTED,
+            EntityStatus.LOCKED,
+        }
         entities = tuple(
             replace(
                 entity,
@@ -227,7 +242,7 @@ class ModelGraphNormalizer:
                     entity.meta,
                     status=(
                         EntityStatus.VALIDATED
-                        if entity.meta.status is EntityStatus.CANDIDATE
+                        if entity.meta.status in active_statuses
                         else entity.meta.status
                     ),
                 ),
