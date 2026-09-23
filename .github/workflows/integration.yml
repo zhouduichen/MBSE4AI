@@ -21,6 +21,7 @@ on:
     - cron: "17 2 * * 6"
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -56,9 +57,80 @@ jobs:
             if [ "$GPU_ENABLED" = "true" ]; then echo "- GPU runner: enabled by repository variable"; else echo "- GPU runner: NOT ENABLED"; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  readiness:
+    name: external prerequisite readiness
+    needs: contract
+    runs-on: ubuntu-latest
+    if: ${{ always() && needs.contract.result == 'success' }}
+    env:
+      EVENT_NAME: ${{ github.event_name }}
+      LLM_PROFILE: ${{ inputs.profile || vars.AI4MBSE_LLM_PROFILE }}
+      LLM_PROFILE_JSON: ${{ secrets.AI4MBSE_LLM_PROFILE_JSON }}
+      FREECAD_ENABLED: ${{ inputs.run_freecad || vars.AI4MBSE_FREECAD_ENABLED }}
+      GPU_ENABLED: ${{ inputs.run_gpu || vars.AI4MBSE_GPU_ENABLED }}
+      CAD_SSH_HOST: ${{ secrets.AI4MBSE_CAD_SSH_HOST }}
+      FREECAD_COMMAND: ${{ secrets.AI4MBSE_FREECAD_COMMAND }}
+      CAD_REMOTE_ROOT: ${{ secrets.AI4MBSE_CAD_REMOTE_ROOT }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate requested external targets
+        shell: bash
+        run: |
+          set -u
+          errors=0
+          targets=0
+
+          if [ -n "$LLM_PROFILE" ]; then
+            targets=$((targets + 1))
+            if [ -z "$LLM_PROFILE_JSON" ]; then
+              echo "::error::Remote LLM target is selected but AI4MBSE_LLM_PROFILE_JSON is missing."
+              errors=$((errors + 1))
+            fi
+          fi
+
+          if [ "$FREECAD_ENABLED" = "true" ]; then
+            targets=$((targets + 1))
+            for name in CAD_SSH_HOST FREECAD_COMMAND CAD_REMOTE_ROOT; do
+              if [ -z "${!name}" ]; then
+                echo "::error::FreeCAD target is enabled but $name is missing."
+                errors=$((errors + 1))
+              fi
+            done
+            freecad_runners=$(gh api "repos/$GITHUB_REPOSITORY/actions/runners" --jq '[.runners[] | select(.status == "online") | select([.labels[].name] | index("freecad"))] | length')
+            if [ "$freecad_runners" -lt 1 ]; then
+              echo "::error::FreeCAD target is enabled but no online runner has the freecad label."
+              errors=$((errors + 1))
+            fi
+          fi
+
+          if [ "$GPU_ENABLED" = "true" ]; then
+            targets=$((targets + 1))
+            gpu_runners=$(gh api "repos/$GITHUB_REPOSITORY/actions/runners" --jq '[.runners[] | select(.status == "online") | select([.labels[].name] | index("gpu"))] | length')
+            if [ "$gpu_runners" -lt 1 ]; then
+              echo "::error::GPU target is enabled but no online runner has the gpu label."
+              errors=$((errors + 1))
+            fi
+          fi
+
+          if [ "$EVENT_NAME" = "schedule" ] && [ "$targets" -eq 0 ]; then
+            echo "::error::Scheduled Integration run has no configured external target; refusing to pass an offline-only scheduled run."
+            errors=$((errors + 1))
+          fi
+
+          {
+            echo "## External prerequisite readiness"
+            echo "- event: $EVENT_NAME"
+            echo "- requested targets: $targets"
+            echo "- readiness errors: $errors"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$errors" -ne 0 ]; then
+            exit 1
+          fi
+
   remote-llm:
     name: remote LLM A–E comparison
-    needs: contract
+    needs: [contract, readiness]
     runs-on: ubuntu-latest
     if: ${{ (github.event_name == 'workflow_dispatch' && inputs.profile != '') || (github.event_name == 'schedule' && vars.AI4MBSE_LLM_PROFILE != '') }}
     env:
@@ -94,7 +166,7 @@ jobs:
 
   freecad:
     name: FreeCAD acceptance
-    needs: contract
+    needs: [contract, readiness]
     runs-on: [self-hosted, linux, freecad]
     if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_freecad) || (github.event_name == 'schedule' && vars.AI4MBSE_FREECAD_ENABLED == 'true') }}
     steps:
@@ -116,7 +188,7 @@ jobs:
 
   gpu:
     name: GPU acceptance
-    needs: contract
+    needs: [contract, readiness]
     runs-on: [self-hosted, linux, gpu]
     if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_gpu) || (github.event_name == 'schedule' && vars.AI4MBSE_GPU_ENABLED == 'true') }}
     steps:

@@ -115,7 +115,7 @@ def _fake_comparison_record(scenario: str, repeat_index: int, mode: str) -> dict
         "ground_truth_model_visible": False,
         "evaluation_boundary": {"model_visible": False},
         "temperature": 0.2,
-        "benchmark_token_budget": 100,
+        "benchmark_token_budget": 3000,
         "comparison_mode": mode,
         "total_output_token_budget": total_budget,
         "verifier_enabled": contract.verifier_enabled,
@@ -154,9 +154,11 @@ def test_comparison_aggregator_records_all_evidence_invariants(
     expected_budget: bool,
 ) -> None:
     cases = (CASE,)
+    observed_runtime_configs = []
 
     def fake_run_benchmark(*args, **kwargs):
         scenario = str(kwargs["scenario"])
+        observed_runtime_configs.append(kwargs["runtime_config"])
         records = [_fake_comparison_record(scenario, index, mode) for index in range(1, 4)]
         return {
             "score": {"final_status": "ACCEPTED"},
@@ -197,6 +199,7 @@ def test_comparison_aggregator_records_all_evidence_invariants(
     assert comparison["same_model_provider"] is True
     assert comparison["same_input"] is True
     assert comparison["same_temperature"] is True
+    assert comparison["call_budget_comparable"] is True
     assert comparison["ground_truth_isolated"] is True
     assert comparison["ablation_contract_valid"] is True
     assert comparison["token_usage_observed"] is True
@@ -204,6 +207,8 @@ def test_comparison_aggregator_records_all_evidence_invariants(
     assert comparison["cost_observed"] is True
     assert comparison["budget_comparable"] == expected_budget
     assert comparison["budget_enforced"] == expected_budget
+    assert {config["max_output_tokens"] for config in observed_runtime_configs} == {3000}
+    assert {config["local_max_tokens"] for config in observed_runtime_configs} == {3000}
 
 
 def test_comparison_rejects_missing_temperature(

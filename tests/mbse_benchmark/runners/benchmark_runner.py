@@ -40,8 +40,43 @@ from tests.mbse_benchmark.runners.experiment_contract import (
 )
 
 
+_DEFAULT_COMPARISON_CALL_TOKEN_BUDGET = 3000
+
+
 def _metric_display(value: object) -> object:
     return "N/A" if value is None else value
+
+
+def _positive_int(value: object) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _comparison_runtime_config(
+    runtime_config: Mapping[str, object],
+) -> tuple[dict[str, object], int]:
+    """Give every A–E request the same effective per-call output cap.
+
+    ``RuntimeFactory`` defaults the Harness path to 4096 output tokens while
+    bare A/B requests historically defaulted to 3000.  That difference is a
+    hidden budget confounder even when the provider/model is identical.  A
+    comparison therefore resolves one cap, applies it to both the bare model
+    and Harness configuration, and records the effective value in metadata.
+    """
+
+    shared = dict(runtime_config)
+    requested = _positive_int(shared.get("benchmark_token_budget"))
+    requested = requested or _DEFAULT_COMPARISON_CALL_TOKEN_BUDGET
+    profile_cap = _positive_int(shared.get("max_output_tokens"))
+    profile_cap = profile_cap or _positive_int(shared.get("local_max_tokens"))
+    call_budget = min(requested, profile_cap) if profile_cap else requested
+    shared["benchmark_token_budget"] = call_budget
+    shared["max_output_tokens"] = call_budget
+    shared["local_max_tokens"] = call_budget
+    return shared, call_budget
 
 
 def _case_output_name(case_id: str) -> str:
@@ -387,6 +422,9 @@ def run_scenario_comparison(
         raise ValueError("A–E comparison requires at least three repeats")
     validate_ablation_contracts()
     shared_evaluator = ExternalEvaluator()
+    shared_runtime_config, call_output_token_budget = _comparison_runtime_config(
+        runtime_config,
+    )
     scenario_summaries: dict[str, Mapping[str, object]] = {}
     for scenario in BenchmarkScenario:
         scenario_summaries[scenario.value] = run_benchmark(
@@ -398,7 +436,7 @@ def run_scenario_comparison(
             selected_case=selected_case,
             track=BenchmarkTrack.LLM.value,
             profile=profile,
-            runtime_config=runtime_config,
+            runtime_config=shared_runtime_config,
             analysis_path=analysis_path,
             scenario=scenario.value,
             comparison_mode=comparison_mode,
@@ -409,10 +447,11 @@ def run_scenario_comparison(
         "status": "recorded",
         "track": "llm_same_model_comparison",
         "profile": profile,
-        "model": str(runtime_config.get("model", "")),
-        "provider": runtime_provider_id(runtime_config),
+        "model": str(shared_runtime_config.get("model", "")),
+        "provider": runtime_provider_id(shared_runtime_config),
         "comparison_mode": comparison_mode,
         "total_output_token_budget": total_output_token_budget,
+        "call_output_token_budget": call_output_token_budget,
         "scenarios": {},
     }
     for scenario, summary in scenario_summaries.items():
@@ -560,6 +599,14 @@ def run_scenario_comparison(
         and len(temperature_values) == 1
         and None not in temperature_values
     )
+    call_budgets = {item.get("benchmark_token_budget") for item in all_records}
+    comparison["call_budget_comparable"] = (
+        bool(all_records)
+        and len(call_budgets) == 1
+        and None not in call_budgets
+        and all(_positive_int(value) is not None for value in call_budgets)
+        and call_budgets == {call_output_token_budget}
+    )
     modes = {str(item.get("comparison_mode", comparison_mode)) for item in all_records}
     if comparison_mode == "budget_matched":
         budgets = {item.get("total_output_token_budget") for item in all_records}
@@ -648,6 +695,7 @@ def run_scenario_comparison(
             "same_normalizer",
             "ground_truth_isolated",
             "same_temperature",
+            "call_budget_comparable",
             "budget_comparable",
             "budget_enforced",
             "ablation_contract_valid",

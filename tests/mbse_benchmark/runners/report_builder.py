@@ -410,7 +410,7 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
         "",
         f"Same model/provider: **{comparison.get('same_model_provider', 'N/A')}**; same input bytes: **{comparison.get('same_input', 'N/A')}**; same task spec: **{comparison.get('same_task_spec', 'N/A')}**; same evaluator: **{comparison.get('same_evaluator', 'N/A')}**; same normalizer: **{comparison.get('same_normalizer', 'N/A')}**; same evaluation spec: **{comparison.get('same_evaluation_spec', 'N/A')}**; ground truth isolated: **{comparison.get('ground_truth_isolated', 'N/A')}**",
         "",
-        f"Same temperature: **{comparison.get('same_temperature', 'N/A')}**; budget comparable: **{comparison.get('budget_comparable', 'N/A')}**; budget enforced: **{comparison.get('budget_enforced', 'N/A')}**; orthogonal ablations: **{comparison.get('ablation_contract_valid', 'N/A')}**; execution complete: **{comparison.get('execution_complete', 'N/A')}**; real calls: **{comparison.get('real_calls_observed', 'N/A')}**; token usage: **{comparison.get('token_usage_observed', 'N/A')}**; latency: **{comparison.get('latency_observed', 'N/A')}**; cost: **{comparison.get('cost_observed', 'N/A')}**",
+        f"Same temperature: **{comparison.get('same_temperature', 'N/A')}**; per-call token budget comparable: **{comparison.get('call_budget_comparable', 'N/A')}**; budget comparable: **{comparison.get('budget_comparable', 'N/A')}**; budget enforced: **{comparison.get('budget_enforced', 'N/A')}**; orthogonal ablations: **{comparison.get('ablation_contract_valid', 'N/A')}**; execution complete: **{comparison.get('execution_complete', 'N/A')}**; real calls: **{comparison.get('real_calls_observed', 'N/A')}**; token usage: **{comparison.get('token_usage_observed', 'N/A')}**; latency: **{comparison.get('latency_observed', 'N/A')}**; cost: **{comparison.get('cost_observed', 'N/A')}**",
         "",
         "| Scenario | Model | Provider | Input Hash | Eval Spec Hash | Task Spec Hash | Graph Hashes | Verifier | Gate | Repair | CAS | Calls (mean) | Tokens (mean) | Latency ms (mean) | Cost (mean) |",
         "| -------- | ----- | -------- | ---------- | -------------- | -------------- | ------------ | -------- | ---- | ------ | --- | ------------ | ------------- | ----------------- | ----------- |",
@@ -449,8 +449,8 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
         lines.append(
             f"- `{scenario}`: prompt_hash=`{metadata.get('prompt_hash', '')}`, "
             f"temperature={metadata.get('temperature', 'N/A')}, "
+            f"call_output_token_budget={metadata.get('benchmark_token_budget', 'N/A')}, "
             f"comparison_mode={metadata.get('comparison_mode', 'natural')}, "
-            f"benchmark_token_budget={metadata.get('benchmark_token_budget', 'N/A')}, "
             f"token_usage={metadata.get('token_usage', 'N/A')}, "
             f"latency_ms={metadata.get('latency_ms', 'N/A')}, "
             f"telemetry_statistics={metadata.get('telemetry_statistics', 'N/A')}, "
@@ -541,6 +541,8 @@ def write_scenario_comparison(comparison: Mapping[str, object], report_dir: Path
             "same_normalizer": comparison.get("same_normalizer"),
             "ground_truth_isolated": comparison.get("ground_truth_isolated"),
             "same_temperature": comparison.get("same_temperature"),
+            "call_budget_comparable": comparison.get("call_budget_comparable"),
+            "call_output_token_budget": comparison.get("call_output_token_budget"),
             "budget_comparable": comparison.get("budget_comparable"),
             "budget_enforced": comparison.get("budget_enforced"),
             "comparison_mode": comparison.get("comparison_mode"),

@@ -114,6 +114,8 @@ def test_scenario_comparison_writes_reproducibility_manifest(tmp_path: Path) -> 
         "profile": "test",
         "same_model_provider": True,
         "same_input": True,
+        "call_budget_comparable": True,
+        "call_output_token_budget": 3000,
         "ground_truth_isolated": True,
         "latency_observed": True,
         "cost_observed": True,

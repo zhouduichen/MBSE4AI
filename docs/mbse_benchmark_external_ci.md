@@ -58,7 +58,11 @@ claiming PASS when that test is missing or the runner has no visible GPU.
 ## Evidence policy
 
 The scheduled contract job always runs and executes the offline integration
-contract plus robustness benchmark. It records the status of every external
-prerequisite in the job summary. Only a completed, successful external job on a
-configured runner is valid evidence for that integration; local fallback runs,
-skipped jobs, and missing credentials are reported as unavailable.
+contract plus robustness benchmark. A separate readiness job then checks the
+selected profile/secret pair and the online `freecad`/`gpu` runner labels. A
+scheduled run with no configured external target, missing credentials, or a
+missing labelled runner fails explicitly instead of becoming a green offline-
+only run. Manual contract runs may still omit all optional external targets.
+Only a completed, successful external job on a configured runner is valid
+evidence for that integration; local fallback runs and skipped jobs are
+reported as unavailable.
