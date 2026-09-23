@@ -858,6 +858,11 @@ def main() -> int:
     parser.add_argument("--report-dir", type=Path, default=Path("tests/mbse_benchmark/reports"))
     parser.add_argument("--track", choices=[item.value for item in BenchmarkTrack], default=BenchmarkTrack.HARNESS.value)
     parser.add_argument("--profile", help="explicit LLM profile ID; required by --track llm")
+    parser.add_argument(
+        "--benchmark-token-budget",
+        type=int,
+        help="effective per-provider-call output-token budget for the LLM benchmark",
+    )
     parser.add_argument("--compare-a-e", action="store_true", help="run A–E with one configured model and one evaluator")
     parser.add_argument("--comparison-mode", choices=("natural", "budget_matched"), default="natural")
     parser.add_argument("--total-output-token-budget", type=int)
@@ -889,6 +894,14 @@ def main() -> int:
             runtime_config = resolve_profile(args.profile)
         except ValueError as exc:
             parser.error(str(exc))
+        if args.benchmark_token_budget is not None:
+            try:
+                runtime_config, _ = _comparison_runtime_config({
+                    **runtime_config,
+                    "benchmark_token_budget": args.benchmark_token_budget,
+                })
+            except ValueError as exc:
+                parser.error(str(exc))
         args.output_root = args.output_root / "llm" / str(args.profile)
         args.report_dir = args.report_dir / "llm" / str(args.profile)
         if args.compare_a_e:
