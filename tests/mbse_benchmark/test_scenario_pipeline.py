@@ -82,6 +82,7 @@ def test_one_shot_and_staged_scenarios_call_the_same_model_without_expected_grap
 def test_bare_runner_rejects_evaluator_only_aliases_before_model_call():
     model = RecordingModel()
     case = {**CASE, "expectedGraph": {"shortcut": True}}
+    evaluator = ExternalEvaluator()
 
     with pytest.raises(ValueError, match="evaluator-only"):
         ScenarioRunner().run(
@@ -89,7 +90,9 @@ def test_bare_runner_rejects_evaluator_only_aliases_before_model_call():
             scenario_contract(BenchmarkScenario.A_BARE_ONE_SHOT),
             model,
             project_id="p1",
-            evaluation_spec=EvaluationSpec.from_expectations({"shortcut": True}),
+            model_visible_key_tokens=evaluator.model_visible_key_tokens(
+                EvaluationSpec.from_expectations({"shortcut": True}),
+            ),
         )
 
     assert model.requests == []

@@ -238,18 +238,40 @@ class EvaluationSpec:
 def assert_model_visible_payload(payload: object, evaluation_spec: EvaluationSpec) -> None:
     """Reject evaluator-only values before a request reaches a model."""
 
-    evaluator_key_tokens = _EVALUATOR_KEY_TOKENS | frozenset(
+    assert_model_visible_payload_tokens(
+        payload,
+        model_visible_key_tokens(evaluation_spec),
+        evaluation_spec=evaluation_spec,
+    )
+
+
+def model_visible_key_tokens(evaluation_spec: EvaluationSpec) -> frozenset[str]:
+    """Return a value-free request guard derived from evaluator-owned facts."""
+
+    return _EVALUATOR_KEY_TOKENS | frozenset(
         _key_token(key) for key in evaluation_spec.payload
     )
+
+
+def assert_model_visible_payload_tokens(
+    payload: object,
+    evaluator_key_tokens: frozenset[str],
+    *,
+    evaluation_spec: EvaluationSpec | None = None,
+) -> None:
+    """Reject evaluator-only values using a value-free request boundary."""
+
     _assert_model_visible_payload(payload, evaluation_spec, evaluator_key_tokens)
 
 
 def _assert_model_visible_payload(
     payload: object,
-    evaluation_spec: EvaluationSpec,
+    evaluation_spec: EvaluationSpec | None,
     evaluator_key_tokens: frozenset[str],
 ) -> None:
-    if payload is evaluation_spec or payload is evaluation_spec.payload:
+    if evaluation_spec is not None and (
+        payload is evaluation_spec or payload is evaluation_spec.payload
+    ):
         raise ValueError("evaluator-only EvaluationSpec cannot be model-visible")
     if isinstance(payload, Mapping):
         for key, value in payload.items():
@@ -313,7 +335,9 @@ __all__ = [
     "GenerationCallEvent",
     "TelemetrySink",
     "assert_model_visible_payload",
+    "assert_model_visible_payload_tokens",
     "input_sha256",
+    "model_visible_key_tokens",
     "numeric_projection",
     "summarize_repeats",
 ]

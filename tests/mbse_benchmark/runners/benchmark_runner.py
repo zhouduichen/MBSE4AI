@@ -8,7 +8,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Mapping
 
-from rflp_lite.domain.canonical import canonical_json
+from rflp_lite.domain.canonical import canonical_hash, canonical_json
 from tests.mbse_benchmark.cases.loader import load_cases, load_evaluation_spec
 from tests.mbse_benchmark.runners.case_runner import run_case
 from tests.mbse_benchmark.runners.report_builder import (
@@ -194,6 +194,8 @@ def run_benchmark(
     evaluator = evaluator or ExternalEvaluator(normalizer)
     cases = load_cases(cases_dir)
     evaluation_spec = load_evaluation_spec(cases_dir.parent / "expected")
+    model_visible_key_tokens = evaluator.model_visible_key_tokens(evaluation_spec)
+    model_visible_guard_hash = canonical_hash(sorted(model_visible_key_tokens))
     if selected_case:
         cases = tuple(case for case in cases if str(case["case_id"]) == selected_case)
         if not cases:
@@ -213,7 +215,7 @@ def run_benchmark(
                 repeat_index=index,
                 timeout_seconds=timeout_seconds,
                 runtime_config=runtime_config,
-                evaluation_spec=evaluation_spec,
+                model_visible_key_tokens=model_visible_key_tokens,
                 analysis_path=analysis_path,
                 scenario=contract.scenario.value,
                 comparison_mode=comparison_mode,
@@ -269,6 +271,9 @@ def run_benchmark(
                     "owner": evaluator.evaluator_id,
                     "model_visible": False,
                     "evaluation_spec_hash": evaluation_spec.evaluation_spec_hash,
+                    "ground_truth_payload_transmitted": False,
+                    "request_guard": "value_free_evaluator_key_tokens",
+                    "request_guard_hash": model_visible_guard_hash,
                 }
             repeat_validation = evaluator.evaluate(
                 input_envelope,

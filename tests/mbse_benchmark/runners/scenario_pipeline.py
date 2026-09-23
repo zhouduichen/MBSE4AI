@@ -17,7 +17,8 @@ from tests.mbse_benchmark.scenarios import BenchmarkScenario, ScenarioContract
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
     EvaluationSpec,
-    assert_model_visible_payload,
+    assert_model_visible_payload_tokens,
+    model_visible_key_tokens,
 )
 from tests.mbse_benchmark.validators.case import validate_case
 
@@ -414,6 +415,19 @@ class ExternalEvaluator:
     def __init__(self, normalizer: ModelGraphNormalizer | None = None):
         self.normalizer = normalizer or ModelGraphNormalizer()
 
+    @staticmethod
+    def model_visible_key_tokens(
+        expectations: Mapping[str, object] | EvaluationSpec,
+    ) -> frozenset[str]:
+        """Derive a value-free request guard from evaluator-owned facts."""
+
+        evaluation_spec = (
+            expectations
+            if isinstance(expectations, EvaluationSpec)
+            else EvaluationSpec.from_expectations(expectations)
+        )
+        return model_visible_key_tokens(evaluation_spec)
+
     def evaluate(
         self,
         case: Mapping[str, object] | BenchmarkInputEnvelope,
@@ -492,7 +506,7 @@ class ScenarioRunner:
         *,
         project_id: str,
         token_budget: int = 3000,
-        evaluation_spec: EvaluationSpec | None = None,
+        model_visible_key_tokens: frozenset[str] | None = None,
     ) -> ScenarioOutput:
         if contract.scenario not in {
             BenchmarkScenario.A_BARE_ONE_SHOT,
@@ -505,7 +519,6 @@ class ScenarioRunner:
             else BenchmarkInputEnvelope.from_case(case)
         )
         model_input = dict(input_envelope.payload)
-        visible_spec = evaluation_spec or EvaluationSpec.from_expectations({})
         responses: list[GenerationResponse] = []
         requests: list[GenerationRequest] = []
         payload: Mapping[str, object] = {
@@ -533,7 +546,11 @@ class ScenarioRunner:
                 MODEL_GRAPH_SCHEMA,
                 token_budget,
             )
-            assert_model_visible_payload(user_payload, visible_spec)
+            if model_visible_key_tokens is not None:
+                assert_model_visible_payload_tokens(
+                    user_payload,
+                    model_visible_key_tokens,
+                )
             requests.append(request)
             response = model.complete_json(request)
             responses.append(response)
