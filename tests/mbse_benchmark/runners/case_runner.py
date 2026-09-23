@@ -590,7 +590,12 @@ def _harness_metadata(
         },
     }
     prompt_hash = ledger_metadata.get("prompt_hash") or canonical_hash(fallback_context)
-    task_spec_hash = ledger_metadata.get("task_spec_hash") or canonical_hash(TASK_SPEC)
+    # ``task_spec_hash`` is the shared benchmark contract.  Harness runs also
+    # have an implementation-specific lifecycle task hash; preserve it as a
+    # separate field instead of making a fair A–E comparison fail merely
+    # because Bare and Harness use different internal task decompositions.
+    task_spec_hash = canonical_hash(TASK_SPEC)
+    runtime_task_spec_hash = str(ledger_metadata.get("task_spec_hash", ""))
     telemetry = ExperimentTelemetry.from_events(
         telemetry_events,
         wall_latency_ms=int(execution_elapsed * 1000),
@@ -605,6 +610,7 @@ def _harness_metadata(
         "provider": runtime_provider_id(config),
         "prompt_hash": str(prompt_hash),
         "task_spec_hash": str(task_spec_hash),
+        "runtime_task_spec_hash": runtime_task_spec_hash,
         "temperature": _as_float(config.get("temperature")),
         "input_hash": input_envelope.input_hash,
         "input_byte_length": len(input_envelope.canonical_bytes),

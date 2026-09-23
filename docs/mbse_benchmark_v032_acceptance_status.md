@@ -17,7 +17,7 @@ PR：[zhouduichen/MBSE4AI#1](https://github.com/zhouduichen/MBSE4AI/pull/1)
 | 7 | total token usage | CONTRACT + FAIL-CLOSED | adapter transport telemetry；缺 usage 时 token evidence 不可用，budget-matched 直接失败 |
 | 8 | model call count | CONTRACT VERIFIED | transport-boundary `GenerationCallEvent` 聚合，包括 repair calls |
 | 9 | latency/cost | CONTRACT + FAIL-CLOSED | provider/wall latency 与 pricing telemetry；缺价格不伪造成本 |
-| 10 | natural 与 budget-matched | CONTRACT VERIFIED | 两种 comparison mode；A–E 先统一 effective per-call output cap 并记录 `call_output_token_budget`，natural mode 对总预算明确标记 `not_applicable`，只有 budget-matched 跨调用共享 total cap 并检查 `budget_within_cap`；缺失 temperature 或 per-call cap 时 comparison fail-closed |
+| 10 | natural 与 budget-matched | CONTRACT VERIFIED | 两种 comparison mode；A–E 先统一 effective per-call output cap 并记录 `call_output_token_budget`，公平性比较使用共同 benchmark task-spec hash，同时保留 Harness runtime task-spec hash；natural mode 对总预算明确标记 `not_applicable`，只有 budget-matched 跨调用共享 total cap 并检查 `budget_within_cap`；缺失 temperature 或 per-call cap 时 comparison fail-closed |
 | 11 | 3–5 repeats 与统计 | CONTRACT VERIFIED | comparison 至少 3 repeats，JSON/报告记录 mean/std/CI95 与 Quality-Cost；主表的 Calls/Tokens/Latency/Cost 明确使用 repeat mean |
 | 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对 `d8b55c3` 均成功：[push run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35802537530)、[PR run](https://github.com/zhouduichen/MBSE4AI/actions/runs/35802541221) |
 | 13 | main 要求 CI / quality | VERIFIED | branch protection `strict=true`、required context=`CI / quality`、required approvals=1 |

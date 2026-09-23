@@ -472,6 +472,7 @@ def run_scenario_comparison(
                 "input_sha256": first.get("input_sha256"),
                 "input_byte_length": first.get("input_byte_length"),
                 "task_spec_hash": first.get("task_spec_hash"),
+                "runtime_task_spec_hash": first.get("runtime_task_spec_hash"),
                 "evaluation_spec_hash": first.get("evaluation_spec_hash"),
                 "evaluator_id": first.get("evaluator_id", EXTERNAL_EVALUATOR_ID),
                 "normalizer_id": first.get("normalizer_id", MODEL_GRAPH_NORMALIZER_ID),

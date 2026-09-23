@@ -108,6 +108,7 @@ def _fake_comparison_record(scenario: str, repeat_index: int, mode: str) -> dict
         "input_sha256": "input-sha256",
         "input_byte_length": 128,
         "task_spec_hash": "task-hash",
+        "runtime_task_spec_hash": f"runtime-{scenario}",
         "evaluation_spec_hash": "evaluation-hash",
         "evaluator_id": EXTERNAL_EVALUATOR_ID,
         "normalizer_id": MODEL_GRAPH_NORMALIZER_ID,
@@ -198,6 +199,7 @@ def test_comparison_aggregator_records_all_evidence_invariants(
 
     assert comparison["same_model_provider"] is True
     assert comparison["same_input"] is True
+    assert comparison["same_task_spec"] is True
     assert comparison["same_temperature"] is True
     assert comparison["call_budget_comparable"] is True
     assert comparison["ground_truth_isolated"] is True

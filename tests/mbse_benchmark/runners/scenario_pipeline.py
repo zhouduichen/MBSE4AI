@@ -110,6 +110,7 @@ class RunMetadata:
             "provider": self.provider,
             "prompt_hash": self.prompt_hash,
             "task_spec_hash": self.task_spec_hash,
+            "runtime_task_spec_hash": "",
             "temperature": self.temperature,
             "input_hash": self.input_hash,
             "token_usage": dict(self.token_usage) if self.token_usage is not None else None,

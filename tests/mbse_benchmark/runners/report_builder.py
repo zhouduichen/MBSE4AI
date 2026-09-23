@@ -450,6 +450,7 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
             f"- `{scenario}`: prompt_hash=`{metadata.get('prompt_hash', '')}`, "
             f"temperature={metadata.get('temperature', 'N/A')}, "
             f"call_output_token_budget={metadata.get('benchmark_token_budget', 'N/A')}, "
+            f"runtime_task_spec_hash={metadata.get('runtime_task_spec_hash', 'N/A')}, "
             f"comparison_mode={metadata.get('comparison_mode', 'natural')}, "
             f"token_usage={metadata.get('token_usage', 'N/A')}, "
             f"latency_ms={metadata.get('latency_ms', 'N/A')}, "

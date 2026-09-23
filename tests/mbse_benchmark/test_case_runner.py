@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.model import ModelGraph
 from tests.mbse_benchmark.runners.case_runner import (
     _harness_metadata,
     _run_analysis,
 )
 from tests.mbse_benchmark.runners.experiment_contract import BenchmarkInputEnvelope
+from tests.mbse_benchmark.runners.scenario_pipeline import TASK_SPEC
 from tests.mbse_benchmark.scenarios import BenchmarkScenario, scenario_contract
 
 
@@ -103,3 +105,5 @@ def test_harness_metadata_uses_the_same_profile_identity_as_bare_adapter() -> No
     )
 
     assert metadata["provider"] == "profile-a"
+    assert metadata["task_spec_hash"] == canonical_hash(TASK_SPEC)
+    assert metadata["runtime_task_spec_hash"] == ""
