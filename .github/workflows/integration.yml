@@ -40,7 +40,16 @@ jobs:
       - name: Run offline integration contract
         run: |
           python -m pytest -q tests/integration/test_integration_contract.py
-          python tests/mbse_benchmark/run_benchmark.py --track robustness
+          python tests/mbse_benchmark/run_benchmark.py \
+            --track robustness \
+            --report-dir tests/mbse_benchmark/reports/integration-contract
+      - name: Upload offline integration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-contract-${{ github.run_id }}
+          path: tests/mbse_benchmark/reports/integration-contract
+          if-no-files-found: ignore
       - name: Record external prerequisite status
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -162,7 +171,23 @@ jobs:
           LLMProfileService().save({**payload, "active": True})
           PY
       - name: Run same-model A–E comparison
-        run: python tests/mbse_benchmark/run_benchmark.py --track llm --profile "$AI4MBSE_LLM_PROFILE" --compare-a-e --repeats 3 --comparison-mode natural
+        run: python tests/mbse_benchmark/run_benchmark.py \
+          --track llm \
+          --profile "$AI4MBSE_LLM_PROFILE" \
+          --compare-a-e \
+          --repeats 3 \
+          --comparison-mode natural \
+          --output-root tests/mbse_benchmark/results/integration-remote \
+          --report-dir tests/mbse_benchmark/reports/integration-remote
+      - name: Upload remote A–E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-remote-llm-${{ github.run_id }}
+          path: |
+            tests/mbse_benchmark/results/integration-remote
+            tests/mbse_benchmark/reports/integration-remote
+          if-no-files-found: ignore
 
   freecad:
     name: FreeCAD acceptance

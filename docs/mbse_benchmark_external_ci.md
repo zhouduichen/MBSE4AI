@@ -31,7 +31,10 @@ as `not_applicable`; only budget-matched mode may claim a shared total cap.
 
 The job is evidence-bearing only when its own run is `success`. A missing profile
 leaves the job skipped and the contract summary records `remote LLM profile: NOT
-CONFIGURED`.
+CONFIGURED`. Successful contract and remote A–E jobs upload their generated
+reports, metrics, result files, and reproducibility manifest as run-scoped
+artifacts; a green job without the corresponding artifact is not treated as
+complete evidence.
 
 ## FreeCAD acceptance
 
