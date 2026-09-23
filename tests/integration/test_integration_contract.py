@@ -27,6 +27,7 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert "runs-on: [self-hosted, linux, freecad]" in text
     assert "runs-on: [self-hosted, linux, gpu]" in text
     assert "AI4MBSE_LLM_PROFILE_JSON" in text
+    assert "--compare-a-e --repeats 3 --comparison-mode natural" in text
     assert "AI4MBSE_CAD_BACKEND: freecad-remote" in text
     assert "refusing to claim a GPU acceptance PASS" in text
     assert "tests/integration/test_gpu_acceptance.py" in text

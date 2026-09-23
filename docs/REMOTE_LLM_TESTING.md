@@ -123,9 +123,11 @@ The run ledger records the selected profile, provider, model, prompt/context
 hashes, patches, revisions, and final traceability. A run using
 `offline-rule` is not evidence of a real Provider run.
 
-## 4. Run the focused acceptance
+## 4. Run the reproducible A–E comparison
 
-After `/v1/models` reports `qwen3.5-controller`, run one real vertical case:
+After `/v1/models` reports `qwen3.5-controller`, run one real case through all
+five same-model scenarios. A–E comparisons require at least three repeats;
+`--benchmark-token-budget` makes the shared per-provider-call cap explicit:
 
 ```bash
 RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-profile \
@@ -134,7 +136,8 @@ RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-profile \
   --profile jiayuinter-vllm \
   --path vertical \
   --case CASE-04 \
-  --repeats 1 \
+  --repeats 3 \
+  --benchmark-token-budget 4096 \
   --timeout 900 \
   --compare-a-e
 ```
