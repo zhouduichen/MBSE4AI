@@ -138,3 +138,35 @@ def test_scenario_comparison_writes_reproducibility_manifest(tmp_path: Path) -> 
     assert "ground truth isolated: **True**" in rendered
     assert "latency: **True**" in rendered
     assert "cost: **True**" in rendered
+
+
+def test_scenario_comparison_headline_uses_repeat_statistics(tmp_path: Path) -> None:
+    comparison = {
+        "track": "llm_same_model_comparison",
+        "same_model_provider": True,
+        "same_input": True,
+        "scenarios": {
+            "A": {
+                "metadata": {
+                    "telemetry": {
+                        "call_count": 1,
+                        "total_tokens": 10,
+                        "wall_latency_ms": 20,
+                        "estimated_cost_usd": 0.001,
+                        "cost_status": "available",
+                    },
+                    "telemetry_statistics": {
+                        "call_count": {"mean": 3.0},
+                        "total_tokens": {"mean": 30.0},
+                        "wall_latency_ms": {"mean": 70.0},
+                        "estimated_cost_usd": {"mean": 0.003},
+                    },
+                },
+            }
+        },
+    }
+
+    rendered = render_scenario_comparison(comparison)
+
+    assert "Calls (mean)" in rendered
+    assert "| A |  |  | `` | `` | `` | `` |  |  |  |  | 3.0 | 30.0 | 70.0 | 0.003 (available) |" in rendered

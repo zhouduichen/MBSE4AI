@@ -412,8 +412,8 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
         "",
         f"Same temperature: **{comparison.get('same_temperature', 'N/A')}**; budget comparable: **{comparison.get('budget_comparable', 'N/A')}**; budget enforced: **{comparison.get('budget_enforced', 'N/A')}**; orthogonal ablations: **{comparison.get('ablation_contract_valid', 'N/A')}**; execution complete: **{comparison.get('execution_complete', 'N/A')}**; real calls: **{comparison.get('real_calls_observed', 'N/A')}**; token usage: **{comparison.get('token_usage_observed', 'N/A')}**; latency: **{comparison.get('latency_observed', 'N/A')}**; cost: **{comparison.get('cost_observed', 'N/A')}**",
         "",
-        "| Scenario | Model | Provider | Input Hash | Eval Spec Hash | Task Spec Hash | Graph Hashes | Verifier | Gate | Repair | CAS | Calls | Tokens | Cost |",
-        "| -------- | ----- | -------- | ---------- | -------------- | -------------- | ------------ | -------- | ---- | ------ | --- | ----- | ------ | ---- |",
+        "| Scenario | Model | Provider | Input Hash | Eval Spec Hash | Task Spec Hash | Graph Hashes | Verifier | Gate | Repair | CAS | Calls (mean) | Tokens (mean) | Latency ms (mean) | Cost (mean) |",
+        "| -------- | ----- | -------- | ---------- | -------------- | -------------- | ------------ | -------- | ---- | ------ | --- | ------------ | ------------- | ----------------- | ----------- |",
     ]
     scenarios = comparison.get("scenarios", {})
     for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
@@ -422,6 +422,13 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
         graph_hashes = metadata.get("graph_hashes", ())
         telemetry = metadata.get("telemetry", {})
         telemetry = telemetry if isinstance(telemetry, Mapping) else {}
+        telemetry_statistics = metadata.get("telemetry_statistics", {})
+        telemetry_statistics = (
+            telemetry_statistics
+            if isinstance(telemetry_statistics, Mapping)
+            else {}
+        )
+        cost_status = _repeat_cost_status(metadata, telemetry)
         lines.append(
             f"| {scenario} | {metadata.get('model', '')} | {metadata.get('provider', '')} | "
             f"{chr(96)}{metadata.get('input_hash', '')}{chr(96)} | {chr(96)}{metadata.get('evaluation_spec_hash', '')}{chr(96)} | "
@@ -429,8 +436,11 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
             f"{chr(96)}{', '.join(str(item) for item in graph_hashes)}{chr(96)} | "
             f"{metadata.get('verifier_enabled', '')} | {metadata.get('gate_enabled', '')} | "
             f"{metadata.get('repair_enabled', '')} | {metadata.get('cas_enabled', '')} | "
-            f"{telemetry.get('call_count', 'N/A')} | {telemetry.get('total_tokens', 'N/A')} | "
-            f"{telemetry.get('estimated_cost_usd', 'N/A')} ({telemetry.get('cost_status', 'unavailable')}) |"
+            f"{_repeat_mean(telemetry_statistics, telemetry, 'call_count')} | "
+            f"{_repeat_mean(telemetry_statistics, telemetry, 'total_tokens')} | "
+            f"{_repeat_mean(telemetry_statistics, telemetry, 'wall_latency_ms')} | "
+            f"{_repeat_mean(telemetry_statistics, telemetry, 'estimated_cost_usd')} "
+            f"({cost_status}) |"
         )
     lines.extend(["", "## Run metadata", ""])
     for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
@@ -465,6 +475,39 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
                     f"{point.get('cost', 'N/A')} | {point.get('cost_status', 'unavailable')} |"
                 )
     return "\n".join(lines) + "\n"
+
+
+def _repeat_mean(
+    statistics: Mapping[str, object],
+    fallback: Mapping[str, object],
+    key: str,
+) -> object:
+    """Prefer repeat statistics so headline reports cannot imply one-run evidence."""
+
+    entry = statistics.get(key)
+    if isinstance(entry, Mapping) and isinstance(entry.get("mean"), (int, float)):
+        return entry["mean"]
+    return fallback.get(key, "N/A")
+
+
+def _repeat_cost_status(
+    metadata: Mapping[str, object],
+    fallback: Mapping[str, object],
+) -> str:
+    """Show mixed cost evidence instead of silently using the first repeat."""
+
+    records = metadata.get("repeat_records", ())
+    statuses = {
+        str(item.get("telemetry", {}).get("cost_status", "unavailable"))
+        for item in records
+        if isinstance(item, Mapping)
+        and isinstance(item.get("telemetry"), Mapping)
+    }
+    if statuses == {"available"}:
+        return "available"
+    if len(statuses) > 1:
+        return "mixed"
+    return str(fallback.get("cost_status", "unavailable"))
 
 
 def write_scenario_comparison(comparison: Mapping[str, object], report_dir: Path) -> None:
