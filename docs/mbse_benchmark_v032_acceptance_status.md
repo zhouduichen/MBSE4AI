@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
 更新时间：2026-09-23  
-审计提交：`ba33aed`
+审计提交：`7f23ae5`
 PR：[zhouduichen/MBSE4AI#1](https://github.com/zhouduichen/MBSE4AI/pull/1)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -9,7 +9,7 @@ PR：[zhouduichen/MBSE4AI#1](https://github.com/zhouduichen/MBSE4AI/pull/1)
 | # | 验收项 | 当前状态 | 权威证据 / 边界 |
 |---:|---|---|---|
 | 1 | A–E 实际输入 byte/hash 一致 | CONTRACT VERIFIED | `BenchmarkInputEnvelope`、`_persisted_input_audit`、A–E comparison invariant；真实 LLM run 仍待外部 profile |
-| 2 | Ground truth 仅 ExternalEvaluator 可访问 | CONTRACT VERIFIED | evaluator-only key rejection（包括 `EvaluationSpec` 的全部顶层键）现在贯穿真实 A/B worker → `ScenarioRunner` 请求边界，另有 evaluation boundary metadata；真实 LLM run 仍待外部 profile |
+| 2 | Ground truth 仅 ExternalEvaluator 可访问 | CONTRACT VERIFIED | `EvaluationSpec` 不再进入 A/B worker/`ScenarioRunner`；仅由 `ExternalEvaluator` 派生 value-free request key guard，metadata 记录 `ground_truth_payload_transmitted=false` 与 guard hash；真实 LLM run 仍待外部 profile |
 | 3 | A/B 无法声明 Accepted/User authority | CONTRACT VERIFIED | `ModelGraphNormalizer` 强制 `CANDIDATE/LLM` 并记录 authority audit |
 | 4 | Semantic 与 Governance metrics 分离 | CONTRACT VERIFIED | `ExternalEvaluator.semantic_projection()` 将所有活跃生命周期状态统一为 `VALIDATED` 后再评估语义指标；原始状态、authority claims 与 Technical/Release Closure 保留在 governance metrics 分支 |
 | 5 | C/D/E 正交 Ablation | CONTRACT VERIFIED | `validate_ablation_contracts()` 与 scenario contract tests |
