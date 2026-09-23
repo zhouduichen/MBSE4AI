@@ -162,6 +162,17 @@ def test_llm_profile_preserves_chat_template_controls() -> None:
     assert profile["chat_template_kwargs"] == {"enable_thinking": False}
 
 
+def test_llm_profile_preserves_explicit_zero_costs() -> None:
+    profile = normalize_profile({
+        **_payload(),
+        "input_cost_per_1m_tokens": 0.0,
+        "output_cost_per_1m_tokens": 0.0,
+    })
+
+    assert profile["input_cost_per_1m_tokens"] == 0.0
+    assert profile["output_cost_per_1m_tokens"] == 0.0
+
+
 def test_remote_qwen35_structured_profile_disables_thinking_by_default() -> None:
     profile = normalize_profile({
         **_payload(),

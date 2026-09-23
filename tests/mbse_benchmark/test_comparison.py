@@ -120,7 +120,11 @@ def _fake_comparison_record(scenario: str, repeat_index: int, mode: str) -> dict
         "normalizer_id": MODEL_GRAPH_NORMALIZER_ID,
         "evaluation_owner": EXTERNAL_EVALUATOR_ID,
         "ground_truth_model_visible": False,
-        "evaluation_boundary": {"model_visible": False},
+        "evaluation_boundary": {
+            "model_visible": False,
+            "ground_truth_payload_transmitted": False,
+            "guard_enforced": True,
+        },
         "temperature": 0.2,
         "benchmark_token_budget": 3000,
         "comparison_mode": mode,

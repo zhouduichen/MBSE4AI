@@ -273,6 +273,7 @@ def run_benchmark(
                     "model_visible": False,
                     "evaluation_spec_hash": evaluator.evaluation_spec_hash,
                     "ground_truth_payload_transmitted": False,
+                    "guard_enforced": bool(model_visible_key_tokens),
                     "request_guard": "value_free_evaluator_key_tokens",
                     "request_guard_hash": model_visible_guard_hash,
                 }
@@ -607,6 +608,8 @@ def run_scenario_comparison(
         and item.get("ground_truth_model_visible") is False
         and isinstance(item.get("evaluation_boundary"), Mapping)
         and item["evaluation_boundary"].get("model_visible") is False
+        and item["evaluation_boundary"].get("ground_truth_payload_transmitted") is False
+        and item["evaluation_boundary"].get("guard_enforced") is True
         for item in all_records
     )
     temperature_values = {item.get("temperature") for item in all_records}

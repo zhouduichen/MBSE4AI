@@ -27,6 +27,7 @@ from tests.mbse_benchmark.scenarios import (
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
     ExperimentTelemetry,
+    assert_model_visible_payload_tokens,
     input_sha256,
     runtime_provider_id,
 )
@@ -35,6 +36,30 @@ from tests.mbse_benchmark.runners.scenario_pipeline import (
     ScenarioRunner,
     TASK_SPEC,
 )
+
+
+class _EvaluatorBoundaryModel:
+    """Enforce the evaluator-only boundary for real Harness calls.
+
+    A/B already validate their request payload in ``ScenarioRunner``.  The
+    Harness path enters through ``StructuredModelRuntime`` instead, so it
+    needs the same guard at the last benchmark-owned boundary before the
+    provider adapter is reached.
+    """
+
+    def __init__(self, model, evaluator_key_tokens: frozenset[str]):
+        self._model = model
+        self._evaluator_key_tokens = evaluator_key_tokens
+
+    def complete_json(self, request):
+        assert_model_visible_payload_tokens(
+            request.user_payload,
+            self._evaluator_key_tokens,
+        )
+        return self._model.complete_json(request)
+
+    def __getattr__(self, name: str):
+        return getattr(self._model, name)
 
 
 
@@ -48,6 +73,29 @@ def _write_canonical_input(path: Path, envelope: BenchmarkInputEnvelope) -> None
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(envelope.canonical_bytes + b"\n")
+
+
+def _apply_scenario_runtime_controls(
+    runtime_config: Mapping[str, object],
+    contract,
+) -> dict[str, object]:
+    """Bind Harness repair behavior to the declared A–E control.
+
+    The product runtime exposes bounded feedback and the deterministic
+    completion bridge as profile options.  A comparison must not silently
+    inherit a profile's latency-oriented defaults, otherwise D would claim
+    ``repair_enabled=false`` while still issuing repair/completion passes or E
+    would claim the full path while those passes were disabled.
+    """
+
+    config = dict(runtime_config)
+    repair_enabled = bool(contract.repair_enabled)
+    config.update({
+        "vertical_feedback": repair_enabled,
+        "automatic_operational_completion": repair_enabled,
+        "vertical_completion_bridge": repair_enabled,
+    })
+    return config
 
 
 def _graph_payload(graph) -> dict[str, object]:
@@ -269,6 +317,11 @@ def _run_case_inner(
     try:
         contract = scenario_contract(scenario)
         effective_runtime_config = dict(runtime_config) if runtime_config else None
+        if effective_runtime_config is not None and contract.generation_shape == "harness":
+            effective_runtime_config = _apply_scenario_runtime_controls(
+                effective_runtime_config,
+                contract,
+            )
         if comparison_mode == "budget_matched" and total_output_token_budget is not None:
             if effective_runtime_config is None:
                 raise ValueError("budget-matched comparison requires a configured model")
@@ -355,14 +408,16 @@ def _run_case_inner(
                 }
             )
             return
-        runtime = (
-            StructuredModelRuntime(OpenAICompatibleModel(
+        if effective_runtime_config:
+            model = OpenAICompatibleModel(
                 dict(effective_runtime_config),
                 telemetry_sink=telemetry_events.append,
-            ))
-            if effective_runtime_config
-            else None
-        )
+            )
+            if model_visible_key_tokens is not None:
+                model = _EvaluatorBoundaryModel(model, model_visible_key_tokens)
+            runtime = StructuredModelRuntime(model)
+        else:
+            runtime = None
         services = build_v2_services(
             workspace,
             runtime=runtime,
