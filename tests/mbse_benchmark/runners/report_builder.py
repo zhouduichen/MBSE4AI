@@ -448,6 +448,8 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
         metadata = metadata if isinstance(metadata, Mapping) else {}
         lines.append(
             f"- `{scenario}`: prompt_hash=`{metadata.get('prompt_hash', '')}`, "
+            f"input_artifact_sha256=`{metadata.get('input_artifact_sha256', 'N/A')}`, "
+            f"input_artifact_byte_length={metadata.get('input_artifact_byte_length', 'N/A')}, "
             f"temperature={metadata.get('temperature', 'N/A')}, "
             f"call_output_token_budget={metadata.get('benchmark_token_budget', 'N/A')}, "
             f"runtime_task_spec_hash={metadata.get('runtime_task_spec_hash', 'N/A')}, "

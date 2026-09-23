@@ -11,6 +11,7 @@ from tests.mbse_benchmark.runners.case_runner import (
     _harness_metadata,
     _run_analysis,
 )
+from tests.mbse_benchmark.runners import case_runner as case_runner_module
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
     EvaluationSpec,
@@ -116,6 +117,52 @@ def test_harness_metadata_uses_the_same_profile_identity_as_bare_adapter() -> No
     assert metadata["provider"] == "profile-a"
     assert metadata["task_spec_hash"] == canonical_hash(TASK_SPEC)
     assert metadata["runtime_task_spec_hash"] == ""
+    assert metadata["input_artifact_byte_length"] == len(
+        BenchmarkInputEnvelope.from_case({
+            "case_id": "CASE-01",
+            "system": "测试系统",
+            "stakeholders": [],
+            "lifecycle_stages": [],
+            "scenarios": [],
+            "requirements": [],
+        }).canonical_bytes
+    ) + 1
+
+
+def test_run_case_persists_input_before_worker_start(tmp_path, monkeypatch) -> None:
+    class FakeProcess:
+        exitcode = 0
+
+        def start(self):
+            return None
+
+        def join(self, _timeout):
+            return None
+
+        def is_alive(self):
+            return False
+
+    class FakeContext:
+        def Process(self, **_kwargs):
+            return FakeProcess()
+
+    monkeypatch.setattr(
+        case_runner_module.multiprocessing,
+        "get_context",
+        lambda _name: FakeContext(),
+    )
+    case = {
+        "case_id": "CASE-01",
+        "system": "测试系统",
+        "stakeholders": [],
+        "lifecycle_stages": [],
+        "scenarios": [],
+        "requirements": [],
+    }
+
+    case_runner_module.run_case(case, tmp_path, repeat_index=1)
+
+    assert (tmp_path / "repeat_01" / "input.json").read_bytes()
 
 
 def test_harness_model_guard_blocks_evaluator_payload_before_provider_call() -> None:

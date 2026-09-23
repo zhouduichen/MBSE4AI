@@ -28,6 +28,7 @@ from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
     ExperimentTelemetry,
     assert_model_visible_payload_tokens,
+    input_artifact_sha256,
     input_sha256,
     runtime_provider_id,
 )
@@ -381,6 +382,8 @@ def _run_case_inner(
             )
             metadata["input_byte_length"] = len(input_envelope.canonical_bytes)
             metadata["input_sha256"] = input_sha256(input_envelope)
+            metadata["input_artifact_byte_length"] = len(input_envelope.canonical_bytes) + 1
+            metadata["input_artifact_sha256"] = input_artifact_sha256(input_envelope)
             metadata["benchmark_token_budget"] = int(
                 effective_runtime_config.get("benchmark_token_budget", 3000)
                 or 3000
@@ -405,6 +408,8 @@ def _run_case_inner(
                     "input_hash": input_envelope.input_hash,
                     "input_byte_length": len(input_envelope.canonical_bytes),
                     "input_sha256": input_sha256(input_envelope),
+                    "input_artifact_byte_length": len(input_envelope.canonical_bytes) + 1,
+                    "input_artifact_sha256": input_artifact_sha256(input_envelope),
                     "cas_probe": {},
                     "scenario_controls": summary["scenario_controls"],
                     "metadata": metadata,
@@ -494,6 +499,8 @@ def _run_case_inner(
                 "input_hash": input_envelope.input_hash,
                 "input_byte_length": len(input_envelope.canonical_bytes),
                 "input_sha256": input_sha256(input_envelope),
+                "input_artifact_byte_length": len(input_envelope.canonical_bytes) + 1,
+                "input_artifact_sha256": input_artifact_sha256(input_envelope),
                 "injection": injection,
                 "cas_probe": cas_probe,
                 "scenario_controls": {
@@ -561,6 +568,10 @@ def run_case(
 
     output_dir = output_dir / f"repeat_{repeat_index:02d}"
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Persist the shared input before spawning the provider worker. A timeout
+    # or transport failure must still leave auditable A–E input bytes.
+    envelope = BenchmarkInputEnvelope.from_case(case)
+    _write_canonical_input(output_dir / "input.json", envelope)
     context = multiprocessing.get_context("spawn")
     process = context.Process(
         target=_child_entry,
@@ -686,6 +697,8 @@ def _harness_metadata(
         "input_hash": input_envelope.input_hash,
         "input_byte_length": len(input_envelope.canonical_bytes),
         "input_sha256": input_sha256(input_envelope),
+        "input_artifact_byte_length": len(input_envelope.canonical_bytes) + 1,
+        "input_artifact_sha256": input_artifact_sha256(input_envelope),
         "benchmark_token_budget": int(config.get("benchmark_token_budget", 3000) or 3000),
         "token_usage": ledger_metadata.get("token_usage") if isinstance(ledger_metadata.get("token_usage"), Mapping) else None,
         "latency_ms": max(0, int(execution_elapsed * 1000)),

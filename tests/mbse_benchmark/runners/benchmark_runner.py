@@ -33,6 +33,7 @@ from tests.mbse_benchmark.runners.scenario_pipeline import (
 )
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
+    input_artifact_sha256,
     numeric_projection,
     runtime_provider_id,
     summarize_repeats,
@@ -134,6 +135,8 @@ def _persisted_input_audit(
                         "exact": False,
                         "expected_sha256": expected_file_hash,
                         "observed_sha256": None,
+                        "expected_artifact_sha256": input_artifact_sha256(envelope),
+                        "observed_artifact_sha256": None,
                         "expected_byte_length": len(expected_bytes),
                         "observed_byte_length": None,
                     })
@@ -148,6 +151,8 @@ def _persisted_input_audit(
                     "exact": observed_bytes == expected_bytes,
                     "expected_sha256": expected_file_hash,
                     "observed_sha256": hashlib.sha256(observed_bytes).hexdigest(),
+                    "expected_artifact_sha256": input_artifact_sha256(envelope),
+                    "observed_artifact_sha256": hashlib.sha256(observed_bytes).hexdigest(),
                     "expected_byte_length": len(expected_bytes),
                     "observed_byte_length": len(observed_bytes),
                 })
@@ -491,6 +496,8 @@ def run_scenario_comparison(
                 "input_hash": first.get("input_hash"),
                 "input_sha256": first.get("input_sha256"),
                 "input_byte_length": first.get("input_byte_length"),
+                "input_artifact_sha256": first.get("input_artifact_sha256"),
+                "input_artifact_byte_length": first.get("input_artifact_byte_length"),
                 "task_spec_hash": first.get("task_spec_hash"),
                 "runtime_task_spec_hash": first.get("runtime_task_spec_hash"),
                 "evaluation_spec_hash": first.get("evaluation_spec_hash"),
@@ -581,6 +588,8 @@ def run_scenario_comparison(
                 str(item.get("input_hash", "")),
                 str(item.get("input_sha256", "")),
                 int(item.get("input_byte_length", 0) or 0),
+                str(item.get("input_artifact_sha256", "")),
+                int(item.get("input_artifact_byte_length", 0) or 0),
             )
             for item in records
         ))
@@ -593,6 +602,7 @@ def run_scenario_comparison(
         and bool(comparison["input_artifact_audit"].get("all_exact"))
         and all(
             signature[2] and signature[3] and signature[4] > 0
+            and signature[5] and signature[6] > 0
             for signature in input_sets[0]
         )
     )
