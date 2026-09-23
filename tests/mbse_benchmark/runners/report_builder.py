@@ -457,6 +457,38 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
             f"telemetry_statistics={metadata.get('telemetry_statistics', 'N/A')}, "
             f"metric_statistics={metadata.get('metric_statistics', 'N/A')}"
         )
+    lines.extend([
+        "",
+        "## Repeat statistics",
+        "",
+        "| Scenario | Metric | Count | Mean | Std | 95% CI |",
+        "| -------- | ------ | ----: | ---: | ---: | ------ |",
+    ])
+    repeat_metrics = (
+        ("Calls", "telemetry_statistics", "call_count"),
+        ("Tokens", "telemetry_statistics", "total_tokens"),
+        ("Provider latency ms", "telemetry_statistics", "provider_latency_ms"),
+        ("Wall latency ms", "telemetry_statistics", "wall_latency_ms"),
+        ("Cost USD", "telemetry_statistics", "estimated_cost_usd"),
+        ("Semantic end-to-end traceability", "metric_statistics", "semantic.end_to_end_traceability"),
+    )
+    for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
+        metadata = payload.get("metadata", {}) if isinstance(payload, Mapping) else {}
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        for label, statistics_key, metric_key in repeat_metrics:
+            statistics = metadata.get(statistics_key, {})
+            entry = statistics.get(metric_key) if isinstance(statistics, Mapping) else None
+            entry = entry if isinstance(entry, Mapping) else {}
+            ci = entry.get("ci95", ())
+            ci_text = (
+                f"[{ci[0]}, {ci[1]}]"
+                if isinstance(ci, (list, tuple)) and len(ci) == 2
+                else "N/A"
+            )
+            lines.append(
+                f"| {scenario} | {label} | {entry.get('count', 'N/A')} | "
+                f"{entry.get('mean', 'N/A')} | {entry.get('std', 'N/A')} | {ci_text} |"
+            )
     lines.extend(["", "## Semantic versus governance metrics", ""])
     for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
         metrics = payload.get("semantic_metrics", {}) if isinstance(payload, Mapping) else {}

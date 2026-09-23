@@ -172,3 +172,5 @@ def test_scenario_comparison_headline_uses_repeat_statistics(tmp_path: Path) -> 
 
     assert "Calls (mean)" in rendered
     assert "| A |  |  | `` | `` | `` | `` |  |  |  |  | 3.0 | 30.0 | 70.0 | 0.003 (available) |" in rendered
+    assert "## Repeat statistics" in rendered
+    assert "| A | Calls | N/A | 3.0 | N/A | N/A |" in rendered
