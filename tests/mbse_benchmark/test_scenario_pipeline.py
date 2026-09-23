@@ -77,6 +77,16 @@ def test_one_shot_and_staged_scenarios_call_the_same_model_without_expected_grap
     assert one_shot.metadata.verifier_enabled is False
     assert staged.metadata.repair_enabled is False
     assert one_shot.graph.snapshot_hash
+    assert model.requests[0].response_schema is scenario_pipeline.MODEL_GRAPH_SCHEMA
+    assert all(
+        request.response_schema is scenario_pipeline.MODEL_GRAPH_DELTA_SCHEMA
+        for request in model.requests[1:]
+    )
+    assert all("expected graph" in request.system_prompt for request in model.requests)
+    assert all(
+        set(request.response_schema["required"]) == {"entities", "relations"}
+        for request in model.requests[1:]
+    )
 
 
 def test_bare_runner_rejects_evaluator_only_aliases_before_model_call():
