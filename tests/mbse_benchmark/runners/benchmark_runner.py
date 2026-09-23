@@ -67,6 +67,10 @@ def _comparison_runtime_config(
     """
 
     shared = dict(runtime_config)
+    # A real A–E comparison must never silently replace provider failures with
+    # the deterministic RuleRuntime fallback. Keep this control identical
+    # across all five scenarios and record the failed comparison instead.
+    shared["remote_fail_fast"] = True
     requested = _positive_int(shared.get("benchmark_token_budget"))
     requested = requested or _DEFAULT_COMPARISON_CALL_TOKEN_BUDGET
     profile_cap = _positive_int(shared.get("max_output_tokens"))
@@ -524,6 +528,7 @@ def run_scenario_comparison(
                 "gate_enabled": first.get("gate_enabled"),
                 "repair_enabled": first.get("repair_enabled"),
                 "cas_enabled": first.get("cas_enabled"),
+                "remote_fail_fast": first.get("remote_fail_fast"),
             },
         }
     comparison["controls"] = {
@@ -653,11 +658,14 @@ def run_scenario_comparison(
     comparison["execution_complete"] = bool(all_records) and all(
         record.get("execution_status") == "completed"
         and bool(record.get("graph_hash"))
+        and isinstance(record.get("telemetry"), Mapping)
+        and int(record["telemetry"].get("failed_call_count", 0) or 0) == 0
         for record in all_records
     )
     comparison["real_calls_observed"] = bool(all_records) and all(
         isinstance(record.get("telemetry"), Mapping)
         and int(record["telemetry"].get("call_count", 0) or 0) > 0
+        and int(record["telemetry"].get("failed_call_count", 0) or 0) == 0
         for record in all_records
     )
     comparison["token_usage_observed"] = bool(all_records) and all(
@@ -703,30 +711,36 @@ def run_scenario_comparison(
         }
         for scenario, payload in comparison["scenarios"].items()
     ]
-    if not all(
-        comparison[key]
-        for key in (
-            "same_model_provider",
-            "same_input",
-            "same_task_spec",
-            "same_evaluation_spec",
-            "same_evaluator",
-            "same_normalizer",
-            "ground_truth_isolated",
-            "same_temperature",
-            "call_budget_comparable",
-            "budget_comparable",
-            "budget_enforced",
-            "ablation_contract_valid",
-            "execution_complete",
-            "real_calls_observed",
-            "token_usage_observed",
-            "latency_observed",
-            "cost_observed",
-        )
-    ):
-        raise ValueError("A–E comparison invariant failed: model, input, task, or evaluator differs")
+    required_invariants = (
+        "same_model_provider",
+        "same_input",
+        "same_task_spec",
+        "same_evaluation_spec",
+        "same_evaluator",
+        "same_normalizer",
+        "ground_truth_isolated",
+        "same_temperature",
+        "call_budget_comparable",
+        "budget_comparable",
+        "budget_enforced",
+        "ablation_contract_valid",
+        "execution_complete",
+        "real_calls_observed",
+        "token_usage_observed",
+        "latency_observed",
+        "cost_observed",
+    )
+    invariant_failures = [
+        key for key in required_invariants if not comparison.get(key)
+    ]
+    comparison["status"] = "PASS" if not invariant_failures else "FAIL"
+    comparison["invariant_failures"] = invariant_failures
     write_scenario_comparison(comparison, report_dir)
+    if invariant_failures:
+        raise ValueError(
+            "A–E comparison invariant failed: "
+            + ", ".join(invariant_failures)
+        )
     return comparison
 
 

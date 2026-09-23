@@ -223,6 +223,18 @@ def test_comparison_aggregator_records_all_evidence_invariants(
     assert {config["local_max_tokens"] for config in observed_runtime_configs} == {3000}
     assert {config["vertical_batch_output_tokens"] for config in observed_runtime_configs} == {3000}
     assert {config["vertical_singleton_output_tokens"] for config in observed_runtime_configs} == {3000}
+    assert {config["remote_fail_fast"] for config in observed_runtime_configs} == {True}
+
+
+def test_comparison_runtime_forces_real_provider_failures_to_fail_closed() -> None:
+    shared, budget = _comparison_runtime_config({
+        "model": "test-model",
+        "max_output_tokens": 4096,
+        "remote_fail_fast": False,
+    })
+
+    assert budget == 3000
+    assert shared["remote_fail_fast"] is True
 
 
 def test_comparison_rejects_missing_temperature(

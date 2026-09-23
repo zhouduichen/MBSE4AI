@@ -105,6 +105,7 @@ class RunMetadata:
     repair_enabled: bool
     cas_enabled: bool
     normalizer_id: str = MODEL_GRAPH_NORMALIZER_ID
+    remote_fail_fast: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -124,6 +125,7 @@ class RunMetadata:
             "repair_enabled": self.repair_enabled,
             "cas_enabled": self.cas_enabled,
             "normalizer_id": self.normalizer_id,
+            "remote_fail_fast": self.remote_fail_fast,
         }
 
 
@@ -605,6 +607,7 @@ class ScenarioRunner:
             gate_enabled=contract.gate_enabled,
             repair_enabled=contract.has_repair,
             cas_enabled=contract.has_cas,
+            remote_fail_fast=bool(_config_value(model, "remote_fail_fast", False)),
         )
         return ScenarioOutput(graph, metadata, tuple(responses), normalized.audit)
 

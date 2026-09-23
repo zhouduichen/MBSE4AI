@@ -376,6 +376,9 @@ def _run_case_inner(
             _write_json(output_dir / "audit.json", {"events": []})
             metadata = scenario_output.metadata.as_dict()
             metadata["normalization_audit"] = scenario_output.normalization_audit.as_dict()
+            metadata["remote_fail_fast"] = bool(
+                effective_runtime_config.get("remote_fail_fast", False)
+            )
             metadata["input_byte_length"] = len(input_envelope.canonical_bytes)
             metadata["input_sha256"] = input_sha256(input_envelope)
             metadata["benchmark_token_budget"] = int(
@@ -455,7 +458,7 @@ def _run_case_inner(
         _write_json(output_dir / "audit.json", audit)
         ledger_payload = to_primitive(run) if run else {}
         ledger_metadata = ledger_payload.get("metadata", ledger_payload) if isinstance(ledger_payload, Mapping) else {}
-        _write_json(output_dir / "metadata.json", _harness_metadata(
+        metadata = _harness_metadata(
             input_envelope,
             contract,
             graph,
@@ -465,7 +468,21 @@ def _run_case_inner(
             comparison_mode=comparison_mode,
             total_output_token_budget=total_output_token_budget,
             execution_elapsed=time.time() - started,
-        ))
+        )
+        _write_json(output_dir / "metadata.json", metadata)
+        telemetry = metadata.get("telemetry", {})
+        if (
+            bool(effective_runtime_config and effective_runtime_config.get("remote_fail_fast"))
+            and isinstance(telemetry, Mapping)
+            and int(telemetry.get("failed_call_count", 0) or 0) > 0
+        ):
+            execution.update({
+                "status": "failed",
+                "exception_type": "ProviderCallFailure",
+                "exception": "remote_fail_fast rejected one or more failed provider calls",
+                "metadata": metadata,
+            })
+            return
         execution.update(
             {
                 "status": "completed",
@@ -485,7 +502,7 @@ def _run_case_inner(
                     "repair": contract.has_repair,
                     "cas": contract.has_cas,
                 },
-            "metadata": json.loads((output_dir / "metadata.json").read_text(encoding="utf-8")),
+                "metadata": metadata,
             }
         )
     except BaseException as exc:  # Persist the failure before the child exits.
@@ -677,6 +694,7 @@ def _harness_metadata(
         "gate_enabled": contract.gate_enabled,
         "repair_enabled": contract.has_repair,
         "cas_enabled": contract.has_cas,
+        "remote_fail_fast": bool(config.get("remote_fail_fast", False)),
         "telemetry": telemetry.as_dict(),
     }
 
