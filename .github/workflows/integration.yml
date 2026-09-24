@@ -146,6 +146,8 @@ jobs:
       RFLP_CONFIG_DIR: ${{ github.workspace }}/.rflp-config
       AI4MBSE_LLM_PROFILE: ${{ inputs.profile || vars.AI4MBSE_LLM_PROFILE }}
       AI4MBSE_LLM_PROFILE_JSON: ${{ secrets.AI4MBSE_LLM_PROFILE_JSON }}
+      AI4MBSE_LLM_CASE_TIMEOUT_SECONDS: ${{ vars.AI4MBSE_LLM_CASE_TIMEOUT_SECONDS || '2700' }}
+      AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET: ${{ vars.AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET || '4096' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -170,6 +172,23 @@ jobs:
                   raise SystemExit(f"{key} must be a non-negative number; use 0 for free inference")
           LLMProfileService().save({**payload, "active": True})
           PY
+      - name: Validate remote comparison controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          case_timeout="$AI4MBSE_LLM_CASE_TIMEOUT_SECONDS"
+          token_budget="$AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET"
+          [[ "$case_timeout" =~ ^[0-9]+$ ]] || { echo "case timeout must be an integer" >&2; exit 1; }
+          [[ "$token_budget" =~ ^[0-9]+$ ]] || { echo "benchmark token budget must be an integer" >&2; exit 1; }
+          (( case_timeout >= 900 )) || { echo "case timeout must be at least the 900s provider timeout" >&2; exit 1; }
+          (( token_budget >= 256 )) || { echo "benchmark token budget must be at least 256 tokens" >&2; exit 1; }
+          {
+            echo "## Remote LLM comparison controls"
+            echo "- provider request timeout: profile-defined (maximum 900s)"
+            echo "- benchmark case timeout: ${case_timeout}s"
+            echo "- per-call output token budget: ${token_budget}"
+            echo "- comparison mode: natural"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Run same-model A–E comparison
         run: python tests/mbse_benchmark/run_benchmark.py \
           --track llm \
@@ -177,6 +196,8 @@ jobs:
           --compare-a-e \
           --path vertical \
           --repeats 3 \
+          --timeout "$AI4MBSE_LLM_CASE_TIMEOUT_SECONDS" \
+          --benchmark-token-budget "$AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET" \
           --comparison-mode natural \
           --output-root tests/mbse_benchmark/results/integration-remote \
           --report-dir tests/mbse_benchmark/reports/integration-remote

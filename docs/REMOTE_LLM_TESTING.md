@@ -138,7 +138,7 @@ RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-profile \
   --case CASE-04 \
   --repeats 3 \
   --benchmark-token-budget 4096 \
-  --timeout 900 \
+  --timeout 2700 \
   --compare-a-e
 ```
 
@@ -147,6 +147,10 @@ separate from the deterministic offline Harness acceptance and must not be
 described as a local model test. The report records the scenario controls and
 the model/provider, prompt/task/input/graph hashes, temperature, token usage,
 latency, verifier, repair, and CAS settings for every scenario.
+`--timeout` is the outer timeout for one case/repeat; keep the profile's
+per-provider-request timeout at or below 900 seconds. B staged and C/D/E
+Harness paths make multiple provider calls, so the outer timeout must not be
+confused with the single-request limit.
 
 For the compatibility/diagnostic 23-task lifecycle, use the same isolated
 profile with `--path lifecycle`:
