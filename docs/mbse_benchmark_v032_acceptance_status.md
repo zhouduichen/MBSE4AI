@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
-更新时间：2026-09-24 15:06 CST
-审计提交：`c841b33`
+更新时间：2026-09-24 15:56 CST
+审计提交：`5427733`（run13 证据追加待提交）
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -58,8 +58,23 @@ reports: /tmp/ai4mbse-v032-ae-natural-vertical-20260924-run12-reports
 
 run12 的 outer case timeout 已足够，但约 2.5 分钟后远端 launcher 记录 `owned vLLM child did not exit after 20s; force reaping process tree` 与 `vLLM exited rc=137; returning to GPU queue`。随后所有场景都 fail-closed：A/B 为 transport failure，C/D 每个 repeat 有 4 个 failed calls，E 每个 repeat 有 33 个 failed calls，token usage 为 0，comparison `status=FAIL`。该结果证明下一次实验必须把“vLLM 已监听”与“GPU handoff lease 已稳定释放”作为两个独立前置条件。
 
+## 最新远端 run13（A repeat03 输出截断，不能替代完整 A–E）
+
+```text
+endpoint: http://127.0.0.1:8000/v1
+model: qwen3.5-controller
+profile: jiayuinter-vllm-v032-remote
+command: --compare-a-e --path vertical --case CASE-01 --repeats 3 --timeout 2700 --benchmark-token-budget 4096
+benchmark PID: 2550996
+vLLM PID: 2546523
+results: /tmp/ai4mbse-v032-ae-natural-vertical-20260924-run13-results
+reports: /tmp/ai4mbse-v032-ae-natural-vertical-20260924-run13-reports
+```
+
+run13 在 F3 campaign lease 释放后启动，vLLM 端口稳定且 A/repeat01、02 均完成真实调用：两次均 `call_count=1`、`failed_call_count=0`、token usage 可用，total tokens 分别为 4313 与 4269，wall latency 分别为 327280 与 317593 ms；三次输入均使用相同的 input hash `e5ab4f5b3c6b719491c716a7fdb0e3613ecd4e28c672665acb1891d02a87de10` 与 artifact SHA-256 `70e5f128a4cecdfce30fec9a05340c0e18431c93055870d30d7fbd05b6540669`。A/repeat03 在 `execution.json` 记录 `elapsed_seconds=720.99805`、`exception_type=StructuredOutputFailure`、`exception=LLM response is not valid JSON after one repair: provider output was truncated`，因此没有完整 graph/telemetry；comparison 不能通过 `execution_complete`、真实 calls 和后续 A–E invariants。run13 随后自然进入 B，当前仍在运行；该失败是 4096 per-call output cap 的真实边界证据，不应被 fallback 或写死 coverage 掩盖。下一次垂直比较必须提高同一个 A–E cap（并同步 profile 的 `max_output_tokens`，例如验证 8192），仍需让所有场景共享该 cap 后重新完成至少 3 repeats。
+
 ## 当前结论
 
-v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run11 已进一步证明服务器本机直连 vLLM 可以连续完成 A 的真实 repeats，同时证明当前 `--timeout 900` 不足以完成 B 的 staged 路径；run12 则证明仅提高 outer timeout 仍不足以避开 GPU handoff。Integration workflow 已修复为显式分层 timeout，但完整目标尚未完成。第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner，并取得完整 A–E 的质量/成本结果；下一次正式 run 必须等待 vLLM 重新监听并确认 handoff lease 稳定释放，在相同 profile/输入下使用 outer case timeout `2700s` 和独立 output root，取得完整 comparison PASS。
+v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run11 已进一步证明服务器本机直连 vLLM 可以连续完成 A 的真实 repeats，同时证明当前 `--timeout 900` 不足以完成 B 的 staged 路径；run12 则证明仅提高 outer timeout 仍不足以避开 GPU handoff；run13 又证明 4096 per-call cap 会在 one-shot full RFLP+V&V 上触发真实 provider output truncation。Integration workflow 已修复为显式分层 timeout，但完整目标尚未完成。第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner，并取得完整 A–E 的质量/成本结果；下一次正式 run 必须等待 vLLM 重新监听并确认 handoff lease 稳定释放，使用同步提高后的统一 A–E cap（例如 8192）、outer case timeout `2700s` 和独立 output root，取得完整 comparison PASS。
 
 本地离线测试、contract job、skip 状态和 SSH 可达性检查都不能替代第 15 项的 GitHub integration evidence。

@@ -152,6 +152,15 @@ per-provider-request timeout at or below 900 seconds. B staged and C/D/E
 Harness paths make multiple provider calls, so the outer timeout must not be
 confused with the single-request limit.
 
+The server-local run on 2026-09-24 also exposed a separate output-budget
+boundary: with the Qwen3.5 vertical profile capped at 4096 output tokens,
+A/repeat03 failed after 720.998 seconds with a truncated provider response
+even though the endpoint remained healthy. For a full vertical one-shot
+comparison, raise the profile's `max_output_tokens` and the shared
+`--benchmark-token-budget` together (for example, validate 8192); never raise
+the cap for only one scenario. Keep the failed run as evidence rather than
+converting it to a semantic zero or a fallback result.
+
 For the compatibility/diagnostic 23-task lifecycle, use the same isolated
 profile with `--path lifecycle`:
 
