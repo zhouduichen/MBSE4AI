@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
-更新时间：2026-09-24
-审计提交：`2a16329`
+更新时间：2026-09-24 13:31 CST
+审计提交：`0a92855`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -24,8 +24,27 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 | 14 | Integration schedule 不空跑 | CONTRACT VERIFIED; SCHEDULE PENDING | `.github/workflows/integration.yml` 已包含周六 schedule、无条件 contract job 和外部 prerequisite readiness；但该 workflow 尚未进入默认分支，因此尚无 scheduled event 的权威 run evidence。当前 GitHub repository 仍无 Actions variables/secrets；若 schedule 没有任何外部目标，readiness 会明确失败而不是绿灯空跑 |
 | 15 | Remote LLM/FreeCAD/GPU 真实 workflow | NOT YET PROVEN | GitHub 当前 self-hosted runners=0、Actions variables=0、secrets=0。Jiayu-intern 曾验证 managed vLLM `/v1/models` 与真实 chat completion/usage 可用；此前三次真实比较均被远端资源切换中断：`/tmp/ai4mbse-v032-ae-natural-20260923-run1-results` 只完成 A repeat 1，`/tmp/ai4mbse-v032-ae-natural-20260924-run2-results` 留下 A/B 输入与部分 C/D/E blocked 结果，`/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run3-results` 已按正确 `--path vertical` 发出真实请求但仍在 00:31:37 被回收。随后 run4 在 A-repeat-03 期间再次被回收；run5（`/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run5-results`，报告 `/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run5-reports`）确认了同一根因：01:09:05 `/v1/models` 与真实请求可用，01:11:45 远端 supervisor 启动下一个 worker handoff，launcher 按策略停止 vLLM，A/B/C/D 记录 `ConnectionResetError`，E 仅留下 `completed_with_warnings`，comparison 为 FAIL。run6 在 campaign 终态后的短窗口启动成功，但 01:25:07 supervisor 又启动 candidate 3 F1 并触发同样的 vLLM 回收；`/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run6-results` 只有 C/D 三 repeats 与 E 三失败 repeats，A/B/C/D/E comparison 仍为 FAIL。run7/8 则在远端 vLLM 健康时暴露了本地 SSH tunnel 生命周期问题：远端 `/v1/models` 正常但本地 `18000` 消失，runner 记录 `URLError`；run9 使用自动重连 tunnel 后确认前两次真实 POST 成功，但约 5 分钟后新的 detached supervisor（PID `1716998`，`--max-rounds 6`）启动 candidate 6 handoff，仍按策略停止 vLLM，run10 因同一 handoff 中止。远端日志明确显示 `campaign holds Controller lane for worker handoff; stopping owned vLLM child`；因此不能把任何部分目录或 fallback 结果计为 A–E PASS |
 
+## 最新远端 run11（部分完成，不能替代完整 A–E）
+
+run11 利用 campaign 结束后的 vLLM 空闲窗口，在 `Jiayu-intern` 服务器本机直接运行，避免 SSH tunnel 生命周期影响：
+
+```text
+endpoint: http://127.0.0.1:8000/v1
+model: qwen3.5-controller
+profile: jiayuinter-vllm-v032-remote
+command: --compare-a-e --path vertical --case CASE-01 --repeats 3
+comparison-mode: natural
+benchmark-token-budget: 4096
+benchmark PID: 2409113
+vLLM PID: 2171645
+results: /tmp/ai4mbse-v032-ae-natural-vertical-20260924-run11-results
+reports: /tmp/ai4mbse-v032-ae-natural-vertical-20260924-run11-reports
+```
+
+截至本次审计，A `Bare one-shot` 已完成 3/3 repeats，B 已开始但尚未完成；三份 A metadata 均记录 `execution_status=completed`、`call_count=1`、`total_tokens=4269`，wall latency 分别为 324995、322673、323395 ms。A 三份及 B repeat 1 的实际 `input.json` 均为 1549 bytes、SHA-256 `70e5f128a4cecdfce30fec9a05340c0e18431c93055870d30d7fbd05b6540669`。A metadata 还记录 `ground_truth_payload_transmitted=false`、`model_visible=false`、`guard_enforced=true`、evaluation owner 为 `ExternalEvaluator:v0.3.2`，并将 semantic/governance metrics 分开保存。run11 仍在后台运行，因此第 15 项以及 A–E 的整体结论仍保持 NOT YET PROVEN。
+
 ## 当前结论
 
-v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；但完整目标尚未完成。第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner，并为 vLLM 申请不被 GPU queue 中途回收的完整实验租约；之后才能取得可发表的 A–E 质量/成本结果。run5 证明了远端服务本身可以启动并接受真实请求，但没有证明完整 benchmark 可完成。
+v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run11 已进一步证明服务器本机直连 vLLM 可以连续完成 A 的真实 repeats，但完整目标尚未完成。第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner，并取得完整 A–E 的质量/成本结果；run11 的 B–E 仍需完成后才能更新为完整实验结论。
 
 本地离线测试、contract job、skip 状态和 SSH 可达性检查都不能替代第 15 项的 GitHub integration evidence。
