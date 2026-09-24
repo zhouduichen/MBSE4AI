@@ -424,10 +424,15 @@ def _contextualize_vertical_requirements(
         kind.value
         for kind in sorted(stage_kinds - active_kinds, key=lambda item: item.value)
     )
-    entity_properties["kind"] = {"enum": list(missing_kinds)}
-    entity_item["properties"] = entity_properties
-    entities_schema["items"] = entity_item
-    entities_schema["maxItems"] = len(missing_kinds)
+    if missing_kinds:
+        entity_properties["kind"] = {"enum": list(missing_kinds)}
+        entity_item["properties"] = entity_properties
+        entities_schema["items"] = entity_item
+        entities_schema["maxItems"] = len(missing_kinds)
+    else:
+        # An empty enum is invalid for vLLM/xgrammar even when maxItems=0.
+        # Preserve the base kind schema because no entity item can be emitted.
+        entities_schema["maxItems"] = 0
     properties["entities"] = entities_schema
     deprecations_schema = dict(properties["deprecations"])
     deprecations_schema["maxItems"] = 0
