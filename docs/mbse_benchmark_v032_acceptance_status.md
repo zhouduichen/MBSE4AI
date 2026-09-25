@@ -1,25 +1,25 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
-更新时间：2026-09-24 21:32 CST
-审计提交：`5512359`
+更新时间：2026-09-25 05:40 CST
+审计提交：`00a78db`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
 
 | # | 验收项 | 当前状态 | 权威证据 / 边界 |
 |---:|---|---|---|
-| 1 | A–E 实际输入 byte/hash 一致 | CONTRACT VERIFIED | `BenchmarkInputEnvelope`、`_persisted_input_audit`、A–E comparison invariant；每个 repeat 在 worker 启动前落盘 `input.json`，同时记录 canonical payload hash 与实际 artifact SHA-256/byte length；真实 LLM run 仍待外部 profile |
-| 2 | Ground truth 仅 ExternalEvaluator 可访问 | CONTRACT VERIFIED | `ExternalEvaluator.from_expected_dir()` 是唯一加载 `EvaluationSpec` 的入口；A/B 与 C/D/E provider 调用前都经过 evaluator 派生的 value-free request guard，metadata 还要求 `ground_truth_payload_transmitted=false` 与 `guard_enforced=true`；真实 LLM run 仍待外部 profile |
-| 3 | A/B 无法声明 Accepted/User authority | CONTRACT VERIFIED | `ModelGraphNormalizer` 强制 `CANDIDATE/LLM` 并记录 authority audit |
-| 4 | Semantic 与 Governance metrics 分离 | CONTRACT VERIFIED | `ExternalEvaluator.semantic_projection()` 将所有活跃生命周期状态统一为 `VALIDATED` 后再评估语义指标；原始状态、authority claims 与 Technical/Release Closure 保留在 governance metrics 分支 |
-| 5 | C/D/E 正交 Ablation | CONTRACT VERIFIED | `validate_ablation_contracts()` 与 scenario contract tests；D 在 runtime 中实际关闭 feedback、operational completion 和 completion bridge，C/E 显式开启 repair 路径 |
-| 6 | verifier/gate/repair/CAS 开关可审计 | CONTRACT VERIFIED | comparison metadata/report 四个独立 control 字段 |
-| 7 | total token usage | CONTRACT + FAIL-CLOSED | adapter transport telemetry；缺 usage 时 token evidence 不可用，budget-matched 直接失败 |
-| 8 | model call count | CONTRACT VERIFIED | transport-boundary `GenerationCallEvent` 聚合，包括 repair calls |
-| 9 | latency/cost | CONTRACT + FAIL-CLOSED | provider/wall latency 与 pricing telemetry；profile 保留显式 `0` 价格，缺价格仍为 unavailable，不伪造成本 |
-| 10 | natural 与 budget-matched | CONTRACT VERIFIED | 两种 comparison mode；A–E 先统一 effective per-call output cap，并将 lifecycle/vertical batch 与 singleton fallback 都绑定到该 cap，记录 `call_output_token_budget`；公平性比较使用共同 benchmark task-spec hash，同时保留 Harness runtime task-spec hash；natural mode 对总预算明确标记 `not_applicable`，只有 budget-matched 跨调用共享 total cap 并检查 `budget_within_cap`；缺失 temperature 或 per-call cap 时 comparison fail-closed |
-| 11 | 3–5 repeats 与统计 | CONTRACT VERIFIED | comparison 至少 3 repeats，JSON/报告记录 mean/std/CI95 与 Quality-Cost；Markdown 另有显式 Repeat statistics 表；主表的 Calls/Tokens/Latency/Cost 明确使用 repeat mean |
-| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对提交 `5512359` 均成功：[push run 36005629637](https://github.com/zhouduichen/MBSE4AI/actions/runs/36005629637)、[PR run 36005623129](https://github.com/zhouduichen/MBSE4AI/actions/runs/36005623129)；此前 `5f742d7`、`e5c59d3`、`df76d0e`、`450bd07`、`32b3fb6` 等提交的对应 checks 也保持成功 |
+| 1 | A–E 实际输入 byte/hash 一致 | REAL EVIDENCE; FAIL-CLOSED | run14 的 input artifact audit 为 `15/15 exact`，共同 artifact SHA-256=`70e5f128a4cecdfce30fec9a05340c0e18431c93055870d30d7fbd05b6540669`、input hash=`e5ab4f5b3c6b719491c716a7fdb0e3613ecd4e28c672665acb1891d02a87de10`；但 E 超时后 comparison 对整体 `same_input` fail-closed |
+| 2 | Ground truth 仅 ExternalEvaluator 可访问 | REAL EVIDENCE | run14 comparison=`ground_truth_isolated=true`、`same_evaluator=true`、`same_evaluation_spec=true`；15 个输入 artifact 均记录 guard evidence |
+| 3 | A/B 无法声明 Accepted/User authority | REAL EVIDENCE | run14 的 A/B authority claims 被 ExternalEvaluator 记录（A mean 18、B mean 49.67），没有被模型声明直接采信；A/B 的 release/technical closure 均未通过 |
+| 4 | Semantic 与 Governance metrics 分离 | REAL EVIDENCE | run14 同时生成 semantic projection 与 governance authority/Technical Closure/Release Closure 分支；D 的 Technical Closure mean pass=1、Release Closure mean pass=0 |
+| 5 | C/D/E 正交 Ablation | REAL EVIDENCE; OVERALL FAIL | run14 metadata 记录 C=`verifier=false, gate=true, repair=true, CAS=true`，D=`verifier=true, gate=true, repair=false, CAS=true`；E 因三次 timeout 没有完整 controls，整体 `ablation_contract_valid=false` |
+| 6 | verifier/gate/repair/CAS 开关可审计 | REAL EVIDENCE; E INCOMPLETE | A–D 的每个 repeat 均写入四个独立 control 字段；E 三次只留下 timeout/blocked metadata，不能补推开关 |
+| 7 | total token usage | REAL EVIDENCE; E INCOMPLETE | A/B/C/D 记录真实 input/output/total tokens；A mean 4269、B mean 31459.67、C mean 233908、D mean 82929；E 无 token usage，整体 `token_usage_observed=false` |
+| 8 | model call count | REAL EVIDENCE; E INCOMPLETE | A mean 1、B mean 5、C mean 32.67、D mean 11；E 无完整 call telemetry，整体 `real_calls_observed=false` |
+| 9 | latency/cost | LATENCY REAL; COST UNAVAILABLE | A–D 记录 wall/provider latency；run14 cost status 全部 `unavailable`，没有伪造价格或成本，整体 cost invariant 保持 FAIL |
+| 10 | natural 与 budget-matched | NATURAL REAL; BUDGET CONTRACT ONLY | run14 使用 natural mode、共同 per-call cap=8192 且 A–E profile 同步；budget-matched 仍只有契约验证，不能用 natural run 代替 |
+| 11 | 3–5 repeats 与统计 | REAL 3 REPEATS; FAIL-CLOSED | A–E 均有 3 个 repeat 目录；A–D 生成 mean/std/CI95，E 三次均 `TimeoutError`/`blocked`，故整体 execution complete 仍为 false |
+| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对提交 `00a78db` 均成功：[push run 36042188263](https://github.com/zhouduichen/MBSE4AI/actions/runs/36042188263)、[PR run 36042183423](https://github.com/zhouduichen/MBSE4AI/actions/runs/36042183423)；此前提交的 checks 也保持成功 |
 | 13 | main 要求 CI / quality | VERIFIED | GitHub API 当前返回 `strict=true`、required context=`CI / quality`、required approvals=1、`enforce_admins=true` |
 | 14 | Integration schedule 不空跑 | CONTRACT VERIFIED; SCHEDULE PENDING | `.github/workflows/integration.yml` 已包含周六 schedule、无条件 contract job、外部 prerequisite readiness，以及 remote A–E 的分层 timeout：默认 per-case `2700s`、per-call budget `4096`，可由 `AI4MBSE_LLM_CASE_TIMEOUT_SECONDS` / `AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET` 覆盖并在 summary 记录；但该 workflow 尚无配置外部目标的 scheduled event 权威 run evidence。当前 GitHub repository 仍无 Actions variables/secrets；若 schedule 没有任何外部目标，readiness 会明确失败而不是绿灯空跑 |
 | 15 | Remote LLM/FreeCAD/GPU 真实 workflow | NOT YET PROVEN | GitHub 当前 self-hosted runners=0、Actions variables=0、secrets=0。Jiayu-intern 曾验证 managed vLLM `/v1/models` 与真实 chat completion/usage 可用；此前三次真实比较均被远端资源切换中断：`/tmp/ai4mbse-v032-ae-natural-20260923-run1-results` 只完成 A repeat 1，`/tmp/ai4mbse-v032-ae-natural-20260924-run2-results` 留下 A/B 输入与部分 C/D/E blocked 结果，`/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run3-results` 已按正确 `--path vertical` 发出真实请求但仍在 00:31:37 被回收。随后 run4 在 A-repeat-03 期间再次被回收；run5（`/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run5-results`，报告 `/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run5-reports`）确认了同一根因：01:09:05 `/v1/models` 与真实请求可用，01:11:45 远端 supervisor 启动下一个 worker handoff，launcher 按策略停止 vLLM，A/B/C/D 记录 `ConnectionResetError`，E 仅留下 `completed_with_warnings`，comparison 为 FAIL。run6 在 campaign 终态后的短窗口启动成功，但 01:25:07 supervisor 又启动 candidate 3 F1 并触发同样的 vLLM 回收；`/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run6-results` 只有 C/D 三 repeats 与 E 三失败 repeats，A/B/C/D/E comparison 仍为 FAIL。run7/8 则在远端 vLLM 健康时暴露了本地 SSH tunnel 生命周期问题：远端 `/v1/models` 正常但本地 `18000` 消失，runner 记录 `URLError`；run9 使用自动重连 tunnel 后确认前两次真实 POST 成功，但约 5 分钟后新的 detached supervisor（PID `1716998`，`--max-rounds 6`）启动 candidate 6 handoff，仍按策略停止 vLLM，run10 因同一 handoff 中止。run11 已在服务器本机直连窗口内完整走过 A–E 目录，但 comparison 明确为 `FAIL`：A 3/3 completed；B 3/3 blocked at 900s；C 为 2 blocked + 1 failed；D/E 各 3 failed。远端当前 vLLM 已退出，GPU 被 `student_campaign_supervisor` 占用，因此不能把 run11 或任何部分目录/fallback 结果计为 A–E PASS |
@@ -85,7 +85,26 @@ run13 已完整收口，但 `a_to_e_comparison.json` 的整体 `status=FAIL`，�
 
 run13 因此证明了服务器本机可以运行同模型、同输入、同 evaluator 的真实 A–E 管线，也暴露了 4096 cap 下的 JSON 截断、provider fail-fast 和 2700s tail latency；所有这些失败均按原始 execution metadata 保留，没有 fallback 或写死 coverage。
 
-run14 已在 run13 完整退出、vLLM `num_requests_running=0` 且无残留 benchmark/supervisor 后启动，使用独立 output root `/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run14-results`、report root `/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run14-reports`，profile `jiayuinter-vllm-v032-remote-8192`，同步 `max_output_tokens=8192`、`vertical_batch_output_tokens=8192` 和 `--benchmark-token-budget 8192`。截至本次提交，E1 尚未落盘，不能提前解释或宣称结果。
+## 最新远端 run14（8192 cap，完整收口但 FAIL）
+
+```text
+endpoint: http://127.0.0.1:8000/v1
+model: qwen3.5-controller
+profile: jiayuinter-vllm-v032-remote-8192
+command: --compare-a-e --path vertical --case CASE-01 --repeats 3 --timeout 2700 --benchmark-token-budget 8192 --comparison-mode natural
+results: /tmp/ai4mbse-v032-ae-natural-vertical-20260924-run14-results
+reports: /tmp/ai4mbse-v032-ae-natural-vertical-20260924-run14-reports
+```
+
+run14 已完整生成 `a_to_e_comparison.json`、`a_to_e_comparison.md` 与 `reproducibility_manifest.json`，但 comparison `status=FAIL`、`execution_complete=false`。输入 artifact audit 为 `15/15 exact`，`ground_truth_isolated=true`、`same_evaluator=true`、`same_normalizer=true`、`same_evaluation_spec=true`；整体 comparison 对 incomplete execution fail-closed，因此 `same_input`、`same_model_provider`、`same_task_spec`、real calls、token usage、latency、cost 等 overall invariant 仍不能宣称通过。
+
+- A：3/3 completed，mean `1 call / 4269 tokens / 325259 ms`，三次 graph hash 一致；verifier/gate/repair/CAS 均为 false。
+- B：3/3 completed，mean `5 calls / 31459.67 tokens / 1117519 ms`，三次均在 8192 cap 内；verifier/gate/repair/CAS 均为 false。
+- C：`verifier=false, gate=true, repair=true, CAS=true`；repeat01 为 35 calls、8 failed provider calls、1883.258s 并 fail-fast；repeat02 无失败、22 calls、178997 tokens；repeat03 为 41 calls、1 failed call、2536.575s 并 fail-fast。
+- D：`verifier=true, gate=true, repair=false, CAS=true`；repeat01 为 21 calls、1 failed call，repeat02/03 均 6 calls、约 51.4k tokens、约 278s；Technical Closure 通过，但 Release Closure 因下游 `VALIDATED` facts 未达到 `ACCEPTED/LOCKED` 失败。
+- E：三次均 `TimeoutError`/`blocked`，每次约 `2700s`，没有完整 graph/telemetry，不能补推 full-Harness 的质量或成本收益。
+
+run14 使用的是修复提交 `00a78db` 之前的远端 checkout。C1 期间 vLLM 日志明确记录 xgrammar `enum array must not be empty` 并返回 HTTP 500；本地提交 `00a78db` 已修复完整 R 阶段生成空 enum 的 schema bug，并通过 targeted tests/CI，下一次真实 A–E 必须在该修复提交上重新执行。该 run 的原始失败、timeout、token 和 latency evidence 均保留，不用 fallback 或写死 coverage 掩盖。
 
 ## 最新 GitHub Integration 证据（run 35861617609）
 
@@ -95,6 +114,6 @@ run14 已在 run13 完整退出、vLLM `num_requests_running=0` 且无残留 ben
 
 ## 当前结论
 
-v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run13 证明服务器本机可以在稳定 vLLM 窗口内完成真实 A–E 管线，但 comparison 仍因 provider failure、timeout 和治理/语义结果为 `FAIL`，不能冒充完整 PASS。run14 正在用同步 8192 cap 验证 output truncation 与长尾权衡。Integration workflow 已修复为显式分层 timeout，但完整目标尚未完成；第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner，并取得完整 A–E 的质量/成本结果。
+v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run14 证明服务器本机可以在同模型、同输入、同 evaluator 下真实走完 A–E 调度，但 comparison 因 C 的 provider schema 失败、E 的 2700s tail timeout、cost unavailable 以及 Release Closure 结果为 `FAIL`，不能冒充 Harness 收益已被证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI，下一步应在修复 checkout 上重跑 A–E，而不是从 run14 推导正向结论。Integration workflow 已修复为显式分层 timeout，但完整目标尚未完成；第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner，并取得完整 A–E 的质量/成本结果。
 
 本地离线测试、contract job、skip 状态和 SSH 可达性检查都不能替代第 15 项的 GitHub integration evidence。
