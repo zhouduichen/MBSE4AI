@@ -106,6 +106,10 @@ run14 已完整生成 `a_to_e_comparison.json`、`a_to_e_comparison.md` 与 `rep
 
 run14 使用的是修复提交 `00a78db` 之前的远端 checkout。C1 期间 vLLM 日志明确记录 xgrammar `enum array must not be empty` 并返回 HTTP 500；本地提交 `00a78db` 已修复完整 R 阶段生成空 enum 的 schema bug，并通过 targeted tests/CI，下一次真实 A–E 必须在该修复提交上重新执行。该 run 的原始失败、timeout、token 和 latency evidence 均保留，不用 fallback 或写死 coverage 掩盖。
 
+## run15（修复 checkout，但被外部 GPU handoff 中断）
+
+run15 使用独立 `/tmp/ai4mbse-v032-remote-run15` checkout，并替换为 `00a78db` 中已验证的 `executor.py`；启动命令与 run14 相同但 per-case timeout 提高到 `5400s`。A1 开始真实生成且 vLLM 日志未再出现空 enum 500，但约 4 分钟后 Controller scheduler 记录：`campaign holds Controller lane for worker handoff; stopping owned vLLM child`，随后 vLLM `PID 3337166` 被停止并在 `rc=137` 后回收 GPU。run15 的 A1/A2/A3 分别以 `URLError`（约 `299s`、`2s`、`2s`）失败，benchmark 按比较 invariant fail-closed 退出；没有产生可用于 A–E 质量结论的完整 comparison。该 run 证明下一次真实重跑的必要前置条件不是单纯 `:8000` 可访问，而是整个 Controller GPU lease 在 A–E 完整时段内稳定，不能把 scheduler handoff 期间的部分结果计为 PASS。
+
 ## 最新 GitHub Integration 证据（run 35861617609）
 
 2026-09-23 的 `workflow_dispatch` run [35861617609](https://github.com/zhouduichen/MBSE4AI/actions/runs/35861617609) 中，`integration contract` 与 `external prerequisite readiness` 成功；但 `remote LLM A–E comparison`、`GPU acceptance`、`FreeCAD acceptance` 三个 job 均为 `skipped`。因此该 run 只能证明离线 contract 与 prerequisite gate 的行为，不能证明真实远程 LLM、GPU 或 FreeCAD 已在 GitHub runner 上执行。
@@ -114,6 +118,6 @@ run14 使用的是修复提交 `00a78db` 之前的远端 checkout。C1 期间 vL
 
 ## 当前结论
 
-v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run14 证明服务器本机可以在同模型、同输入、同 evaluator 下真实走完 A–E 调度，但 comparison 因 C 的 provider schema 失败、E 的 2700s tail timeout、cost unavailable 以及 Release Closure 结果为 `FAIL`，不能冒充 Harness 收益已被证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI，下一步应在修复 checkout 上重跑 A–E，而不是从 run14 推导正向结论。Integration workflow 已修复为显式分层 timeout，但完整目标尚未完成；第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner，并取得完整 A–E 的质量/成本结果。
+v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run14 证明服务器本机可以在同模型、同输入、同 evaluator 下真实走完 A–E 调度，但 comparison 因 C 的 provider schema 失败、E 的 2700s tail timeout、cost unavailable 以及 Release Closure 结果为 `FAIL`，不能冒充 Harness 收益已被证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15 又证明仅等待 `:8000` 空闲不足以保证实验，外部 GPU handoff 会在中途回收 vLLM，下一次必须取得稳定 Controller lease 或可审计的 scheduler hold 后再重跑 A–E。Integration workflow 已修复为显式分层 timeout，但完整目标尚未完成；第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner，并取得完整 A–E 的质量/成本结果。
 
 本地离线测试、contract job、skip 状态和 SSH 可达性检查都不能替代第 15 项的 GitHub integration evidence。
