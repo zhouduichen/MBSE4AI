@@ -1,24 +1,24 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
-更新时间：2026-09-25 05:40 CST
-审计提交：`00a78db`
+更新时间：2026-09-26 15:20 CST
+审计提交：`c1bde94`（run16 证据待提交）
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
 
 | # | 验收项 | 当前状态 | 权威证据 / 边界 |
 |---:|---|---|---|
-| 1 | A–E 实际输入 byte/hash 一致 | REAL EVIDENCE; FAIL-CLOSED | run14 的 input artifact audit 为 `15/15 exact`，共同 artifact SHA-256=`70e5f128a4cecdfce30fec9a05340c0e18431c93055870d30d7fbd05b6540669`、input hash=`e5ab4f5b3c6b719491c716a7fdb0e3613ecd4e28c672665acb1891d02a87de10`；但 E 超时后 comparison 对整体 `same_input` fail-closed |
-| 2 | Ground truth 仅 ExternalEvaluator 可访问 | REAL EVIDENCE | run14 comparison=`ground_truth_isolated=true`、`same_evaluator=true`、`same_evaluation_spec=true`；15 个输入 artifact 均记录 guard evidence |
-| 3 | A/B 无法声明 Accepted/User authority | REAL EVIDENCE | run14 的 A/B authority claims 被 ExternalEvaluator 记录（A mean 18、B mean 49.67），没有被模型声明直接采信；A/B 的 release/technical closure 均未通过 |
-| 4 | Semantic 与 Governance metrics 分离 | REAL EVIDENCE | run14 同时生成 semantic projection 与 governance authority/Technical Closure/Release Closure 分支；D 的 Technical Closure mean pass=1、Release Closure mean pass=0 |
-| 5 | C/D/E 正交 Ablation | REAL EVIDENCE; OVERALL FAIL | run14 metadata 记录 C=`verifier=false, gate=true, repair=true, CAS=true`，D=`verifier=true, gate=true, repair=false, CAS=true`；E 因三次 timeout 没有完整 controls，整体 `ablation_contract_valid=false` |
-| 6 | verifier/gate/repair/CAS 开关可审计 | REAL EVIDENCE; E INCOMPLETE | A–D 的每个 repeat 均写入四个独立 control 字段；E 三次只留下 timeout/blocked metadata，不能补推开关 |
-| 7 | total token usage | REAL EVIDENCE; E INCOMPLETE | A/B/C/D 记录真实 input/output/total tokens；A mean 4269、B mean 31459.67、C mean 233908、D mean 82929；E 无 token usage，整体 `token_usage_observed=false` |
-| 8 | model call count | REAL EVIDENCE; E INCOMPLETE | A mean 1、B mean 5、C mean 32.67、D mean 11；E 无完整 call telemetry，整体 `real_calls_observed=false` |
-| 9 | latency/cost | LATENCY REAL; COST UNAVAILABLE | A–D 记录 wall/provider latency；run14 cost status 全部 `unavailable`，没有伪造价格或成本，整体 cost invariant 保持 FAIL |
+| 1 | A–E 实际输入 byte/hash 一致 | VERIFIED; OVERALL FAIL-CLOSED | run16 input artifact audit 为 `15/15 exact`，共同 artifact SHA-256=`70e5f128a4cecdfce30fec9a05340c0e18431c93055870d30d7fbd05b6540669`、input hash=`e5ab4f5b3c6b719491c716a7fdb0e3613ecd4e28c672665acb1891d02a87de10`；共同输入本身已通过，整体 comparison 仍因执行不完整 FAIL |
+| 2 | Ground truth 仅 ExternalEvaluator 可访问 | VERIFIED | run16 comparison=`ground_truth_isolated=true`、`same_evaluator=true`、`same_evaluation_spec=true`；15 个输入 artifact 均记录 guard evidence |
+| 3 | A/B 无法声明 Accepted/User authority | VERIFIED | run16 的 A/B authority claims 被 ExternalEvaluator 记录（A=18、B=53），没有被模型声明直接采信；A/B 的 release/technical closure 均未通过 |
+| 4 | Semantic 与 Governance metrics 分离 | VERIFIED | run16 同时生成 semantic projection 与 governance authority/Technical Closure/Release Closure 分支；D/E 的 Technical Closure mean pass=1、Release Closure mean pass=0 |
+| 5 | C/D/E 正交 Ablation | VERIFIED; OVERALL FAIL | run16 metadata 记录 C=`verifier=false, gate=true, repair=true, CAS=true`，D=`verifier=true, gate=true, repair=false, CAS=true`，E 全开；controls 已可审计，但 execution 不完整，整体仍 fail-closed |
+| 6 | verifier/gate/repair/CAS 开关可审计 | VERIFIED | run16 A–E 均生成独立 control 字段；E 的 provider fail-fast 不能被补推成成功，但不影响 controls 审计 |
+| 7 | total token usage | REAL EVIDENCE; OVERALL FAIL-CLOSED | run16 A–E 均有真实 telemetry：A/B/C/D/E mean total tokens 分别为 `4269 / 32760 / 92520 / 127952.33 / 340293`；整体仍因 execution incomplete 保持 invariant FAIL |
+| 8 | model call count | REAL EVIDENCE; OVERALL FAIL-CLOSED | run16 A/B/C/D/E mean calls=`1 / 5 / 11.33 / 18 / 42.33`；E 的 calls 也已记录，但 comparison 仍因失败重复保持整体 fail-closed |
+| 9 | latency/cost | LATENCY REAL; COST UNAVAILABLE | run16 A–E wall latency mean 约 `321s / 1186s / 664s / 1135s / 2872s`；cost status=`unavailable`，没有伪造价格或成本 |
 | 10 | natural 与 budget-matched | NATURAL REAL; BUDGET CONTRACT ONLY | run14 使用 natural mode、共同 per-call cap=8192 且 A–E profile 同步；budget-matched 仍只有契约验证，不能用 natural run 代替 |
-| 11 | 3–5 repeats 与统计 | REAL 3 REPEATS; FAIL-CLOSED | A–E 均有 3 个 repeat 目录；A–D 生成 mean/std/CI95，E 三次均 `TimeoutError`/`blocked`，故整体 execution complete 仍为 false |
+| 11 | 3–5 repeats 与统计 | VERIFIED; FAIL-CLOSED | run16 A–E 均有 3 个 repeat 目录并生成 mean/std/CI95；D 为 1 completed+2 failed，E 为 3 failed，故整体 execution complete 仍为 false |
 | 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对提交 `00a78db` 均成功：[push run 36042188263](https://github.com/zhouduichen/MBSE4AI/actions/runs/36042188263)、[PR run 36042183423](https://github.com/zhouduichen/MBSE4AI/actions/runs/36042183423)；此前提交的 checks 也保持成功 |
 | 13 | main 要求 CI / quality | VERIFIED | GitHub API 当前返回 `strict=true`、required context=`CI / quality`、required approvals=1、`enforce_admins=true` |
 | 14 | Integration schedule 不空跑 | CONTRACT VERIFIED; SCHEDULE PENDING | `.github/workflows/integration.yml` 已包含周六 schedule、无条件 contract job、外部 prerequisite readiness，以及 remote A–E 的分层 timeout：默认 per-case `2700s`、per-call budget `4096`，可由 `AI4MBSE_LLM_CASE_TIMEOUT_SECONDS` / `AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET` 覆盖并在 summary 记录；但该 workflow 尚无配置外部目标的 scheduled event 权威 run evidence。当前 GitHub repository 仍无 Actions variables/secrets；若 schedule 没有任何外部目标，readiness 会明确失败而不是绿灯空跑 |
@@ -110,6 +110,36 @@ run14 使用的是修复提交 `00a78db` 之前的远端 checkout。C1 期间 vL
 
 run15 使用独立 `/tmp/ai4mbse-v032-remote-run15` checkout，并替换为 `00a78db` 中已验证的 `executor.py`；启动命令与 run14 相同但 per-case timeout 提高到 `5400s`。A1 开始真实生成且 vLLM 日志未再出现空 enum 500，但约 4 分钟后 Controller scheduler 记录：`campaign holds Controller lane for worker handoff; stopping owned vLLM child`，随后 vLLM `PID 3337166` 被停止并在 `rc=137` 后回收 GPU。run15 的 A1/A2/A3 分别以 `URLError`（约 `299s`、`2s`、`2s`）失败，benchmark 按比较 invariant fail-closed 退出；没有产生可用于 A–E 质量结论的完整 comparison。该 run 证明下一次真实重跑的必要前置条件不是单纯 `:8000` 可访问，而是整个 Controller GPU lease 在 A–E 完整时段内稳定，不能把 scheduler handoff 期间的部分结果计为 PASS。
 
+## 最新远端 run16（利用 vLLM 空闲窗口，修复后真实收口但 FAIL）
+
+run16 在修复后的 checkout 上运行，使用服务器本机 `127.0.0.1:8000`，避免 SSH tunnel 生命周期影响：
+
+```text
+endpoint: http://127.0.0.1:8000/v1
+model: qwen3.5-controller
+profile: jiayuinter-vllm-v032-remote-8192
+command: --compare-a-e --path vertical --case CASE-01 --repeats 3 --timeout 5400 --benchmark-token-budget 8192 --comparison-mode natural
+results: /tmp/ai4mbse-v032-ae-natural-vertical-20260926-run16-results
+reports: /tmp/ai4mbse-v032-ae-natural-vertical-20260926-run16-reports
+source fix: 00a78db (empty vertical requirement enum regression test passed)
+```
+
+这次实验验证了应采用的运行权衡：等待 vLLM 处于空闲且 Controller lease 稳定时启动，不长期强占 GPU，也不在 scheduler handoff 期间重启服务。vLLM 在 `03:48:52` 重新选择 GPU group 0 后，直到本轮收尾没有新的 `campaign holds`/`vLLM exited` 记录；收尾时 `num_requests_running=0`，vLLM `error/abort/repetition` counters 均为 0。也就是说，本轮的失败是实验执行/模型调用长尾证据，不是把 vLLM 重启后得到的伪结果。
+
+run16 comparison 为 `status=FAIL`、`execution_complete=false`，但共同实验边界已经通过：`ground_truth_isolated=true`、`same_input=true`、`same_model_provider=true`、`same_evaluator=true`、`same_normalizer=true`、`same_evaluation_spec=true`、`same_task_spec=true`、`same_temperature=true`；输入 artifact audit 为 `15/15 exact`，共同 artifact SHA-256=`70e5f128a4cecdfce30fec9a05340c0e18431c93055870d30d7fbd05b6540669`，input hash=`e5ab4f5b3c6b719491c716a7fdb0e3613ecd4e28c672665acb1891d02a87de10`。
+
+三次重复的聚合证据如下。所有 scenario 都使用同一个 `qwen3.5-controller`、同一个 ExternalEvaluator/normalizer 和同一个 8192 per-call cap：
+
+| Scenario | Controls | 执行状态 | mean calls | mean total tokens | mean wall latency | semantic / governance 结果 |
+|---|---|---|---:|---:|---:|---|
+| A Bare one-shot | 全部 false | 3/3 completed | 1.00 | 4,269 | 321s | `RFLP=0`, `trace=0`, authority=18 |
+| B Bare staged | 全部 false | 3/3 completed | 5.00 | 32,760 | 1,186s | `RFLP=0`, `trace=0`, authority=53 |
+| C Harness−Verifier | verifier=false，其余 gate/repair/CAS=true | 3/3 completed（run_status failed） | 11.33 | 92,520 | 664s | `RFLP=0`, Technical/Release Closure=`0/0` |
+| D Harness−Repair | verifier/gate/CAS=true，repair=false | 1 completed + 2 provider fail-fast | 18.00 | 127,952.33 | 1,135s | `RFLP=1`, `trace=0`, Technical/Release=`1/0` |
+| E Full Harness | 全部 true | 3 provider fail-fast | 42.33 | 340,293 | 2,872s | `RFLP=1`, `trace=0`, Technical/Release=`1/0` |
+
+本轮 comparison 的 invariant failures 仅保留为 `execution_complete`、`real_calls_observed`、`token_usage_observed` 和 `cost_observed`；后两项在实现中对不完整 A–E 仍 fail-closed，cost 仍不可用。不能据此宣称 Full Harness 已经带来收益，但可以确认：稳定空闲窗口显著提高了真实证据完整度，8192 cap 消除了 run14 期间观测到的 empty-enum schema 500，剩余主要问题转为 E 的长尾 provider fail-fast、总耗时和远程 runner/调度证据。后续应按 repeat 独立可恢复、空闲窗口运行、失败原样保留的方式继续，而不是延长 GPU 强占或把失败样本改写为 PASS。
+
 ## 最新 GitHub Integration 证据（run 35861617609）
 
 2026-09-23 的 `workflow_dispatch` run [35861617609](https://github.com/zhouduichen/MBSE4AI/actions/runs/35861617609) 中，`integration contract` 与 `external prerequisite readiness` 成功；但 `remote LLM A–E comparison`、`GPU acceptance`、`FreeCAD acceptance` 三个 job 均为 `skipped`。因此该 run 只能证明离线 contract 与 prerequisite gate 的行为，不能证明真实远程 LLM、GPU 或 FreeCAD 已在 GitHub runner 上执行。
@@ -118,6 +148,6 @@ run15 使用独立 `/tmp/ai4mbse-v032-remote-run15` checkout，并替换为 `00a
 
 ## 当前结论
 
-v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run14 证明服务器本机可以在同模型、同输入、同 evaluator 下真实走完 A–E 调度，但 comparison 因 C 的 provider schema 失败、E 的 2700s tail timeout、cost unavailable 以及 Release Closure 结果为 `FAIL`，不能冒充 Harness 收益已被证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15 又证明仅等待 `:8000` 空闲不足以保证实验，外部 GPU handoff 会在中途回收 vLLM，下一次必须取得稳定 Controller lease 或可审计的 scheduler hold 后再重跑 A–E。Integration workflow 已修复为显式分层 timeout，但完整目标尚未完成；第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner，并取得完整 A–E 的质量/成本结果。
+v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run16 证明在 vLLM 空闲且 Controller lease 稳定的窗口内，修复后的服务器本机可以真实跑完 A–E 的三次调度并生成完整 telemetry，但 comparison 仍因 D/E provider fail-fast、execution incomplete、cost unavailable 以及 Release Closure 结果为 `FAIL`，不能冒充 Harness 收益已被证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 共同说明真正的运行策略是“等待稳定空闲窗口、按 repeat 可恢复、失败原样保留”，而不是长期强占 GPU 或仅检查 `:8000`。Integration workflow 已修复为显式分层 timeout，但完整目标尚未完成；第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner，并取得完整 A–E 的质量/成本结果。
 
 本地离线测试、contract job、skip 状态和 SSH 可达性检查都不能替代第 15 项的 GitHub integration evidence。
