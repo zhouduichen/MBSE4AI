@@ -27,6 +27,8 @@ from tests.mbse_benchmark.scenarios import (
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
     ExperimentTelemetry,
+    assert_model_visible_payload_tokens,
+    input_artifact_sha256,
     input_sha256,
     runtime_provider_id,
 )
@@ -35,6 +37,30 @@ from tests.mbse_benchmark.runners.scenario_pipeline import (
     ScenarioRunner,
     TASK_SPEC,
 )
+
+
+class _EvaluatorBoundaryModel:
+    """Enforce the evaluator-only boundary for real Harness calls.
+
+    A/B already validate their request payload in ``ScenarioRunner``.  The
+    Harness path enters through ``StructuredModelRuntime`` instead, so it
+    needs the same guard at the last benchmark-owned boundary before the
+    provider adapter is reached.
+    """
+
+    def __init__(self, model, evaluator_key_tokens: frozenset[str]):
+        self._model = model
+        self._evaluator_key_tokens = evaluator_key_tokens
+
+    def complete_json(self, request):
+        assert_model_visible_payload_tokens(
+            request.user_payload,
+            self._evaluator_key_tokens,
+        )
+        return self._model.complete_json(request)
+
+    def __getattr__(self, name: str):
+        return getattr(self._model, name)
 
 
 
@@ -48,6 +74,29 @@ def _write_canonical_input(path: Path, envelope: BenchmarkInputEnvelope) -> None
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(envelope.canonical_bytes + b"\n")
+
+
+def _apply_scenario_runtime_controls(
+    runtime_config: Mapping[str, object],
+    contract,
+) -> dict[str, object]:
+    """Bind Harness repair behavior to the declared A–E control.
+
+    The product runtime exposes bounded feedback and the deterministic
+    completion bridge as profile options.  A comparison must not silently
+    inherit a profile's latency-oriented defaults, otherwise D would claim
+    ``repair_enabled=false`` while still issuing repair/completion passes or E
+    would claim the full path while those passes were disabled.
+    """
+
+    config = dict(runtime_config)
+    repair_enabled = bool(contract.repair_enabled)
+    config.update({
+        "vertical_feedback": repair_enabled,
+        "automatic_operational_completion": repair_enabled,
+        "vertical_completion_bridge": repair_enabled,
+    })
+    return config
 
 
 def _graph_payload(graph) -> dict[str, object]:
@@ -269,6 +318,11 @@ def _run_case_inner(
     try:
         contract = scenario_contract(scenario)
         effective_runtime_config = dict(runtime_config) if runtime_config else None
+        if effective_runtime_config is not None and contract.generation_shape == "harness":
+            effective_runtime_config = _apply_scenario_runtime_controls(
+                effective_runtime_config,
+                contract,
+            )
         if comparison_mode == "budget_matched" and total_output_token_budget is not None:
             if effective_runtime_config is None:
                 raise ValueError("budget-matched comparison requires a configured model")
@@ -323,8 +377,13 @@ def _run_case_inner(
             _write_json(output_dir / "audit.json", {"events": []})
             metadata = scenario_output.metadata.as_dict()
             metadata["normalization_audit"] = scenario_output.normalization_audit.as_dict()
+            metadata["remote_fail_fast"] = bool(
+                effective_runtime_config.get("remote_fail_fast", False)
+            )
             metadata["input_byte_length"] = len(input_envelope.canonical_bytes)
             metadata["input_sha256"] = input_sha256(input_envelope)
+            metadata["input_artifact_byte_length"] = len(input_envelope.canonical_bytes) + 1
+            metadata["input_artifact_sha256"] = input_artifact_sha256(input_envelope)
             metadata["benchmark_token_budget"] = int(
                 effective_runtime_config.get("benchmark_token_budget", 3000)
                 or 3000
@@ -349,20 +408,24 @@ def _run_case_inner(
                     "input_hash": input_envelope.input_hash,
                     "input_byte_length": len(input_envelope.canonical_bytes),
                     "input_sha256": input_sha256(input_envelope),
+                    "input_artifact_byte_length": len(input_envelope.canonical_bytes) + 1,
+                    "input_artifact_sha256": input_artifact_sha256(input_envelope),
                     "cas_probe": {},
                     "scenario_controls": summary["scenario_controls"],
                     "metadata": metadata,
                 }
             )
             return
-        runtime = (
-            StructuredModelRuntime(OpenAICompatibleModel(
+        if effective_runtime_config:
+            model = OpenAICompatibleModel(
                 dict(effective_runtime_config),
                 telemetry_sink=telemetry_events.append,
-            ))
-            if effective_runtime_config
-            else None
-        )
+            )
+            if model_visible_key_tokens is not None:
+                model = _EvaluatorBoundaryModel(model, model_visible_key_tokens)
+            runtime = StructuredModelRuntime(model)
+        else:
+            runtime = None
         services = build_v2_services(
             workspace,
             runtime=runtime,
@@ -400,7 +463,7 @@ def _run_case_inner(
         _write_json(output_dir / "audit.json", audit)
         ledger_payload = to_primitive(run) if run else {}
         ledger_metadata = ledger_payload.get("metadata", ledger_payload) if isinstance(ledger_payload, Mapping) else {}
-        _write_json(output_dir / "metadata.json", _harness_metadata(
+        metadata = _harness_metadata(
             input_envelope,
             contract,
             graph,
@@ -410,7 +473,21 @@ def _run_case_inner(
             comparison_mode=comparison_mode,
             total_output_token_budget=total_output_token_budget,
             execution_elapsed=time.time() - started,
-        ))
+        )
+        _write_json(output_dir / "metadata.json", metadata)
+        telemetry = metadata.get("telemetry", {})
+        if (
+            bool(effective_runtime_config and effective_runtime_config.get("remote_fail_fast"))
+            and isinstance(telemetry, Mapping)
+            and int(telemetry.get("failed_call_count", 0) or 0) > 0
+        ):
+            execution.update({
+                "status": "failed",
+                "exception_type": "ProviderCallFailure",
+                "exception": "remote_fail_fast rejected one or more failed provider calls",
+                "metadata": metadata,
+            })
+            return
         execution.update(
             {
                 "status": "completed",
@@ -422,6 +499,8 @@ def _run_case_inner(
                 "input_hash": input_envelope.input_hash,
                 "input_byte_length": len(input_envelope.canonical_bytes),
                 "input_sha256": input_sha256(input_envelope),
+                "input_artifact_byte_length": len(input_envelope.canonical_bytes) + 1,
+                "input_artifact_sha256": input_artifact_sha256(input_envelope),
                 "injection": injection,
                 "cas_probe": cas_probe,
                 "scenario_controls": {
@@ -430,7 +509,7 @@ def _run_case_inner(
                     "repair": contract.has_repair,
                     "cas": contract.has_cas,
                 },
-            "metadata": json.loads((output_dir / "metadata.json").read_text(encoding="utf-8")),
+                "metadata": metadata,
             }
         )
     except BaseException as exc:  # Persist the failure before the child exits.
@@ -489,6 +568,10 @@ def run_case(
 
     output_dir = output_dir / f"repeat_{repeat_index:02d}"
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Persist the shared input before spawning the provider worker. A timeout
+    # or transport failure must still leave auditable A–E input bytes.
+    envelope = BenchmarkInputEnvelope.from_case(case)
+    _write_canonical_input(output_dir / "input.json", envelope)
     context = multiprocessing.get_context("spawn")
     process = context.Process(
         target=_child_entry,
@@ -614,6 +697,8 @@ def _harness_metadata(
         "input_hash": input_envelope.input_hash,
         "input_byte_length": len(input_envelope.canonical_bytes),
         "input_sha256": input_sha256(input_envelope),
+        "input_artifact_byte_length": len(input_envelope.canonical_bytes) + 1,
+        "input_artifact_sha256": input_artifact_sha256(input_envelope),
         "benchmark_token_budget": int(config.get("benchmark_token_budget", 3000) or 3000),
         "token_usage": ledger_metadata.get("token_usage") if isinstance(ledger_metadata.get("token_usage"), Mapping) else None,
         "latency_ms": max(0, int(execution_elapsed * 1000)),
@@ -622,6 +707,7 @@ def _harness_metadata(
         "gate_enabled": contract.gate_enabled,
         "repair_enabled": contract.has_repair,
         "cas_enabled": contract.has_cas,
+        "remote_fail_fast": bool(config.get("remote_fail_fast", False)),
         "telemetry": telemetry.as_dict(),
     }
 

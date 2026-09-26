@@ -16,6 +16,12 @@ Configure these repository-level values:
   endpoint so the comparison can still prove that cost was measured. Declare
   an explicit numeric `temperature` as well; a missing temperature is not
   accepted as evidence that A–E used the same sampling configuration.
+- Optional variable `AI4MBSE_LLM_CASE_TIMEOUT_SECONDS`: the outer timeout for
+  one benchmark case/repeat. It defaults to `2700`; it must be at least the
+  profile's maximum single-provider-request timeout of `900` seconds because
+  staged and Harness scenarios contain multiple provider calls.
+- Optional variable `AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET`: the shared per-call
+  output-token cap. It defaults to `4096` and must be at least `256`.
 
 Budget-matched runs also require a positive `--total-output-token-budget`. The
 provider must return an output-token count (`output_tokens`, `completion_tokens`,
@@ -24,14 +30,19 @@ repeat above the cap makes the comparison invalid.
 
 For an operator-triggered run, supply the profile id through the workflow input
 and keep the JSON in the repository secret. The job runs
-`--compare-a-e --repeats 3 --comparison-mode natural`; a budget-matched
+`--compare-a-e --path vertical --repeats 3 --comparison-mode natural`; a budget-matched
 publication run can be launched separately with the benchmark CLI. Natural mode
 records the unconstrained total work and reports budget comparability/enforcement
 as `not_applicable`; only budget-matched mode may claim a shared total cap.
 
-The job is evidence-bearing only when its own run is `success`. A missing profile
+The workflow records both timeout layers in the run summary and artifact
+metadata: the profile controls each provider request, while the case timeout
+controls the complete staged/Harness repeat. The job is evidence-bearing only when its own run is `success`. A missing profile
 leaves the job skipped and the contract summary records `remote LLM profile: NOT
-CONFIGURED`.
+CONFIGURED`. Successful contract and remote A–E jobs upload their generated
+reports, metrics, result files, and reproducibility manifest as run-scoped
+artifacts; a green job without the corresponding artifact is not treated as
+complete evidence.
 
 ## FreeCAD acceptance
 

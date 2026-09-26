@@ -11,7 +11,10 @@ from tests.mbse_benchmark.runners.benchmark_runner import (
 )
 from tests.mbse_benchmark.runners import benchmark_runner as benchmark_runner_module
 from tests.mbse_benchmark.runners.case_runner import _write_canonical_input
-from tests.mbse_benchmark.runners.experiment_contract import BenchmarkInputEnvelope
+from tests.mbse_benchmark.runners.experiment_contract import (
+    BenchmarkInputEnvelope,
+    input_artifact_sha256,
+)
 from tests.mbse_benchmark.runners.scenario_pipeline import (
     EXTERNAL_EVALUATOR_ID,
     MODEL_GRAPH_NORMALIZER_ID,
@@ -72,6 +75,11 @@ def test_persisted_input_audit_checks_every_scenario_and_repeat(tmp_path: Path) 
     assert audit["checked_count"] == 15
     assert audit["all_present"] is True
     assert audit["all_exact"] is True
+    assert all(
+        item["observed_artifact_sha256"]
+        == input_artifact_sha256(BenchmarkInputEnvelope.from_case(CASE))
+        for item in audit["records"]
+    )
 
     altered = (
         tmp_path
@@ -113,6 +121,8 @@ def _fake_comparison_record(scenario: str, repeat_index: int, mode: str) -> dict
         "input_hash": "input-hash",
         "input_sha256": "input-sha256",
         "input_byte_length": 128,
+        "input_artifact_sha256": "input-artifact-sha256",
+        "input_artifact_byte_length": 129,
         "task_spec_hash": "task-hash",
         "runtime_task_spec_hash": f"runtime-{scenario}",
         "evaluation_spec_hash": "evaluation-hash",
@@ -120,7 +130,11 @@ def _fake_comparison_record(scenario: str, repeat_index: int, mode: str) -> dict
         "normalizer_id": MODEL_GRAPH_NORMALIZER_ID,
         "evaluation_owner": EXTERNAL_EVALUATOR_ID,
         "ground_truth_model_visible": False,
-        "evaluation_boundary": {"model_visible": False},
+        "evaluation_boundary": {
+            "model_visible": False,
+            "ground_truth_payload_transmitted": False,
+            "guard_enforced": True,
+        },
         "temperature": 0.2,
         "benchmark_token_budget": 3000,
         "comparison_mode": mode,
@@ -219,6 +233,18 @@ def test_comparison_aggregator_records_all_evidence_invariants(
     assert {config["local_max_tokens"] for config in observed_runtime_configs} == {3000}
     assert {config["vertical_batch_output_tokens"] for config in observed_runtime_configs} == {3000}
     assert {config["vertical_singleton_output_tokens"] for config in observed_runtime_configs} == {3000}
+    assert {config["remote_fail_fast"] for config in observed_runtime_configs} == {True}
+
+
+def test_comparison_runtime_forces_real_provider_failures_to_fail_closed() -> None:
+    shared, budget = _comparison_runtime_config({
+        "model": "test-model",
+        "max_output_tokens": 4096,
+        "remote_fail_fast": False,
+    })
+
+    assert budget == 3000
+    assert shared["remote_fail_fast"] is True
 
 
 def test_comparison_rejects_missing_temperature(

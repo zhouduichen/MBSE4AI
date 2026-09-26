@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import pytest
+
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.model import ModelGraph
+from rflp_lite.ports.generative_model import GenerationRequest, GenerationResponse
 from tests.mbse_benchmark.runners.case_runner import (
+    _EvaluatorBoundaryModel,
+    _apply_scenario_runtime_controls,
     _harness_metadata,
     _run_analysis,
 )
-from tests.mbse_benchmark.runners.experiment_contract import BenchmarkInputEnvelope
+from tests.mbse_benchmark.runners import case_runner as case_runner_module
+from tests.mbse_benchmark.runners.experiment_contract import (
+    BenchmarkInputEnvelope,
+    EvaluationSpec,
+    model_visible_key_tokens,
+)
 from tests.mbse_benchmark.runners.scenario_pipeline import TASK_SPEC
 from tests.mbse_benchmark.scenarios import BenchmarkScenario, scenario_contract
 
@@ -107,3 +117,104 @@ def test_harness_metadata_uses_the_same_profile_identity_as_bare_adapter() -> No
     assert metadata["provider"] == "profile-a"
     assert metadata["task_spec_hash"] == canonical_hash(TASK_SPEC)
     assert metadata["runtime_task_spec_hash"] == ""
+    assert metadata["input_artifact_byte_length"] == len(
+        BenchmarkInputEnvelope.from_case({
+            "case_id": "CASE-01",
+            "system": "测试系统",
+            "stakeholders": [],
+            "lifecycle_stages": [],
+            "scenarios": [],
+            "requirements": [],
+        }).canonical_bytes
+    ) + 1
+
+
+def test_run_case_persists_input_before_worker_start(tmp_path, monkeypatch) -> None:
+    class FakeProcess:
+        exitcode = 0
+
+        def start(self):
+            return None
+
+        def join(self, _timeout):
+            return None
+
+        def is_alive(self):
+            return False
+
+    class FakeContext:
+        def Process(self, **_kwargs):
+            return FakeProcess()
+
+    monkeypatch.setattr(
+        case_runner_module.multiprocessing,
+        "get_context",
+        lambda _name: FakeContext(),
+    )
+    case = {
+        "case_id": "CASE-01",
+        "system": "测试系统",
+        "stakeholders": [],
+        "lifecycle_stages": [],
+        "scenarios": [],
+        "requirements": [],
+    }
+
+    case_runner_module.run_case(case, tmp_path, repeat_index=1)
+
+    assert (tmp_path / "repeat_01" / "input.json").read_bytes()
+
+
+def test_harness_model_guard_blocks_evaluator_payload_before_provider_call() -> None:
+    calls: list[GenerationRequest] = []
+
+    class RecordingModel:
+        def complete_json(self, request: GenerationRequest) -> GenerationResponse:
+            calls.append(request)
+            return GenerationResponse(
+                request.lens_id,
+                {"items": []},
+                "input",
+                "output",
+                False,
+            )
+
+    evaluator = EvaluationSpec.from_expectations({"known_conflicts": {"CASE-01": []}})
+    guarded = _EvaluatorBoundaryModel(
+        RecordingModel(),
+        model_visible_key_tokens(evaluator),
+    )
+
+    with pytest.raises(ValueError, match="evaluator-only"):
+        guarded.complete_json(GenerationRequest(
+            "benchmark.harness",
+            "return JSON",
+            {"context": {"known_conflicts": {"CASE-01": []}}},
+            {"type": "object"},
+        ))
+
+    assert calls == []
+
+
+def test_scenario_runtime_controls_make_repair_ablation_operational() -> None:
+    base = {
+        "vertical_feedback": False,
+        "automatic_operational_completion": False,
+        "vertical_completion_bridge": False,
+    }
+
+    repair_enabled = _apply_scenario_runtime_controls(
+        base,
+        scenario_contract(BenchmarkScenario.E_FULL_HARNESS),
+    )
+    repair_disabled = _apply_scenario_runtime_controls(
+        base,
+        scenario_contract(BenchmarkScenario.D_HARNESS_NO_REPAIR),
+    )
+
+    assert repair_enabled["vertical_feedback"] is True
+    assert repair_enabled["automatic_operational_completion"] is True
+    assert repair_enabled["vertical_completion_bridge"] is True
+    assert repair_disabled["vertical_feedback"] is False
+    assert repair_disabled["automatic_operational_completion"] is False
+    assert repair_disabled["vertical_completion_bridge"] is False

@@ -193,6 +193,20 @@ def _optional_float(
     return result
 
 
+def _optional_cost(payload: Mapping[str, object], name: str) -> float | None:
+    """Preserve an explicit zero price while keeping omitted prices unknown."""
+
+    if name not in payload or payload[name] is None or payload[name] == "":
+        return None
+    return _optional_float(
+        payload,
+        name,
+        minimum=0.0,
+        maximum=1_000_000.0,
+        label=f"LLM {name}",
+    )
+
+
 def _build_normalized_profile(
     payload: Mapping[str, object],
     *,
@@ -239,6 +253,8 @@ def _build_normalized_profile(
         "enabled": bool(payload.get("enabled", True)),
         "context_window": context_window,
         "max_output_tokens": max_output_tokens,
+        "input_cost_per_1m_tokens": _optional_cost(payload, "input_cost_per_1m_tokens"),
+        "output_cost_per_1m_tokens": _optional_cost(payload, "output_cost_per_1m_tokens"),
         # Preserve the legacy names consumed by existing local adapters.
         "local_context_tokens": context_window,
         "local_max_tokens": max_output_tokens,

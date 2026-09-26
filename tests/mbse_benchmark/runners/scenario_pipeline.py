@@ -28,7 +28,8 @@ from tests.mbse_benchmark.validators.case import validate_case
 TASK_SPEC: Mapping[str, object] = {
     "methodology_version": "v0.3.2",
     "input_rule": "Generate only from the complete supplied declared case input; do not use evaluator-only reference outputs.",
-    "graph_rule": "Return a typed ModelGraph with RFLP and verification/validation relations.",
+    "graph_rule": "Return a typed ModelGraph with RFLP and verification/validation relations; staged calls may return only the new entity/relation delta, which is normalized into the final ModelGraph.",
+    "output_rule": "Return JSON only. Omit prose and optional fields; never repeat entities or relations already present in current_graph.",
 }
 
 EXTERNAL_EVALUATOR_ID = (
@@ -87,6 +88,20 @@ MODEL_GRAPH_SCHEMA: dict[str, object] = {
     },
 }
 
+# Bare staged calls should not spend their output budget re-emitting the
+# accumulated graph.  The final A–E comparison still uses the same canonical
+# ModelGraph normalizer; this smaller per-call contract only describes the
+# observable delta produced by one staged model call.
+MODEL_GRAPH_DELTA_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["entities", "relations"],
+    "properties": {
+        "entities": MODEL_GRAPH_SCHEMA["properties"]["entities"],
+        "relations": MODEL_GRAPH_SCHEMA["properties"]["relations"],
+    },
+}
+
 
 @dataclass(frozen=True, slots=True)
 class RunMetadata:
@@ -105,6 +120,7 @@ class RunMetadata:
     repair_enabled: bool
     cas_enabled: bool
     normalizer_id: str = MODEL_GRAPH_NORMALIZER_ID
+    remote_fail_fast: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -124,6 +140,7 @@ class RunMetadata:
             "repair_enabled": self.repair_enabled,
             "cas_enabled": self.cas_enabled,
             "normalizer_id": self.normalizer_id,
+            "remote_fail_fast": self.remote_fail_fast,
         }
 
 
@@ -566,7 +583,7 @@ class ScenarioRunner:
                 f"benchmark.{contract.scenario.value}.{stage}",
                 system_prompt,
                 user_payload,
-                MODEL_GRAPH_SCHEMA,
+                MODEL_GRAPH_SCHEMA if stage == "one_shot" else MODEL_GRAPH_DELTA_SCHEMA,
                 token_budget,
             )
             if model_visible_key_tokens is not None:
@@ -605,6 +622,7 @@ class ScenarioRunner:
             gate_enabled=contract.gate_enabled,
             repair_enabled=contract.has_repair,
             cas_enabled=contract.has_cas,
+            remote_fail_fast=bool(_config_value(model, "remote_fail_fast", False)),
         )
         return ScenarioOutput(graph, metadata, tuple(responses), normalized.audit)
 
@@ -619,8 +637,13 @@ def model_input_for_case(case: Mapping[str, object] | BenchmarkInputEnvelope) ->
 
 def _system_prompt(stage: str) -> str:
     if stage == "one_shot":
-        return "根据 case_input 一次性生成完整 ModelGraph，覆盖 R→F→L→P→V&V；不要读取或假设任何 expected graph。"
-    return f"根据 case_input 生成 {stage} 阶段可观察的 ModelGraph 增量；只使用 current_graph 和 case_input，不要读取 expected graph。"
+        return "根据 case_input 一次性生成完整 ModelGraph，覆盖 R→F→L→P→V&V；只返回 JSON，不要输出解释文字，不要读取或假设任何 expected graph。"
+    return (
+        f"根据 case_input 生成 {stage} 阶段可观察的 ModelGraph 增量；"
+        "只返回 JSON object，且只包含本阶段新增的 entities 和 relations；"
+        "不要返回 project_id 或 revision，不要重复 current_graph 中已有对象，"
+        "不要输出解释文字，不要读取或假设任何 expected graph。"
+    )
 
 
 def _merge_graph_payload(
@@ -681,6 +704,7 @@ __all__ = [
     "MODEL_GRAPH_NORMALIZER_ID",
     "ExternalEvaluator",
     "MODEL_GRAPH_SCHEMA",
+    "MODEL_GRAPH_DELTA_SCHEMA",
     "ModelGraphNormalizer",
     "NormalizationAudit",
     "NormalizedGraph",

@@ -123,9 +123,11 @@ The run ledger records the selected profile, provider, model, prompt/context
 hashes, patches, revisions, and final traceability. A run using
 `offline-rule` is not evidence of a real Provider run.
 
-## 4. Run the focused acceptance
+## 4. Run the reproducible A–E comparison
 
-After `/v1/models` reports `qwen3.5-controller`, run one real vertical case:
+After `/v1/models` reports `qwen3.5-controller`, run one real case through all
+five same-model scenarios. A–E comparisons require at least three repeats;
+`--benchmark-token-budget` makes the shared per-provider-call cap explicit:
 
 ```bash
 RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-profile \
@@ -134,8 +136,9 @@ RFLP_CONFIG_DIR=/tmp/ai4mbse-jiayuinter-profile \
   --profile jiayuinter-vllm \
   --path vertical \
   --case CASE-04 \
-  --repeats 1 \
-  --timeout 900 \
+  --repeats 3 \
+  --benchmark-token-budget 4096 \
+  --timeout 2700 \
   --compare-a-e
 ```
 
@@ -144,6 +147,19 @@ separate from the deterministic offline Harness acceptance and must not be
 described as a local model test. The report records the scenario controls and
 the model/provider, prompt/task/input/graph hashes, temperature, token usage,
 latency, verifier, repair, and CAS settings for every scenario.
+`--timeout` is the outer timeout for one case/repeat; keep the profile's
+per-provider-request timeout at or below 900 seconds. B staged and C/D/E
+Harness paths make multiple provider calls, so the outer timeout must not be
+confused with the single-request limit.
+
+The server-local run on 2026-09-24 also exposed a separate output-budget
+boundary: with the Qwen3.5 vertical profile capped at 4096 output tokens,
+A/repeat03 failed after 720.998 seconds with a truncated provider response
+even though the endpoint remained healthy. For a full vertical one-shot
+comparison, raise the profile's `max_output_tokens` and the shared
+`--benchmark-token-budget` together (for example, validate 8192); never raise
+the cap for only one scenario. Keep the failed run as evidence rather than
+converting it to a semantic zero or a fallback result.
 
 For the compatibility/diagnostic 23-task lifecycle, use the same isolated
 profile with `--path lifecycle`:

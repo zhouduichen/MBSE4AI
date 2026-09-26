@@ -146,6 +146,34 @@ def test_vertical_requirements_contract_only_allows_missing_r_kinds():
     assert properties["deprecations"]["maxItems"] == 0
 
 
+def test_vertical_requirements_contract_avoids_empty_kind_enum_when_complete():
+    task = stage_task("requirements")
+    existing = tuple(make_entity(kind, kind.value) for kind in (
+        EntityKind.SYSTEM,
+        EntityKind.STAKEHOLDER,
+        EntityKind.CONCERN,
+        EntityKind.LIFECYCLE_STAGE,
+        EntityKind.LIFECYCLE_TRANSITION,
+        EntityKind.SCENARIO_HYPOTHESIS,
+        EntityKind.USE_CASE,
+        EntityKind.OPERATIONAL_SCENARIO,
+        EntityKind.ACTIVITY,
+        EntityKind.REQUIREMENT,
+    ))
+
+    request = TaskExecutor(lambda request: None).request(
+        task,
+        ContextBuilder().build(ModelGraph("p1", existing), task),
+        "v2.1",
+    )
+
+    properties = request.output_contract["properties"]
+    entity_schema = properties["entities"]["items"]
+    assert entity_schema["properties"]["kind"].get("enum") != []
+    assert properties["entities"]["maxItems"] == 0
+    assert properties["deprecations"]["maxItems"] == 0
+
+
 def test_vertical_logical_contract_requires_state_owner():
     task = stage_task("logical")
     schemas = output_contract(task)["x-payload-schemas"]

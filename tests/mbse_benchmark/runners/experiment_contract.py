@@ -287,6 +287,18 @@ def input_sha256(envelope: BenchmarkInputEnvelope) -> str:
     return hashlib.sha256(envelope.canonical_bytes).hexdigest()
 
 
+def input_artifact_bytes(envelope: BenchmarkInputEnvelope) -> bytes:
+    """Return the exact bytes written to each scenario's ``input.json``."""
+
+    return envelope.canonical_bytes + b"\n"
+
+
+def input_artifact_sha256(envelope: BenchmarkInputEnvelope) -> str:
+    """Hash the persisted input artifact, including its final newline."""
+
+    return hashlib.sha256(input_artifact_bytes(envelope)).hexdigest()
+
+
 def summarize_repeats(records: Sequence[Mapping[str, object]]) -> dict[str, object]:
     """Summarize numeric repeat fields without treating missing values as zero."""
 
@@ -337,6 +349,8 @@ __all__ = [
     "assert_model_visible_payload",
     "assert_model_visible_payload_tokens",
     "input_sha256",
+    "input_artifact_bytes",
+    "input_artifact_sha256",
     "model_visible_key_tokens",
     "numeric_projection",
     "summarize_repeats",

@@ -33,6 +33,7 @@ from tests.mbse_benchmark.runners.scenario_pipeline import (
 )
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
+    input_artifact_sha256,
     numeric_projection,
     runtime_provider_id,
     summarize_repeats,
@@ -67,6 +68,10 @@ def _comparison_runtime_config(
     """
 
     shared = dict(runtime_config)
+    # A real A–E comparison must never silently replace provider failures with
+    # the deterministic RuleRuntime fallback. Keep this control identical
+    # across all five scenarios and record the failed comparison instead.
+    shared["remote_fail_fast"] = True
     requested = _positive_int(shared.get("benchmark_token_budget"))
     requested = requested or _DEFAULT_COMPARISON_CALL_TOKEN_BUDGET
     profile_cap = _positive_int(shared.get("max_output_tokens"))
@@ -130,6 +135,8 @@ def _persisted_input_audit(
                         "exact": False,
                         "expected_sha256": expected_file_hash,
                         "observed_sha256": None,
+                        "expected_artifact_sha256": input_artifact_sha256(envelope),
+                        "observed_artifact_sha256": None,
                         "expected_byte_length": len(expected_bytes),
                         "observed_byte_length": None,
                     })
@@ -144,6 +151,8 @@ def _persisted_input_audit(
                     "exact": observed_bytes == expected_bytes,
                     "expected_sha256": expected_file_hash,
                     "observed_sha256": hashlib.sha256(observed_bytes).hexdigest(),
+                    "expected_artifact_sha256": input_artifact_sha256(envelope),
+                    "observed_artifact_sha256": hashlib.sha256(observed_bytes).hexdigest(),
                     "expected_byte_length": len(expected_bytes),
                     "observed_byte_length": len(observed_bytes),
                 })
@@ -273,6 +282,7 @@ def run_benchmark(
                     "model_visible": False,
                     "evaluation_spec_hash": evaluator.evaluation_spec_hash,
                     "ground_truth_payload_transmitted": False,
+                    "guard_enforced": bool(model_visible_key_tokens),
                     "request_guard": "value_free_evaluator_key_tokens",
                     "request_guard_hash": model_visible_guard_hash,
                 }
@@ -486,6 +496,8 @@ def run_scenario_comparison(
                 "input_hash": first.get("input_hash"),
                 "input_sha256": first.get("input_sha256"),
                 "input_byte_length": first.get("input_byte_length"),
+                "input_artifact_sha256": first.get("input_artifact_sha256"),
+                "input_artifact_byte_length": first.get("input_artifact_byte_length"),
                 "task_spec_hash": first.get("task_spec_hash"),
                 "runtime_task_spec_hash": first.get("runtime_task_spec_hash"),
                 "evaluation_spec_hash": first.get("evaluation_spec_hash"),
@@ -523,6 +535,7 @@ def run_scenario_comparison(
                 "gate_enabled": first.get("gate_enabled"),
                 "repair_enabled": first.get("repair_enabled"),
                 "cas_enabled": first.get("cas_enabled"),
+                "remote_fail_fast": first.get("remote_fail_fast"),
             },
         }
     comparison["controls"] = {
@@ -575,6 +588,8 @@ def run_scenario_comparison(
                 str(item.get("input_hash", "")),
                 str(item.get("input_sha256", "")),
                 int(item.get("input_byte_length", 0) or 0),
+                str(item.get("input_artifact_sha256", "")),
+                int(item.get("input_artifact_byte_length", 0) or 0),
             )
             for item in records
         ))
@@ -587,6 +602,7 @@ def run_scenario_comparison(
         and bool(comparison["input_artifact_audit"].get("all_exact"))
         and all(
             signature[2] and signature[3] and signature[4] > 0
+            and signature[5] and signature[6] > 0
             for signature in input_sets[0]
         )
     )
@@ -607,6 +623,8 @@ def run_scenario_comparison(
         and item.get("ground_truth_model_visible") is False
         and isinstance(item.get("evaluation_boundary"), Mapping)
         and item["evaluation_boundary"].get("model_visible") is False
+        and item["evaluation_boundary"].get("ground_truth_payload_transmitted") is False
+        and item["evaluation_boundary"].get("guard_enforced") is True
         for item in all_records
     )
     temperature_values = {item.get("temperature") for item in all_records}
@@ -650,11 +668,14 @@ def run_scenario_comparison(
     comparison["execution_complete"] = bool(all_records) and all(
         record.get("execution_status") == "completed"
         and bool(record.get("graph_hash"))
+        and isinstance(record.get("telemetry"), Mapping)
+        and int(record["telemetry"].get("failed_call_count", 0) or 0) == 0
         for record in all_records
     )
     comparison["real_calls_observed"] = bool(all_records) and all(
         isinstance(record.get("telemetry"), Mapping)
         and int(record["telemetry"].get("call_count", 0) or 0) > 0
+        and int(record["telemetry"].get("failed_call_count", 0) or 0) == 0
         for record in all_records
     )
     comparison["token_usage_observed"] = bool(all_records) and all(
@@ -700,30 +721,36 @@ def run_scenario_comparison(
         }
         for scenario, payload in comparison["scenarios"].items()
     ]
-    if not all(
-        comparison[key]
-        for key in (
-            "same_model_provider",
-            "same_input",
-            "same_task_spec",
-            "same_evaluation_spec",
-            "same_evaluator",
-            "same_normalizer",
-            "ground_truth_isolated",
-            "same_temperature",
-            "call_budget_comparable",
-            "budget_comparable",
-            "budget_enforced",
-            "ablation_contract_valid",
-            "execution_complete",
-            "real_calls_observed",
-            "token_usage_observed",
-            "latency_observed",
-            "cost_observed",
-        )
-    ):
-        raise ValueError("A–E comparison invariant failed: model, input, task, or evaluator differs")
+    required_invariants = (
+        "same_model_provider",
+        "same_input",
+        "same_task_spec",
+        "same_evaluation_spec",
+        "same_evaluator",
+        "same_normalizer",
+        "ground_truth_isolated",
+        "same_temperature",
+        "call_budget_comparable",
+        "budget_comparable",
+        "budget_enforced",
+        "ablation_contract_valid",
+        "execution_complete",
+        "real_calls_observed",
+        "token_usage_observed",
+        "latency_observed",
+        "cost_observed",
+    )
+    invariant_failures = [
+        key for key in required_invariants if not comparison.get(key)
+    ]
+    comparison["status"] = "PASS" if not invariant_failures else "FAIL"
+    comparison["invariant_failures"] = invariant_failures
     write_scenario_comparison(comparison, report_dir)
+    if invariant_failures:
+        raise ValueError(
+            "A–E comparison invariant failed: "
+            + ", ".join(invariant_failures)
+        )
     return comparison
 
 
@@ -855,6 +882,11 @@ def main() -> int:
     parser.add_argument("--report-dir", type=Path, default=Path("tests/mbse_benchmark/reports"))
     parser.add_argument("--track", choices=[item.value for item in BenchmarkTrack], default=BenchmarkTrack.HARNESS.value)
     parser.add_argument("--profile", help="explicit LLM profile ID; required by --track llm")
+    parser.add_argument(
+        "--benchmark-token-budget",
+        type=int,
+        help="effective per-provider-call output-token budget for the LLM benchmark",
+    )
     parser.add_argument("--compare-a-e", action="store_true", help="run A–E with one configured model and one evaluator")
     parser.add_argument("--comparison-mode", choices=("natural", "budget_matched"), default="natural")
     parser.add_argument("--total-output-token-budget", type=int)
@@ -886,6 +918,14 @@ def main() -> int:
             runtime_config = resolve_profile(args.profile)
         except ValueError as exc:
             parser.error(str(exc))
+        if args.benchmark_token_budget is not None:
+            try:
+                runtime_config, _ = _comparison_runtime_config({
+                    **runtime_config,
+                    "benchmark_token_budget": args.benchmark_token_budget,
+                })
+            except ValueError as exc:
+                parser.error(str(exc))
         args.output_root = args.output_root / "llm" / str(args.profile)
         args.report_dir = args.report_dir / "llm" / str(args.profile)
         if args.compare_a_e:
