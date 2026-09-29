@@ -216,12 +216,18 @@ jobs:
           ssh "$AI4MBSE_REMOTE_SSH_TARGET" "REMOTE_ROOT='$remote_root' PROFILE_ID='$AI4MBSE_LLM_PROFILE' PYTHONPATH='$remote_root/repo/src' /home/intern/miniconda3/envs/sglang_h3/bin/python - <<'PY'
           import json
           import os
+          from urllib.parse import urlparse
           from rflp_lite.application.llm_profiles import LLMProfileService
 
           with open(os.path.join(os.environ['REMOTE_ROOT'], 'profile.json'), encoding='utf-8') as handle:
               payload = json.load(handle)
           if payload.get('id') != os.environ['PROFILE_ID']:
               raise SystemExit('profile id does not match AI4MBSE_LLM_PROFILE')
+          # vLLM is loopback-local on the GPU server and deliberately has no
+          # API-key authentication. Mark that endpoint local so the benchmark
+          # does not demand a credential that the provider never validates.
+          if urlparse(str(payload.get('base_url', ''))).hostname in {'127.0.0.1', 'localhost', '::1'}:
+              payload['kind'] = 'local'
           for key in ('input_cost_per_1m_tokens', 'output_cost_per_1m_tokens'):
               value = payload.get(key)
               if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
