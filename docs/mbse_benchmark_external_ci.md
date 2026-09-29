@@ -34,7 +34,8 @@ repeat above the cap makes the comparison invalid.
 For an operator-triggered run, supply the profile id through the workflow input
 and keep the JSON in the repository secret. The integration job waits for a
 stable Controller lease, verifies that any worker lease has no GPU overlap with
-Controller, stages an immutable campaign snapshot, and submits
+Controller, verifies that the Controller lease is unexpired, stages an immutable
+campaign snapshot, and submits
 `--compare-a-e --path vertical --repeats 3 --comparison-mode natural` as a
 detached remote campaign. It does not keep a foreground SSH step open for the
 full experiment: runner cancellation and scheduler handoff are recorded in the

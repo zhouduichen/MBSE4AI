@@ -267,7 +267,7 @@ jobs:
           stable=0
           deadline=$((SECONDS + readiness_timeout))
           while (( SECONDS < deadline )); do
-            if state=$(ssh "$AI4MBSE_REMOTE_SSH_TARGET" "root='$AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT'; if curl -fsS --max-time 3 http://127.0.0.1:8000/v1/models >/dev/null && test -f \"\$root/.controller-gpu-lease.json\" && ! test -e \"\$root/.controller-handoff-hold.json\"; then controller_gpus=\$(jq -c '.allocated_gpus // []' \"\$root/.controller-gpu-lease.json\"); worker_gpus=\$(if test -f \"\$root/.h3-worker-gpu-lease.json\"; then jq -c '.allocated_gpus // []' \"\$root/.h3-worker-gpu-lease.json\"; else echo '[]'; fi); if jq -n -e --argjson c \"\$controller_gpus\" --argjson w \"\$worker_gpus\" '(\$c - \$w | length) == (\$c | length)' >/dev/null; then echo READY; else echo WAIT; fi; else echo WAIT; fi" 2>/dev/null); then
+            if state=$(ssh "$AI4MBSE_REMOTE_SSH_TARGET" "root='$AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT'; if curl -fsS --max-time 3 http://127.0.0.1:8000/v1/models >/dev/null && test -f \"\$root/.controller-gpu-lease.json\" && ! test -e \"\$root/.controller-handoff-hold.json\"; then worker_gpus=\$(if test -f \"\$root/.h3-worker-gpu-lease.json\"; then jq -c '.allocated_gpus // []' \"\$root/.h3-worker-gpu-lease.json\"; else echo '[]'; fi); if jq -e --argjson now \"\$(date +%s)\" --argjson w \"\$worker_gpus\" '(.state == \"allocated_for_controller\") and ((.expires_at | tonumber) > \$now) and (((.allocated_gpus // []) - \$w | length) == ((.allocated_gpus // []) | length))' \"\$root/.controller-gpu-lease.json\" >/dev/null; then echo READY; else echo WAIT; fi; else echo WAIT; fi" 2>/dev/null); then
               :
             else
               state=SSH_WAIT
