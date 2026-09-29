@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
-更新时间：2026-09-26 15:20 CST
-审计提交：`8f39371`
+更新时间：2026-09-29 12:40 CST
+审计提交：`7080da3`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -19,10 +19,10 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 | 9 | latency/cost | LATENCY REAL; COST UNAVAILABLE | run16 A–E wall latency mean 约 `321s / 1186s / 664s / 1135s / 2872s`；cost status=`unavailable`，没有伪造价格或成本 |
 | 10 | natural 与 budget-matched | NATURAL REAL; BUDGET CONTRACT ONLY | run14 使用 natural mode、共同 per-call cap=8192 且 A–E profile 同步；budget-matched 仍只有契约验证，不能用 natural run 代替 |
 | 11 | 3–5 repeats 与统计 | VERIFIED; FAIL-CLOSED | run16 A–E 均有 3 个 repeat 目录并生成 mean/std/CI95；D 为 1 completed+2 failed，E 为 3 failed，故整体 execution complete 仍为 false |
-| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对提交 `00a78db` 均成功：[push run 36042188263](https://github.com/zhouduichen/MBSE4AI/actions/runs/36042188263)、[PR run 36042183423](https://github.com/zhouduichen/MBSE4AI/actions/runs/36042183423)；此前提交的 checks 也保持成功 |
+| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对桥接 workflow 提交 `7080da3` 均成功（push run `36521998461`、PR run `36522001696`）；此前提交的 checks 也保持成功 |
 | 13 | main 要求 CI / quality | VERIFIED | GitHub API 当前返回 `strict=true`、required context=`CI / quality`、required approvals=1、`enforce_admins=true` |
-| 14 | Integration schedule 不空跑 | CONTRACT VERIFIED; SCHEDULE PENDING | `.github/workflows/integration.yml` 已包含周六 schedule、无条件 contract job、外部 prerequisite readiness，以及 remote A–E 的分层 timeout：默认 per-case `2700s`、per-call budget `4096`，可由 `AI4MBSE_LLM_CASE_TIMEOUT_SECONDS` / `AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET` 覆盖并在 summary 记录；但该 workflow 尚无配置外部目标的 scheduled event 权威 run evidence。当前 GitHub repository 仍无 Actions variables/secrets；若 schedule 没有任何外部目标，readiness 会明确失败而不是绿灯空跑 |
-| 15 | Remote LLM/FreeCAD/GPU 真实 workflow | NOT YET PROVEN | GitHub 当前 self-hosted runners=0、Actions variables=0、secrets=0。Jiayu-intern 曾验证 managed vLLM `/v1/models` 与真实 chat completion/usage 可用；此前三次真实比较均被远端资源切换中断：`/tmp/ai4mbse-v032-ae-natural-20260923-run1-results` 只完成 A repeat 1，`/tmp/ai4mbse-v032-ae-natural-20260924-run2-results` 留下 A/B 输入与部分 C/D/E blocked 结果，`/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run3-results` 已按正确 `--path vertical` 发出真实请求但仍在 00:31:37 被回收。随后 run4 在 A-repeat-03 期间再次被回收；run5（`/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run5-results`，报告 `/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run5-reports`）确认了同一根因：01:09:05 `/v1/models` 与真实请求可用，01:11:45 远端 supervisor 启动下一个 worker handoff，launcher 按策略停止 vLLM，A/B/C/D 记录 `ConnectionResetError`，E 仅留下 `completed_with_warnings`，comparison 为 FAIL。run6 在 campaign 终态后的短窗口启动成功，但 01:25:07 supervisor 又启动 candidate 3 F1 并触发同样的 vLLM 回收；`/tmp/ai4mbse-v032-ae-natural-vertical-20260924-run6-results` 只有 C/D 三 repeats 与 E 三失败 repeats，A/B/C/D/E comparison 仍为 FAIL。run7/8 则在远端 vLLM 健康时暴露了本地 SSH tunnel 生命周期问题：远端 `/v1/models` 正常但本地 `18000` 消失，runner 记录 `URLError`；run9 使用自动重连 tunnel 后确认前两次真实 POST 成功，但约 5 分钟后新的 detached supervisor（PID `1716998`，`--max-rounds 6`）启动 candidate 6 handoff，仍按策略停止 vLLM，run10 因同一 handoff 中止。run11 已在服务器本机直连窗口内完整走过 A–E 目录，但 comparison 明确为 `FAIL`：A 3/3 completed；B 3/3 blocked at 900s；C 为 2 blocked + 1 failed；D/E 各 3 failed。远端当前 vLLM 已退出，GPU 被 `student_campaign_supervisor` 占用，因此不能把 run11 或任何部分目录/fallback 结果计为 A–E PASS |
+| 14 | Integration schedule 不空跑 | CONFIGURED; SCHEDULE EVIDENCE PENDING | `.github/workflows/integration.yml` 已包含周六 schedule、无条件 contract job、外部 prerequisite readiness、串行 concurrency，以及通过 remote-bridge runner 执行的 LLM/FreeCAD/GPU jobs；仓库已配置 LLM profile、8192 token budget、SSH bridge、FreeCAD/GPU 开关。尚无 scheduled event 的权威 run evidence；若外部目标不可用，readiness 会明确失败而不是绿灯空跑 |
+| 15 | Remote LLM/FreeCAD/GPU 真实 workflow | BRIDGE VERIFIED; EXECUTION PENDING | GitHub 已有在线 `mbse4ai-mac-remote-bridge` runner（标签 `remote-bridge,llm,gpu,freecad`），仓库已配置 Actions variables/secrets；专用 key 经 jump-box 访问 `Jiayu-intern` 已真实验证 hostname、Python、FreeCAD 1.1.3 和 NVIDIA L40，远端 profile bootstrap 也通过。当前 `127.0.0.1:8000` vLLM 于 2026-09-29 12:34 CST 不可用，因此尚未触发真实 A–E Integration；不能把 bridge readiness 计为 workflow PASS。run16 及此前真实服务器实验仍按原始失败证据保留 |
 
 ## 最新远端 run11（部分完成，不能替代完整 A–E）
 
@@ -140,14 +140,18 @@ run16 comparison 为 `status=FAIL`、`execution_complete=false`，但共同实�
 
 本轮 comparison 的 invariant failures 仅保留为 `execution_complete`、`real_calls_observed`、`token_usage_observed` 和 `cost_observed`；后两项在实现中对不完整 A–E 仍 fail-closed，cost 仍不可用。不能据此宣称 Full Harness 已经带来收益，但可以确认：稳定空闲窗口显著提高了真实证据完整度，8192 cap 消除了 run14 期间观测到的 empty-enum schema 500，剩余主要问题转为 E 的长尾 provider fail-fast、总耗时和远程 runner/调度证据。后续应按 repeat 独立可恢复、空闲窗口运行、失败原样保留的方式继续，而不是延长 GPU 强占或把失败样本改写为 PASS。
 
-## 最新 GitHub Integration 证据（run 35861617609）
+## 既往 GitHub Integration 证据
 
 2026-09-23 的 `workflow_dispatch` run [35861617609](https://github.com/zhouduichen/MBSE4AI/actions/runs/35861617609) 中，`integration contract` 与 `external prerequisite readiness` 成功；但 `remote LLM A–E comparison`、`GPU acceptance`、`FreeCAD acceptance` 三个 job 均为 `skipped`。因此该 run 只能证明离线 contract 与 prerequisite gate 的行为，不能证明真实远程 LLM、GPU 或 FreeCAD 已在 GitHub runner 上执行。
 
-当前仓库仍没有 self-hosted runner、Actions variables 或 secrets。远端服务器本机的 vLLM 实验与 GitHub integration evidence 必须分开记录；不能用 workflow overall success 或 skipped job 替代外部验收 PASS。
+当前仓库已配置 remote-bridge runner 与外部目标 secrets；既往 run `35861617609` 仍只能证明离线 contract/readiness 与 skipped external jobs，不能替代真实远程 LLM、GPU 或 FreeCAD PASS。
+
+## GitHub remote-bridge readiness（2026-09-29）
+
+提交 `7080da3` 将 Integration workflow 改为串行 remote-bridge 架构：GitHub self-hosted Mac runner 通过专用 SSH key 和 jump-box 访问 `Jiayu-intern`，真实执行目标仍是服务器上的 vLLM、NVIDIA L40 和 FreeCAD 1.1.3。已验证 runner online、SSH 主机/Python/FreeCAD/GPU 探针、profile 保存（8192 cap，input/output cost 显式为 0.0）；但当前 vLLM 端口离线，尚未触发 A–E Integration，故第 14/15 项仍未完成。
 
 ## 当前结论
 
-v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run16 证明在 vLLM 空闲且 Controller lease 稳定的窗口内，修复后的服务器本机可以真实跑完 A–E 的三次调度并生成完整 telemetry，但 comparison 仍因 D/E provider fail-fast、execution incomplete、cost unavailable 以及 Release Closure 结果为 `FAIL`，不能冒充 Harness 收益已被证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 共同说明真正的运行策略是“等待稳定空闲窗口、按 repeat 可恢复、失败原样保留”，而不是长期强占 GPU 或仅检查 `:8000`。Integration workflow 已修复为显式分层 timeout，但完整目标尚未完成；第 14 项还需要默认分支上的 scheduled run，第 15 项还需要配置真实 Remote LLM profile、FreeCAD runner/credentials 和 GPU runner，并取得完整 A–E 的质量/成本结果。
+v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run16 证明在 vLLM 空闲且 Controller lease 稳定的窗口内，修复后的服务器本机可以真实跑完 A–E 的三次调度并生成完整 telemetry，但 comparison 仍因 D/E provider fail-fast、execution incomplete、cost unavailable 以及 Release Closure 结果为 `FAIL`，不能冒充 Harness 收益已被证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 共同说明真正的运行策略是“等待稳定空闲窗口、按 repeat 可恢复、失败原样保留”，而不是长期强占 GPU 或仅检查 `:8000`。当前 GitHub bridge 已配置并通过 runner/SSH/FreeCAD/GPU 探针，但第 14 项仍需要 scheduled event 的权威 run，第 15 项仍需要 vLLM 在线时的真实 remote LLM/FreeCAD/GPU workflow 结果，以及可审计的完整 A–E 质量/成本证据。
 
 本地离线测试、contract job、skip 状态和 SSH 可达性检查都不能替代第 15 项的 GitHub integration evidence。
