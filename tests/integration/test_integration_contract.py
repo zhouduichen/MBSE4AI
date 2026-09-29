@@ -35,6 +35,8 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert "AI4MBSE_REMOTE_SSH_KNOWN_HOSTS" in text
     assert "AI4MBSE_LLM_PROFILE_JSON" in text
     assert "--compare-a-e" in text
+    assert "run_llm:" in text
+    assert "inputs.run_llm" in text
     assert "--path vertical" in text
     assert "--repeats 3" in text
     assert "AI4MBSE_LLM_CASE_TIMEOUT_SECONDS" in text
