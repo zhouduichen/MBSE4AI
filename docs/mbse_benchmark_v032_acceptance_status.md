@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
-更新时间：2026-09-29 13:15 CST
-审计提交：`86f2666`
+更新时间：2026-09-29 13:25 CST
+审计提交：`5c5aa18`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -19,7 +19,7 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 | 9 | latency/cost | LATENCY REAL; COST UNAVAILABLE | run16 A–E wall latency mean 约 `321s / 1186s / 664s / 1135s / 2872s`；cost status=`unavailable`，没有伪造价格或成本 |
 | 10 | natural 与 budget-matched | NATURAL REAL; BUDGET CONTRACT ONLY | run14 使用 natural mode、共同 per-call cap=8192 且 A–E profile 同步；budget-matched 仍只有契约验证，不能用 natural run 代替 |
 | 11 | 3–5 repeats 与统计 | VERIFIED; FAIL-CLOSED | run16 A–E 均有 3 个 repeat 目录并生成 mean/std/CI95；D 为 1 completed+2 failed，E 为 3 failed，故整体 execution complete 仍为 false |
-| 12 | GitHub CI 真实 PASS | PENDING; LATEST RUNS IN PROGRESS | push/PR `CI / quality` 对桥接 workflow 提交 `7080da3` 均成功（push run `36521998461`、PR run `36522001696`）；`86f2666` 的两条 quality checks 当前仍在运行，完成后再更新为最终状态 |
+| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对桥接 workflow 提交 `5c5aa18` 成功（push run `36525189943`、PR run `36525196321`）；此前 `7080da3` 的 checks 也成功 |
 | 13 | main 要求 CI / quality | VERIFIED | GitHub API 当前返回 `strict=true`、required context=`CI / quality`、required approvals=1、`enforce_admins=true` |
 | 14 | Integration schedule 不空跑 | CONFIGURED; SCHEDULE EVIDENCE PENDING | `.github/workflows/integration.yml` 已包含周六 schedule、无条件 contract job、外部 prerequisite readiness、串行 concurrency，以及通过 remote-bridge runner 执行的 LLM/FreeCAD/GPU jobs；仓库已配置 LLM profile、8192 token budget、SSH bridge、FreeCAD/GPU 开关。尚无 scheduled event 的权威 run evidence；若外部目标不可用，readiness 会明确失败而不是绿灯空跑 |
 | 15 | Remote LLM/FreeCAD/GPU 真实 workflow | PARTIAL; A–E PENDING | GitHub run `36524219363` 已真实 PASS FreeCAD 与 GPU acceptance（SSH 到 `Jiayu-intern`，FreeCAD 1.1.3/NVIDIA L40）；run `36524446367` 验证了 LLM bridge/profile bootstrap，但暴露 loopback vLLM 的无认证 profile 配置问题；修复后 run `36524710210` 已进入真实 A–E，但 13:04:24 的 worker handoff 释放并占用 GPU0–3，vLLM 被 launcher 正常停止，comparison fail-closed。当前策略是等待下一次稳定空闲窗口；不能把该次失败计为 A–E 成功 |
@@ -154,7 +154,7 @@ run16 comparison 为 `status=FAIL`、`execution_complete=false`，但共同实�
 - run [36524446367](https://github.com/zhouduichen/MBSE4AI/actions/runs/36524446367)：vLLM 当时在线并完成 SSH/profile bootstrap，但 profile 被判定为 remote 且无 API key，A–E 未开始。
 - run [36524710210](https://github.com/zhouduichen/MBSE4AI/actions/runs/36524710210)：loopback profile 修复后真正进入 A–E；远端报告显示各 scenario fail-closed，服务器日志记录 `13:04:24 vLLM exited rc=0`，随后 worker lease 占用 `[0,1,2,3]`。这是调度 handoff 中断证据，不是成功的 A–E 质量证据。
 
-在本次观察中，`127.0.0.1:8000/v1/models` 曾在 13:04 CST 返回 `qwen3.5-controller`，但 worker handoff 很快取得全部四张 GPU。因而“端口可访问”不是充分条件；下一次 A–E 必须同时满足 endpoint healthy、Controller lease 稳定、worker lease 不覆盖 Controller GPU，并在该窗口内启动完整重复实验。
+在本次观察中，`127.0.0.1:8000/v1/models` 曾在 13:04 CST 返回 `qwen3.5-controller`，但 worker handoff 很快取得全部四张 GPU；随后 13:15–13:23 的只读监控也未观察到连续稳定窗口。因而“端口可访问”不是充分条件；下一次 A–E 必须同时满足 endpoint healthy、Controller lease 稳定、worker lease 不覆盖 Controller GPU，并在该窗口内启动完整重复实验。
 
 ## 当前结论
 
