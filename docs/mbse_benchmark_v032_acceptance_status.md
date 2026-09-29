@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
-更新时间：2026-09-29 13:25 CST
-审计提交：`5c5aa18`
+更新时间：2026-09-29 15:22 CST
+审计提交：`3fe74db`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -19,7 +19,7 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 | 9 | latency/cost | LATENCY REAL; COST UNAVAILABLE | run16 A–E wall latency mean 约 `321s / 1186s / 664s / 1135s / 2872s`；cost status=`unavailable`，没有伪造价格或成本 |
 | 10 | natural 与 budget-matched | NATURAL REAL; BUDGET CONTRACT ONLY | run14 使用 natural mode、共同 per-call cap=8192 且 A–E profile 同步；budget-matched 仍只有契约验证，不能用 natural run 代替 |
 | 11 | 3–5 repeats 与统计 | VERIFIED; FAIL-CLOSED | run16 A–E 均有 3 个 repeat 目录并生成 mean/std/CI95；D 为 1 completed+2 failed，E 为 3 failed，故整体 execution complete 仍为 false |
-| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对桥接 workflow 提交 `5c5aa18` 成功（push run `36525189943`、PR run `36525196321`）；此前 `7080da3` 的 checks 也成功 |
+| 12 | GitHub CI 真实 PASS | VERIFIED | push/PR `CI / quality` 对 detached campaign 提交 `3fe74db` 成功（push run `36535734015`、PR run `36535739276`）；此前桥接 workflow checks 也成功 |
 | 13 | main 要求 CI / quality | VERIFIED | GitHub API 当前返回 `strict=true`、required context=`CI / quality`、required approvals=1、`enforce_admins=true` |
 | 14 | Integration schedule 不空跑 | CONFIGURED; SCHEDULE EVIDENCE PENDING | `.github/workflows/integration.yml` 已包含周六 schedule、无条件 contract job、外部 prerequisite readiness、串行 concurrency，以及通过 remote-bridge runner 执行的 LLM/FreeCAD/GPU jobs；仓库已配置 LLM profile、8192 token budget、SSH bridge、FreeCAD/GPU 开关。尚无 scheduled event 的权威 run evidence；若外部目标不可用，readiness 会明确失败而不是绿灯空跑 |
 | 15 | Remote LLM/FreeCAD/GPU 真实 workflow | PARTIAL; A–E PENDING | GitHub run `36524219363` 已真实 PASS FreeCAD 与 GPU acceptance（SSH 到 `Jiayu-intern`，FreeCAD 1.1.3/NVIDIA L40）；run `36524446367` 验证了 LLM bridge/profile bootstrap，但暴露 loopback vLLM 的无认证 profile 配置问题；修复后 run `36524710210` 已进入真实 A–E，但 13:04:24 的 worker handoff 释放并占用 GPU0–3，vLLM 被 launcher 正常停止，comparison fail-closed。当前策略是等待下一次稳定空闲窗口；不能把该次失败计为 A–E 成功 |
@@ -165,6 +165,12 @@ GitHub run [36528400246](https://github.com/zhouduichen/MBSE4AI/actions/runs/365
 远端随后在 14:33 CST 记录 vLLM EngineCore 被停止并返回 HTTP 500；14:35 CST 的只读状态显示 Controller handoff hold、release 和 worker GPU lease 同时出现。该证据确认“端口曾监听”仍不等于完整运行窗口，且不能通过重启 vLLM 或删除 scheduler marker 来修复实验结论。
 
 为适配这个运行权衡，当前工作树新增 detached campaign wrapper 与独立 collector：提交 job 只在稳定 lease 后写入不可变 manifest 并启动远端 campaign；readiness 允许并行 worker lease，但会检查 Controller 与 worker 的 `allocated_gpus` 没有重叠；collector 读取原子 status，只有 `completed + exit_code=0 + comparison PASS + execution_complete=true + 无 invariant failures` 才上传为 PASS 证据。`running`、`interrupted`、scheduler-preempted 和 failed campaign 会被保留并明确标记为非 PASS。该改动在 CI 通过并完成一次 terminal collector 收集前，不计入第 15 项的完整 A–E 证据。
+
+## GitHub run24：空闲窗口已确认，但 readiness 误判 worker lease
+
+run [36535264100](https://github.com/zhouduichen/MBSE4AI/actions/runs/36535264100) 在 `41fbadb` 上手动触发。只读核验当时已确认 vLLM 监听 `127.0.0.1:8000`，Controller lease 为 GPU0，worker lease 为 GPU1–3，且利用率接近 0；但旧 readiness 条件错误地要求 worker lease 文件不存在，因此提交 job 一直等待，A–E 没有启动。确认窗口随后结束后，该 run 被取消，scheduler 接管全部 GPU 并停止 vLLM。
+
+这不是 A–E 实验结果，也不应计入 remote LLM 成功或失败样本。提交 `3fe74db` 已把条件改为检查 Controller 与 worker 的 GPU 集合不重叠，同时继续拒绝 handoff hold；因此当前实际权衡是“允许并行且不冲突的 worker lease，避开 overlap/handoff 窗口”，而不是要求服务器完全没有 worker 活动。
 
 ## 当前结论
 
