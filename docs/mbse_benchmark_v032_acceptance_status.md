@@ -232,6 +232,42 @@ READY，随后新的 worker `1481685`（64 train steps）在 `20:21:58` 重新�
 不能替代完整的 `execution_complete=true` comparison。watcher 继续等待下一
 个足够长的空闲窗口，失败或中断仍保持 fail-closed。
 
+## 本机 direct campaign：完整启动但被后续 worker handoff 终止
+
+campaign `direct-20260929-1924` 在同一个 vLLM 空闲窗口中完成了完整的启动前置：
+
+```text
+READY samples: 20:38:46, 20:39:06, 20:39:26, 20:39:46, 20:40:06, 20:40:26 CST
+campaign start: 2026-09-29 20:40:26 CST
+command: --compare-a-e --path vertical --repeats 3 --timeout 5400 --benchmark-token-budget 8192 --comparison-mode natural
+terminal state: failed
+exit_code: 1
+evidence_ready: false
+```
+
+这次运行保留了 75/75 个输入 artifact，`all_present=true`、`all_exact=true`，
+并且 `ground_truth_isolated=true`；但 comparison 的最终状态为 `FAIL`，不能作为
+Harness 收益证据。A/CASE-01/repeat-01 确实完成了一次真实调用：vLLM 记录
+`finished_reason=length`、generation tokens=`8426`，client 端耗时约 `875.949s`，
+随后在一次 repair 后仍以 `StructuredOutputFailure` 结束。之后 worker
+`1515600` 重新取得训练 GPU，Controller 被 launcher 释放，剩余 repeat 变为
+`TransportFailure`；最终 invariant failures 包括 `execution_complete`、
+`real_calls_observed`、`token_usage_observed`、`latency_observed`、
+`cost_observed` 以及完整比较所需的一致性条件。
+
+该结果不是 vLLM “没有空闲”，而是证明当前 detached wrapper 只有“启动前
+readiness”，没有“campaign 期间 scheduler reservation”，也没有跨 handoff 的
+repeat checkpoint/resume。下一步必须在下面两种工程策略中明确一种，才能继续
+追求完整 A–E evidence：
+
+1. 为整批 campaign 增加 scheduler-level reservation/maintenance lease；实验期间
+   保持 Controller GPU 不被 worker 抢占，但会暂时牺牲训练吞吐。
+2. 把 campaign 拆成可审计的 repeat/case slice，并实现真正的 checkpoint/resume；
+   训练可以插入空闲窗口，但需要新的聚合器保证跨窗口结果仍属于同一 manifest。
+
+当前实现不声称支持第二种模式，也没有通过删除 marker 或强杀 worker 来伪造
+连续运行；本次终态应作为 scheduler handoff 的真实失败证据保留。
+
 ## 当前结论
 
 v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run16 证明在 vLLM 空闲且 Controller lease 稳定的窗口内，修复后的服务器本机可以真实跑完 A–E 的三次调度并生成完整 telemetry，但 comparison 仍因 D/E provider fail-fast、execution incomplete、cost unavailable 以及 Release Closure 结果为 `FAIL`，不能冒充 Harness 收益已被证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 共同说明真正的运行策略是“等待稳定空闲窗口，detached campaign 保留状态和部分证据，失败原样保留”，而不是声称 benchmark 支持跨窗口断点续跑、长期强占 GPU 或仅检查 `:8000`。当前 GitHub bridge 已通过 runner/SSH/FreeCAD/GPU 真实验收，A–E 仍需在下一次稳定 vLLM lease 窗口完成；第 14 项仍需要 scheduled event 的权威 run，第 15 项仍需要真实 remote LLM 的完整 A–E 质量/成本证据。
