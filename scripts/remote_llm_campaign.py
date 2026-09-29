@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Run a remote benchmark as a resumable, auditable campaign.
+"""Run a remote benchmark as a detached, auditable campaign.
 
 The wrapper intentionally owns only the benchmark child process and files in
 the campaign directory.  It does not manage GPUs, vLLM, or scheduler lease
 markers; those remain external prerequisites and failures are recorded as
-campaign evidence rather than repaired by force.
+campaign evidence rather than repaired by force.  A detached campaign keeps
+its status and partial artifacts when the caller disconnects, but it does not
+resume an interrupted benchmark or skip already completed repeats.
 """
 
 from __future__ import annotations
