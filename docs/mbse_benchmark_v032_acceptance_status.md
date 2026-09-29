@@ -220,6 +220,13 @@ command: --compare-a-e --path vertical --repeats 3 --timeout 5400 --benchmark-to
 `19:42:02`、`19:42:22`、`19:42:42` 连续 READY，随后在 `19:43:02` 回到
 `WAIT:vllm-endpoint-unavailable`；六次 READY 门槛未达到，campaign 没有启动。
 
+最新一次直接观察（`20:19:02`–`20:22:19` CST）进一步验证了同一边界：前一个
+训练 worker 正常退出后，launcher 在 `20:19:49` 启动 vLLM，模型在 `20:20:51`
+报告 API ready；watcher 只取得 `20:20:58`、`20:21:18`、`20:21:38` 三次
+READY，随后新的 worker `1481685`（64 train steps）在 `20:21:58` 重新取得
+`[0,1,2,3]`，vLLM 被正常释放。该窗口没有产生 campaign 结果，证明降低稳定
+门槛会把 scheduler handoff 期间的 partial run 误当作实验机会。
+
 这次观察支持保守的运行策略：短暂的 `:8000` 健康或少量 READY 样本不足以
 证明 A–E 可完成；降低稳定性门槛只会得到被 handoff 打断的 partial evidence，
 不能替代完整的 `execution_complete=true` comparison。watcher 继续等待下一
