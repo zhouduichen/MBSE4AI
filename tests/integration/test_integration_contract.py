@@ -47,6 +47,8 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert "--comparison-mode natural" in text
     assert "integration-remote-llm-${{ github.run_id }}" in text
     assert "tests/mbse_benchmark/results/integration-remote" in text
+    assert "benchmark_rc=$?" in text
+    assert "benchmark exit code" in text
     assert "AI4MBSE_CAD_BACKEND: freecad-remote" in text
     assert "refusing to claim a GPU acceptance PASS" in text
     assert "tests/integration/test_gpu_acceptance.py" in text

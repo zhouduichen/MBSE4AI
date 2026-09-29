@@ -254,6 +254,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Run same-model A–E comparison
         run: |
+          set +e
           ssh "$AI4MBSE_REMOTE_SSH_TARGET" "cd '$REMOTE_ROOT/repo' && RFLP_CONFIG_DIR='$REMOTE_ROOT/.rflp-config' PYTHONPATH='$REMOTE_ROOT/repo/src' /home/intern/miniconda3/envs/sglang_h3/bin/python tests/mbse_benchmark/run_benchmark.py \
             --track llm \
             --profile '$AI4MBSE_LLM_PROFILE' \
@@ -265,9 +266,17 @@ jobs:
             --comparison-mode natural \
             --output-root '$REMOTE_ROOT/results/integration-remote' \
             --report-dir '$REMOTE_ROOT/reports/integration-remote'"
+          benchmark_rc=$?
+          set -e
           mkdir -p tests/mbse_benchmark/results/integration-remote tests/mbse_benchmark/reports/integration-remote
-          scp -r "$AI4MBSE_REMOTE_SSH_TARGET:$REMOTE_ROOT/results/integration-remote/." tests/mbse_benchmark/results/integration-remote/
-          scp -r "$AI4MBSE_REMOTE_SSH_TARGET:$REMOTE_ROOT/reports/integration-remote/." tests/mbse_benchmark/reports/integration-remote/
+          copy_rc=0
+          scp -r "$AI4MBSE_REMOTE_SSH_TARGET:$REMOTE_ROOT/results/integration-remote/." tests/mbse_benchmark/results/integration-remote/ || copy_rc=$?
+          scp -r "$AI4MBSE_REMOTE_SSH_TARGET:$REMOTE_ROOT/reports/integration-remote/." tests/mbse_benchmark/reports/integration-remote/ || copy_rc=$?
+          echo "- benchmark exit code: ${benchmark_rc}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$benchmark_rc" -ne 0 ]; then
+            exit "$benchmark_rc"
+          fi
+          exit "$copy_rc"
       - name: Upload remote A–E evidence
         if: always()
         uses: actions/upload-artifact@v4
