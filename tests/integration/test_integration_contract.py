@@ -26,18 +26,21 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert "actions: read" in text
     assert "  readiness:" in text
     assert "no configured external target" in text
-    assert "no online runner has the freecad label" in text
-    assert "no online runner has the gpu label" in text
-    assert "runs-on: [self-hosted, linux, freecad]" in text
-    assert "runs-on: [self-hosted, linux, gpu]" in text
+    assert "no online remote-bridge runner has the freecad label" in text
+    assert "no online remote-bridge runner has the gpu label" in text
+    assert "runs-on: [self-hosted, macOS, X64, remote-bridge, freecad]" in text
+    assert "runs-on: [self-hosted, macOS, X64, remote-bridge, gpu]" in text
+    assert "runs-on: [self-hosted, macOS, X64, remote-bridge, llm]" in text
+    assert "AI4MBSE_REMOTE_SSH_PRIVATE_KEY" in text
+    assert "AI4MBSE_REMOTE_SSH_KNOWN_HOSTS" in text
     assert "AI4MBSE_LLM_PROFILE_JSON" in text
     assert "--compare-a-e" in text
     assert "--path vertical" in text
     assert "--repeats 3" in text
     assert "AI4MBSE_LLM_CASE_TIMEOUT_SECONDS" in text
     assert "AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET" in text
-    assert '--timeout "$AI4MBSE_LLM_CASE_TIMEOUT_SECONDS"' in text
-    assert '--benchmark-token-budget "$AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET"' in text
+    assert "--timeout '$AI4MBSE_LLM_CASE_TIMEOUT_SECONDS'" in text
+    assert "--benchmark-token-budget '$AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET'" in text
     assert "case timeout must be at least the 900s provider timeout" in text
     assert "--comparison-mode natural" in text
     assert "integration-remote-llm-${{ github.run_id }}" in text

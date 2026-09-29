@@ -24,6 +24,10 @@ permissions:
   actions: read
   contents: read
 
+concurrency:
+  group: mbse4ai-integration-external
+  cancel-in-progress: false
+
 jobs:
   contract:
     name: integration contract
@@ -77,7 +81,9 @@ jobs:
       LLM_PROFILE_JSON: ${{ secrets.AI4MBSE_LLM_PROFILE_JSON }}
       FREECAD_ENABLED: ${{ inputs.run_freecad || vars.AI4MBSE_FREECAD_ENABLED }}
       GPU_ENABLED: ${{ inputs.run_gpu || vars.AI4MBSE_GPU_ENABLED }}
-      CAD_SSH_HOST: ${{ secrets.AI4MBSE_CAD_SSH_HOST }}
+      REMOTE_SSH_TARGET: ${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}
+      REMOTE_SSH_PRIVATE_KEY: ${{ secrets.AI4MBSE_REMOTE_SSH_PRIVATE_KEY }}
+      REMOTE_SSH_KNOWN_HOSTS: ${{ secrets.AI4MBSE_REMOTE_SSH_KNOWN_HOSTS }}
       FREECAD_COMMAND: ${{ secrets.AI4MBSE_FREECAD_COMMAND }}
       CAD_REMOTE_ROOT: ${{ secrets.AI4MBSE_CAD_REMOTE_ROOT }}
       GH_TOKEN: ${{ github.token }}
@@ -95,28 +101,36 @@ jobs:
               echo "::error::Remote LLM target is selected but AI4MBSE_LLM_PROFILE_JSON is missing."
               errors=$((errors + 1))
             fi
+            if [ -z "$REMOTE_SSH_TARGET" ] || [ -z "$REMOTE_SSH_PRIVATE_KEY" ] || [ -z "$REMOTE_SSH_KNOWN_HOSTS" ]; then
+              echo "::error::Remote LLM target is selected but the SSH bridge is not configured."
+              errors=$((errors + 1))
+            fi
           fi
 
           if [ "$FREECAD_ENABLED" = "true" ]; then
             targets=$((targets + 1))
-            for name in CAD_SSH_HOST FREECAD_COMMAND CAD_REMOTE_ROOT; do
+            for name in REMOTE_SSH_TARGET REMOTE_SSH_PRIVATE_KEY REMOTE_SSH_KNOWN_HOSTS FREECAD_COMMAND CAD_REMOTE_ROOT; do
               if [ -z "${!name}" ]; then
                 echo "::error::FreeCAD target is enabled but $name is missing."
                 errors=$((errors + 1))
               fi
             done
-            freecad_runners=$(gh api "repos/$GITHUB_REPOSITORY/actions/runners" --jq '[.runners[] | select(.status == "online") | select([.labels[].name] | index("freecad"))] | length')
+            freecad_runners=$(gh api "repos/$GITHUB_REPOSITORY/actions/runners" --jq '[.runners[] | select(.status == "online") | select([.labels[].name] | index("remote-bridge")) | select([.labels[].name] | index("freecad"))] | length')
             if [ "$freecad_runners" -lt 1 ]; then
-              echo "::error::FreeCAD target is enabled but no online runner has the freecad label."
+              echo "::error::FreeCAD target is enabled but no online remote-bridge runner has the freecad label."
               errors=$((errors + 1))
             fi
           fi
 
           if [ "$GPU_ENABLED" = "true" ]; then
             targets=$((targets + 1))
-            gpu_runners=$(gh api "repos/$GITHUB_REPOSITORY/actions/runners" --jq '[.runners[] | select(.status == "online") | select([.labels[].name] | index("gpu"))] | length')
+            if [ -z "$REMOTE_SSH_TARGET" ] || [ -z "$REMOTE_SSH_PRIVATE_KEY" ] || [ -z "$REMOTE_SSH_KNOWN_HOSTS" ]; then
+              echo "::error::GPU target is selected but the SSH bridge is not configured."
+              errors=$((errors + 1))
+            fi
+            gpu_runners=$(gh api "repos/$GITHUB_REPOSITORY/actions/runners" --jq '[.runners[] | select(.status == "online") | select([.labels[].name] | index("remote-bridge")) | select([.labels[].name] | index("gpu"))] | length')
             if [ "$gpu_runners" -lt 1 ]; then
-              echo "::error::GPU target is enabled but no online runner has the gpu label."
+              echo "::error::GPU target is enabled but no online remote-bridge runner has the gpu label."
               errors=$((errors + 1))
             fi
           fi
@@ -140,7 +154,7 @@ jobs:
   remote-llm:
     name: remote LLM A–E comparison
     needs: [contract, readiness]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, X64, remote-bridge, llm]
     if: ${{ (github.event_name == 'workflow_dispatch' && inputs.profile != '') || (github.event_name == 'schedule' && vars.AI4MBSE_LLM_PROFILE != '') }}
     env:
       RFLP_CONFIG_DIR: ${{ github.workspace }}/.rflp-config
@@ -148,30 +162,77 @@ jobs:
       AI4MBSE_LLM_PROFILE_JSON: ${{ secrets.AI4MBSE_LLM_PROFILE_JSON }}
       AI4MBSE_LLM_CASE_TIMEOUT_SECONDS: ${{ vars.AI4MBSE_LLM_CASE_TIMEOUT_SECONDS || '2700' }}
       AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET: ${{ vars.AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET || '4096' }}
+      AI4MBSE_REMOTE_SSH_TARGET: ${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}
+      AI4MBSE_REMOTE_SSH_HOST: ${{ vars.AI4MBSE_REMOTE_SSH_HOST }}
+      AI4MBSE_REMOTE_SSH_PORT: ${{ vars.AI4MBSE_REMOTE_SSH_PORT || '22' }}
+      AI4MBSE_REMOTE_SSH_USER: ${{ vars.AI4MBSE_REMOTE_SSH_USER }}
+      AI4MBSE_REMOTE_SSH_JUMP_HOST: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_HOST }}
+      AI4MBSE_REMOTE_SSH_JUMP_PORT: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_PORT || '22' }}
+      AI4MBSE_REMOTE_SSH_JUMP_USER: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_USER }}
+      AI4MBSE_REMOTE_SSH_PRIVATE_KEY: ${{ secrets.AI4MBSE_REMOTE_SSH_PRIVATE_KEY }}
+      AI4MBSE_REMOTE_SSH_KNOWN_HOSTS: ${{ secrets.AI4MBSE_REMOTE_SSH_KNOWN_HOSTS }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,documents,web]"
-      - name: Install the ephemeral LLM profile
+      - name: Configure SSH bridge to the GPU server
+        run: |
+          test -n "$AI4MBSE_REMOTE_SSH_TARGET"
+          test -n "$AI4MBSE_REMOTE_SSH_PRIVATE_KEY"
+          test -n "$AI4MBSE_REMOTE_SSH_KNOWN_HOSTS"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$AI4MBSE_REMOTE_SSH_PRIVATE_KEY" > "$HOME/.ssh/ai4mbse-remote"
+          printf '%s\n' "$AI4MBSE_REMOTE_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/ai4mbse-remote" "$HOME/.ssh/known_hosts"
+          cat > "$HOME/.ssh/config" <<EOF
+          Host $AI4MBSE_REMOTE_SSH_TARGET
+            HostName $AI4MBSE_REMOTE_SSH_HOST
+            Port $AI4MBSE_REMOTE_SSH_PORT
+            User $AI4MBSE_REMOTE_SSH_USER
+            IdentityFile $HOME/.ssh/ai4mbse-remote
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            ProxyCommand ssh -i $HOME/.ssh/ai4mbse-remote -o IdentitiesOnly=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=yes -W %h:%p -p $AI4MBSE_REMOTE_SSH_JUMP_PORT $AI4MBSE_REMOTE_SSH_JUMP_USER@$AI4MBSE_REMOTE_SSH_JUMP_HOST
+          EOF
+          ssh "$AI4MBSE_REMOTE_SSH_TARGET" 'hostname && test -f /home/intern/miniconda3/envs/sglang_h3/bin/python'
+      - name: Install the ephemeral LLM profile on the remote server
+        env:
+          AI4MBSE_LLM_PROFILE_JSON: ${{ secrets.AI4MBSE_LLM_PROFILE_JSON }}
         run: |
           test -n "$AI4MBSE_LLM_PROFILE"
           test -n "$AI4MBSE_LLM_PROFILE_JSON" || { echo "AI4MBSE_LLM_PROFILE_JSON is required" >&2; exit 1; }
-          python - <<'PY'
+          remote_root="/tmp/ai4mbse-github-${GITHUB_RUN_ID}"
+          echo "REMOTE_ROOT=$remote_root" >> "$GITHUB_ENV"
+          ssh "$AI4MBSE_REMOTE_SSH_TARGET" "mkdir -p '$remote_root/repo' '$remote_root/.rflp-config'"
+          git archive "$GITHUB_SHA" \
+            src \
+            schemas \
+            tests/mbse_benchmark/__init__.py \
+            tests/mbse_benchmark/cases \
+            tests/mbse_benchmark/expected \
+            tests/mbse_benchmark/fixtures \
+            tests/mbse_benchmark/run_benchmark.py \
+            tests/mbse_benchmark/runners \
+            tests/mbse_benchmark/scenarios.py \
+            tests/mbse_benchmark/tracks \
+            tests/mbse_benchmark/validators \
+            | ssh "$AI4MBSE_REMOTE_SSH_TARGET" "tar -x -C '$remote_root/repo'"
+          printf '%s' "$AI4MBSE_LLM_PROFILE_JSON" | ssh "$AI4MBSE_REMOTE_SSH_TARGET" "cat > '$remote_root/profile.json'"
+          ssh "$AI4MBSE_REMOTE_SSH_TARGET" "REMOTE_ROOT='$remote_root' PROFILE_ID='$AI4MBSE_LLM_PROFILE' PYTHONPATH='$remote_root/repo/src' /home/intern/miniconda3/envs/sglang_h3/bin/python - <<'PY'
           import json
           import os
           from rflp_lite.application.llm_profiles import LLMProfileService
 
-          payload = json.loads(os.environ["AI4MBSE_LLM_PROFILE_JSON"])
-          if payload.get("id") != os.environ["AI4MBSE_LLM_PROFILE"]:
-              raise SystemExit("profile id does not match AI4MBSE_LLM_PROFILE")
-          for key in ("input_cost_per_1m_tokens", "output_cost_per_1m_tokens"):
+          with open(os.path.join(os.environ['REMOTE_ROOT'], 'profile.json'), encoding='utf-8') as handle:
+              payload = json.load(handle)
+          if payload.get('id') != os.environ['PROFILE_ID']:
+              raise SystemExit('profile id does not match AI4MBSE_LLM_PROFILE')
+          for key in ('input_cost_per_1m_tokens', 'output_cost_per_1m_tokens'):
               value = payload.get(key)
               if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
-                  raise SystemExit(f"{key} must be a non-negative number; use 0 for free inference")
-          LLMProfileService().save({**payload, "active": True})
-          PY
+                  raise SystemExit(f'{key} must be a non-negative number; use 0 for free inference')
+          os.environ['RFLP_CONFIG_DIR'] = os.path.join(os.environ['REMOTE_ROOT'], '.rflp-config')
+          LLMProfileService().save({**payload, 'active': True})
+          PY"
       - name: Validate remote comparison controls
         shell: bash
         run: |
@@ -190,17 +251,21 @@ jobs:
             echo "- comparison mode: natural"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Run same-model A–E comparison
-        run: python tests/mbse_benchmark/run_benchmark.py \
-          --track llm \
-          --profile "$AI4MBSE_LLM_PROFILE" \
-          --compare-a-e \
-          --path vertical \
-          --repeats 3 \
-          --timeout "$AI4MBSE_LLM_CASE_TIMEOUT_SECONDS" \
-          --benchmark-token-budget "$AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET" \
-          --comparison-mode natural \
-          --output-root tests/mbse_benchmark/results/integration-remote \
-          --report-dir tests/mbse_benchmark/reports/integration-remote
+        run: |
+          ssh "$AI4MBSE_REMOTE_SSH_TARGET" "cd '$REMOTE_ROOT/repo' && RFLP_CONFIG_DIR='$REMOTE_ROOT/.rflp-config' PYTHONPATH='$REMOTE_ROOT/repo/src' /home/intern/miniconda3/envs/sglang_h3/bin/python tests/mbse_benchmark/run_benchmark.py \
+            --track llm \
+            --profile '$AI4MBSE_LLM_PROFILE' \
+            --compare-a-e \
+            --path vertical \
+            --repeats 3 \
+            --timeout '$AI4MBSE_LLM_CASE_TIMEOUT_SECONDS' \
+            --benchmark-token-budget '$AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET' \
+            --comparison-mode natural \
+            --output-root '$REMOTE_ROOT/results/integration-remote' \
+            --report-dir '$REMOTE_ROOT/reports/integration-remote'"
+          mkdir -p tests/mbse_benchmark/results/integration-remote tests/mbse_benchmark/reports/integration-remote
+          scp -r "$AI4MBSE_REMOTE_SSH_TARGET:$REMOTE_ROOT/results/integration-remote/." tests/mbse_benchmark/results/integration-remote/
+          scp -r "$AI4MBSE_REMOTE_SSH_TARGET:$REMOTE_ROOT/reports/integration-remote/." tests/mbse_benchmark/reports/integration-remote/
       - name: Upload remote A–E evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -214,7 +279,7 @@ jobs:
   freecad:
     name: FreeCAD acceptance
     needs: [contract, readiness]
-    runs-on: [self-hosted, linux, freecad]
+    runs-on: [self-hosted, macOS, X64, remote-bridge, freecad]
     if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_freecad) || (github.event_name == 'schedule' && vars.AI4MBSE_FREECAD_ENABLED == 'true') }}
     steps:
       - uses: actions/checkout@v4
@@ -222,26 +287,82 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,documents,web]"
+      - name: Configure SSH bridge to the FreeCAD server
+        env:
+          AI4MBSE_REMOTE_SSH_TARGET: ${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}
+          AI4MBSE_REMOTE_SSH_HOST: ${{ vars.AI4MBSE_REMOTE_SSH_HOST }}
+          AI4MBSE_REMOTE_SSH_PORT: ${{ vars.AI4MBSE_REMOTE_SSH_PORT || '22' }}
+          AI4MBSE_REMOTE_SSH_USER: ${{ vars.AI4MBSE_REMOTE_SSH_USER }}
+          AI4MBSE_REMOTE_SSH_JUMP_HOST: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_HOST }}
+          AI4MBSE_REMOTE_SSH_JUMP_PORT: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_PORT || '22' }}
+          AI4MBSE_REMOTE_SSH_JUMP_USER: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_USER }}
+          AI4MBSE_REMOTE_SSH_PRIVATE_KEY: ${{ secrets.AI4MBSE_REMOTE_SSH_PRIVATE_KEY }}
+          AI4MBSE_REMOTE_SSH_KNOWN_HOSTS: ${{ secrets.AI4MBSE_REMOTE_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$AI4MBSE_REMOTE_SSH_PRIVATE_KEY" > "$HOME/.ssh/ai4mbse-remote"
+          printf '%s\n' "$AI4MBSE_REMOTE_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/ai4mbse-remote" "$HOME/.ssh/known_hosts"
+          cat > "$HOME/.ssh/config" <<EOF
+          Host $AI4MBSE_REMOTE_SSH_TARGET
+            HostName $AI4MBSE_REMOTE_SSH_HOST
+            Port $AI4MBSE_REMOTE_SSH_PORT
+            User $AI4MBSE_REMOTE_SSH_USER
+            IdentityFile $HOME/.ssh/ai4mbse-remote
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            ProxyCommand ssh -i $HOME/.ssh/ai4mbse-remote -o IdentitiesOnly=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=yes -W %h:%p -p $AI4MBSE_REMOTE_SSH_JUMP_PORT $AI4MBSE_REMOTE_SSH_JUMP_USER@$AI4MBSE_REMOTE_SSH_JUMP_HOST
+          EOF
+          ssh "$AI4MBSE_REMOTE_SSH_TARGET" 'hostname && test -x /home/intern/miniconda3/envs/ai4mbse-freecad/bin/freecadcmd'
       - name: Confirm FreeCAD runner and execute acceptance
         env:
           AI4MBSE_CAD_BACKEND: freecad-remote
-          AI4MBSE_CAD_SSH_HOST: ${{ secrets.AI4MBSE_CAD_SSH_HOST }}
+          AI4MBSE_CAD_SSH_HOST: ${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}
           AI4MBSE_FREECAD_COMMAND: ${{ secrets.AI4MBSE_FREECAD_COMMAND }}
           AI4MBSE_CAD_REMOTE_ROOT: ${{ secrets.AI4MBSE_CAD_REMOTE_ROOT }}
         run: |
           test -n "$AI4MBSE_CAD_SSH_HOST" || { echo "FreeCAD SSH host is not configured" >&2; exit 1; }
           command -v ssh
+          test -f "$HOME/.ssh/ai4mbse-remote" || { echo "SSH bridge is not configured" >&2; exit 1; }
           pytest -q tests/integration/test_freecad_remote.py
 
   gpu:
     name: GPU acceptance
     needs: [contract, readiness]
-    runs-on: [self-hosted, linux, gpu]
+    runs-on: [self-hosted, macOS, X64, remote-bridge, gpu]
     if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_gpu) || (github.event_name == 'schedule' && vars.AI4MBSE_GPU_ENABLED == 'true') }}
     steps:
       - uses: actions/checkout@v4
+      - name: Configure SSH bridge to the GPU server
+        env:
+          AI4MBSE_REMOTE_SSH_TARGET: ${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}
+          AI4MBSE_REMOTE_SSH_HOST: ${{ vars.AI4MBSE_REMOTE_SSH_HOST }}
+          AI4MBSE_REMOTE_SSH_PORT: ${{ vars.AI4MBSE_REMOTE_SSH_PORT || '22' }}
+          AI4MBSE_REMOTE_SSH_USER: ${{ vars.AI4MBSE_REMOTE_SSH_USER }}
+          AI4MBSE_REMOTE_SSH_JUMP_HOST: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_HOST }}
+          AI4MBSE_REMOTE_SSH_JUMP_PORT: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_PORT || '22' }}
+          AI4MBSE_REMOTE_SSH_JUMP_USER: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_USER }}
+          AI4MBSE_REMOTE_SSH_PRIVATE_KEY: ${{ secrets.AI4MBSE_REMOTE_SSH_PRIVATE_KEY }}
+          AI4MBSE_REMOTE_SSH_KNOWN_HOSTS: ${{ secrets.AI4MBSE_REMOTE_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$AI4MBSE_REMOTE_SSH_PRIVATE_KEY" > "$HOME/.ssh/ai4mbse-remote"
+          printf '%s\n' "$AI4MBSE_REMOTE_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/ai4mbse-remote" "$HOME/.ssh/known_hosts"
+          cat > "$HOME/.ssh/config" <<EOF
+          Host $AI4MBSE_REMOTE_SSH_TARGET
+            HostName $AI4MBSE_REMOTE_SSH_HOST
+            Port $AI4MBSE_REMOTE_SSH_PORT
+            User $AI4MBSE_REMOTE_SSH_USER
+            IdentityFile $HOME/.ssh/ai4mbse-remote
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            ProxyCommand ssh -i $HOME/.ssh/ai4mbse-remote -o IdentitiesOnly=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=yes -W %h:%p -p $AI4MBSE_REMOTE_SSH_JUMP_PORT $AI4MBSE_REMOTE_SSH_JUMP_USER@$AI4MBSE_REMOTE_SSH_JUMP_HOST
+          EOF
       - name: Confirm GPU runner
-        run: nvidia-smi
+        run: ssh "${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}" nvidia-smi
       - name: Run GPU-tagged acceptance tests
         env:
           AI4MBSE_GPU_ACCEPTANCE: "1"
@@ -250,4 +371,7 @@ jobs:
             echo "Explicit GPU acceptance test is missing; refusing to claim a GPU acceptance PASS." >&2
             exit 1
           }
-          python -m pytest -q tests/integration/test_gpu_acceptance.py -m gpu
+          remote_root="/tmp/ai4mbse-github-${GITHUB_RUN_ID}-gpu"
+          ssh "${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}" "mkdir -p '$remote_root'"
+          git archive "$GITHUB_SHA" tests/integration/test_gpu_acceptance.py | ssh "${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}" "tar -x -C '$remote_root'"
+          ssh "${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}" "cd '$remote_root' && AI4MBSE_GPU_ACCEPTANCE=1 /home/intern/miniconda3/envs/controller/bin/python -m pytest -q tests/integration/test_gpu_acceptance.py -m gpu"
