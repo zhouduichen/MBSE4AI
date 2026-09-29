@@ -158,6 +158,8 @@ jobs:
       AI4MBSE_LLM_PROFILE_JSON: ${{ secrets.AI4MBSE_LLM_PROFILE_JSON }}
       AI4MBSE_LLM_CASE_TIMEOUT_SECONDS: ${{ vars.AI4MBSE_LLM_CASE_TIMEOUT_SECONDS || '2700' }}
       AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET: ${{ vars.AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET || '4096' }}
+      AI4MBSE_LLM_READINESS_TIMEOUT_SECONDS: ${{ vars.AI4MBSE_LLM_READINESS_TIMEOUT_SECONDS || '1200' }}
+      AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT: ${{ vars.AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT || '/data/models/harness4h3-v27-code/evidence/student-campaign' }}
       AI4MBSE_REMOTE_SSH_TARGET: ${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}
       AI4MBSE_REMOTE_SSH_HOST: ${{ vars.AI4MBSE_REMOTE_SSH_HOST }}
       AI4MBSE_REMOTE_SSH_PORT: ${{ vars.AI4MBSE_REMOTE_SSH_PORT || '22' }}
@@ -250,8 +252,39 @@ jobs:
             echo "- provider request timeout: profile-defined (maximum 900s)"
             echo "- benchmark case timeout: ${case_timeout}s"
             echo "- per-call output token budget: ${token_budget}"
+            echo "- stable vLLM lease readiness timeout: ${AI4MBSE_LLM_READINESS_TIMEOUT_SECONDS}s"
             echo "- comparison mode: natural"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Wait for stable remote vLLM lease
+        shell: bash
+        run: |
+          set -euo pipefail
+          readiness_timeout="$AI4MBSE_LLM_READINESS_TIMEOUT_SECONDS"
+          [[ "$readiness_timeout" =~ ^[0-9]+$ ]] || { echo "readiness timeout must be an integer" >&2; exit 1; }
+          (( readiness_timeout >= 120 )) || { echo "readiness timeout must be at least 120s" >&2; exit 1; }
+          stable=0
+          deadline=$((SECONDS + readiness_timeout))
+          while (( SECONDS < deadline )); do
+            if state=$(ssh "$AI4MBSE_REMOTE_SSH_TARGET" "root='$AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT'; if curl -fsS --max-time 3 http://127.0.0.1:8000/v1/models >/dev/null && test -f \"\$root/.controller-gpu-lease.json\" && ! test -e \"\$root/.controller-handoff-hold.json\" && ! test -e \"\$root/.h3-worker-gpu-lease.json\"; then echo READY; else echo WAIT; fi" 2>/dev/null); then
+              :
+            else
+              state=SSH_WAIT
+            fi
+            echo "$(date -u +%FT%TZ) remote controller readiness: $state"
+            if [ "$state" = "READY" ]; then
+              stable=$((stable + 1))
+            else
+              stable=0
+            fi
+            if (( stable >= 6 )); then
+              echo "- stable vLLM lease: PASS (6 consecutive samples)" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::vLLM endpoint/Controller lease did not remain stable for 6 samples within ${readiness_timeout}s."
+          echo "- stable vLLM lease: FAIL (${stable}/6 samples)" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
       - name: Run same-model A–E comparison
         run: |
           set +e

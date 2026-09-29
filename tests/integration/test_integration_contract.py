@@ -41,6 +41,10 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert "--repeats 3" in text
     assert "AI4MBSE_LLM_CASE_TIMEOUT_SECONDS" in text
     assert "AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET" in text
+    assert "AI4MBSE_LLM_READINESS_TIMEOUT_SECONDS" in text
+    assert "AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT" in text
+    assert "Wait for stable remote vLLM lease" in text
+    assert "stable vLLM lease: PASS" in text
     assert "--timeout '$AI4MBSE_LLM_CASE_TIMEOUT_SECONDS'" in text
     assert "--benchmark-token-budget '$AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET'" in text
     assert "case timeout must be at least the 900s provider timeout" in text
