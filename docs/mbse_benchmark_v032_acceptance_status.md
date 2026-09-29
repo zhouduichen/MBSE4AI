@@ -164,7 +164,7 @@ GitHub run [36528400246](https://github.com/zhouduichen/MBSE4AI/actions/runs/365
 
 远端随后在 14:33 CST 记录 vLLM EngineCore 被停止并返回 HTTP 500；14:35 CST 的只读状态显示 Controller handoff hold、release 和 worker GPU lease 同时出现。该证据确认“端口曾监听”仍不等于完整运行窗口，且不能通过重启 vLLM 或删除 scheduler marker 来修复实验结论。
 
-为适配这个运行权衡，当前工作树新增 detached campaign wrapper 与独立 collector：提交 job 只在稳定 lease 后写入不可变 manifest 并启动远端 campaign；collector 读取原子 status，只有 `completed + exit_code=0 + comparison PASS + execution_complete=true + 无 invariant failures` 才上传为 PASS 证据。`running`、`interrupted`、scheduler-preempted 和 failed campaign 会被保留并明确标记为非 PASS。该改动在 CI 通过并完成一次 terminal collector 收集前，不计入第 15 项的完整 A–E 证据。
+为适配这个运行权衡，当前工作树新增 detached campaign wrapper 与独立 collector：提交 job 只在稳定 lease 后写入不可变 manifest 并启动远端 campaign；readiness 允许并行 worker lease，但会检查 Controller 与 worker 的 `allocated_gpus` 没有重叠；collector 读取原子 status，只有 `completed + exit_code=0 + comparison PASS + execution_complete=true + 无 invariant failures` 才上传为 PASS 证据。`running`、`interrupted`、scheduler-preempted 和 failed campaign 会被保留并明确标记为非 PASS。该改动在 CI 通过并完成一次 terminal collector 收集前，不计入第 15 项的完整 A–E 证据。
 
 ## 当前结论
 

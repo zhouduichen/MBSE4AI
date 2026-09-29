@@ -46,6 +46,9 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert "AI4MBSE_REMOTE_CAMPAIGN_ROOT" in text
     assert "Wait for stable remote vLLM lease" in text
     assert "stable vLLM lease: PASS" in text
+    assert "controller_gpus" in text
+    assert "worker_gpus" in text
+    assert "allocated_gpus" in text
     assert '"--timeout", os.environ["AI4MBSE_LLM_CASE_TIMEOUT_SECONDS"]' in text
     assert '"--benchmark-token-budget", os.environ["AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET"]' in text
     assert "case timeout must be at least the 900s provider timeout" in text
