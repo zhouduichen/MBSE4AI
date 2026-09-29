@@ -156,6 +156,16 @@ run16 comparison 为 `status=FAIL`、`execution_complete=false`，但共同实�
 
 在本次观察中，`127.0.0.1:8000/v1/models` 曾在 13:04 CST 返回 `qwen3.5-controller`，但 worker handoff 很快取得全部四张 GPU；随后 13:15–13:23 的只读监控也未观察到连续稳定窗口。因而“端口可访问”不是充分条件；下一次 A–E 必须同时满足 endpoint healthy、Controller lease 稳定、worker lease 不覆盖 Controller GPU，并在该窗口内启动完整重复实验。
 
+## GitHub run23：前台 runner 取消，远端 campaign 仍保留部分证据
+
+GitHub run [36528400246](https://github.com/zhouduichen/MBSE4AI/actions/runs/36528400246) 使用 `bbd4bf4` 的稳定 lease 前置检查。contract/readiness 均通过，远端 vLLM 连续 6 次采样满足前置条件，随后真实 A–E 已开始；但 GitHub runner 在 benchmark 前台步骤运行约 1798 秒后收到外部取消信号（不是 benchmark 自己的 PASS/FAIL），SSH 子进程被 SIGINT/SIGTERM 收回，GitHub 侧没有完整实验 artifact。
+
+取消后保留下来的远端快照位于本机临时证据目录 `/tmp/ai4mbse-evidence-final-36528400246.zPGBz0`，包含 558 个文件。快照仍能证明 75 个 A–E repeat 输入 artifact 全部存在且 byte/hash 一致，`ground_truth_isolated=true`、ExternalEvaluator 与 normalizer 配置一致；但执行不完整，不能作为 A–E 质量结论：A 只有 1 个 repeat 完成，B 无完整 telemetry，C/D/E 被 provider failure 或 scheduler handoff 打断，comparison 的 `execution_complete=false`。
+
+远端随后在 14:33 CST 记录 vLLM EngineCore 被停止并返回 HTTP 500；14:35 CST 的只读状态显示 Controller handoff hold、release 和 worker GPU lease 同时出现。该证据确认“端口曾监听”仍不等于完整运行窗口，且不能通过重启 vLLM 或删除 scheduler marker 来修复实验结论。
+
+为适配这个运行权衡，当前工作树新增 detached campaign wrapper 与独立 collector：提交 job 只在稳定 lease 后写入不可变 manifest 并启动远端 campaign；collector 读取原子 status，只有 `completed + exit_code=0 + comparison PASS + execution_complete=true + 无 invariant failures` 才上传为 PASS 证据。`running`、`interrupted`、scheduler-preempted 和 failed campaign 会被保留并明确标记为非 PASS。该改动在 CI 通过并完成一次 terminal collector 收集前，不计入第 15 项的完整 A–E 证据。
+
 ## 当前结论
 
 v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run16 证明在 vLLM 空闲且 Controller lease 稳定的窗口内，修复后的服务器本机可以真实跑完 A–E 的三次调度并生成完整 telemetry，但 comparison 仍因 D/E provider fail-fast、execution incomplete、cost unavailable 以及 Release Closure 结果为 `FAIL`，不能冒充 Harness 收益已被证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 共同说明真正的运行策略是“等待稳定空闲窗口、按 repeat 可恢复、失败原样保留”，而不是长期强占 GPU 或仅检查 `:8000`。当前 GitHub bridge 已通过 runner/SSH/FreeCAD/GPU 真实验收，A–E 仍需在下一次稳定 vLLM lease 窗口完成；第 14 项仍需要 scheduled event 的权威 run，第 15 项仍需要真实 remote LLM 的完整 A–E 质量/成本证据。

@@ -37,23 +37,36 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert "--compare-a-e" in text
     assert "run_llm:" in text
     assert "inputs.run_llm" in text
-    assert "--path vertical" in text
-    assert "--repeats 3" in text
+    assert '"--path", "vertical"' in text
+    assert '"--repeats", "3"' in text
     assert "AI4MBSE_LLM_CASE_TIMEOUT_SECONDS" in text
     assert "AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET" in text
     assert "AI4MBSE_LLM_READINESS_TIMEOUT_SECONDS" in text
     assert "AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT" in text
+    assert "AI4MBSE_REMOTE_CAMPAIGN_ROOT" in text
     assert "Wait for stable remote vLLM lease" in text
     assert "stable vLLM lease: PASS" in text
-    assert "--timeout '$AI4MBSE_LLM_CASE_TIMEOUT_SECONDS'" in text
-    assert "--benchmark-token-budget '$AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET'" in text
+    assert '"--timeout", os.environ["AI4MBSE_LLM_CASE_TIMEOUT_SECONDS"]' in text
+    assert '"--benchmark-token-budget", os.environ["AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET"]' in text
     assert "case timeout must be at least the 900s provider timeout" in text
-    assert "--comparison-mode natural" in text
-    assert "integration-remote-llm-${{ github.run_id }}" in text
-    assert "tests/mbse_benchmark/results/integration-remote" in text
-    assert "benchmark_rc=$?" in text
-    assert "benchmark exit code" in text
+    assert '"--comparison-mode", "natural"' in text
+    assert "Submit detached same-model A–E campaign" in text
+    assert "remote_llm_campaign.py' run --manifest" in text
+    assert "submission PASS is not experiment evidence" in text
+    assert "integration-remote-llm-submission-${{ github.run_id }}" in text
     assert "AI4MBSE_CAD_BACKEND: freecad-remote" in text
     assert "refusing to claim a GPU acceptance PASS" in text
     assert "tests/integration/test_gpu_acceptance.py" in text
     assert "AI4MBSE_GPU_ACCEPTANCE" in text
+
+
+def test_remote_collector_is_scheduled_and_fail_closed() -> None:
+    collector = Path(".github/workflows/integration-remote-collector.yml").read_text(encoding="utf-8")
+
+    assert "schedule:" in collector
+    assert 'cron: "47 * * * *"' in collector
+    assert "campaign is still running; this collector records PENDING" in collector
+    assert 'state != "completed"' in collector
+    assert 'comparison.get("status") != "PASS"' in collector
+    assert 'comparison.get("execution_complete") is not True' in collector
+    assert "Upload remote A–E campaign evidence" in collector

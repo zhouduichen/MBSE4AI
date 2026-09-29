@@ -148,7 +148,7 @@ jobs:
           fi
 
   remote-llm:
-    name: remote LLM A–E comparison
+    name: remote LLM A–E campaign submission
     needs: [contract, readiness]
     runs-on: [self-hosted, macOS, X64, remote-bridge, llm]
     if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_llm && (inputs.profile != '' || vars.AI4MBSE_LLM_PROFILE != '')) || (github.event_name == 'schedule' && vars.AI4MBSE_LLM_PROFILE != '') }}
@@ -160,6 +160,7 @@ jobs:
       AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET: ${{ vars.AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET || '4096' }}
       AI4MBSE_LLM_READINESS_TIMEOUT_SECONDS: ${{ vars.AI4MBSE_LLM_READINESS_TIMEOUT_SECONDS || '1200' }}
       AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT: ${{ vars.AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT || '/data/models/harness4h3-v27-code/evidence/student-campaign' }}
+      AI4MBSE_REMOTE_CAMPAIGN_ROOT: ${{ vars.AI4MBSE_REMOTE_CAMPAIGN_ROOT || format('{0}/ai4mbse-campaigns', vars.AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT || '/data/models/harness4h3-v27-code/evidence/student-campaign') }}
       AI4MBSE_REMOTE_SSH_TARGET: ${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}
       AI4MBSE_REMOTE_SSH_HOST: ${{ vars.AI4MBSE_REMOTE_SSH_HOST }}
       AI4MBSE_REMOTE_SSH_PORT: ${{ vars.AI4MBSE_REMOTE_SSH_PORT || '22' }}
@@ -198,7 +199,7 @@ jobs:
         run: |
           test -n "$AI4MBSE_LLM_PROFILE"
           test -n "$AI4MBSE_LLM_PROFILE_JSON" || { echo "AI4MBSE_LLM_PROFILE_JSON is required" >&2; exit 1; }
-          remote_root="/tmp/ai4mbse-github-${GITHUB_RUN_ID}"
+          remote_root="${AI4MBSE_REMOTE_CAMPAIGN_ROOT}/github-${GITHUB_RUN_ID}"
           echo "REMOTE_ROOT=$remote_root" >> "$GITHUB_ENV"
           ssh "$AI4MBSE_REMOTE_SSH_TARGET" "mkdir -p '$remote_root/repo' '$remote_root/.rflp-config'"
           git archive "$GITHUB_SHA" \
@@ -213,6 +214,7 @@ jobs:
             tests/mbse_benchmark/scenarios.py \
             tests/mbse_benchmark/tracks \
             tests/mbse_benchmark/validators \
+            scripts/remote_llm_campaign.py \
             | ssh "$AI4MBSE_REMOTE_SSH_TARGET" "tar -x -C '$remote_root/repo'"
           printf '%s' "$AI4MBSE_LLM_PROFILE_JSON" | ssh "$AI4MBSE_REMOTE_SSH_TARGET" "cat > '$remote_root/profile.json'"
           ssh "$AI4MBSE_REMOTE_SSH_TARGET" "REMOTE_ROOT='$remote_root' PROFILE_ID='$AI4MBSE_LLM_PROFILE' PYTHONPATH='$remote_root/repo/src' /home/intern/miniconda3/envs/sglang_h3/bin/python - <<'PY'
@@ -285,39 +287,77 @@ jobs:
           echo "::error::vLLM endpoint/Controller lease did not remain stable for 6 samples within ${readiness_timeout}s."
           echo "- stable vLLM lease: FAIL (${stable}/6 samples)" >> "$GITHUB_STEP_SUMMARY"
           exit 1
-      - name: Run same-model A–E comparison
+      - name: Submit detached same-model A–E campaign
         run: |
-          set +e
-          ssh "$AI4MBSE_REMOTE_SSH_TARGET" "cd '$REMOTE_ROOT/repo' && RFLP_CONFIG_DIR='$REMOTE_ROOT/.rflp-config' PYTHONPATH='$REMOTE_ROOT/repo/src' /home/intern/miniconda3/envs/sglang_h3/bin/python tests/mbse_benchmark/run_benchmark.py \
-            --track llm \
-            --profile '$AI4MBSE_LLM_PROFILE' \
-            --compare-a-e \
-            --path vertical \
-            --repeats 3 \
-            --timeout '$AI4MBSE_LLM_CASE_TIMEOUT_SECONDS' \
-            --benchmark-token-budget '$AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET' \
-            --comparison-mode natural \
-            --output-root '$REMOTE_ROOT/results/integration-remote' \
-            --report-dir '$REMOTE_ROOT/reports/integration-remote'"
-          benchmark_rc=$?
-          set -e
-          mkdir -p tests/mbse_benchmark/results/integration-remote tests/mbse_benchmark/reports/integration-remote
-          copy_rc=0
-          scp -r "$AI4MBSE_REMOTE_SSH_TARGET:$REMOTE_ROOT/results/integration-remote/." tests/mbse_benchmark/results/integration-remote/ || copy_rc=$?
-          scp -r "$AI4MBSE_REMOTE_SSH_TARGET:$REMOTE_ROOT/reports/integration-remote/." tests/mbse_benchmark/reports/integration-remote/ || copy_rc=$?
-          echo "- benchmark exit code: ${benchmark_rc}" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$benchmark_rc" -ne 0 ]; then
-            exit "$benchmark_rc"
-          fi
-          exit "$copy_rc"
-      - name: Upload remote A–E evidence
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ai4mbse-remote-submission"
+          manifest="$RUNNER_TEMP/ai4mbse-remote-submission/manifest.json"
+          export CAMPAIGN_ID="github-${GITHUB_RUN_ID}"
+          export REMOTE_ROOT AI4MBSE_LLM_PROFILE AI4MBSE_LLM_CASE_TIMEOUT_SECONDS AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET AI4MBSE_REMOTE_CAMPAIGN_ROOT
+          python3 - "$manifest" <<'PY'
+          import json
+          import os
+          import sys
+          from datetime import datetime, timezone
+
+          root = os.environ["REMOTE_ROOT"]
+          campaign_root = os.environ["AI4MBSE_REMOTE_CAMPAIGN_ROOT"]
+          campaign_id = os.environ["CAMPAIGN_ID"]
+          profile = os.environ["AI4MBSE_LLM_PROFILE"]
+          command = [
+              "/home/intern/miniconda3/envs/sglang_h3/bin/python",
+              f"{root}/repo/tests/mbse_benchmark/run_benchmark.py",
+              "--track", "llm",
+              "--profile", profile,
+              "--compare-a-e",
+              "--path", "vertical",
+              "--repeats", "3",
+              "--timeout", os.environ["AI4MBSE_LLM_CASE_TIMEOUT_SECONDS"],
+              "--benchmark-token-budget", os.environ["AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET"],
+              "--comparison-mode", "natural",
+              "--output-root", f"{root}/results",
+              "--report-dir", f"{root}/reports",
+          ]
+          payload = {
+              "campaign_id": campaign_id,
+              "run_id": os.environ.get("GITHUB_RUN_ID"),
+              "created_at": datetime.now(timezone.utc).isoformat(),
+              "profile": profile,
+              "comparison_mode": "natural",
+              "command": command,
+              "cwd": root + "/repo",
+              "env": {
+                  "RFLP_CONFIG_DIR": root + "/.rflp-config",
+                  "PYTHONPATH": root + "/repo/src",
+              },
+              "results_dir": root + "/results",
+              "reports_dir": root + "/reports",
+              "comparison_report": f"{root}/reports/llm/{profile}/a_to_e_comparison.json",
+              "status_path": root + "/status.json",
+              "stdout_path": root + "/benchmark.stdout.log",
+              "stderr_path": root + "/benchmark.stderr.log",
+              "campaign_root": campaign_root,
+          }
+          with open(sys.argv[1], "w", encoding="utf-8") as handle:
+              json.dump(payload, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+              handle.write("\n")
+          PY
+          ssh "$AI4MBSE_REMOTE_SSH_TARGET" "mkdir -p '$REMOTE_ROOT/results' '$REMOTE_ROOT/reports'"
+          scp "$manifest" "$AI4MBSE_REMOTE_SSH_TARGET:$REMOTE_ROOT/manifest.json"
+          ssh "$AI4MBSE_REMOTE_SSH_TARGET" "nohup /home/intern/miniconda3/envs/sglang_h3/bin/python '$REMOTE_ROOT/repo/scripts/remote_llm_campaign.py' run --manifest '$REMOTE_ROOT/manifest.json' </dev/null >/dev/null 2>&1 & echo \$! > '$REMOTE_ROOT/campaign-wrapper.pid'"
+          scp "$AI4MBSE_REMOTE_SSH_TARGET:$REMOTE_ROOT/manifest.json" "$RUNNER_TEMP/ai4mbse-remote-submission/manifest.json"
+          ssh "$AI4MBSE_REMOTE_SSH_TARGET" "for n in 1 2 3 4 5; do test -s '$REMOTE_ROOT/status.json' && break; sleep 1; done; test -s '$REMOTE_ROOT/status.json' && cat '$REMOTE_ROOT/status.json' || true" | tee "$RUNNER_TEMP/ai4mbse-remote-submission/status.json"
+          cp "$RUNNER_TEMP/ai4mbse-remote-submission/status.json" tests/mbse_benchmark/remote-campaign-submission.json
+          echo "- remote A–E campaign submitted: ${CAMPAIGN_ID}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- campaign result is pending collector validation; submission PASS is not experiment evidence" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload remote A–E campaign submission
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: integration-remote-llm-${{ github.run_id }}
+          name: integration-remote-llm-submission-${{ github.run_id }}
           path: |
-            tests/mbse_benchmark/results/integration-remote
-            tests/mbse_benchmark/reports/integration-remote
+            tests/mbse_benchmark/remote-campaign-submission.json
+            ${{ runner.temp }}/ai4mbse-remote-submission/manifest.json
           if-no-files-found: ignore
 
   freecad:

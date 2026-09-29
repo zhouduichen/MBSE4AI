@@ -1,8 +1,8 @@
 # MBSE4AI External Benchmark CI
 
 The ordinary `CI / quality` check is intentionally offline and reproducible. Real
-provider, FreeCAD, and GPU evidence is collected only by
-`.github/workflows/integration.yml`.
+provider, FreeCAD, and GPU evidence is collected only by the integration
+workflows (`integration.yml` and `integration-remote-collector.yml`).
 
 ## Remote LLM A–E comparison
 
@@ -22,6 +22,9 @@ Configure these repository-level values:
   staged and Harness scenarios contain multiple provider calls.
 - Optional variable `AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET`: the shared per-call
   output-token cap. It defaults to `4096` and must be at least `256`.
+- Optional variable `AI4MBSE_REMOTE_CAMPAIGN_ROOT`: persistent remote root for
+  detached campaign manifests and evidence. It defaults to a child directory
+  of `AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT`.
 
 Budget-matched runs also require a positive `--total-output-token-budget`. The
 provider must return an output-token count (`output_tokens`, `completion_tokens`,
@@ -29,20 +32,33 @@ or native `eval_count`); without it the adapter fails closed, and any measured
 repeat above the cap makes the comparison invalid.
 
 For an operator-triggered run, supply the profile id through the workflow input
-and keep the JSON in the repository secret. The job runs
-`--compare-a-e --path vertical --repeats 3 --comparison-mode natural`; a budget-matched
-publication run can be launched separately with the benchmark CLI. Natural mode
-records the unconstrained total work and reports budget comparability/enforcement
-as `not_applicable`; only budget-matched mode may claim a shared total cap.
+and keep the JSON in the repository secret. The integration job waits for a
+stable Controller lease, stages an immutable campaign snapshot, and submits
+`--compare-a-e --path vertical --repeats 3 --comparison-mode natural` as a
+detached remote campaign. It does not keep a foreground SSH step open for the
+full experiment: runner cancellation and scheduler handoff are recorded in the
+campaign status instead of being mistaken for a completed comparison.
 
-The workflow records both timeout layers in the run summary and artifact
-metadata: the profile controls each provider request, while the case timeout
-controls the complete staged/Harness repeat. The job is evidence-bearing only when its own run is `success`. A missing profile
-leaves the job skipped and the contract summary records `remote LLM profile: NOT
-CONFIGURED`. Successful contract and remote A–E jobs upload their generated
-reports, metrics, result files, and reproducibility manifest as run-scoped
-artifacts; a green job without the corresponding artifact is not treated as
-complete evidence.
+The separate `integration-remote-collector.yml` workflow collects a named
+campaign manually or discovers the newest campaign on its hourly schedule. A
+campaign submission is not experiment evidence. The collector only treats a
+terminal status with `a_to_e_comparison.json.status=PASS`,
+`execution_complete=true`, and no invariant failures as evidence-bearing PASS;
+pending, interrupted, scheduler-preempted, and failed campaigns are uploaded
+as non-PASS evidence.
+
+A budget-matched publication run can be launched separately with the benchmark
+CLI. Natural mode records the unconstrained total work and reports budget
+comparability/enforcement as `not_applicable`; only budget-matched mode may
+claim a shared total cap.
+
+The campaign manifest records both timeout layers: the profile controls each
+provider request, while the case timeout controls the complete staged/Harness
+repeat. The submission job is only evidence that a remote campaign was
+accepted by the server. A missing profile leaves the job skipped and the
+contract summary records `remote LLM profile: NOT CONFIGURED`. Only a
+successful collector with the corresponding reports, metrics, result files,
+status manifest, and reproducibility manifest is complete A–E evidence.
 
 ## FreeCAD acceptance
 
