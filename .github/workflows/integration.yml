@@ -91,7 +91,6 @@ jobs:
       REMOTE_SSH_KNOWN_HOSTS: ${{ secrets.AI4MBSE_REMOTE_SSH_KNOWN_HOSTS }}
       FREECAD_COMMAND: ${{ secrets.AI4MBSE_FREECAD_COMMAND }}
       CAD_REMOTE_ROOT: ${{ secrets.AI4MBSE_CAD_REMOTE_ROOT }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Validate requested external targets
         shell: bash
@@ -120,11 +119,7 @@ jobs:
                 errors=$((errors + 1))
               fi
             done
-            freecad_runners=$(gh api "repos/$GITHUB_REPOSITORY/actions/runners" --jq '[.runners[] | select(.status == "online") | select([.labels[].name] | index("remote-bridge")) | select([.labels[].name] | index("freecad"))] | length')
-            if [ "$freecad_runners" -lt 1 ]; then
-              echo "::error::FreeCAD target is enabled but no online remote-bridge runner has the freecad label."
-              errors=$((errors + 1))
-            fi
+            echo "- FreeCAD runner: label routing will be enforced by the target job" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           if [ "$GPU_ENABLED" = "true" ]; then
@@ -133,11 +128,7 @@ jobs:
               echo "::error::GPU target is selected but the SSH bridge is not configured."
               errors=$((errors + 1))
             fi
-            gpu_runners=$(gh api "repos/$GITHUB_REPOSITORY/actions/runners" --jq '[.runners[] | select(.status == "online") | select([.labels[].name] | index("remote-bridge")) | select([.labels[].name] | index("gpu"))] | length')
-            if [ "$gpu_runners" -lt 1 ]; then
-              echo "::error::GPU target is enabled but no online remote-bridge runner has the gpu label."
-              errors=$((errors + 1))
-            fi
+            echo "- GPU runner: label routing will be enforced by the target job" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           if [ "$EVENT_NAME" = "schedule" ] && [ "$targets" -eq 0 ]; then

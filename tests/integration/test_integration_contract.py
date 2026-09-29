@@ -26,8 +26,8 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert "actions: read" in text
     assert "  readiness:" in text
     assert "no configured external target" in text
-    assert "no online remote-bridge runner has the freecad label" in text
-    assert "no online remote-bridge runner has the gpu label" in text
+    assert "FreeCAD runner: label routing will be enforced by the target job" in text
+    assert "GPU runner: label routing will be enforced by the target job" in text
     assert "runs-on: [self-hosted, macOS, X64, remote-bridge, freecad]" in text
     assert "runs-on: [self-hosted, macOS, X64, remote-bridge, gpu]" in text
     assert "runs-on: [self-hosted, macOS, X64, remote-bridge, llm]" in text
