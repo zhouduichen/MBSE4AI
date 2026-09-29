@@ -172,6 +172,34 @@ run [36535264100](https://github.com/zhouduichen/MBSE4AI/actions/runs/3653526410
 
 这不是 A–E 实验结果，也不应计入 remote LLM 成功或失败样本。提交 `3fe74db` 已把条件改为检查 Controller 与 worker 的 GPU 集合不重叠，同时继续拒绝 handoff hold；因此当前实际权衡是“允许并行且不冲突的 worker lease，避开 overlap/handoff 窗口”，而不是要求服务器完全没有 worker 活动。
 
+## GitHub run25：稳定空闲窗口提交了真实 detached campaign，但 comparison FAIL
+
+GitHub run [36540494618](https://github.com/zhouduichen/MBSE4AI/actions/runs/36540494618) 使用 `ff9b7d3` 的 Controller lease readiness。该 run 在远端连续收到 6 次 `READY:controller_gpus=[0],worker_gpus=[]` 后，于 `2026-09-29 16:52:19 CST` 启动 detached campaign；campaign 于 `17:22:39 CST` 以 `exit_code=1` 终止。GitHub job 本身 PASS 仅表示 manifest 已提交，不能表示 A–E 实验 PASS。
+
+远端原始证据位于：
+
+```text
+/data/models/harness4h3-v27-code/evidence/student-campaign/
+  ai4mbse-campaigns/github-36540494618/{status.json,manifest.json,
+  benchmark.stderr.log,reports/llm/jiayuinter-vllm-v032-remote-8192/}
+```
+
+`status.json` 的终态为 `state=failed`、`evidence_ready=false`、`error="benchmark exited with code 1"`；comparison report 为 `status=FAIL`，fail-closed invariant 包括 `execution_complete`、`real_calls_observed`、`token_usage_observed`、`latency_observed`、`cost_observed` 以及 model/input/task-spec/ablation 一致性检查。
+
+这次 command 覆盖 5 个 case、每个 3 repeats，共 75 个输入 artifact。`input_artifact_audit` 为 `all_present=true`、`all_exact=true`、`checked_count=75`，说明落盘的 benchmark 输入没有发生 byte/hash 漏洞；`ground_truth_isolated=true`、`same_evaluator=true`、`same_normalizer=true`、`same_evaluation_spec=true` 也成立。但由于大量 repeat 在 provider 调用阶段失败，comparison 的整体 `same_input`、`same_task_spec`、`same_temperature`、real-call/token/latency/cost invariants 仍为 false，不能把 artifact audit 单独提升为完整 A–E 结论。
+
+| Scenario | Controls | completed / 15 repeats | telemetry 结果 | 结论 |
+|---|---|---:|---|---|
+| A Bare one-shot | verifier/gate/repair/CAS=false | 1/15 | 完成 repeat：2 calls、15,582 tokens、1,150.719s；其余失败 | 不完整 |
+| B Bare staged | 预期全部 false，但无成功 metadata | 0/15 | telemetry unavailable | 不完整 |
+| C Harness−Verifier | verifier=false，其余 true | 0/15 | mean 2 failed calls、0 tokens | 不完整 |
+| D Harness−Repair | repair=false，其余 true | 0/15 | mean 2 failed calls、0 tokens | 不完整 |
+| E Full Harness | verifier/gate/repair/CAS=true | 0/15 | mean 39.8 failed calls、0 tokens | 不完整 |
+
+因此 run25 是一次真实可访问 runner、真实 vLLM、真实模型调用边界的 terminal failure evidence；它进一步证明“稳定 lease + 端口健康”可以让 campaign 启动，但不能保证长尾 A–E 完整执行。该结果不能宣称 Harness 收益，也不能将失败调用的 `0 tokens` 当成有效质量/成本比较。
+
+当前 collector workflow 尚未进入默认分支，GitHub 对 `.github/workflows/integration-remote-collector.yml` 的手动 dispatch 返回 `404 workflow not found on the default branch`；因此 run25 的 terminal 失败证据已在远端保留，但尚无对应的 GitHub collector artifact。该缺口必须在将 collector 纳入默认分支后补齐，不能用提交 job 的 PASS 替代。
+
 ## 当前结论
 
 v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run16 证明在 vLLM 空闲且 Controller lease 稳定的窗口内，修复后的服务器本机可以真实跑完 A–E 的三次调度并生成完整 telemetry，但 comparison 仍因 D/E provider fail-fast、execution incomplete、cost unavailable 以及 Release Closure 结果为 `FAIL`，不能冒充 Harness 收益已被证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 共同说明真正的运行策略是“等待稳定空闲窗口、按 repeat 可恢复、失败原样保留”，而不是长期强占 GPU 或仅检查 `:8000`。当前 GitHub bridge 已通过 runner/SSH/FreeCAD/GPU 真实验收，A–E 仍需在下一次稳定 vLLM lease 窗口完成；第 14 项仍需要 scheduled event 的权威 run，第 15 项仍需要真实 remote LLM 的完整 A–E 质量/成本证据。
