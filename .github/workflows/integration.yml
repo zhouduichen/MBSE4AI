@@ -214,6 +214,7 @@ jobs:
             tests/mbse_benchmark/scenarios.py \
             tests/mbse_benchmark/tracks \
             tests/mbse_benchmark/validators \
+            scripts/controller_lease_readiness.py \
             scripts/remote_llm_campaign.py \
             | ssh "$AI4MBSE_REMOTE_SSH_TARGET" "tar -x -C '$remote_root/repo'"
           printf '%s' "$AI4MBSE_LLM_PROFILE_JSON" | ssh "$AI4MBSE_REMOTE_SSH_TARGET" "cat > '$remote_root/profile.json'"
@@ -267,17 +268,13 @@ jobs:
           stable=0
           deadline=$((SECONDS + readiness_timeout))
           while (( SECONDS < deadline )); do
-            if state=$(ssh "$AI4MBSE_REMOTE_SSH_TARGET" "root='$AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT'; if curl -fsS --max-time 3 http://127.0.0.1:8000/v1/models >/dev/null && test -f \"\$root/.controller-gpu-lease.json\" && ! test -e \"\$root/.controller-handoff-hold.json\"; then worker_gpus=\$(if test -f \"\$root/.h3-worker-gpu-lease.json\"; then jq -c '.allocated_gpus // []' \"\$root/.h3-worker-gpu-lease.json\"; else echo '[]'; fi); if jq -e --argjson now \"\$(date +%s)\" --argjson w \"\$worker_gpus\" '(.state == \"allocated_for_controller\") and ((.expires_at | tonumber) > \$now) and (((.allocated_gpus // []) - \$w | length) == ((.allocated_gpus // []) | length))' \"\$root/.controller-gpu-lease.json\" >/dev/null; then echo READY; else echo WAIT; fi; else echo WAIT; fi" 2>/dev/null); then
-              :
-            else
-              state=SSH_WAIT
-            fi
+            state=$(ssh "$AI4MBSE_REMOTE_SSH_TARGET" "/home/intern/miniconda3/envs/sglang_h3/bin/python '$REMOTE_ROOT/repo/scripts/controller_lease_readiness.py' --state-root '$AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT' --endpoint http://127.0.0.1:8000/v1/models" 2>/dev/null || true)
+            [ -n "$state" ] || state=SSH_WAIT
             echo "$(date -u +%FT%TZ) remote controller readiness: $state"
-            if [ "$state" = "READY" ]; then
-              stable=$((stable + 1))
-            else
-              stable=0
-            fi
+            case "$state" in
+              READY:*) stable=$((stable + 1)) ;;
+              *) stable=0 ;;
+            esac
             if (( stable >= 6 )); then
               echo "- stable vLLM lease: PASS (6 consecutive samples)" >> "$GITHUB_STEP_SUMMARY"
               exit 0

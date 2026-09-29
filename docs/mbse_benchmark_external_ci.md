@@ -35,7 +35,9 @@ For an operator-triggered run, supply the profile id through the workflow input
 and keep the JSON in the repository secret. The integration job waits for a
 stable Controller lease, verifies that any worker lease has no GPU overlap with
 Controller, verifies that the Controller lease is unexpired, stages an immutable
-campaign snapshot, and submits
+campaign snapshot, and submits. The readiness decision is implemented by the
+stdlib-only `scripts/controller_lease_readiness.py` contract and is covered by
+offline integration tests; it never edits scheduler markers.
 `--compare-a-e --path vertical --repeats 3 --comparison-mode natural` as a
 detached remote campaign. It does not keep a foreground SSH step open for the
 full experiment: runner cancellation and scheduler handoff are recorded in the
