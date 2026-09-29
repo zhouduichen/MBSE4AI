@@ -279,9 +279,11 @@ jobs:
     if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_freecad) || (github.event_name == 'schedule' && vars.AI4MBSE_FREECAD_ENABLED == 'true') }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Set up runner-local Python 3.12
+        run: |
+          command -v python3.12
+          python3.12 -m venv "$RUNNER_TEMP/ai4mbse-freecad-venv"
+          echo "$RUNNER_TEMP/ai4mbse-freecad-venv/bin" >> "$GITHUB_PATH"
       - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,documents,web]"
       - name: Configure SSH bridge to the FreeCAD server
         env:
