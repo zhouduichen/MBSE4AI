@@ -4,10 +4,15 @@ import pytest
 
 from rflp_lite.domain.canonical import canonical_hash
 from rflp_lite.domain.model import ModelGraph
-from rflp_lite.ports.generative_model import GenerationRequest, GenerationResponse
+from rflp_lite.ports.generative_model import (
+    GenerationCallEvent,
+    GenerationRequest,
+    GenerationResponse,
+)
 from tests.mbse_benchmark.runners.case_runner import (
     _EvaluatorBoundaryModel,
     _apply_scenario_runtime_controls,
+    _failure_metadata,
     _harness_metadata,
     _run_analysis,
 )
@@ -15,6 +20,7 @@ from tests.mbse_benchmark.runners import case_runner as case_runner_module
 from tests.mbse_benchmark.runners.experiment_contract import (
     BenchmarkInputEnvelope,
     EvaluationSpec,
+    input_artifact_sha256,
     model_visible_key_tokens,
 )
 from tests.mbse_benchmark.runners.scenario_pipeline import TASK_SPEC
@@ -127,6 +133,49 @@ def test_harness_metadata_uses_the_same_profile_identity_as_bare_adapter() -> No
             "requirements": [],
         }).canonical_bytes
     ) + 1
+
+
+def test_failure_metadata_preserves_input_and_transport_telemetry() -> None:
+    envelope = BenchmarkInputEnvelope.from_case({
+        "case_id": "CASE-01",
+        "system": "测试系统",
+        "stakeholders": [],
+        "lifecycle_stages": [],
+        "scenarios": [],
+        "requirements": [],
+    })
+    metadata = _failure_metadata(
+        envelope,
+        scenario_contract(BenchmarkScenario.A_BARE_ONE_SHOT),
+        {
+            "id": "profile-a",
+            "provider": "openai-compatible",
+            "model": "model-a",
+            "benchmark_token_budget": 8192,
+            "temperature": 0.0,
+        },
+        telemetry_events=[GenerationCallEvent(
+            "bare",
+            "initial",
+            "profile-a",
+            "model-a",
+            1234,
+            "completed",
+            {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        )],
+        comparison_mode="natural",
+        total_output_token_budget=None,
+        execution_elapsed=1.5,
+    )
+
+    assert metadata["failure_metadata"] is True
+    assert metadata["input_hash"] == envelope.input_hash
+    assert metadata["input_artifact_sha256"] == input_artifact_sha256(envelope)
+    assert metadata["graph_hash"] is None
+    assert metadata["telemetry"]["call_count"] == 1
+    assert metadata["telemetry"]["total_tokens"] == 30
+    assert metadata["telemetry"]["provider_latency_ms"] == 1234
+    assert metadata["telemetry"]["wall_latency_ms"] == 1500
 
 
 def test_run_case_persists_input_before_worker_start(tmp_path, monkeypatch) -> None:

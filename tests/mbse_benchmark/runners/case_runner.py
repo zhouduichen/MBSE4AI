@@ -76,6 +76,80 @@ def _write_canonical_input(path: Path, envelope: BenchmarkInputEnvelope) -> None
     path.write_bytes(envelope.canonical_bytes + b"\n")
 
 
+def _failure_metadata(
+    input_envelope: BenchmarkInputEnvelope,
+    contract,
+    runtime_config: Mapping[str, object] | None,
+    *,
+    telemetry_events: list[object],
+    comparison_mode: str,
+    total_output_token_budget: int | None,
+    execution_elapsed: float,
+) -> dict[str, object]:
+    """Persist auditable evidence even when generation fails before a graph exists.
+
+    A provider can consume real tokens and latency before returning malformed
+    JSON or a transport error.  Losing that metadata makes an observed failure
+    look like an unattempted case and weakens the comparison audit.  This
+    record is deliberately incomplete (no graph hash or successful metrics),
+    so it cannot turn a failed repeat into a PASS.
+    """
+
+    config = runtime_config or {}
+    controls = {
+        "verifier": contract.has_verifier,
+        "gate": contract.gate_enabled,
+        "repair": contract.has_repair,
+        "cas": contract.has_cas,
+    }
+    provider = runtime_provider_id(config)
+    model = str(config.get("model", "rule-runtime"))
+    prompt_hash = canonical_hash({
+        "scenario": contract.scenario.value,
+        "model": model,
+        "provider": provider,
+        "input_hash": input_envelope.input_hash,
+        "controls": controls,
+    })
+    telemetry = ExperimentTelemetry.from_events(
+        telemetry_events,
+        wall_latency_ms=int(max(0.0, execution_elapsed) * 1000),
+        comparison_mode=comparison_mode,
+        total_output_token_budget=total_output_token_budget,
+        input_cost_per_1m_tokens=_as_float(config.get("input_cost_per_1m_tokens")),
+        output_cost_per_1m_tokens=_as_float(config.get("output_cost_per_1m_tokens")),
+    )
+    return {
+        "scenario": contract.scenario.value,
+        "model": model,
+        "provider": provider,
+        "prompt_hash": prompt_hash,
+        "task_spec_hash": canonical_hash(TASK_SPEC),
+        "runtime_task_spec_hash": "",
+        "temperature": _as_float(config.get("temperature")),
+        "input_hash": input_envelope.input_hash,
+        "input_byte_length": len(input_envelope.canonical_bytes),
+        "input_sha256": input_sha256(input_envelope),
+        "input_artifact_byte_length": len(input_envelope.canonical_bytes) + 1,
+        "input_artifact_sha256": input_artifact_sha256(input_envelope),
+        "benchmark_token_budget": int(config.get("benchmark_token_budget", 3000) or 3000),
+        "token_usage": None,
+        "latency_ms": max(0, int(execution_elapsed * 1000)),
+        "graph_hash": None,
+        "verifier_enabled": contract.has_verifier,
+        "gate_enabled": contract.gate_enabled,
+        "repair_enabled": contract.has_repair,
+        "cas_enabled": contract.has_cas,
+        "normalizer_id": ModelGraphNormalizer.normalizer_id,
+        "remote_fail_fast": bool(config.get("remote_fail_fast", False)),
+        "comparison_mode": comparison_mode,
+        "total_output_token_budget": total_output_token_budget,
+        "execution_status": "failed",
+        "failure_metadata": True,
+        "telemetry": telemetry.as_dict(),
+    }
+
+
 def _apply_scenario_runtime_controls(
     runtime_config: Mapping[str, object],
     contract,
@@ -296,7 +370,8 @@ def _run_case_inner(
     case_id = str(case["case_id"])
     project_id = case_id.lower()
     input_envelope = BenchmarkInputEnvelope.from_case(case)
-    scenario_contract(scenario)
+    contract = scenario_contract(scenario)
+    effective_runtime_config = dict(runtime_config) if runtime_config else None
     workspace = Path(tempfile.mkdtemp(prefix=f"ai4mbse-{project_id}-"))
     execution: dict[str, object] = {
         "status": "running",
@@ -316,8 +391,6 @@ def _run_case_inner(
     services = None
     telemetry_events: list[object] = []
     try:
-        contract = scenario_contract(scenario)
-        effective_runtime_config = dict(runtime_config) if runtime_config else None
         if effective_runtime_config is not None and contract.generation_shape == "harness":
             effective_runtime_config = _apply_scenario_runtime_controls(
                 effective_runtime_config,
@@ -523,6 +596,20 @@ def _run_case_inner(
     finally:
         execution["completed_at"] = time.time()
         execution["elapsed_seconds"] = round(float(execution["completed_at"]) - started, 6)
+        metadata_path = output_dir / "metadata.json"
+        if not metadata_path.exists():
+            _write_json(
+                metadata_path,
+                _failure_metadata(
+                    input_envelope,
+                    contract,
+                    effective_runtime_config,
+                    telemetry_events=telemetry_events,
+                    comparison_mode=comparison_mode,
+                    total_output_token_budget=total_output_token_budget,
+                    execution_elapsed=float(execution["elapsed_seconds"]),
+                ),
+            )
         _write_json(output_dir / "execution.json", execution)
         if services is not None:
             for repository in getattr(services, "_repositories", {}).values():
