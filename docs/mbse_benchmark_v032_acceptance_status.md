@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
-更新时间：2026-09-29 19:16 CST
-审计提交：`9848b3d`
+更新时间：2026-09-29 19:45 CST
+审计提交：待本次文档提交生成
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -199,6 +199,31 @@ GitHub run [36540494618](https://github.com/zhouduichen/MBSE4AI/actions/runs/365
 因此 run25 是一次真实可访问 runner、真实 vLLM、真实模型调用边界的 terminal failure evidence；它进一步证明“稳定 lease + 端口健康”可以让 campaign 启动，但不能保证长尾 A–E 完整执行。该结果不能宣称 Harness 收益，也不能将失败调用的 `0 tokens` 当成有效质量/成本比较。
 
 当前 collector workflow 尚未进入默认分支，GitHub 对 `.github/workflows/integration-remote-collector.yml` 的手动 dispatch 返回 `404 workflow not found on the default branch`；因此 run25 的 terminal 失败证据已在远端保留，但尚无对应的 GitHub collector artifact。该缺口必须在将 collector 纳入默认分支后补齐，不能用提交 job 的 PASS 替代。
+
+## 本机 direct campaign：manifest 已准备，空闲窗口不足
+
+为验证“利用 vLLM 空闲窗口、但不强占 scheduler GPU”的运行权衡，在
+`Jiayu-intern` 本机准备了与 GitHub submission 相同的 `7c90147` A–E
+manifest：
+
+```text
+campaign: direct-20260929-1924
+manifest: /data/models/harness4h3-v27-code/evidence/student-campaign/ai4mbse-campaigns/direct-20260929-1924/manifest.json
+manifest_sha256: 12c445babdbe9ef24fa72668f7742b1bf617201d0539a244a7b40d0fb97083e6
+command: --compare-a-e --path vertical --repeats 3 --timeout 5400 --benchmark-token-budget 8192 --comparison-mode natural
+```
+
+本次 manifest 初始化曾因远端 Python 进程启动后才设置 `PYTHONPATH` 而中断，
+已修正并重新生成；当前目录没有 `status.json`、benchmark wrapper 或结果文件，
+因此这不是一个实验 repeat，也不计入 A–E 结果。一次性 readiness waiter
+（仅轮询 endpoint/lease，不写 scheduler marker）记录了：vLLM 在
+`19:42:02`、`19:42:22`、`19:42:42` 连续 READY，随后在 `19:43:02` 回到
+`WAIT:vllm-endpoint-unavailable`；六次 READY 门槛未达到，campaign 没有启动。
+
+这次观察支持保守的运行策略：短暂的 `:8000` 健康或少量 READY 样本不足以
+证明 A–E 可完成；降低稳定性门槛只会得到被 handoff 打断的 partial evidence，
+不能替代完整的 `execution_complete=true` comparison。watcher 继续等待下一
+个足够长的空闲窗口，失败或中断仍保持 fail-closed。
 
 ## 当前结论
 
