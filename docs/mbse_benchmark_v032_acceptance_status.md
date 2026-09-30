@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
-更新时间：2026-09-29 20:29 CST
-审计提交：`ba1e006`
+更新时间：2026-09-30 CST
+审计提交：`b24801c`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -268,8 +268,53 @@ repeat checkpoint/resume。下一步必须在下面两种工程策略中明确�
 当前实现不声称支持第二种模式，也没有通过删除 marker 或强杀 worker 来伪造
 连续运行；本次终态应作为 scheduler handoff 的真实失败证据保留。
 
+## 2026-09-30 Windows RTX 5080 Qwen：CASE-01 A–E 三次重复
+
+在本机通过 Windows RTX 5080 上的 Ollama Qwen 服务完成了一个完整的
+CASE-01 对照切片。该切片使用 native Ollama adapter，避免 OpenAI-compatible
+层对 `num_ctx`/thinking 参数的差异；服务端实际加载的模型为
+`qwen3.5:9b-q8_0`，context length 为 `32768`。
+
+```text
+profile: windows-5080-ollama
+provider/model: Windows 5080 Ollama Qwen3.5 9B / qwen3.5:9b-q8_0
+comparison_mode: natural
+repeats: 3
+command: --compare-a-e --path vertical --case CASE-01 --repeats 3
+         --timeout 5400 --benchmark-token-budget 8192
+report: /tmp/ai4mbse-5080-qwen-20260930/case01-reports/
+        llm/windows-5080-ollama/a_to_e_comparison.json
+manifest: /tmp/ai4mbse-5080-qwen-20260930/case01-reports/
+          llm/windows-5080-ollama/reproducibility_manifest.json
+result: A-E STATUS: PASS
+```
+
+这里的 `PASS` 表示 A–E 对照实验的执行完整性和不变量通过；A–D 的
+benchmark quality 仍按设计被 `REJECTED`，不能把 comparison PASS 解读为
+每一个 ablation 都达到了 Harness 质量。报告记录了 `15/15` 输入 artifact
+均存在且 SHA-256 完全一致，并确认 `same_model_provider`、`same_input`、
+`same_task_spec`、`same_temperature`、`call_budget_comparable`、
+`ground_truth_isolated`、`same_evaluator`、`same_normalizer`、
+`same_evaluation_spec`、`real_calls_observed`、`token_usage_observed`、
+`latency_observed` 和 `cost_observed` 均为 true；`invariant_failures=[]`。
+
+| Scenario | verifier | gate | repair | CAS | mean calls | mean total tokens | mean wall latency |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| A Bare one-shot | false | false | false | false | 2 | 19,002 | 256.0 s |
+| B Bare staged | false | false | false | false | 6 | 48,992 | 357.2 s |
+| C Harness − Verifier | false | true | true | true | 6 | 43,519 | 30.7 s |
+| D Harness − Repair | true | true | false | true | 6 | 43,519 | 27.5 s |
+| E Full Harness | true | true | true | true | 28 | 200,090 | 522.8 s |
+
+E 的统一 ModelGraph 语义指标（RFLP/trace/verification coverage 与
+`trace_accuracy`）均为 1.0；其 Release Closure 仍为 false，因为下游事实
+处于 `VALIDATED` 而非 `ACCEPTED/LOCKED`。这与 Technical Closure 通过并不
+矛盾，正是语义质量与发布治理 gate 分离后的预期结果。该结果只证明
+CASE-01 的 5080/Qwen 切片已经完成，不代表五个 case 的完整 campaign 或
+v0.3.2 的全部验收项已经完成。
+
 ## 当前结论
 
-v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；run16 证明在 vLLM 空闲且 Controller lease 稳定的窗口内，修复后的服务器本机可以真实跑完 A–E 的三次调度并生成完整 telemetry，但 comparison 仍因 D/E provider fail-fast、execution incomplete、cost unavailable 以及 Release Closure 结果为 `FAIL`，不能冒充 Harness 收益已被证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 共同说明真正的运行策略是“等待稳定空闲窗口，detached campaign 保留状态和部分证据，失败原样保留”，而不是声称 benchmark 支持跨窗口断点续跑、长期强占 GPU 或仅检查 `:8000`。当前 GitHub bridge 已通过 runner/SSH/FreeCAD/GPU 真实验收，A–E 仍需在下一次稳定 vLLM lease 窗口完成；第 14 项仍需要 scheduled event 的权威 run，第 15 项仍需要真实 remote LLM 的完整 A–E 质量/成本证据。
+v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；Windows RTX 5080/Qwen 的 CASE-01 切片进一步证明，在可用的真实模型服务上，A–E 可以完成三次调度并生成完整 telemetry，且 comparison invariants 全部通过。该切片仍不能替代五个 case 的完整 campaign，也不能把 A–D 的质量拒绝或 E 的 Release Closure `FAIL` 改写成 Harness 收益已经全面证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 及本次 5080 运行共同说明，空闲窗口策略必须保留完整 manifest、telemetry 和 fail-closed 终态，不能用短暂 `:8000` 健康、局部成功或仅检查服务存活代替完整证据。第 14 项仍需要 scheduled event 的权威 run，第 15 项仍需要五个 case 的真实 remote LLM 完整 A–E 质量/成本证据。
 
 本地离线测试、contract job、skip 状态和 SSH 可达性检查都不能替代第 15 项的 GitHub integration evidence。
