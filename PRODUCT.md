@@ -12,11 +12,11 @@ MBSE 研究与工程实践者(系统工程师、研究团队),在本地跑 RFLP 
 
 ## Product Purpose
 
-RFLP-Lite 是一个本地、确定性、可审计的 AI4MBSE Domain Harness:跑通 Project → Documents/Evidence → Operational → Functional → Logical/Physical → Assurance → ModelGraph → Gate/Repair → View/Export 的完整生命周期链路,让每个方法论任务到证据的每一步都有迹可查。
+RFLP-Lite 是一个由 LLM 驱动、确定性校验、可审计的 AI4MBSE 工程工作台:跑通 Project → Documents/Evidence → Operational → Functional → Logical/Physical → Assurance → ModelGraph → Gate/Repair → View/Export 的完整生命周期链路,让 AI Systems Engineer 能把自然语言、文档和已有模型转成可继续编辑的 MBSE 模型。
 
 ## Positioning
 
-本地优先的确定性 MBSE 工具链:不依赖 Docker、GPU、外部服务,LLM 只是可选辅助;每个运行结果是可复现的哈希对照物(结果目录按 run hash 归档),而非黑箱输出。
+LLM-first 的 MBSE 工具链:配置 Profile 后由 LLM 主导需求到模型的纵向生成，确定性 Methodology/Validator/ModelGraph 负责约束、追溯和审计；无模型时保留离线 RuleRuntime 作为开发回归和可复现兜底。每个运行结果都记录实际 profile/provider/model 与哈希对照物，而不是黑箱输出。
 
 ## Operating Context
 
@@ -35,7 +35,7 @@ RFLP-Lite 是一个本地、确定性、可审计的 AI4MBSE Domain Harness:跑�
 ## Brand Commitments
 
 - 产品名 RFLP-Lite,LOCAL CONSOLE/LOCAL WORKSPACE 定位;
-- 本地优先、确定性、可审计的信任基调;
+- LLM 驱动、确定性、可审计的信任基调;
 - 中文界面。
 
 ## Evidence on Hand
@@ -44,10 +44,10 @@ examples/ 下有演示工作区与样例;docs/ 有状态文档与设计文档。
 
 ## Product Principles
 
-1. 本地优先:一切可离线运行,结果可复现。
+1. 纵向闭环优先:先完成 R→F→L→P→V&V，再扩展横向基础设施。
 2. 确定性:运行结果按哈希归档,差异可见。
 3. 可审计:基线、契约、证据是显式对象。
-4. LLM 是助手,不是口径:发现与补全结果进入人工确认流。
+4. LLM 是 Systems Engineering Controller:负责分析、补全和提出方案，工程事实与方案选择经过验证和人工确认流。
 5. 研究原型务实演进:先垂直打通,再横向扩展。
 
 ## Accessibility & Inclusion

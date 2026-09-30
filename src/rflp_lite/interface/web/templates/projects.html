@@ -16,7 +16,8 @@
         <h2>{{ project.name }}</h2>
         <p>进入项目分析工作台，查看当前模型图和治理信息。</p>
         <div class="workbench-actions">
-          <a class="button compact primary" href="/ui/projects/{{ project.name }}/analysis">打开项目 →</a>
+          <a class="button compact primary" href="/ui/projects/{{ project.name }}/engineering-flow">统一工程流 →</a>
+          <a class="button compact" href="/ui/projects/{{ project.name }}/analysis">分析工作台</a>
           <button class="button compact danger delete-project" type="button" data-project-id="{{ project.name }}" data-project-name="{{ project.name }}">删除</button>
         </div>
         <div class="error-banner delete-error" hidden></div>

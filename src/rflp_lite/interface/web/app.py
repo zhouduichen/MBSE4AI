@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -24,6 +25,10 @@ def create_app(
     application_container = container or build_container(root, fixture_root)
     app = FastAPI(title="AI4MBSE Harness", docs_url=None, redoc_url=None)
     app.state.container = application_container
+    app.state.analysis_executor = ThreadPoolExecutor(
+        max_workers=2,
+        thread_name_prefix="ai4mbse-generation",
+    )
     static_dir = Path(__file__).resolve().parent / "static"
     if static_dir.is_dir():
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -45,5 +50,9 @@ def create_app(
     @app.exception_handler(RflpError)
     async def application_error(_request: Request, exc: RflpError) -> JSONResponse:
         return JSONResponse({"status": "failed", "error": type(exc).__name__, "message": str(exc)}, status_code=422)
+
+    @app.on_event("shutdown")
+    async def shutdown_analysis_executor() -> None:
+        app.state.analysis_executor.shutdown(wait=False, cancel_futures=True)
 
     return app

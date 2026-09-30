@@ -20,7 +20,7 @@
 不要补造未给出的流程细节、数值或接口协议；不确定处保留待确认。
 
 # Relation Rules
-使用 participatesIn、occursIn 等合法关系，并验证所有引用端点。
+关系方向必须与端点类型一致：`OperationalScenario --derivedFrom--> UseCase`；`Stakeholder --participatesIn--> OperationalScenario`；`OperationalScenario --occursIn--> LifecycleStage`。只使用这些关系，并验证所有引用端点真实存在；不要把 `participatesIn` 用在 OperationalScenario → UseCase 上。
 
 # Forbidden Behavior
 不得直接设计物理架构、型号或实现算法。

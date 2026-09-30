@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}详细设计与制造审查 · AI4MBSE{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">M5 / 3.1–3.3</p>
+    <h1>详细设计与制造审查</h1>
+    <p class="lede">自然语言意图 → 澄清 → CAD 执行计划 → 审批 → 参数化模型 → 标注与 DFM/DFA 审查。</p>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>输入设计意图</h2><p>{% if capabilities.source_kind == 'real' %}当前使用远程 FreeCAD 实体后端，输出可下载的 FCStd/STEP 工件。{% else %}当前使用厂商无关的开发适配器；设置 AI4MBSE_CAD_BACKEND=freecad-remote 后启用远程 FreeCAD。{% endif %}</p></div></div>
+  <textarea id="cad-intent-text" rows="4" placeholder="例如：生成铝合金支架，长100毫米，宽50毫米，高10毫米"></textarea>
+  <input id="cad-source-requirements" placeholder="来源需求 ID（可选，逗号分隔）">
+  <label class="field compact-field" for="cad-profile">远程模型（可选；不选则使用确定性解析）
+    <select id="cad-profile"><option value="">确定性开发解析器</option>{% for profile in model_profiles %}<option value="{{ profile.id }}" {% if profile.id == active_profile_id %}selected{% endif %}>{{ profile.label or profile.id }} · {{ profile.model }}</option>{% endfor %}</select>
+  </label>
+  <div class="actions"><button class="button primary" id="cad-intent-submit">分析设计意图</button><span class="muted" id="cad-status"></span></div>
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>执行链</h2><p id="cad-chain-summary">{% if drafts %}已有 {{ drafts|length }} 个意图草案{% else %}尚未创建意图草案{% endif %}</p></div></div>
+  <div id="cad-chain">
+    {% if drafts %}<pre>{{ drafts[-1]|tojson(indent=2) }}</pre>{% if drafts[-1].clarifications %}<div class="callout warning"><strong>需要澄清：</strong>请选择一个选项并重新分析设计意图；如果没有合适选项，请直接编辑上方输入。<div class="cad-clarifications">{% for item in drafts[-1].clarifications %}<article><strong>{{ item.question }}</strong><small>{{ item.ambiguity }} · 推荐：{{ item.recommendation or '—' }}</small><div class="actions">{% for option in item.options %}<button type="button" class="button compact" data-clarification-option="{{ option }}">{{ option }}</button>{% else %}<small class="muted">没有预设选项，请直接补充说明。</small>{% endfor %}</div></article>{% endfor %}</div></div>{% endif %}{% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>独立标注结果</h2><p>可先读取二维/三维共享标注，再决定是否进入 DFM/DFA 规则审查。</p></div></div>
+  <div id="cad-annotations">
+    {% for annotation in annotations|reverse %}
+    <article class="list-card" data-annotation-id="{{ annotation.id }}">
+      <div class="list-card-header"><strong>{{ annotation.id }}</strong><span class="status-pill">{{ annotation.source_kind }}</span></div>
+      <p class="muted">模型 {{ annotation.model_id }} · 标注 {{ annotation.annotations|length }} 项 · 输入 {{ annotation.input_hash }}</p>
+      {% if annotation.artifacts.drawing_svg %}<div class="svg-preview">{{ annotation.artifacts.drawing_svg|safe }}</div>{% endif %}
+      <div class="compact-list">{% for item in annotation.annotations %}<article><span><strong>{{ item.annotation_kind }}</strong><small>{{ item.part_id }} / {{ item.target_feature_id }} · {{ item.value }}{% if item.tolerance %} · {{ item.tolerance }}{% endif %}</small></span><span class="status-badge {{ 'candidate' if item.status == 'candidate' else 'failed' }}">{{ item.status }}</span></article>{% else %}<small>暂无标注</small>{% endfor %}</div>
+    </article>
+    {% else %}<p class="muted">尚无独立标注；执行模型后可先生成标注，再进入完整审查。</p>{% endfor %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>已有模型与审查</h2><p>模型、标注和 DFM/DFA 审查结果保留在项目审计链中；真实后端会登记 FCStd/STEP 下载入口。</p></div></div>
+  <div id="cad-models">
+    {% for model in models %}
+    <article class="list-card"><div class="list-card-header"><strong>{{ model.id }}</strong><span class="status-pill">{{ model.model.status }}</span></div><pre>{{ model.model_payload|tojson(indent=2) }}</pre><div class="actions">{% if model.model_payload.obj %}<a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/obj">下载 OBJ</a>{% endif %}{% if model.model_payload.open_scad_source %}<a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/scad">下载 OpenSCAD</a>{% endif %}{% if model.model_payload.artifacts %}<a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/fcstd">下载 FCStd</a><a class="button" href="/projects/{{ project_id }}/cad/models/{{ model.id }}/artifacts/step">下载 STEP</a>{% endif %}</div></article>
+    {% else %}<p class="muted">尚无已执行模型。</p>{% endfor %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>审查记录与风险高亮</h2><p>风险标记与 finding 来自同一份规则审查结果；确认、误报或关闭均保留审计记录，开发期预览不等同于制造批准。</p></div></div>
+  <div id="cad-reviews">
+    {% for review in reviews|reverse %}
+    <article class="list-card" data-review-id="{{ review.id }}">
+      <div class="list-card-header"><strong>{{ review.id }}</strong><span class="status-pill">{{ review.status }}</span></div>
+      <p class="muted">模型 {{ review.model_id }} · 规则集 {{ review.artifacts.rule_set or 'generic_preview' }} · finding {{ review.findings|length }} · evidence {{ review.artifacts.evidence_hash or '—' }}</p>
+      <div class="cad-review-previews">
+        {% if review.artifacts.drawing_svg %}<div><h3>二维标注预览</h3><div class="svg-preview">{{ review.artifacts.drawing_svg|safe }}</div></div>{% endif %}
+        {% if review.artifacts.risk_highlight_svg %}<div><h3>风险高亮</h3><div class="svg-preview">{{ review.artifacts.risk_highlight_svg|safe }}</div></div>{% endif %}
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Finding</th><th>严重度</th><th>类别 / 特征</th><th>说明</th><th>状态</th><th>决策</th></tr></thead><tbody>
+        {% for finding in review.findings %}
+        <tr><td><code>{{ finding.id }}</code><span class="table-secondary">{{ finding.rule_id }}</span></td><td>{{ finding.severity }}</td><td>{{ finding.category }} / {{ finding.feature_id }}</td><td>{{ finding.message }}<span class="table-secondary">建议：{{ finding.recommendation }}</span></td><td><span class="status-badge {{ finding.status }}">{{ finding.status }}</span></td><td>{% if finding.status == 'open' %}<div class="workbench-actions"><button class="button compact" data-finding-decision="confirm" data-review-id="{{ review.id }}" data-finding-id="{{ finding.id }}">确认</button><button class="button compact" data-finding-decision="false_positive" data-review-id="{{ review.id }}" data-finding-id="{{ finding.id }}">误报</button><button class="button compact danger" data-finding-decision="close" data-review-id="{{ review.id }}" data-finding-id="{{ finding.id }}">关闭</button></div>{% else %}—{% endif %}</td></tr>
+        {% else %}<tr><td colspan="6" class="table-empty">暂无设计规则 finding</td></tr>{% endfor %}
+      </tbody></table></div>
+    </article>
+    {% else %}<p class="muted">尚无审查记录；执行模型后点击“生成标注与 DFM/DFA 审查”。</p>{% endfor %}
+  </div>
+</section>
+
+<script>
+(() => {
+  const projectId = {{ project_id|tojson }};
+  const status = document.querySelector('#cad-status');
+  const chain = document.querySelector('#cad-chain');
+  const summary = document.querySelector('#cad-chain-summary');
+  const call = async (url, options = {}) => {
+    const response = await fetch(url, {headers: {'content-type': 'application/json'}, ...options});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || '请求失败');
+    return payload;
+  };
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>\"']/g, (character) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;'}[character]));
+  const renderStructureOptions = (draft) => {
+    const options = Array.isArray(draft.structure_options) ? draft.structure_options : [];
+    if (!options.length) return '';
+    const optionRows = options.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)} · ${escapeHtml(item.category)}</option>`).join('');
+    const details = options.map((item) => `<li><strong>${escapeHtml(item.label)}</strong>：${escapeHtml(item.rationale)} <span class="muted">适用：${escapeHtml(item.applicability)}</span></li>`).join('');
+    return `<div class="callout info"><strong>结构选型推荐</strong><ul>${details}</ul><label class="field compact-field" for="cad-structure-option">生成计划时的结构选择<select id="cad-structure-option"><option value="">不预选（保留推荐，不视为批准）</option>${optionRows}</select></label></div>`;
+  };
+  const renderClarifications = (draft) => {
+    const questions = Array.isArray(draft.clarifications) ? draft.clarifications : [];
+    if (!questions.length) return '';
+    const cards = questions.map((item) => {
+      const options = Array.isArray(item.options) && item.options.length
+        ? item.options.map((option) => `<button type="button" class="button compact" data-clarification-option="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join('')
+        : '<small class="muted">没有预设选项，请直接补充说明。</small>';
+      return `<article><strong>${escapeHtml(item.question)}</strong><small>${escapeHtml(item.ambiguity)} · 推荐：${escapeHtml(item.recommendation || '—')}</small><div class="actions">${options}</div></article>`;
+    }).join('');
+    return `<div class="callout warning"><strong>需要澄清：</strong>请选择一个选项并重新分析设计意图；如果没有合适选项，请直接编辑上方输入。<div class="cad-clarifications">${cards}</div></div>`;
+  };
+  const renderDraft = (draft) => {
+    chain.innerHTML = `<pre>${JSON.stringify(draft, null, 2)}</pre>${renderClarifications(draft)}${renderStructureOptions(draft)}<div class="actions"><button class="button primary" id="cad-plan-button">生成执行计划</button></div>`;
+    summary.textContent = draft.status === 'ready' ? '意图已就绪，可生成待审批计划' : '存在澄清项，计划只能预览，不能审批执行';
+    document.querySelector('#cad-plan-button').onclick = async () => {
+      try {
+        const selectedStructureOptionId = document.querySelector('#cad-structure-option')?.value || '';
+        const planned = await call(`/projects/${projectId}/cad/plan`, {method: 'POST', body: JSON.stringify({draft_id: draft.draft_id, selected_structure_option_id: selectedStructureOptionId})});
+        renderPlan(planned.plan);
+      } catch (error) { status.textContent = error.message; }
+    };
+  };
+  const renderPlan = (plan) => {
+    chain.innerHTML = `<pre>${JSON.stringify(plan, null, 2)}</pre><div class="actions"><button class="button primary" id="cad-approve-button">审批并执行</button></div>`;
+    document.querySelector('#cad-approve-button').onclick = async () => {
+      try {
+        await call(`/projects/${projectId}/cad/plans/${plan.id}/approve`, {method: 'POST'});
+        const executed = await call(`/projects/${projectId}/cad/plans/${plan.id}/execute`, {method: 'POST'});
+        renderModel(executed.model);
+      } catch (error) { status.textContent = error.message; }
+    };
+  };
+  const renderReview = (review) => {
+    const artifacts = review.artifacts || {};
+    const findings = (review.findings || []).map((finding) => {
+      const actions = finding.status === 'open'
+        ? `<div class="workbench-actions"><button class="button compact" data-finding-decision="confirm" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">确认</button><button class="button compact" data-finding-decision="false_positive" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">误报</button><button class="button compact danger" data-finding-decision="close" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">关闭</button></div>`
+        : '—';
+      return `<tr><td><code>${escapeHtml(finding.id)}</code><span class="table-secondary">${escapeHtml(finding.rule_id)}</span></td><td>${escapeHtml(finding.severity)}</td><td>${escapeHtml(finding.category)} / ${escapeHtml(finding.feature_id)}</td><td>${escapeHtml(finding.message)}<span class="table-secondary">建议：${escapeHtml(finding.recommendation)}</span></td><td><span class="status-badge ${escapeHtml(finding.status)}">${escapeHtml(finding.status)}</span></td><td>${actions}</td></tr>`;
+    }).join('') || '<tr><td colspan="6" class="table-empty">暂无设计规则 finding</td></tr>';
+    chain.innerHTML = `<div class="callout info"><strong>设计审查：</strong>${escapeHtml(review.status)} · 规则集 ${escapeHtml(artifacts.rule_set || 'generic_preview')} · finding ${(review.findings || []).length} · evidence ${escapeHtml(artifacts.evidence_hash || '—')}</div><div class="cad-review-previews"><div><h3>二维标注预览</h3><div class="svg-preview">${artifacts.drawing_svg || ''}</div></div><div><h3>风险高亮</h3><div class="svg-preview">${artifacts.risk_highlight_svg || ''}</div></div></div><div class="table-wrap"><table><thead><tr><th>Finding</th><th>严重度</th><th>类别 / 特征</th><th>说明</th><th>状态</th><th>决策</th></tr></thead><tbody>${findings}</tbody></table></div>`;
+  };
+  const renderModel = (model) => {
+    const artifactLinks = `<a class="button" href="/projects/${encodeURIComponent(projectId)}/cad/models/${encodeURIComponent(model.id)}/artifacts/obj">下载 OBJ</a><a class="button" href="/projects/${encodeURIComponent(projectId)}/cad/models/${encodeURIComponent(model.id)}/artifacts/scad">下载 OpenSCAD</a>`;
+    chain.innerHTML = `<pre>${JSON.stringify(model, null, 2)}</pre><div class="actions">${model.model_payload?.obj ? artifactLinks : ''}<button class="button" id="cad-apply-button">写入 ModelGraph</button><button class="button" id="cad-annotation-button">仅生成标注</button><button class="button" id="cad-review-button">生成标注与 DFM/DFA 审查</button></div>`;
+    document.querySelector('#cad-apply-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/apply`, {method: 'POST'}); status.textContent = `已写入 ${result.apply.entity.id}`; } catch (error) { status.textContent = error.message; } };
+    document.querySelector('#cad-annotation-button').onclick = async () => { try { await call(`/projects/${projectId}/cad/models/${model.id}/annotations`, {method: 'POST'}); status.textContent = '独立标注已保存'; window.setTimeout(() => window.location.reload(), 250); } catch (error) { status.textContent = error.message; } };
+    document.querySelector('#cad-review-button').onclick = async () => { try { const result = await call(`/projects/${projectId}/cad/models/${model.id}/review`, {method: 'POST'}); renderReview(result.review); status.textContent = result.review.status; } catch (error) { status.textContent = error.message; } };
+  };
+  document.querySelector('#cad-intent-submit').onclick = async () => {
+    status.textContent = '分析中…';
+    try {
+      const sourceRequirementIds = document.querySelector('#cad-source-requirements').value.split(',').map(item => item.trim()).filter(Boolean);
+      const profileId = document.querySelector('#cad-profile').value;
+      const result = await call(`/projects/${projectId}/cad/intent`, {method: 'POST', body: JSON.stringify({text: document.querySelector('#cad-intent-text').value, source_requirement_ids: sourceRequirementIds, profile_id: profileId})});
+      renderDraft(result.draft); status.textContent = '完成';
+    } catch (error) { status.textContent = error.message; }
+  };
+  document.addEventListener('click', async (event) => {
+    const clarification = event.target.closest('[data-clarification-option]');
+    if (clarification) {
+      const input = document.querySelector('#cad-intent-text');
+      const choice = clarification.dataset.clarificationOption || '';
+      const addition = `澄清选择：${choice}`;
+      if (choice && !input.value.includes(addition)) input.value = `${input.value.trim()}\n${addition}`.trim();
+      status.textContent = '已回填澄清选项，请再次点击“分析设计意图”';
+      return;
+    }
+    const button = event.target.closest('[data-finding-decision]');
+    if (!button) return;
+    button.disabled = true;
+    try {
+      const result = await call(`/projects/${projectId}/cad/reviews/${button.dataset.reviewId}/findings/${button.dataset.findingId}`, {method: 'POST', body: JSON.stringify({decision: button.dataset.findingDecision})});
+      const record = document.querySelector(`[data-review-id="${CSS.escape(button.dataset.reviewId)}"]`);
+      if (record) record.outerHTML = renderReviewCard(result.review);
+      else renderReview(result.review);
+      status.textContent = `已记录 finding 决策：${button.dataset.findingDecision}`;
+    } catch (error) { status.textContent = error.message; button.disabled = false; }
+  });
+  const renderReviewCard = (review) => {
+    const findings = (review.findings || []).map((finding) => `<tr><td><code>${escapeHtml(finding.id)}</code><span class="table-secondary">${escapeHtml(finding.rule_id)}</span></td><td>${escapeHtml(finding.severity)}</td><td>${escapeHtml(finding.category)} / ${escapeHtml(finding.feature_id)}</td><td>${escapeHtml(finding.message)}<span class="table-secondary">建议：${escapeHtml(finding.recommendation)}</span></td><td><span class="status-badge ${escapeHtml(finding.status)}">${escapeHtml(finding.status)}</span></td><td>${finding.status === 'open' ? `<div class="workbench-actions"><button class="button compact" data-finding-decision="confirm" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">确认</button><button class="button compact" data-finding-decision="false_positive" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">误报</button><button class="button compact danger" data-finding-decision="close" data-review-id="${escapeHtml(review.id)}" data-finding-id="${escapeHtml(finding.id)}">关闭</button></div>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="table-empty">暂无设计规则 finding</td></tr>';
+    const artifacts = review.artifacts || {};
+    return `<article class="list-card" data-review-id="${escapeHtml(review.id)}"><div class="list-card-header"><strong>${escapeHtml(review.id)}</strong><span class="status-pill">${escapeHtml(review.status)}</span></div><p class="muted">模型 ${escapeHtml(review.model_id)} · 规则集 ${escapeHtml(artifacts.rule_set || 'generic_preview')} · finding ${(review.findings || []).length} · evidence ${escapeHtml(artifacts.evidence_hash || '—')}</p><div class="cad-review-previews"><div><h3>二维标注预览</h3><div class="svg-preview">${artifacts.drawing_svg || ''}</div></div><div><h3>风险高亮</h3><div class="svg-preview">${artifacts.risk_highlight_svg || ''}</div></div></div><div class="table-wrap"><table><thead><tr><th>Finding</th><th>严重度</th><th>类别 / 特征</th><th>说明</th><th>状态</th><th>决策</th></tr></thead><tbody>${findings}</tbody></table></div></article>`;
+  };
+})();
+</script>
+{% endblock %}

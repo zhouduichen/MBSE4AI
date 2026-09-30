@@ -23,6 +23,26 @@ def test_verification_case_requires_method_and_pass_criteria():
         _check("verification_validation", entity)
 
 
+def test_verification_case_requires_test_condition_and_stimulus():
+    entity = make_entity(
+        EntityKind.VERIFICATION_CASE,
+        "验证配送",
+        {
+            "method": "test",
+            "verification_objective": "证明配送完成",
+            "precondition": "设备上电",
+            "input": "配送任务",
+            "stimulus": "提交任务",
+            "procedure": "执行任务",
+            "expected_result": "任务完成",
+            "pass_criteria": "结果满足需求",
+        },
+    )
+
+    with pytest.raises(MethodologyValidationError, match="test_condition"):
+        _check("verification_validation", entity)
+
+
 def test_function_name_cannot_be_hardware_specific():
     entity = make_entity(EntityKind.FUNCTION, "读取传感器")
 

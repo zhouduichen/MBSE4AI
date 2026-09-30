@@ -1,0 +1,23 @@
+{
+  "id": "FW-E-DEMO",
+  "status": "approved",
+  "source_requirement_ids": ["REQ-2.1-DEMO"],
+  "parameters": {
+    "mass_kg": 560,
+    "payload_kg": 180,
+    "wing_area_m2": 24,
+    "span_m": 13,
+    "fuselage_length_m": 9,
+    "cruise_speed_mps": 66,
+    "section_modulus_m3": 0.032,
+    "allowable_stress_pa": 205000000,
+    "cg_x_m": 2.7
+  },
+  "bounds": {
+    "mass_kg": {"minimum": 500, "maximum": 650},
+    "payload_kg": {"minimum": 150, "maximum": 220},
+    "wing_area_m2": {"minimum": 20, "maximum": 30},
+    "span_m": {"minimum": 11, "maximum": 16}
+  }
+}
+

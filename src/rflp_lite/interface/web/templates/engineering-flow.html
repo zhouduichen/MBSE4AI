@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}统一工程流 · AI4MBSE{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">PRODUCT FLOW / 1.1–3.3</p>
+    <h1>统一工程流</h1>
+    <p class="lede">文档或自然语言 → R → F → L → P → V&amp;V → 可选概念布局 → 可选 CAD 计划 → 交付包。</p>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>一次提交工程输入</h2><p>这里只负责编排和展示；概念候选、CAD 执行和 ModelGraph 写入仍需要现有人工确认。</p></div></div>
+  <form id="engineering-flow-form" class="stacked-form">
+    <label class="field" for="engineering-requirement-text">自然语言需求（可选）<textarea id="engineering-requirement-text" rows="4" placeholder="例如：系统应在校园内完成配送，并支持人工接管"></textarea></label>
+    {% if documents %}<fieldset class="field"><legend>已解析文档</legend><div class="check-grid">{% for document in documents %}<label class="checkbox-control"><input type="checkbox" value="{{ document.id }}" data-engineering-document> <span>{{ document.name }}<small>{{ document.region_count }} 个来源片段</small></span></label>{% endfor %}</div></fieldset>{% else %}<div class="callout info">暂无可选文档来源片段；可先在“文档输入 / 分析工作台”上传 Word、PDF 或直接填写自然语言需求。</div>{% endif %}
+    <div class="two-column workflow-columns">
+      <label class="checkbox-control"><input id="engineering-include-concept" type="checkbox"> <span>继续生成总体概念布局<small>缺少指标包络时返回 needs_input，不填固定示例值</small></span></label>
+      <label class="checkbox-control"><input id="engineering-optimize-concept" type="checkbox" checked> <span>启用多学科优化反馈<small>使用现有离线评估器或已配置的工程适配器</small></span></label>
+    </div>
+    <label class="field" for="engineering-cad-intent">CAD 设计意图（可选）<textarea id="engineering-cad-intent" rows="3" placeholder="例如：生成铝合金支架，长100毫米，宽50毫米，高10毫米"></textarea></label>
+    <div class="two-column workflow-columns">
+      <label class="field compact-field" for="engineering-structure-option">结构选型 ID（可选）<input id="engineering-structure-option" placeholder="例如 bracket-gusseted-plate"></label>
+      <label class="field compact-field" for="engineering-profile">本次生成使用的模型<select id="engineering-profile"><option value="">离线规则 / 已有默认配置</option>{% for profile in model_profiles %}<option value="{{ profile.id }}"{% if profile.id == active_profile_id %} selected{% endif %}>{{ profile.label or profile.id }} · {{ profile.model }}</option>{% endfor %}</select></label>
+    </div>
+    <label class="checkbox-control"><input id="engineering-complete-design" type="checkbox"> <span>完成概念到详细设计回写<small>显式执行候选应用、CAD 计划、标注和 DFM/DFA 审查；结果仍保留 review 状态</small></span></label>
+    <label class="field compact-field" for="engineering-concept-candidate">概念候选 ID（可选）<input id="engineering-concept-candidate" placeholder="留空时选 Pareto front 第一候选"></label>
+    <div class="actions"><button class="button primary" type="submit">运行统一工程流</button><span class="muted" id="engineering-flow-status">默认不会自动批准或执行下游工程变更</span></div>
+  </form>
+</section>
+
+<section class="card" id="engineering-flow-result" hidden>
+  <div class="card-header"><div><h2>本次结果</h2><p id="engineering-flow-summary"></p></div><a class="button compact" href="/ui/projects/{{ project_id }}/model">打开 MBSE 模型</a></div>
+  <div id="engineering-flow-metrics" class="metric-row"></div>
+  <div id="engineering-flow-stages" class="phase-rail"></div>
+  <div id="engineering-flow-downstream" class="two-column workflow-columns"></div>
+  <details class="advanced-details"><summary>查看 revision-bound 交付摘要</summary><pre id="engineering-flow-deliverable"></pre></details>
+</section>
+
+<script>
+(() => {
+  const projectId = {{ project_id|tojson }};
+  const form = document.querySelector('#engineering-flow-form');
+  const result = document.querySelector('#engineering-flow-result');
+  const status = document.querySelector('#engineering-flow-status');
+  const summary = document.querySelector('#engineering-flow-summary');
+  const metrics = document.querySelector('#engineering-flow-metrics');
+  const stages = document.querySelector('#engineering-flow-stages');
+  const downstream = document.querySelector('#engineering-flow-downstream');
+  const deliverable = document.querySelector('#engineering-flow-deliverable');
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[character]));
+  const card = (title, body) => `<article class="card"><div class="panel-head"><h3>${escapeHtml(title)}</h3></div>${body}</article>`;
+  const render = (flow) => {
+    const generation = flow.generation || {};
+    const trace = generation.traceability || {};
+    const stageRows = (generation.stage_results || []).map((stage, index) => `<article class="phase-node phase-${escapeHtml(stage.status)}"><span class="phase-index">${index + 1}</span><div><strong>${escapeHtml(stage.stage)}</strong><small>${escapeHtml(stage.status)} · ${escapeHtml(stage.entity_count ?? 0)} 个实体 · ${escapeHtml(stage.relation_count ?? 0)} 条关系</small></div><span class="status-badge">${escapeHtml(stage.status)}</span></article>`).join('');
+    const concept = flow.concept || {status: 'not_requested'};
+    const conceptRun = concept.run || {};
+    const conceptBody = concept.status === 'completed'
+      ? `<p>候选 ${escapeHtml((conceptRun.candidates || []).length)} 套 · 评估 ${(conceptRun.evaluations || []).length} 条</p><a class="button compact" href="/ui/projects/${encodeURIComponent(projectId)}/concept-design">进入总体设计审查</a>`
+      : `<p class="status-badge candidate">${escapeHtml(concept.status)}</p>${concept.input ? `<pre>${escapeHtml(JSON.stringify(concept.input, null, 2))}</pre>` : ''}`;
+    const cad = flow.cad || {status: 'not_requested'};
+    const cadBody = cad.plan
+      ? `<p>计划状态：${escapeHtml(cad.status)} · 审批：${escapeHtml(cad.plan.approval_status || 'pending')}</p><a class="button compact" href="/ui/projects/${encodeURIComponent(projectId)}/cad-design">进入 CAD 审查与执行</a>`
+      : `<p class="status-badge candidate">${escapeHtml(cad.status)}</p>${cad.draft ? `<pre>${escapeHtml(JSON.stringify(cad.draft, null, 2))}</pre>` : ''}`;
+    const behavior = flow.deliverable?.artifacts?.behavior?.content || {};
+    const behaviorBody = `<p>用例 ${escapeHtml((behavior.use_cases || []).length)} 个 · 活动图 ${escapeHtml((behavior.activity_diagrams || []).length)} 个 · 时序图 ${escapeHtml((behavior.sequence_diagrams || []).length)} 个</p><a class="button compact" href="/ui/projects/${encodeURIComponent(projectId)}/behavior">进入行为模型工作台</a>`;
+    result.hidden = false;
+    summary.textContent = `状态：${flow.status} · revision ${flow.revision} · snapshot ${flow.snapshot_hash}`;
+    metrics.innerHTML = `<article><span>RFLP 完整链路</span><strong>${escapeHtml(trace.rflp_complete_count ?? 0)}</strong></article><article><span>端到端闭环</span><strong>${escapeHtml(trace.end_to_end_complete_count ?? 0)}</strong></article><article><span>交付物</span><strong>${escapeHtml(Object.keys(flow.deliverable?.artifacts || {}).length)}</strong></article>`;
+    stages.innerHTML = stageRows || '<div class="mini-empty">没有阶段结果</div>';
+    downstream.innerHTML = card('行为模型（Use Case / Activity / Sequence）', behaviorBody) + card('总体概念设计', conceptBody) + card('详细设计与审查', cadBody);
+    deliverable.textContent = JSON.stringify({revision: flow.revision, snapshot_hash: flow.snapshot_hash, artifacts: Object.keys(flow.deliverable?.artifacts || {})}, null, 2);
+  };
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    status.textContent = '运行中…';
+    const body = {
+      requirement_text: document.querySelector('#engineering-requirement-text').value.trim() || null,
+      document_ids: [...document.querySelectorAll('[data-engineering-document]:checked')].map((item) => item.value),
+      include_concept: document.querySelector('#engineering-include-concept').checked,
+      optimize_concept: document.querySelector('#engineering-optimize-concept').checked,
+      cad_intent_text: document.querySelector('#engineering-cad-intent').value.trim() || null,
+      selected_structure_option_id: document.querySelector('#engineering-structure-option').value.trim(),
+      complete_design: document.querySelector('#engineering-complete-design').checked,
+      selected_concept_candidate_id: document.querySelector('#engineering-concept-candidate').value.trim(),
+      profile_id: document.querySelector('#engineering-profile').value,
+    };
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/engineering-flow`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
+      const payload = await response.json();
+      if (!response.ok || payload.status !== 'ok') throw new Error(payload.message || '统一工程流执行失败');
+      render(payload.flow);
+      status.textContent = '完成；下游变更仍需人工审查';
+    } catch (error) {
+      status.textContent = `失败：${error.message}`;
+    }
+  });
+})();
+</script>
+{% endblock %}

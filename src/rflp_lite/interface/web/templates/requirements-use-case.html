@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}需求与用例提取 · {{ project_id }}{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Requirements Intelligence</p><h1>需求与用例提取</h1><p>文档 → 结构化需求、实体、约束 → Use Case / Operational Scenario / Activity · 当前修订 {{ revision }}</p></div><span class="status-badge info">M1 / M2</span></div>
+
+<section class="panel intake-panel">
+  <div class="panel-head"><div><h2>创建提取草稿</h2><p>LLM 只提出候选；应用后仍需在需求工作台人工接受、编辑或驳回。</p></div><a href="/ui/projects/{{ project_id }}/analysis">返回分析工作台</a></div>
+  <form id="requirements-use-case-form" class="intake-form">
+    <label class="field" for="requirements-use-case-text">补充文本（可选）
+      <textarea id="requirements-use-case-text" rows="5" placeholder="也可以直接粘贴作战纲要或技战术指标片段。"></textarea>
+    </label>
+    <label class="field" for="requirements-use-case-documents">文档 ID（可选，逗号分隔）
+      <input id="requirements-use-case-documents" placeholder="{{ available_document_ids|join(', ') }}">
+    </label>
+    <label class="field compact-field" for="requirements-use-case-profile">本次使用的模型
+      <select id="requirements-use-case-profile">
+        <option value="">使用活动配置{% if active_profile_id %}（{{ active_profile_id }}）{% else %}（离线规则降级）{% endif %}</option>
+        {% for profile in model_profiles %}<option value="{{ profile.id }}"{% if not profile.enabled %} disabled{% endif %}>{{ profile.label or profile.id }} · {{ profile.model }} · {% if profile.model_location == 'remote' %}远程模型{% else %}本机模型{% endif %}</option>{% endfor %}
+      </select>
+    </label>
+    <button class="button primary" type="submit">生成需求与用例草稿</button>
+  </form>
+  <pre id="requirements-use-case-result" class="analysis-result" hidden></pre>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><div><h2>最近提取批次</h2><p>每批都保留输入哈希、模型来源、诊断和完整草稿，可重复应用而不会重复写入。</p></div><span class="count-badge">{{ drafts|length }}</span></div>
+  <div id="requirements-use-case-drafts" class="card-grid">
+  {% for draft in drafts %}
+    <article class="card intake-draft-card" data-draft-id="{{ draft.draft_id }}">
+      <div class="panel-head"><div><h3>{{ draft.draft_id }}</h3><small>{{ draft.status }} · {{ draft.provider_id }} / {{ draft.model_id }} · {{ draft.requirements|length }} 条需求 · {{ draft.use_cases|length }} 个用例</small></div><button class="button compact primary draft-apply" type="button" data-draft-id="{{ draft.draft_id }}">应用到 ModelGraph</button></div>
+      {% if draft.diagnostics %}<div class="callout warning">{{ draft.diagnostics|join('；') }}</div>{% endif %}
+      {% set inferred_constraint_count = namespace(value=0) %}
+      {% for requirement in draft.requirements %}
+        {% for constraint in requirement.constraints %}
+          {% if constraint.source in ['derived', 'llm_inferred'] %}{% set inferred_constraint_count.value = inferred_constraint_count.value + 1 %}{% endif %}
+        {% endfor %}
+      {% endfor %}
+      {% if inferred_constraint_count.value %}<div class="callout info">发现 {{ inferred_constraint_count.value }} 条隐含约束候选；来源、假设和置信度已保留，需人工确认后才能作为工程事实。</div>{% endif %}
+      <details><summary>查看结构化候选</summary><pre>{{ draft|tojson(indent=2) }}</pre></details>
+    </article>
+  {% else %}<div class="mini-empty">暂无提取批次。请先导入文档或粘贴文本。</div>{% endfor %}
+  </div>
+</section>
+<script>
+(() => {
+  const projectId = {{ project_id|tojson }};
+  const form = document.getElementById("requirements-use-case-form");
+  const result = document.getElementById("requirements-use-case-result");
+  const show = value => { result.hidden = false; result.textContent = JSON.stringify(value, null, 2); };
+  form?.addEventListener("submit", async event => {
+    event.preventDefault();
+    const rawDocuments = document.getElementById("requirements-use-case-documents")?.value || "";
+    const body = {
+      text: document.getElementById("requirements-use-case-text")?.value || "",
+      document_ids: rawDocuments.split(",").map(value => value.trim()).filter(Boolean),
+      profile_id: document.getElementById("requirements-use-case-profile")?.value || ""
+    };
+    const response = await fetch("/projects/" + encodeURIComponent(projectId) + "/requirements-use-case/draft", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const payload = await response.json();
+    show(payload);
+    if (response.ok && payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+  });
+  document.querySelectorAll(".draft-apply").forEach(button => button.addEventListener("click", async () => {
+    const draftId = button.dataset.draftId;
+    const response = await fetch("/projects/" + encodeURIComponent(projectId) + "/requirements-use-case/apply", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({draft_id: draftId})});
+    show(await response.json());
+    if (response.ok) button.disabled = true;
+  }));
+})();
+</script>
+{% endblock %}

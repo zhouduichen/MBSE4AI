@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project and development dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,documents,web]"
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Run Ruff
+        run: ruff check src tests scripts
+
+      - name: Compile Python sources
+        run: python -m compileall -q src tests scripts
+
+      - name: Check import boundaries
+        run: lint-imports
+
+      - name: Check architecture budget
+        run: python scripts/architecture_metrics.py
+
+      - name: Run offline robustness benchmark
+        run: python tests/mbse_benchmark/run_benchmark.py --track robustness
+
+      - name: Upload benchmark output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-output
+          path: tests/mbse_benchmark/reports
+          if-no-files-found: ignore

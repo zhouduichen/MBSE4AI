@@ -1,0 +1,18 @@
+{
+  "run_id": "run-07efa6e07f0a6b14",
+  "project_database": "workspaces/live-llm-20260910/.rflp/model.db",
+  "provider": "ollama",
+  "model": "qwen3.5:9b-q8_0",
+  "observed_failures": [
+    "LLM response is not valid JSON after one repair",
+    "LLM response schema is invalid",
+    "task patch field is required: kind"
+  ],
+  "raw_response_available": false,
+  "expected_pr09_behavior": {
+    "old_operations_envelope": "rejected_at_proposal_boundary",
+    "invalid_json": "bounded_structural_retry_then_degraded",
+    "schema_invalid": "bounded_structural_retry_then_degraded",
+    "semantic_repair": "not_entered_for_structural_or_compiler_failure"
+  }
+}

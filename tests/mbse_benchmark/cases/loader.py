@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from tests.mbse_benchmark.runners.experiment_contract import EvaluationSpec
+
 
 def load_json_object(path: Path) -> dict[str, Any]:
     try:
@@ -61,3 +63,9 @@ def load_expectations(expected_dir: Path) -> dict[str, Any]:
         "metric_targets": load_json_object(expected_dir / "metric_targets.json"),
         "known_conflicts": load_json_object(expected_dir / "known_conflicts.json"),
     }
+
+
+def load_evaluation_spec(expected_dir: Path) -> EvaluationSpec:
+    """Load evaluator-only expectations without mixing them into case input."""
+
+    return EvaluationSpec.from_expectations(load_expectations(expected_dir))

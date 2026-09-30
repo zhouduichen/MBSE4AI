@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}验证与确认 · {{ project_id }}{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">验证与确认</p><h1>验证与确认工作台</h1><p>查看已有验证、确认、安全分析和质量检查事实 · 当前模型版本 {{ revision }}</p></div><span class="status-badge info">{{ gates|length }} 项检查</span></div>
+<section class="panel controller-panel">
+  <div class="panel-head"><div><h2>系统工程下一步</h2><p>根据当前模型、验证结果和工程检查，选择下一步动作；方案权衡需要人工决策。</p></div><span class="status-badge {% if controller.status == 'complete' %}accepted{% else %}candidate{% endif %}">{{ controller.status_label }}</span></div>
+  {% if not controller.llm_proposal %}<div class="callout info controller-proposal"><strong>按需获取 LLM 建议</strong>：首屏先展示确定性工程动作，避免远程模型不可达时阻塞工作台。<button class="button compact" id="controller-llm-proposal" type="button">获取 LLM 建议</button></div>{% endif %}
+  {% if controller.llm_proposal %}{% set proposal = controller.llm_proposal %}<div class="callout info controller-proposal"><strong>{{ proposal.status_label }}</strong>{% if proposal.rationale %}：{{ proposal.rationale }}{% endif %}{% if proposal.assumptions %}<small>前提：{{ proposal.assumptions|join('；') }}</small>{% endif %}{% if proposal.open_questions %}<small>待确认：{{ proposal.open_questions|join('；') }}</small>{% endif %}</div>{% endif %}
+  {% if controller.next_action %}
+  {% set action = controller.next_action %}
+  <article class="controller-action">
+    <span><span class="status-badge {% if action.priority == 'P0' %}failed{% else %}candidate{% endif %}">{{ action.priority_label }}</span><strong>{{ action.kind_label }}</strong><small>{{ action.stage_label }} · {{ action.reason_label }}</small></span>
+    {% if action.kind == 'trade_study' %}<span class="controller-options">{% for option in action.options %}<button class="button compact controller-execute" type="button" data-controller-action-id="{{ action.id }}" data-controller-option-id="{{ option.id }}">{{ option.option_label }}<small>将回到：{{ option.reentry_stage_label }}</small></button>{% endfor %}</span>{% else %}<button class="button compact primary controller-execute" type="button" data-controller-action-id="{{ action.id }}">执行</button>{% endif %}
+  </article>
+  {% else %}<div class="mini-empty">当前没有待处理系统工程动作</div>{% endif %}
+  <pre id="assurance-controller-result" class="analysis-result" hidden></pre>
+</section>
+<section class="panel"><div class="panel-head"><h2>工程检查门禁</h2><a class="button compact" href="/ui/projects/{{ project_id }}/history">历史与审计</a></div><div class="module-grid">{% for gate in gates %}<article class="card gate-card"><div class="panel-head"><h3>{{ gate.gate_label }}</h3><span class="status-badge {% if gate.passed %}passed{% else %}failed{% endif %}">{% if gate.passed %}已通过{% else %}需要处理{% endif %}</span></div><p>{{ gate.phase_label }}{% if gate.rollback_phase %} · 建议回看：{{ gate.rollback_phase }}{% endif %}</p><details class="advanced-details"><summary>查看检查明细（高级）</summary><div class="compact-list">{% for check in gate.checks[:8] %}<article><span><strong>{{ check.id }}</strong><small class="table-secondary">{{ check.path|join(' → ') if check.path else '' }}</small></span><span class="status-badge {% if check.passed %}passed{% else %}failed{% endif %}">{{ '已通过' if check.passed else '未通过' }}</span></article>{% else %}<div class="mini-empty">暂无细分检查</div>{% endfor %}</div>{% if gate.blocking_issues %}<div class="callout warning">需要处理：{% for issue in gate.blocking_issues %}{{ issue.code }}{% if not loop.last %}；{% endif %}{% endfor %}</div>{% endif %}</details></article>{% endfor %}</div></section>
+<section class="panel">
+  <div class="panel-head"><h2>验证与确认矩阵</h2><span class="count-badge">{{ verification_validation|length }}</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>类型</th><th>需求</th><th>方法</th><th>用例</th><th>测试条件</th><th>刺激</th><th>通过准则</th><th>计划状态</th><th>执行结果</th><th>记录</th></tr></thead>
+    <tbody>
+      {% for row in verification_validation %}
+      <tr>
+        <td><span class="status-badge info">{{ row.case_type_label }}</span></td>
+        <td>{{ row.requirement }}</td>
+        <td>{{ row.method or '—' }}</td>
+        <td>{% if row.case_type == 'verification' %}{{ row.verification_case or '—' }}{% else %}{{ row.validation_case or '—' }}{% endif %}</td>
+        <td>{{ row.test_condition or '—' }}</td>
+        <td>{{ row.stimulus or '—' }}</td>
+        <td>{{ row.pass_criteria or '—' }}</td>
+        <td><span class="status-badge {% if row.plan_status == 'PASS' %}passed{% else %}failed{% endif %}">{{ '已准备' if row.plan_status == 'PASS' else '待补全' }}</span></td>
+        <td><span class="status-badge {% if row.execution_status == 'passed' %}passed{% elif row.execution_status in ['failed', 'blocked', 'inconclusive'] %}failed{% else %}candidate{% endif %}">{{ {'passed': '已通过', 'failed': '未通过', 'blocked': '受阻', 'inconclusive': '暂无结论', 'pending': '待执行', 'missing': '缺少用例'}.get(row.execution_status, row.execution_status) }}</span>{% if row.last_execution %}<small class="table-secondary">已有执行记录</small>{% endif %}</td>
+        <td>
+          {% if row.case_id %}
+          <details><summary class="button compact">记录结果</summary>
+            <form class="vv-execution-form compact-form" data-case-id="{{ row.case_id }}">
+              {% if row.branch_scenarios %}<label class="field">分支场景<select name="scenario_id"><option value="">整个 V&V 用例</option>{% for scenario in row.branch_scenarios %}<option value="{{ scenario.id }}">{{ scenario.branch_type }} · {{ scenario.branch_label }} · {{ scenario.status }}</option>{% endfor %}</select></label><small class="table-secondary">分支覆盖：{{ row.branch_summary.complete }}/{{ row.branch_summary.total }} · 已执行：{{ row.branch_summary.executed }}</small>{% endif %}
+              <label class="field">结果<select name="outcome"><option value="passed">通过</option><option value="failed">未通过</option><option value="blocked">受阻</option><option value="inconclusive">暂无结论</option></select></label>
+              <label class="field">声明<input name="claim" required placeholder="例如：测试通过"></label>
+              <label class="field">结果摘录<textarea name="excerpt" rows="2" required placeholder="粘贴测试/演示结果"></textarea></label>
+              <label class="field">定位<input name="locator" placeholder="报告、日志或文件路径"></label>
+              <button class="button compact primary" type="submit">提交执行证据</button>
+              {% if row.case_type == 'verification' %}<button class="button compact" type="button" data-model-check-case="{{ row.case_id }}">运行模型约束检查</button>{% endif %}
+            </form>
+          </details>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% else %}<tr><td colspan="10" class="table-empty">暂无验证或确认事实</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+<div class="two-column workflow-columns"><section class="panel"><div class="panel-head"><h2>危险源与安全分析</h2><span class="count-badge">{{ hazards|length }}</span></div>{% for item in hazards %}<article class="card"><strong>{{ item.name }}</strong><details class="advanced-details"><summary>查看关联（高级）</summary><code>{{ item.id }}</code><p>原因：{{ item.causes|join(', ') or '—' }}</p><p>缓解措施：{{ item.mitigations|join(', ') or '—' }}</p><p>验证：{{ item.verification|join(', ') or '—' }}</p></details></article>{% else %}<div class="mini-empty">暂无危险源记录</div>{% endfor %}</section><section class="panel"><div class="panel-head"><h2>失效模式分析</h2><span class="count-badge">{{ failure_modes|length }}</span></div>{% for item in failure_modes %}<article class="card"><strong>{{ item.name }}</strong><details class="advanced-details"><summary>查看详情（高级）</summary><code>{{ item.id }}</code><span class="status-badge {{ item.status }}">{{ item.status }}</span></details></article>{% else %}<div class="mini-empty">暂无失效模式记录</div>{% endfor %}</section></div>
+<script>
+document.querySelectorAll('.vv-execution-form').forEach((form) => form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  const payload = {
+    outcome: form.elements.outcome.value,
+    claim: form.elements.claim.value.trim(),
+    excerpt: form.elements.excerpt.value.trim(),
+    locator: form.elements.locator.value.trim(),
+    scenario_id: form.elements.scenario_id?.value || null,
+    expected_revision: {{ revision }},
+  };
+  try {
+    const response = await fetch(`/projects/{{ project_id }}/vv/${encodeURIComponent(form.dataset.caseId)}/execute`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload)});
+    const data = await response.json();
+    if (!response.ok || data.status !== 'ok') throw new Error(data.message || '记录 V&V 结果失败');
+    window.location.reload();
+  } catch (error) {
+    alert(error.message);
+    button.disabled = false;
+  }
+}));
+document.querySelectorAll('[data-model-check-case]').forEach((button) => button.addEventListener('click', async () => {
+  button.disabled = true;
+  try {
+    const response = await fetch(`/projects/{{ project_id }}/vv/${encodeURIComponent(button.dataset.modelCheckCase)}/tools/model.constraint_check/execute`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({expected_revision: {{ revision }}})});
+    const data = await response.json();
+    if (!response.ok || data.status !== 'ok') throw new Error(data.message || '运行模型约束检查失败');
+    window.location.reload();
+  } catch (error) {
+    alert(error.message);
+    button.disabled = false;
+  }
+}));
+document.querySelectorAll('[data-controller-action-id]').forEach((button) => button.addEventListener('click', async () => {
+  const output = document.getElementById('assurance-controller-result');
+  button.disabled = true;
+  output.hidden = false;
+  output.textContent = '正在执行系统工程动作…';
+  const payload = {action_id: button.dataset.controllerActionId, expected_revision: {{ revision }}};
+  if (button.dataset.controllerOptionId) payload.option_id = button.dataset.controllerOptionId;
+  try {
+    const response = await fetch('/projects/{{ project_id }}/controller/execute', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload)});
+    const data = await response.json();
+    if (!response.ok || data.status !== 'ok') throw new Error(data.message || '执行系统工程动作失败');
+    window.location.reload();
+  } catch (error) {
+    output.textContent = '请求失败：' + error;
+    output.classList.add('warning');
+    button.disabled = false;
+  }
+}));
+document.getElementById('controller-llm-proposal')?.addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = '正在请求远程模型…';
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch('/projects/{{ project_id }}/controller?include_llm=true', {signal: controller.signal});
+    const data = await response.json();
+    if (!response.ok || data.status !== 'ok') throw new Error(data.message || '获取 LLM 建议失败');
+    window.location.reload();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = '重试 LLM 建议';
+    alert(error.name === 'AbortError' ? '远程模型响应超时，请确认 SSH/Tailscale 节点在线。' : error.message);
+  } finally {
+    window.clearTimeout(timeout);
+  }
+});
+</script>
+{% endblock %}

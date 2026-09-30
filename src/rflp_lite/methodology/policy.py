@@ -25,10 +25,20 @@ class PatchPolicy:
     max_operations: int | None = None
 
     @classmethod
-    def for_task(cls, input_kinds: Iterable[EntityKind], output_kinds: Iterable[EntityKind]) -> "PatchPolicy":
+    def for_task(
+        cls,
+        input_kinds: Iterable[EntityKind],
+        output_kinds: Iterable[EntityKind],
+        *,
+        allowed_predicates: Iterable[RelationPredicate] | None = None,
+    ) -> "PatchPolicy":
         del input_kinds
         return cls(
             writable_kinds=frozenset(output_kinds),
             writable_fields=frozenset({"name", "status", "confidence", "payload", "lifecycle_ids", "evidence_ids"}),
-            allowed_predicates=frozenset(RelationPredicate),
+            allowed_predicates=(
+                frozenset()
+                if allowed_predicates is None
+                else frozenset(allowed_predicates)
+            ),
         )

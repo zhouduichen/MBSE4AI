@@ -17,7 +17,7 @@ def test_four_phase_catalog_has_expected_order_and_no_architecture_block():
         "logical_analysis", "physical_candidates", "allocation_tradeoff", "technical_requirement",
     ]
     assert [task.id for task in assurance.tasks()] == [
-        "interface_sequence_state", "fmea_stpa_hazard", "verification_validation",
-        "reverse_feasibility", "global_cross_analysis",
+        "interface_sequence_state", "fmea_stpa_hazard", "reverse_feasibility",
+        "verification_validation", "global_cross_analysis",
     ]
     assert all(task.id != "architecture" for task in tasks_for_phase(Phase.OPERATIONAL))

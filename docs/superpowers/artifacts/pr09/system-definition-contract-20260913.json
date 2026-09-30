@@ -1,0 +1,1309 @@
+{
+  "experiment": "pr09-system-definition-identity-contract",
+  "date": "2026-09-13",
+  "code_commit": "735685904955450e77f4493c3fd027ceb5cb1716",
+  "fixture": "/Users/huangjiahao/Downloads/AI4MBSE/tests/e2e/fixtures/campus_delivery_robot.json",
+  "provider": {
+    "display_name": "Windows 5080 Ollama",
+    "runtime_provider_id": "windows-5080-ollama",
+    "model": "qwen3.5:9b-q8_0",
+    "temperature": 0.0,
+    "seed": null,
+    "structured_output_mode": "json_schema"
+  },
+  "fixed": {
+    "max_output_tokens": 4000,
+    "chain": [
+      "system_definition"
+    ],
+    "prompt": "current system_definition.v1 plus common local_ref guidance",
+    "task_spec": "current system_definition TaskSpec"
+  },
+  "acceptance": {
+    "finish_reason_stop": "all successful calls",
+    "duplicate_local_ref": 0,
+    "identity_conflict": 0,
+    "compile_rate_minimum": 0.95,
+    "domain_validation_rate_minimum": 0.95,
+    "system_cardinality_correct": "one active SYSTEM",
+    "invalid_repository_write": 0
+  },
+  "budget": 4000,
+  "repetitions": 10,
+  "chain": [
+    "system_definition"
+  ],
+  "runs": [
+    {
+      "repetition": 1,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-5mkitop8/budget-4000/repeat-01",
+      "summary": {
+        "run_id": "run-069b39254055446a",
+        "phase": "operational",
+        "status": "degraded",
+        "completed_tasks": [],
+        "failure_stage": null,
+        "diagnostics": [
+          "system_definition: semantic validation: identity_conflict: system_definition cannot add a second active SYSTEM"
+        ]
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "degraded",
+          "attempt": 1,
+          "output_patch_id": null,
+          "output_hash": "",
+          "provider_id": "ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {},
+          "duplicate_local_ref": "",
+          "json_parsed": false,
+          "schema_passed": false,
+          "compile_pass": false,
+          "domain_validation_pass": false,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 678,
+              "total_duration_ms": 19813.221,
+              "response_size": 1681,
+              "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+              "wall_duration_ms": 19924.322
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.1695
+          ],
+          "output_tokens": [
+            678
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 678,
+          "total_duration_ms": 19813.221,
+          "response_size": 1681,
+          "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+          "wall_duration_ms": 19924.322
+        }
+      ],
+      "ledger": {
+        "run_id": "run-069b39254055446a",
+        "run_status": "degraded",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 1,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "degraded",
+            "attempt": 1,
+            "output_patch_id": null,
+            "output_hash": "",
+            "provider_id": "ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {},
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 1,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 2,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-5mkitop8/budget-4000/repeat-02",
+      "summary": {
+        "run_id": "run-da36ed47d6c04a3a",
+        "phase": "operational",
+        "status": "degraded",
+        "completed_tasks": [],
+        "failure_stage": null,
+        "diagnostics": [
+          "system_definition: semantic validation: identity_conflict: system_definition cannot add a second active SYSTEM"
+        ]
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "degraded",
+          "attempt": 1,
+          "output_patch_id": null,
+          "output_hash": "",
+          "provider_id": "ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {},
+          "duplicate_local_ref": "",
+          "json_parsed": false,
+          "schema_passed": false,
+          "compile_pass": false,
+          "domain_validation_pass": false,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 678,
+              "total_duration_ms": 13524.444,
+              "response_size": 1681,
+              "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+              "wall_duration_ms": 13601.149
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.1695
+          ],
+          "output_tokens": [
+            678
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 678,
+          "total_duration_ms": 13524.444,
+          "response_size": 1681,
+          "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+          "wall_duration_ms": 13601.149
+        }
+      ],
+      "ledger": {
+        "run_id": "run-da36ed47d6c04a3a",
+        "run_status": "degraded",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 1,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "degraded",
+            "attempt": 1,
+            "output_patch_id": null,
+            "output_hash": "",
+            "provider_id": "ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {},
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 1,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 3,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-5mkitop8/budget-4000/repeat-03",
+      "summary": {
+        "run_id": "run-d4b938bedaf34820",
+        "phase": "operational",
+        "status": "degraded",
+        "completed_tasks": [],
+        "failure_stage": null,
+        "diagnostics": [
+          "system_definition: semantic validation: identity_conflict: system_definition cannot add a second active SYSTEM"
+        ]
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "degraded",
+          "attempt": 1,
+          "output_patch_id": null,
+          "output_hash": "",
+          "provider_id": "ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {},
+          "duplicate_local_ref": "",
+          "json_parsed": false,
+          "schema_passed": false,
+          "compile_pass": false,
+          "domain_validation_pass": false,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 678,
+              "total_duration_ms": 13393.483,
+              "response_size": 1681,
+              "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+              "wall_duration_ms": 13543.014
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.1695
+          ],
+          "output_tokens": [
+            678
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 678,
+          "total_duration_ms": 13393.483,
+          "response_size": 1681,
+          "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+          "wall_duration_ms": 13543.014
+        }
+      ],
+      "ledger": {
+        "run_id": "run-d4b938bedaf34820",
+        "run_status": "degraded",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 1,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "degraded",
+            "attempt": 1,
+            "output_patch_id": null,
+            "output_hash": "",
+            "provider_id": "ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {},
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 1,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 4,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-5mkitop8/budget-4000/repeat-04",
+      "summary": {
+        "run_id": "run-5be959e07ebf4db0",
+        "phase": "operational",
+        "status": "degraded",
+        "completed_tasks": [],
+        "failure_stage": null,
+        "diagnostics": [
+          "system_definition: semantic validation: identity_conflict: system_definition cannot add a second active SYSTEM"
+        ]
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "degraded",
+          "attempt": 1,
+          "output_patch_id": null,
+          "output_hash": "",
+          "provider_id": "ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {},
+          "duplicate_local_ref": "",
+          "json_parsed": false,
+          "schema_passed": false,
+          "compile_pass": false,
+          "domain_validation_pass": false,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 678,
+              "total_duration_ms": 13725.696,
+              "response_size": 1681,
+              "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+              "wall_duration_ms": 13794.57
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.1695
+          ],
+          "output_tokens": [
+            678
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 678,
+          "total_duration_ms": 13725.696,
+          "response_size": 1681,
+          "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+          "wall_duration_ms": 13794.57
+        }
+      ],
+      "ledger": {
+        "run_id": "run-5be959e07ebf4db0",
+        "run_status": "degraded",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 1,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "degraded",
+            "attempt": 1,
+            "output_patch_id": null,
+            "output_hash": "",
+            "provider_id": "ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {},
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 1,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 5,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-5mkitop8/budget-4000/repeat-05",
+      "summary": {
+        "run_id": "run-8945bea2e1e54584",
+        "phase": "operational",
+        "status": "degraded",
+        "completed_tasks": [],
+        "failure_stage": null,
+        "diagnostics": [
+          "system_definition: semantic validation: identity_conflict: system_definition cannot add a second active SYSTEM"
+        ]
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "degraded",
+          "attempt": 1,
+          "output_patch_id": null,
+          "output_hash": "",
+          "provider_id": "ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {},
+          "duplicate_local_ref": "",
+          "json_parsed": false,
+          "schema_passed": false,
+          "compile_pass": false,
+          "domain_validation_pass": false,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 678,
+              "total_duration_ms": 13667.979,
+              "response_size": 1681,
+              "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+              "wall_duration_ms": 13755.822
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.1695
+          ],
+          "output_tokens": [
+            678
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 678,
+          "total_duration_ms": 13667.979,
+          "response_size": 1681,
+          "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+          "wall_duration_ms": 13755.822
+        }
+      ],
+      "ledger": {
+        "run_id": "run-8945bea2e1e54584",
+        "run_status": "degraded",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 1,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "degraded",
+            "attempt": 1,
+            "output_patch_id": null,
+            "output_hash": "",
+            "provider_id": "ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {},
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 1,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 6,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-5mkitop8/budget-4000/repeat-06",
+      "summary": {
+        "run_id": "run-a9b07fe628694156",
+        "phase": "operational",
+        "status": "degraded",
+        "completed_tasks": [],
+        "failure_stage": null,
+        "diagnostics": [
+          "system_definition: semantic validation: identity_conflict: system_definition cannot add a second active SYSTEM"
+        ]
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "degraded",
+          "attempt": 1,
+          "output_patch_id": null,
+          "output_hash": "",
+          "provider_id": "ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {},
+          "duplicate_local_ref": "",
+          "json_parsed": false,
+          "schema_passed": false,
+          "compile_pass": false,
+          "domain_validation_pass": false,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 678,
+              "total_duration_ms": 13647.326,
+              "response_size": 1681,
+              "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+              "wall_duration_ms": 13732.168
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.1695
+          ],
+          "output_tokens": [
+            678
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 678,
+          "total_duration_ms": 13647.326,
+          "response_size": 1681,
+          "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+          "wall_duration_ms": 13732.168
+        }
+      ],
+      "ledger": {
+        "run_id": "run-a9b07fe628694156",
+        "run_status": "degraded",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 1,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "degraded",
+            "attempt": 1,
+            "output_patch_id": null,
+            "output_hash": "",
+            "provider_id": "ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {},
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 1,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 7,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-5mkitop8/budget-4000/repeat-07",
+      "summary": {
+        "run_id": "run-edd26ee082be46c5",
+        "phase": "operational",
+        "status": "degraded",
+        "completed_tasks": [],
+        "failure_stage": null,
+        "diagnostics": [
+          "system_definition: semantic validation: identity_conflict: system_definition cannot add a second active SYSTEM"
+        ]
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "degraded",
+          "attempt": 1,
+          "output_patch_id": null,
+          "output_hash": "",
+          "provider_id": "ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {},
+          "duplicate_local_ref": "",
+          "json_parsed": false,
+          "schema_passed": false,
+          "compile_pass": false,
+          "domain_validation_pass": false,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 678,
+              "total_duration_ms": 13514.334,
+              "response_size": 1681,
+              "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+              "wall_duration_ms": 13585.363
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.1695
+          ],
+          "output_tokens": [
+            678
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 678,
+          "total_duration_ms": 13514.334,
+          "response_size": 1681,
+          "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+          "wall_duration_ms": 13585.363
+        }
+      ],
+      "ledger": {
+        "run_id": "run-edd26ee082be46c5",
+        "run_status": "degraded",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 1,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "degraded",
+            "attempt": 1,
+            "output_patch_id": null,
+            "output_hash": "",
+            "provider_id": "ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {},
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 1,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 8,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-5mkitop8/budget-4000/repeat-08",
+      "summary": {
+        "run_id": "run-c76b40df971e44d6",
+        "phase": "operational",
+        "status": "degraded",
+        "completed_tasks": [],
+        "failure_stage": null,
+        "diagnostics": [
+          "system_definition: semantic validation: identity_conflict: system_definition cannot add a second active SYSTEM"
+        ]
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "degraded",
+          "attempt": 1,
+          "output_patch_id": null,
+          "output_hash": "",
+          "provider_id": "ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {},
+          "duplicate_local_ref": "",
+          "json_parsed": false,
+          "schema_passed": false,
+          "compile_pass": false,
+          "domain_validation_pass": false,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 678,
+              "total_duration_ms": 13555.215,
+              "response_size": 1681,
+              "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+              "wall_duration_ms": 13642.614
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.1695
+          ],
+          "output_tokens": [
+            678
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 678,
+          "total_duration_ms": 13555.215,
+          "response_size": 1681,
+          "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+          "wall_duration_ms": 13642.614
+        }
+      ],
+      "ledger": {
+        "run_id": "run-c76b40df971e44d6",
+        "run_status": "degraded",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 1,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "degraded",
+            "attempt": 1,
+            "output_patch_id": null,
+            "output_hash": "",
+            "provider_id": "ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {},
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 1,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 9,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-5mkitop8/budget-4000/repeat-09",
+      "summary": {
+        "run_id": "run-e2e9a78536504deb",
+        "phase": "operational",
+        "status": "degraded",
+        "completed_tasks": [],
+        "failure_stage": null,
+        "diagnostics": [
+          "system_definition: semantic validation: identity_conflict: system_definition cannot add a second active SYSTEM"
+        ]
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "degraded",
+          "attempt": 1,
+          "output_patch_id": null,
+          "output_hash": "",
+          "provider_id": "ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {},
+          "duplicate_local_ref": "",
+          "json_parsed": false,
+          "schema_passed": false,
+          "compile_pass": false,
+          "domain_validation_pass": false,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 678,
+              "total_duration_ms": 13565.131,
+              "response_size": 1681,
+              "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+              "wall_duration_ms": 13641.864
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.1695
+          ],
+          "output_tokens": [
+            678
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 678,
+          "total_duration_ms": 13565.131,
+          "response_size": 1681,
+          "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+          "wall_duration_ms": 13641.864
+        }
+      ],
+      "ledger": {
+        "run_id": "run-e2e9a78536504deb",
+        "run_status": "degraded",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 1,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "degraded",
+            "attempt": 1,
+            "output_patch_id": null,
+            "output_hash": "",
+            "provider_id": "ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {},
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 1,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    },
+    {
+      "repetition": 10,
+      "budget": 4000,
+      "workspace": "/var/folders/sn/ncnymc3152gbmlxg3my2l5yw0000gn/T/ai4mbse-pr09-system-definition-5mkitop8/budget-4000/repeat-10",
+      "summary": {
+        "run_id": "run-d3fe45dead7f4798",
+        "phase": "operational",
+        "status": "degraded",
+        "completed_tasks": [],
+        "failure_stage": null,
+        "diagnostics": [
+          "system_definition: semantic validation: identity_conflict: system_definition cannot add a second active SYSTEM"
+        ]
+      },
+      "task_records": [
+        {
+          "task_id": "system_definition",
+          "status": "degraded",
+          "attempt": 1,
+          "output_patch_id": null,
+          "output_hash": "",
+          "provider_id": "ollama",
+          "model_id": "qwen3.5:9b-q8_0",
+          "stage": "",
+          "code": "",
+          "failure_class": "",
+          "finish_reason": "",
+          "retry_count": 0,
+          "raw_response_hash": null,
+          "raw_response_size": null,
+          "initial_raw_response_hash": null,
+          "initial_raw_response_size": null,
+          "schema_hash": null,
+          "usage": {},
+          "duplicate_local_ref": "",
+          "json_parsed": false,
+          "schema_passed": false,
+          "compile_pass": false,
+          "domain_validation_pass": false,
+          "structural_repair_invoked": false,
+          "structural_retry_recovered": false,
+          "provider_calls": [
+            {
+              "task_id": "system_definition",
+              "call": "initial",
+              "max_tokens": 4000,
+              "finish_reason": "stop",
+              "prompt_eval_count": 870,
+              "eval_count": 678,
+              "total_duration_ms": 13742.0,
+              "response_size": 1681,
+              "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+              "wall_duration_ms": 13800.507
+            }
+          ],
+          "initial_max_tokens": 4000,
+          "repair_max_tokens": null,
+          "output_utilization": [
+            0.1695
+          ],
+          "output_tokens": [
+            678
+          ]
+        }
+      ],
+      "provider_calls": [
+        {
+          "task_id": "system_definition",
+          "call": "initial",
+          "max_tokens": 4000,
+          "finish_reason": "stop",
+          "prompt_eval_count": 870,
+          "eval_count": 678,
+          "total_duration_ms": 13742.0,
+          "response_size": 1681,
+          "response_hash": "1fc52046fccdbaf70a8c9444d458c4df5ce9aada670b63d776ec7fcfe91389b0",
+          "wall_duration_ms": 13800.507
+        }
+      ],
+      "ledger": {
+        "run_id": "run-d3fe45dead7f4798",
+        "run_status": "degraded",
+        "provider_id": "ollama",
+        "model_id": "qwen3.5:9b-q8_0",
+        "revision": 1,
+        "entities": 16,
+        "relations": 28,
+        "steps": [
+          {
+            "task_id": "system_definition",
+            "status": "degraded",
+            "attempt": 1,
+            "output_patch_id": null,
+            "output_hash": "",
+            "provider_id": "ollama",
+            "model_id": "qwen3.5:9b-q8_0",
+            "stage": "",
+            "code": "",
+            "failure_class": "",
+            "finish_reason": "",
+            "retry_count": 0,
+            "raw_response_hash": null,
+            "raw_response_size": null,
+            "initial_raw_response_hash": null,
+            "initial_raw_response_size": null,
+            "schema_hash": null,
+            "usage": {},
+            "duplicate_local_ref": ""
+          }
+        ]
+      },
+      "safety": {
+        "failed_task_with_patch": false,
+        "blocked_task_with_patch": false,
+        "initial_revision": 1,
+        "final_revision": 1,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28
+      }
+    }
+  ],
+  "aggregate": {
+    "task_status": {
+      "degraded": 10
+    },
+    "run_status": {
+      "degraded": 10
+    },
+    "provider_calls": 10,
+    "provider_transport_failures": 0,
+    "finish_reason": {
+      "stop": 10
+    },
+    "failure_classes": {},
+    "structural_retry_invoked": 0,
+    "structural_retry_recovered": 0,
+    "structural_retry_exhausted": 0,
+    "compiler_failures": 0,
+    "duplicate_local_ref_count": 0,
+    "semantic_rejections": 10,
+    "semantic_repair_invoked": 0,
+    "output_utilization": {
+      "samples": 10,
+      "average": 0.1695,
+      "min": 0.1695,
+      "max": 0.1695
+    },
+    "latency_ms": {
+      "samples": 10,
+      "average": 14214.883,
+      "min": 13393.483,
+      "max": 19813.221
+    },
+    "initial_max_tokens": [
+      4000
+    ],
+    "repair_max_tokens": [],
+    "failed_or_blocked_with_patch": 0,
+    "dependent_blocking_observed": false,
+    "revision_deltas": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  }
+}

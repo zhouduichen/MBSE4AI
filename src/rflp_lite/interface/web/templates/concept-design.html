@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}总体设计与布局 · AI4MBSE{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">M3 / M4</p>
+    <h1>总体设计与布局</h1>
+    <p class="lede">指标包络 → 历史方案检索 → 3–5 套布局候选 → 气动/结构/重量批量评估 → 优化反馈。</p>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header"><div><h2>指标包络</h2><p>首个领域包为固定翼；内置评估器明确标记为开发证据。</p></div></div>
+  <textarea id="concept-envelope" rows="15" spellcheck="false">{
+  "id": "FW-E-WEB",
+  "status": "candidate",
+  "source_requirement_ids": [],
+  "parameters": {},
+  "bounds": {}
+}</textarea>
+  <div class="actions"><button class="button" id="concept-suggest">从 ModelGraph 提取指标</button><button class="button primary" id="concept-run-from-requirements">按需求生成并评估</button><button class="button" id="concept-run">按当前 envelope 运行</button><span class="muted" id="concept-status"></span></div>
+</section>
+
+<section class="card" id="concept-results">
+  <div class="card-header"><div><h2>候选与多学科结果</h2><p id="concept-summary">{% if run %}已加载 {{ run.candidates|length }} 套候选{% else %}尚未运行{% endif %}</p></div></div>
+  <div id="concept-cards">
+  {% if run %}
+    {% for candidate in run.candidates %}
+    {% set candidate_evaluations = run.evaluations|selectattr('candidate_id', 'equalto', candidate.id)|list %}
+    <article class="list-card">
+      <div class="list-card-header"><strong>{{ candidate.id }}</strong><span class="status-pill">{{ candidate.status }}</span></div>
+      <p>可行：{{ candidate.feasible }} · 参考方案：{{ candidate.reference_ids|join(', ') }}</p>
+      <details><summary>参数与草图</summary><pre>{{ candidate.parameters|tojson(indent=2) }}</pre><div class="svg-preview">{{ candidate.svg|safe }}</div></details>
+      <div class="compact-list"><strong>多学科评估</strong>{% for evaluation in candidate_evaluations %}<article><span>{{ evaluation.discipline }}<small>{{ evaluation.metrics|tojson }}</small><small>证据：{{ evaluation.evidence_status }} · 有效性：{{ evaluation.validity|tojson }}</small></span><span class="status-pill">{{ evaluation.status }}</span></article>{% else %}<small>暂无评估结果</small>{% endfor %}</div>
+      <button class="button" data-apply="{{ candidate.id }}" data-run="{{ run.id }}">应用到 ModelGraph</button>
+    </article>
+    {% endfor %}
+  {% endif %}
+  </div>
+  {% if run %}<div class="callout info"><strong>优化反馈：</strong>状态 {{ run.optimization.status }} · 停止原因 {{ run.optimization.stop_reason }} · Pareto 候选 {{ run.optimization.front_candidate_ids|join('、') or '—' }} · 迭代 {{ run.optimization.iteration_records|length }} 轮 · 证据状态 {{ run.optimization.evidence_status }}<br><small>评估摘要：{{ run.evaluation_summary.complete_candidate_count or 0 }}/{{ run.evaluation_summary.candidate_count or 0 }} 套候选完成，{{ run.evaluation_summary.failed_evaluation_count or 0 }} 条评估失败；详细适用域、验证数据集和批准诊断见候选展开结果与 concept-design.json。</small></div>{% if run.evaluation_summary.objective_definitions %}<p class="table-secondary">目标顺序：{% for item in run.evaluation_summary.objective_definitions %}<code>{{ item.id }}</code>（{{ '最大化' if item.direction == 'maximize' else '最小化' }}）{% if not loop.last %}；{% endif %}{% endfor %}</p>{% endif %}{% if run.evaluation_summary.ranking %}<div class="table-wrap"><table><thead><tr><th>候选</th><th>排序</th><th>Pareto</th><th>目标向量（按目标顺序）</th></tr></thead><tbody>{% for row in run.evaluation_summary.ranking %}<tr><td><code>{{ row.candidate_id }}</code></td><td>{{ row.rank }}</td><td>{{ '是' if row.front else '否' }}</td><td><code>{{ row.objectives|join(' / ') }}</code></td></tr>{% endfor %}</tbody></table></div>{% endif %}{% endif %}
+</section>
+
+<script>
+(() => {
+  const projectId = {{ project_id|tojson }};
+  const status = document.querySelector('#concept-status');
+  const summary = document.querySelector('#concept-summary');
+  const cards = document.querySelector('#concept-cards');
+  const renderEvaluations = (run, candidateId) => {
+    const evaluations = (run.evaluations || []).filter(item => item.candidate_id === candidateId);
+    if (!evaluations.length) return '<div class="compact-list"><strong>多学科评估</strong><small>暂无评估结果</small></div>';
+    const rows = evaluations.map(item => {
+      const metrics = Object.fromEntries(item.metrics || []);
+      const evidence = Object.fromEntries(item.validity || []);
+      const diagnostics = (item.approval_diagnostics || []).join('；');
+      return `<article><span>${item.discipline}<small>${JSON.stringify(metrics)}</small><small>证据：${item.evidence_status || '—'} · 适用域：${evidence.validity_status || '未声明'}${diagnostics ? ` · ${diagnostics}` : ''}</small></span><span class="status-pill">${item.status}</span></article>`;
+    }).join('');
+    return `<div class="compact-list"><strong>多学科评估</strong>${rows}</div>`;
+  };
+  const renderOptimization = (run) => {
+    const optimization = run.optimization || {};
+    const summary = run.evaluation_summary || {};
+    const objectiveDefinitions = (summary.objective_definitions || []).map(item => `${item.id || `${item.discipline}.${item.metric}`}（${item.direction === 'maximize' ? '最大化' : '最小化'}）`).join('；');
+    const ranking = (summary.ranking || []).map(row => `<tr><td><code>${row.candidate_id}</code></td><td>${row.rank ?? '—'}</td><td>${row.front ? '是' : '否'}</td><td><code>${(row.objectives || []).join(' / ') || '—'}</code></td></tr>`).join('');
+    const table = ranking ? `<div class="table-wrap"><table><thead><tr><th>候选</th><th>排序</th><th>Pareto</th><th>目标向量（按目标顺序）</th></tr></thead><tbody>${ranking}</tbody></table></div>` : '';
+    const objectiveHint = objectiveDefinitions ? `<br><small>目标顺序：${objectiveDefinitions}</small>` : '';
+    return `<div class="callout info"><strong>优化反馈：</strong>状态 ${optimization.status || '—'} · 停止原因 ${optimization.stop_reason || '—'} · Pareto 候选 ${(optimization.front_candidate_ids || []).join('、') || '—'} · 迭代 ${(optimization.iteration_records || []).length} 轮 · 证据状态 ${optimization.evidence_status || '—'}<br><small>评估摘要：${summary.complete_candidate_count || 0}/${summary.candidate_count || 0} 套候选完成，${summary.failed_evaluation_count || 0} 条评估失败；每条评估保留适用域、数据集和批准诊断。</small>${objectiveHint}</div>${table}`;
+  };
+  const render = (run) => {
+    summary.textContent = `${run.candidates.length} 套候选，${run.evaluations.length} 条学科评估，正式状态：${run.formal_status}`;
+    cards.innerHTML = run.candidates.map(candidate => `<article class="list-card"><div class="list-card-header"><strong>${candidate.id}</strong><span class="status-pill">${candidate.status}</span></div><p>可行：${candidate.feasible} · 参考方案：${(candidate.reference_ids || []).join(', ')}</p><details><summary>参数与草图</summary><pre>${JSON.stringify(candidate.parameters, null, 2)}</pre><div class="svg-preview">${candidate.svg}</div></details>${renderEvaluations(run, candidate.id)}<button class="button" data-apply="${candidate.id}" data-run="${run.id}">应用到 ModelGraph</button></article>`).join('') + renderOptimization(run);
+  };
+  const runConcept = async (body) => {
+    status.textContent = '运行中…';
+    try {
+      const response = await fetch(`/projects/${projectId}/concept-design/run`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
+      const payload = await response.json();
+      if (!response.ok) {
+        if (payload.status === 'needs_input' && payload.input) {
+          document.querySelector('#concept-envelope').value = JSON.stringify(payload.input.envelope, null, 2);
+          const missing = (payload.input.missing_parameters || []).join('、');
+          throw new Error(`需求缺少参数：${missing}`);
+        }
+        throw new Error(payload.message || '总体设计运行失败');
+      }
+      render(payload.run); status.textContent = '完成';
+    } catch (error) { status.textContent = error.message; }
+  };
+  document.querySelector('#concept-run-from-requirements').addEventListener('click', async () => {
+    await runConcept({from_requirements: true, optimize: true});
+  });
+  document.querySelector('#concept-run').addEventListener('click', async () => {
+    await runConcept({envelope: JSON.parse(document.querySelector('#concept-envelope').value), optimize: true});
+  });
+  document.querySelector('#concept-suggest').addEventListener('click', async () => {
+    status.textContent = '正在读取需求约束…';
+    try {
+      const response = await fetch(`/projects/${projectId}/concept-design/input`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || '指标提取失败');
+      const suggested = payload.input.envelope;
+      document.querySelector('#concept-envelope').value = JSON.stringify(suggested, null, 2);
+      const missing = payload.input.missing_parameters || [];
+      status.textContent = missing.length ? `已提取约束；还缺 ${missing.join('、')}` : '指标包络已就绪';
+    } catch (error) { status.textContent = error.message; }
+  });
+  cards.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-apply]');
+    if (!button) return;
+    button.disabled = true;
+    const response = await fetch(`/projects/${projectId}/concept-design/${button.dataset.run}/apply`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({candidate_id: button.dataset.apply})});
+    const payload = await response.json();
+    status.textContent = response.ok ? `已应用到 ${payload.apply.entity.id}` : (payload.message || '应用失败');
+    button.disabled = false;
+  });
+})();
+</script>
+{% endblock %}

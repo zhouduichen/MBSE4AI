@@ -9,13 +9,23 @@ from typing import Mapping
 from uuid import uuid4
 
 from fastapi import APIRouter, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from rflp_lite.domain.entities import EntityKind
+from rflp_lite.domain.canonical import to_primitive
 from rflp_lite.domain.errors import AdapterFailure, ConcurrentModificationError, ContractViolation, InputRequired, NotFoundError, RflpError
-from rflp_lite.domain.model import Patch, UpdateEntity
+from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.application.model_export import graph_sysml
-from rflp_lite.methodology.contracts import Phase
+from rflp_lite.application.sysml_v2 import sysml_to_graph
+from rflp_lite.application.projections.assurance import build_assurance_view
+from rflp_lite.application.projections.behavior import build_behavior_view
+from rflp_lite.application.projections.history import build_history_view, build_revision_diff
+from rflp_lite.application.projections.operational import build_operational_view
+from rflp_lite.application.projections.requirements import build_requirement_detail, build_requirements_view
+from rflp_lite.application.projections.rflp import build_rflp_view
+from rflp_lite.application.projections.traceability import build_traceability_view
+from rflp_lite.diagrams.engineering.rflp import render_rflp_svg
+from rflp_lite.methodology.contracts import FailureStage, Phase
 from rflp_lite.methodology.gates import global_gate
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
 from rflp_lite.retrieval.planner import KnowledgeGap
@@ -31,6 +41,19 @@ from rflp_lite.interface.web.resource_pages import (
 
 
 resource_api = APIRouter(tags=["AI4MBSE Harness"])
+_NON_SEMANTIC_FAILURE_VALUES = frozenset(
+    stage.value for stage in (
+        FailureStage.STRUCTURAL,
+        FailureStage.COMPILER,
+        FailureStage.TRANSPORT,
+        FailureStage.CONCURRENCY,
+        FailureStage.INTERNAL,
+    )
+)
+
+
+async def _request_json(request: Request):
+    return await request.json()
 
 
 def _services(request: Request):
@@ -40,7 +63,7 @@ def _services(request: Request):
     return services.v2
 
 
-def _run_payload(summary) -> dict[str, object]:
+def _run_payload(summary) -> Mapping[str, object]:
     raw = _plain(summary)
     data = dict(raw) if isinstance(raw, Mapping) else {}
     run_id = str(data.get("run_id") or data.get("id") or getattr(summary, "run_id", ""))
@@ -55,15 +78,20 @@ def _run_payload(summary) -> dict[str, object]:
         "completed_tasks": list(data.get("completed_tasks", getattr(summary, "completed_tasks", ()))),
         "diagnostics": list(data.get("diagnostics", getattr(summary, "diagnostics", ()))),
     }
+    failure_stage = data.get("failure_stage", getattr(summary, "failure_stage", None))
+    if failure_stage:
+        payload["failure_stage"] = _value(failure_stage)
     for key in ("phase_results", "gate_results", "closure", "current_task", "repair", "runtime"):
         if key in data:
             payload[key] = data[key]
     return payload
 
 
-def _attach_runtime_metadata(run: dict[str, object], analysis) -> dict[str, object]:
+def _attach_runtime_metadata(run: Mapping[str, object], analysis) -> Mapping[str, object]:
     runner = getattr(analysis, "runner", None)
     selection = getattr(runner, "runtime_selection", None)
+    if selection is None:
+        selection = getattr(analysis, "runtime_selection", None)
     if selection is None:
         return run
     run.update(
@@ -83,16 +111,36 @@ def _attach_runtime_metadata(run: dict[str, object], analysis) -> dict[str, obje
     return run
 
 
+def _attach_deliverable_metadata(
+    run: Mapping[str, object],
+    services,
+    project_id: str,
+) -> Mapping[str, object]:
+    """Bind an analysis response to the exact package produced from its graph."""
+
+    package = services.deliverables(project_id).build(project_id)
+    deliverable = {
+        "format": package["format"],
+        "project_id": package["project_id"],
+        "revision": package["revision"],
+        "snapshot_hash": package["snapshot_hash"],
+        "manifest": package["manifest"],
+        "json_url": f"/projects/{project_id}/deliverables",
+        "download_url": f"/projects/{project_id}/deliverables/download",
+    }
+    return {**run, "deliverable": deliverable}
+
+
 def _value(value: object, default: str = "") -> str:
     return str(getattr(value, "value", value or default))
 
 
-def _analysis_service(request: Request, project_id: str):
+def _analysis_service(request: Request, project_id: str, *, profile_id: str | None = None):
     """Load the application service, with a narrow bridge for an older runner."""
 
     services = _services(request)
     try:
-        return services.analysis(project_id)
+        return services.analysis(project_id, profile_id=profile_id)
     except TypeError as exc:
         # A partially upgraded local checkout can have the runtime factory
         # wired before WorkflowRunner accepts its metadata. Keep Web usable
@@ -107,11 +155,106 @@ def _analysis_service(request: Request, project_id: str):
         factory = getattr(services, "runtime_factory", None)
         if factory is not None:
             try:
-                selection = factory.select(services.settings.active_config(), runtime_override=getattr(services, "_runtime_override", None))
+                config = (
+                    services.settings.profile_config(profile_id)
+                    if profile_id
+                    else services.settings.active_config()
+                )
+                selection = factory.select(config, runtime_override=getattr(services, "_runtime_override", None))
             except TypeError:
                 selection = factory.select(services.settings.active_config())
             runtime = getattr(selection, "runtime", runtime)
         return AnalysisService(WorkflowRunner(repository, repository, runtime or NoopRuntime()))
+
+
+_VERTICAL_PROGRESS_STAGES = (
+    ("requirements", "需求分析"),
+    ("functional", "功能分析"),
+    ("logical", "逻辑架构"),
+    ("physical", "物理架构"),
+    ("verification_validation", "验证与确认"),
+)
+_TERMINAL_RUN_STATES = frozenset({"completed", "failed", "blocked", "degraded", "cancelled"})
+
+
+def _run_progress(run) -> Mapping[str, object]:
+    """Expose a compact, stage-level progress view for the Web workbench."""
+
+    status = _value(getattr(run, "status", "queued"), "queued")
+    steps = {
+        str(getattr(step, "task_id", "")).removeprefix("vertical."): step
+        for step in getattr(run, "steps", ())
+    }
+    stages = []
+    for stage, label in _VERTICAL_PROGRESS_STAGES:
+        step = steps.get(stage)
+        step_status = _value(getattr(step, "status", "queued"), "queued")
+        if status in _TERMINAL_RUN_STATES and step_status == "running":
+            step_status = status
+        stages.append({"stage": stage, "label": label, "status": step_status})
+    completed_stages = sum(item["status"] == "completed" for item in stages)
+    current = next((item for item in stages if item["status"] not in {"completed", "cancelled"}), None)
+    return {
+        "status": status,
+        "current_stage": current["stage"] if current else None,
+        "current_stage_label": current["label"] if current else ("已完成" if status == "completed" else "准备运行"),
+        "completed_stages": completed_stages,
+        "total_stages": len(stages),
+        "stages": stages,
+    }
+
+
+def _run_generation_job(
+    services,
+    project_id: str,
+    run_id: str,
+    requirement_text: str | None,
+    document_ids: tuple[str, ...],
+    profile_id: str | None,
+) -> None:
+    try:
+        services.generation(project_id, profile_id=profile_id).generate(
+            project_id,
+            requirement_text=requirement_text,
+            document_ids=document_ids,
+            run_id=run_id,
+            force_new=True,
+        )
+    except Exception as exc:  # Background work must always settle its Run.
+        message = str(exc).strip()[:240] or type(exc).__name__
+        try:
+            services.repository(project_id).update_run(
+                run_id,
+                "failed",
+                (f"async_generation_{type(exc).__name__}: {message}",),
+            )
+        except Exception:
+            pass
+
+
+def _run_generation_resume_job(
+    services,
+    project_id: str,
+    run_id: str,
+    document_ids: tuple[str, ...],
+    profile_id: str | None,
+) -> None:
+    try:
+        services.generation(project_id, profile_id=profile_id).resume(
+            project_id,
+            run_id,
+            document_ids=document_ids,
+        )
+    except Exception as exc:  # Background work must always settle its Run.
+        message = str(exc).strip()[:240] or type(exc).__name__
+        try:
+            services.repository(project_id).update_run(
+                run_id,
+                "failed",
+                (f"async_resume_{type(exc).__name__}: {message}",),
+            )
+        except Exception:
+            pass
 
 
 def _call_run(analysis, project_id: str, phase: Phase, run_id: str | None = None, *, force_run: bool = False):
@@ -133,14 +276,26 @@ def _call_run(analysis, project_id: str, phase: Phase, run_id: str | None = None
         return analysis.run(project_id, phase)
 
 
-def _pipeline_fallback(analysis, project_id: str, *, requested_run_id: str | None, force_run: bool) -> dict[str, object]:
+def _pipeline_fallback(analysis, project_id: str, *, requested_run_id: str | None, force_run: bool) -> Mapping[str, object]:
     pipeline_id = requested_run_id or f"pipeline-{uuid4().hex[:16]}"
-    phase_results: list[dict[str, object]] = []
-    gate_results: list[dict[str, object]] = []
+    phase_results: list[Mapping[str, object]] = []
+    gate_results: list[Mapping[str, object]] = []
     diagnostics: list[str] = []
     all_passed = True
+    blocked_reason = ""
     for phase in (Phase.OPERATIONAL, Phase.FUNCTIONAL, Phase.LOGICAL_PHYSICAL, Phase.ASSURANCE):
         phase_run_id = f"{pipeline_id}-{phase.value}" if force_run else None
+        if blocked_reason:
+            phase_payload = {
+                "run_id": phase_run_id or "",
+                "project_id": project_id,
+                "phase": phase.value,
+                "status": "blocked",
+                "completed_tasks": [],
+                "diagnostics": [blocked_reason],
+            }
+            phase_results.append(phase_payload)
+            continue
         try:
             summary = _call_run(analysis, project_id, phase, phase_run_id, force_run=force_run)
             phase_payload = _run_payload(summary)
@@ -156,6 +311,11 @@ def _pipeline_fallback(analysis, project_id: str, *, requested_run_id: str | Non
         phase_payload["phase"] = phase.value
         phase_results.append(phase_payload)
         diagnostics.extend(str(item) for item in phase_payload.get("diagnostics", ()))
+        failure_stage = str(phase_payload.get("failure_stage", ""))
+        if failure_stage in _NON_SEMANTIC_FAILURE_VALUES:
+            all_passed = False
+            blocked_reason = f"Blocked by {phase.value} {failure_stage} failure"
+            continue
         try:
             gate = _gate_payload(analysis.gate(project_id, phase), fallback_phase=phase)
         except Exception as exc:
@@ -178,7 +338,7 @@ def _pipeline_fallback(analysis, project_id: str, *, requested_run_id: str | Non
             global_result = _gate_payload(global_gate(_services_from_analysis(analysis, project_id)), fallback_phase=Phase.ASSURANCE)
         global_result["phase"] = Phase.CLOSURE.value
         gate_results.append(global_result)
-    closure: dict[str, object]
+    closure: Mapping[str, object]
     if all_passed and global_result["passed"]:
         try:
             closure_summary = _call_run(analysis, project_id, Phase.CLOSURE, f"{pipeline_id}-closure" if force_run else None, force_run=force_run)
@@ -214,11 +374,16 @@ def _services_from_analysis(analysis, project_id: str):
     return analysis.runner.model_repository.load_graph(project_id)
 
 
-def _orchestrator_payload(analysis, project_id: str, result, *, force_run: bool) -> dict[str, object]:
+def _orchestrator_payload(analysis, project_id: str, result, *, force_run: bool) -> Mapping[str, object]:
     payload = _run_payload(result)
     phase_order = [phase.value for phase, _label in ((Phase.OPERATIONAL, ""), (Phase.FUNCTIONAL, ""), (Phase.LOGICAL_PHYSICAL, ""), (Phase.ASSURANCE, ""), (Phase.CLOSURE, ""))]
     result_phase = str(payload.get("phase", Phase.OPERATIONAL.value))
     result_status = str(payload.get("status", "degraded"))
+    failure_stage = str(payload.get("failure_stage", ""))
+    dependency_blocked = (
+        result_status not in {"completed", "complete"}
+        and failure_stage in _NON_SEMANTIC_FAILURE_VALUES
+    )
     try:
         result_index = phase_order.index(result_phase)
     except ValueError:
@@ -226,13 +391,13 @@ def _orchestrator_payload(analysis, project_id: str, result, *, force_run: bool)
     phase_results = [
         {
             "phase": phase,
-            "status": "completed" if index < result_index and result_status == "completed" else result_status if index == result_index else "pending",
+            "status": "completed" if index < result_index and result_status == "completed" else result_status if index == result_index else "blocked" if dependency_blocked else "pending",
             "completed_tasks": list(payload.get("completed_tasks", ())) if index == result_index else [],
-            "diagnostics": list(payload.get("diagnostics", ())) if index == result_index else [],
+            "diagnostics": list(payload.get("diagnostics", ())) if index == result_index else [f"Blocked by {failure_stage} failure"] if dependency_blocked and index > result_index else [],
         }
         for index, phase in enumerate(phase_order)
     ]
-    gate_results: list[dict[str, object]] = []
+    gate_results: list[Mapping[str, object]] = []
     for phase in (Phase.OPERATIONAL, Phase.FUNCTIONAL, Phase.LOGICAL_PHYSICAL, Phase.ASSURANCE, Phase.CLOSURE):
         try:
             gate = _gate_payload(analysis.gate(project_id, phase), fallback_phase=phase)
@@ -256,18 +421,39 @@ def _orchestrator_payload(analysis, project_id: str, result, *, force_run: bool)
     return payload
 
 
-def _invoke_pipeline(analysis, project_id: str, *, run_id: str | None, force_run: bool) -> dict[str, object]:
+def _invoke_pipeline(
+    analysis,
+    project_id: str,
+    *,
+    run_id: str | None,
+    force_run: bool,
+    requirement_text: str | None = None,
+    document_ids: tuple[str, ...] = (),
+) -> Mapping[str, object]:
     pipeline = getattr(analysis, "run_pipeline", None)
     if callable(pipeline):
         try:
-            result = pipeline(project_id, run_id=run_id, force_run=force_run)
+            result = pipeline(
+                project_id,
+                run_id=run_id,
+                force_run=force_run,
+                requirement_text=requirement_text,
+                document_ids=document_ids,
+            )
         except TypeError as exc:
-            if "force_run" not in str(exc) and "run_id" not in str(exc):
+            message = str(exc)
+            if not any(
+                name in message
+                for name in ("force_run", "run_id", "requirement_text", "document_ids")
+            ):
                 raise
             result = pipeline(project_id)
         payload = _run_payload(result)
         payload["mode"] = "pipeline"
         payload["force_run"] = force_run
+        report = getattr(analysis, "pipeline_report", None)
+        if callable(report):
+            payload.update(report(project_id))
         return payload
     orchestrator = getattr(getattr(analysis, "runner", None), "orchestrator", None)
     if callable(getattr(orchestrator, "run", None)):
@@ -281,7 +467,7 @@ def _invoke_pipeline(analysis, project_id: str, *, run_id: str | None, force_run
     return _pipeline_fallback(analysis, project_id, requested_run_id=run_id, force_run=force_run)
 
 
-def _profile_test_payload(settings, raw: object) -> dict[str, object]:
+def _profile_test_payload(settings, raw: object) -> Mapping[str, object]:
     if not isinstance(raw, Mapping):
         raise ContractViolation("model profile test payload must be an object")
     payload = dict(raw)
@@ -298,7 +484,7 @@ def _profile_test_payload(settings, raw: object) -> dict[str, object]:
     return payload
 
 
-def _connection_failure(exc: AdapterFailure) -> dict[str, object]:
+def _connection_failure(exc: AdapterFailure) -> Mapping[str, object]:
     """Convert provider errors into safe, actionable UI status metadata."""
 
     detail = str(exc)
@@ -367,8 +553,30 @@ def _resolve_repair_issue(request: Request, project_id: str, issue_id: str, anal
 
 
 def _error(exc: Exception) -> JSONResponse:
-    status = 404 if isinstance(exc, NotFoundError) else 409 if isinstance(exc, ConcurrentModificationError) else 422
+    from rflp_lite.domain.errors import ConflictError
+    status = 404 if isinstance(exc, NotFoundError) else 409 if isinstance(exc, (ConcurrentModificationError, ConflictError)) else 422
+    if isinstance(exc, InputRequired) and exc.details:
+        return JSONResponse({"status": "needs_input", "input": to_primitive(exc.details)}, status_code=422)
     return JSONResponse({"status": "failed", "error": type(exc).__name__, "message": str(exc)}, status_code=status)
+
+
+def _flag(value: object) -> bool:
+    return str(value or "").casefold() in {"1", "true", "yes", "on"}
+
+
+def _expected_revision(payload: Mapping[str, object]) -> int | None:
+    value = payload.get("expected_revision")
+    return int(value) if value is not None and str(value).strip() else None
+
+
+async def _json_object(request: Request) -> Mapping[str, object]:
+    raw = await request.body()
+    payload = json.loads(raw.decode("utf-8")) if raw else {}
+    if payload is None:
+        return {}
+    if not isinstance(payload, Mapping):
+        raise ContractViolation("request payload must be an object")
+    return payload
 
 
 @resource_api.get("/projects")
@@ -410,6 +618,48 @@ async def add_requirement(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.post("/projects/{project_id}/goal")
+async def set_project_goal(request: Request, project_id: str):
+    try:
+        payload = await _json_object(request)
+        result = _services(request).context(project_id).set_goal(str(payload.get("text", payload.get("goal", ""))))
+        return {"status": "ok", "context": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/context")
+def get_project_context(request: Request, project_id: str):
+    try:
+        graph = _services(request).model(project_id).graph(project_id)
+        system = next(
+            (
+                item for item in graph.entities
+                if item.kind is EntityKind.SYSTEM and item.meta.status.value != "deprecated"
+            ),
+            None,
+        )
+        goals = [
+            str(item.payload.get("goal_text", item.meta.name))
+            for item in graph.entities
+            if item.kind is EntityKind.REQUIREMENT
+            and item.meta.status.value != "deprecated"
+            and item.payload.get("source") == "user_goal"
+        ]
+        return {
+            "status": "ok",
+            "context": {
+                "project_id": project_id,
+                "revision": graph.revision,
+                "goal": str(system.payload.get("mission", "")) if system else "",
+                "goals": list(dict.fromkeys(goals)),
+                "system_id": system.id if system else None,
+            },
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/documents")
 async def ingest_document(request: Request, project_id: str):
     try:
@@ -430,6 +680,298 @@ async def ingest_document(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.post("/projects/{project_id}/requirements-use-case/draft")
+async def create_requirements_use_case_draft(request: Request, project_id: str):
+    """Create a reviewable document-to-requirements/behavior draft."""
+
+    try:
+        payload = await _json_object(request)
+        raw_document_ids = payload.get("document_ids", ())
+        if not isinstance(raw_document_ids, (list, tuple)):
+            raise ContractViolation("document_ids must be an array")
+        profile_id = str(payload.get("profile_id", "")).strip() or None
+        text = str(payload.get("text", payload.get("requirement_text", ""))).strip() or None
+        draft = _services(request).requirements_use_case(
+            project_id,
+            profile_id=profile_id,
+        ).create_draft(
+            text=text,
+            document_ids=tuple(str(item) for item in raw_document_ids if str(item).strip()),
+        )
+        return {"status": "ok", "draft": draft.as_dict()}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/requirements-use-case/drafts")
+def list_requirements_use_case_drafts(request: Request, project_id: str):
+    try:
+        drafts = _services(request).requirements_use_case(project_id).list_drafts()
+        return {"status": "ok", "drafts": [item.as_dict() for item in drafts]}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/requirements-use-case/apply")
+async def apply_requirements_use_case_draft(request: Request, project_id: str):
+    try:
+        payload = await _json_object(request)
+        service = _services(request).requirements_use_case(project_id)
+        raw_draft = payload.get("draft")
+        if isinstance(raw_draft, Mapping):
+            draft = raw_draft
+        else:
+            draft_id = str(payload.get("draft_id", "")).strip()
+            if not draft_id:
+                raise ContractViolation("draft or draft_id is required")
+            draft = service.get_draft(draft_id)
+        result = service.apply_draft(draft)
+        return {"status": "ok", "apply": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/concept-design/run")
+async def run_concept_design(request: Request, project_id: str):
+    """Generate, evaluate and rank 3–5 concept-layout candidates."""
+
+    try:
+        payload = await _json_object(request)
+        service = _services(request).concept_design(project_id)
+        pack = payload.get("pack")
+        profile = payload.get("evaluator_profile")
+        optimize = bool(payload.get("optimize", True))
+        if bool(payload.get("from_requirements", False)):
+            if pack is not None or profile is not None:
+                raise ContractViolation("from_requirements does not accept pack or evaluator_profile overrides")
+            result = service.run_from_requirements(optimize=optimize)
+        else:
+            envelope = payload.get("envelope", payload.get("indicator_envelope"))
+            if not isinstance(envelope, Mapping):
+                raise ContractViolation("envelope must be an object")
+            result = service.run(
+                envelope,
+                pack=pack if isinstance(pack, Mapping) else None,
+                evaluator_profile=profile if isinstance(profile, Mapping) else None,
+                optimize=optimize,
+            )
+        return {"status": "ok", "run": to_primitive(result)}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/concept-design/input")
+def get_concept_design_input(request: Request, project_id: str):
+    try:
+        suggestion = _services(request).concept_design(project_id).suggest_input()
+        return {"status": "ok", "input": to_primitive(suggestion)}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/concept-design")
+def get_concept_design(request: Request, project_id: str):
+    try:
+        result = _services(request).concept_design(project_id).latest()
+        return {"status": "ok", "run": to_primitive(result) if result is not None else None}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/concept-design/{run_id}/review")
+async def review_concept_design(request: Request, project_id: str, run_id: str):
+    try:
+        payload = await _json_object(request)
+        candidate_id = str(payload.get("candidate_id", "")).strip()
+        decision = str(payload.get("decision", "")).strip()
+        if not candidate_id:
+            raise ContractViolation("candidate_id is required")
+        review = _services(request).concept_design(project_id).review(candidate_id, decision, run_id)
+        return {"status": "ok", "review": review}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/concept-design/{run_id}/apply")
+async def apply_concept_design(request: Request, project_id: str, run_id: str):
+    try:
+        payload = await _json_object(request)
+        candidate_id = str(payload.get("candidate_id", "")).strip()
+        if not candidate_id:
+            raise ContractViolation("candidate_id is required")
+        result = _services(request).concept_design(project_id).apply_candidate(candidate_id, run_id)
+        return {"status": "ok", "apply": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/intent")
+async def create_cad_intent(request: Request, project_id: str):
+    """Extract a reviewable CAD intent; this endpoint never mutates the model graph."""
+
+    try:
+        payload = await _json_object(request)
+        raw_sources = payload.get("source_requirement_ids", ())
+        if not isinstance(raw_sources, (list, tuple)):
+            raise ContractViolation("source_requirement_ids must be an array")
+        profile_id = str(payload.get("profile_id", "")).strip() or None
+        draft = _services(request).cad_design(project_id, profile_id=profile_id).create_intent(
+            str(payload.get("text", payload.get("statement", ""))),
+            source_requirement_ids=tuple(str(item) for item in raw_sources if str(item).strip()),
+        )
+        return {"status": "ok", "draft": draft.as_dict()}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/cad")
+def get_cad_design(request: Request, project_id: str):
+    try:
+        service = _services(request).cad_design(project_id)
+        return {
+            "status": "ok",
+            "capabilities": service.capabilities(),
+            "drafts": [item.as_dict() for item in service.drafts()],
+            "plans": list(service.plans()),
+            "models": list(service.models()),
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/plan")
+async def create_cad_plan(request: Request, project_id: str):
+    try:
+        payload = await _json_object(request)
+        draft_id = str(payload.get("draft_id", "")).strip()
+        if not draft_id:
+            raise ContractViolation("draft_id is required")
+        plan = _services(request).cad_design(project_id).create_plan(
+            draft_id,
+            selected_structure_option_id=str(payload.get("selected_structure_option_id", "")),
+        )
+        return {"status": "ok", "plan": plan}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/plans/{plan_id}/approve")
+def approve_cad_plan(request: Request, project_id: str, plan_id: str):
+    try:
+        plan = _services(request).cad_design(project_id).approve_plan(plan_id)
+        return {"status": "ok", "plan": plan}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/plans/{plan_id}/execute")
+def execute_cad_plan(request: Request, project_id: str, plan_id: str):
+    try:
+        model = _services(request).cad_design(project_id).execute_plan(plan_id)
+        return {"status": "ok", "model": model}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/models/{model_id}/apply")
+def apply_cad_model(request: Request, project_id: str, model_id: str):
+    try:
+        result = _services(request).cad_design(project_id).apply_model(model_id)
+        return {"status": "ok", "apply": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/cad/models/{model_id}/artifacts/{artifact_name}")
+def download_cad_artifact(request: Request, project_id: str, model_id: str, artifact_name: str):
+    try:
+        suffixes = {
+            "fcstd": ("fcstd", "application/octet-stream"),
+            "step": ("step", "application/step"),
+            "obj": ("obj", "model/obj"),
+            "scad": ("open_scad_source", "text/plain"),
+        }
+        suffix, media_type = suffixes.get(artifact_name.casefold(), ("", ""))
+        if not suffix:
+            raise ContractViolation("artifact_name must be fcstd, step, obj or scad")
+        services = _services(request)
+        model = services.cad_design(project_id).get_model(model_id)
+        payload = model.get("model_payload", {})
+        if suffix in {"obj", "open_scad_source"}:
+            content = payload.get(suffix) if isinstance(payload, Mapping) else None
+            if not isinstance(content, str) or not content.strip():
+                raise NotFoundError("CAD preview artifact is not available")
+            filename_suffix = "scad" if suffix == "open_scad_source" else suffix
+            return Response(
+                content=content,
+                media_type=media_type,
+                headers={"Content-Disposition": f'attachment; filename="{model_id}.{filename_suffix}"'},
+            )
+        raw_path = payload.get("artifacts", {}).get(suffix) if isinstance(payload, Mapping) else None
+        path = Path(str(raw_path)).resolve()
+        root = (services.projects.path(project_id) / ".rflp" / "cad_artifacts").resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise NotFoundError("CAD artifact is not available")
+        return FileResponse(path, media_type=media_type, filename=f"{model_id}.{suffix}")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/models/{model_id}/annotations")
+def annotate_cad_model(request: Request, project_id: str, model_id: str):
+    try:
+        service = _services(request).cad_design(project_id)
+        model = service.get_model(model_id)
+        result = _services(request).design_review(project_id).annotate(
+            model_id,
+            model.get("model_payload", {}),
+        )
+        return {"status": "ok", "annotation": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/models/{model_id}/review")
+def review_cad_model(request: Request, project_id: str, model_id: str):
+    try:
+        cad = _services(request).cad_design(project_id)
+        model = cad.get_model(model_id)
+        review = _services(request).design_review(project_id).review(
+            model_id,
+            model.get("model_payload", {}),
+        )
+        return {"status": "ok", "review": review}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/cad/reviews")
+def list_cad_reviews(request: Request, project_id: str):
+    try:
+        return {"status": "ok", "reviews": list(_services(request).design_review(project_id).reviews())}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/cad/annotations")
+def list_cad_annotations(request: Request, project_id: str):
+    try:
+        return {"status": "ok", "annotations": list(_services(request).design_review(project_id).annotations())}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/cad/reviews/{review_id}/findings/{finding_id}")
+async def update_cad_finding(request: Request, project_id: str, review_id: str, finding_id: str):
+    try:
+        payload = await _json_object(request)
+        decision = str(payload.get("decision", "")).strip()
+        review = _services(request).design_review(project_id).update_finding(review_id, finding_id, decision)
+        return {"status": "ok", "review": review}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/analysis")
 async def run_analysis(request: Request, project_id: str):
     try:
@@ -437,24 +979,191 @@ async def run_analysis(request: Request, project_id: str):
         if payload is not None and not isinstance(payload, Mapping):
             raise ContractViolation("analysis payload must be an object")
         payload = payload if isinstance(payload, Mapping) else {}
-        mode = str(payload.get("mode", "pipeline" if "phase" not in payload else "phase")).casefold()
+        # The product entry point is the five-stage vertical generator.  Keep
+        # the legacy 23-task lifecycle available as an explicit
+        # ``mode=pipeline`` compatibility path.
+        mode = str(payload.get("mode", "generate" if "phase" not in payload else "phase")).casefold()
         force_run = bool(payload.get("force_run", False))
         requested_run_id = str(payload.get("run_id", "")).strip() or None
-        if not _services(request).projects.has_analysis_input(project_id):
+        profile_id = str(payload.get("profile_id", "")).strip() or None
+        requirement_text = str(payload.get("requirement_text", "")).strip() or None
+        goal = str(payload.get("goal", "")).strip() or None
+        document_ids = tuple(
+            str(item) for item in payload.get("document_ids", ()) if str(item).strip()
+        )
+        if goal:
+            _services(request).context(project_id).set_goal(goal)
+        if not _services(request).projects.has_analysis_input(project_id) and not (
+            mode in {"generate", "vertical", "pipeline"} and (requirement_text or document_ids)
+        ):
             raise InputRequired("submit a requirement or ingest a document before analysis")
         if force_run and requested_run_id is None:
             requested_run_id = f"web-run-{uuid4().hex[:16]}"
-        analysis = _analysis_service(request, project_id)
-        if mode == "pipeline":
-            run = _invoke_pipeline(analysis, project_id, run_id=requested_run_id, force_run=force_run)
+        if mode in {"generate", "vertical"}:
+            generation = _services(request).generation(project_id, profile_id=profile_id)
+            result = generation.generate(
+                project_id,
+                requirement_text=requirement_text,
+                document_ids=document_ids,
+                run_id=requested_run_id,
+                force_new=force_run,
+            )
+            run = result.as_dict()
+            run["mode"] = "generate"
+            run["force_run"] = force_run
+            _attach_runtime_metadata(run, generation)
         else:
+            analysis = _analysis_service(request, project_id, profile_id=profile_id)
+        if mode == "pipeline":
+            run = _invoke_pipeline(
+                analysis,
+                project_id,
+                run_id=requested_run_id,
+                force_run=force_run,
+                requirement_text=requirement_text,
+                document_ids=document_ids,
+            )
+        elif mode not in {"generate", "vertical"}:
             phase = Phase(str(payload.get("phase", Phase.OPERATIONAL.value)))
             run = _run_payload(_call_run(analysis, project_id, phase, requested_run_id, force_run=force_run))
             run["mode"] = "phase"
             run["force_run"] = force_run
-        _attach_runtime_metadata(run, analysis)
+            _attach_runtime_metadata(run, analysis)
+        run = _attach_deliverable_metadata(run, _services(request), project_id)
         remember_run(request, project_id, run)
         return {"status": "ok", "run": run}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/engineering-flow")
+async def run_engineering_product_flow(request: Request, project_id: str):
+    """Run RFLP and optional downstream design stages to their review boundary."""
+
+    try:
+        payload = await _json_object(request)
+        raw_documents = payload.get("document_ids", ())
+        raw_sources = payload.get("source_requirement_ids", ())
+        if not isinstance(raw_documents, (list, tuple)):
+            raise ContractViolation("document_ids must be an array")
+        if not isinstance(raw_sources, (list, tuple)):
+            raise ContractViolation("source_requirement_ids must be an array")
+        profile_id = str(payload.get("profile_id", "")).strip() or None
+        result = _services(request).product_flow(project_id, profile_id=profile_id).run(
+            project_id,
+            requirement_text=str(payload.get("requirement_text", "")).strip() or None,
+            document_ids=tuple(str(item) for item in raw_documents if str(item).strip()),
+            include_concept=bool(payload.get("include_concept", False)),
+            optimize_concept=bool(payload.get("optimize_concept", True)),
+            cad_intent_text=str(payload.get("cad_intent_text", "")).strip() or None,
+            selected_structure_option_id=str(payload.get("selected_structure_option_id", "")).strip(),
+            source_requirement_ids=tuple(str(item) for item in raw_sources if str(item).strip()),
+            complete_design=bool(payload.get("complete_design", False)),
+            selected_concept_candidate_id=str(payload.get("selected_concept_candidate_id", "")).strip(),
+        )
+        return {"status": "ok", "flow": result.as_dict()}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/analysis/runs", status_code=202)
+async def start_async_generation(request: Request, project_id: str):
+    try:
+        payload = await _json_object(request)
+        mode = str(payload.get("mode", "generate")).casefold()
+        if mode not in {"generate", "vertical"}:
+            raise ContractViolation("async generation only supports mode=generate or mode=vertical")
+
+        services = _services(request)
+        profile_id = str(payload.get("profile_id", "")).strip() or None
+        requirement_text = str(payload.get("requirement_text", "")).strip() or None
+        goal = str(payload.get("goal", "")).strip() or None
+        document_ids = tuple(
+            str(item) for item in payload.get("document_ids", ()) if str(item).strip()
+        )
+        if goal:
+            services.context(project_id).set_goal(goal)
+        if not services.projects.has_analysis_input(project_id) and not (requirement_text or document_ids):
+            raise InputRequired("submit a requirement or ingest a document before analysis")
+
+        run_id = f"web-run-{uuid4().hex[:16]}"
+        services.generation(project_id, profile_id=profile_id).prepare_generation(
+            project_id,
+            requirement_text=requirement_text,
+            document_ids=document_ids,
+            run_id=run_id,
+            force_new=True,
+        )
+        executor = getattr(request.app.state, "analysis_executor", None)
+        if executor is None:
+            raise ContractViolation("async generation executor is not configured")
+        executor.submit(
+            _run_generation_job,
+            services,
+            project_id,
+            run_id,
+            requirement_text,
+            document_ids,
+            profile_id,
+        )
+        return {
+            "status": "accepted",
+            "run": {
+                "run_id": run_id,
+                "project_id": project_id,
+                "status": "running",
+                "progress_url": f"/projects/{project_id}/runs/{run_id}",
+            },
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/runs/{run_id}/resume", status_code=202)
+async def resume_async_generation(request: Request, project_id: str, run_id: str):
+    """Continue an interrupted vertical run without rebuilding its R layer."""
+
+    try:
+        payload = await _json_object(request)
+        services = _services(request)
+        stored = services.repository(project_id).load_run(project_id, run_id)
+        if stored is None:
+            raise ContractViolation(f"run not found: {run_id}")
+        if stored.phase != "vertical_generation":
+            raise ContractViolation(f"run {run_id} is not a vertical generation run")
+        if stored.status == "completed":
+            raise ContractViolation(f"run {run_id} is already completed")
+        profile_id = str(payload.get("profile_id", "")).strip() or None
+        if (
+            profile_id is None
+            and getattr(services, "_runtime_override", None) is None
+            and stored.model_profile not in {"", "offline-rule"}
+        ):
+            profile_id = stored.model_profile
+        document_ids = tuple(
+            str(item) for item in payload.get("document_ids", ()) if str(item).strip()
+        )
+        executor = getattr(request.app.state, "analysis_executor", None)
+        if executor is None:
+            raise ContractViolation("async generation executor is not configured")
+        executor.submit(
+            _run_generation_resume_job,
+            services,
+            project_id,
+            run_id,
+            document_ids,
+            profile_id,
+        )
+        return {
+            "status": "accepted",
+            "run": {
+                "run_id": run_id,
+                "project_id": project_id,
+                "status": "running",
+                "progress_url": f"/projects/{project_id}/runs/{run_id}",
+                "resume": True,
+            },
+        }
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 
@@ -468,13 +1177,59 @@ def get_analysis(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.get("/projects/{project_id}/controller")
+def get_controller_plan(request: Request, project_id: str, include_llm: bool = False):
+    try:
+        controller = _services(request).generation(project_id).controller_plan(
+            project_id,
+            include_llm=include_llm,
+        )
+        return {"status": "ok", "controller": controller}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/controller/execute")
+async def execute_controller_action(request: Request, project_id: str):
+    try:
+        payload = await _json_object(request)
+        action_id = str(payload.get("action_id", "")).strip() or None
+        option_id = str(payload.get("option_id", "")).strip() or None
+        result = _services(request).generation(project_id).execute_controller_action(
+            project_id,
+            action_id=action_id,
+            option_id=option_id,
+            expected_revision=_expected_revision(payload),
+        )
+        return {"status": "ok", "controller": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/controller/iterate")
+async def iterate_controller(request: Request, project_id: str):
+    try:
+        payload = await _json_object(request)
+        max_iterations = int(payload.get("max_iterations", 3))
+        result = _services(request).generation(project_id).iterate_controller(
+            project_id,
+            max_iterations=max_iterations,
+            expected_revision=_expected_revision(payload),
+        )
+        return {"status": "ok", "controller": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.get("/projects/{project_id}/runs/{run_id}")
 def get_run(request: Request, project_id: str, run_id: str):
     try:
         run = _services(request).repository(project_id).load_run(project_id, run_id)
         if run is None:
             raise ContractViolation(f"run not found: {run_id}")
-        return {"status": "ok", "run": asdict(run)}
+        payload = asdict(run)
+        payload["progress"] = _run_progress(run)
+        return {"status": "ok", "run": payload}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 
@@ -507,11 +1262,162 @@ def get_coverage(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.get("/projects/{project_id}/requirements")
+def get_requirements(
+    request: Request,
+    project_id: str,
+    status: str | None = None,
+    level: str | None = None,
+    type: str | None = None,
+    producer: str | None = None,
+    has_issue: str | None = None,
+    missing_trace: str | None = None,
+    missing_verification: str | None = None,
+    q: str | None = None,
+):
+    try:
+        services = _services(request)
+        view = build_requirements_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)))
+        rows = list(view["rows"])
+        query = str(q or "").casefold().strip()
+        rows = [row for row in rows if (not status or row["status"] == status) and (not level or row["level"] == level) and (not type or row["type"] == type) and (not producer or row["producer"] == producer) and (_flag(has_issue) is False or row["issue_count"] > 0) and (_flag(missing_trace) is False or row["trace_status"] != "PASS") and (_flag(missing_verification) is False or row["verification_count"] == 0) and (not query or query in str(row["name"]).casefold() or query in str(row["statement"]).casefold() or query in str(row["id"]).casefold())]
+        view["rows"] = rows
+        view["filtered_count"] = len(rows)
+        return {"status": "ok", "requirements": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/requirements/{entity_id}")
+def get_requirement_detail(request: Request, project_id: str, entity_id: str):
+    try:
+        services = _services(request)
+        detail = build_requirement_detail(services.model(project_id).graph(project_id), entity_id, issues=tuple(services.model(project_id).issues(project_id)), evidence=tuple(services.evidence(project_id).list(project_id)))
+        if detail is None:
+            raise NotFoundError(f"requirement not found: {entity_id}")
+        return {"status": "ok", "requirement": detail, **detail}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/traceability")
+def get_traceability(request: Request, project_id: str):
+    try:
+        services = _services(request)
+        view = build_traceability_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)))
+        return {"status": "ok", "traceability": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+def _rflp_payload(request: Request, project_id: str, *, selected_requirement: str | None = None, kind: str | None = None, status: str | None = None, issue_only: str | None = None, accepted_only: str | None = None) -> Mapping[str, object]:
+    services = _services(request)
+    return build_rflp_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)), selected_requirement=selected_requirement, kind=kind, status=status, issue_only=_flag(issue_only), accepted_only=_flag(accepted_only))
+
+
+@resource_api.get("/projects/{project_id}/rflp")
+def get_rflp(request: Request, project_id: str, requirement_id: str | None = None, kind: str | None = None, status: str | None = None, issue_only: str | None = None, accepted_only: str | None = None):
+    try:
+        view = _rflp_payload(request, project_id, selected_requirement=requirement_id, kind=kind, status=status, issue_only=issue_only, accepted_only=accepted_only)
+        return {"status": "ok", "rflp": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/rflp/trace/{requirement_id}")
+def get_rflp_trace(request: Request, project_id: str, requirement_id: str):
+    try:
+        view = _rflp_payload(request, project_id, selected_requirement=requirement_id)
+        if requirement_id not in {str(node["id"]) for node in view["nodes"]}:
+            raise NotFoundError(f"requirement not found: {requirement_id}")
+        return {"status": "ok", "rflp": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/rflp.svg")
+def get_rflp_svg(request: Request, project_id: str, requirement_id: str | None = None):
+    try:
+        return Response(content=render_rflp_svg(_rflp_payload(request, project_id, selected_requirement=requirement_id)), media_type="image/svg+xml")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/operational")
+def get_operational(request: Request, project_id: str):
+    try:
+        services = _services(request)
+        view = build_operational_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)))
+        return {"status": "ok", "operational": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/behavior")
+def get_behavior(request: Request, project_id: str):
+    try:
+        services = _services(request)
+        view = build_behavior_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)))
+        return {"status": "ok", "behavior": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/assurance")
+def get_assurance(request: Request, project_id: str):
+    try:
+        services = _services(request)
+        view = build_assurance_view(services.model(project_id).graph(project_id), tuple(services.model(project_id).issues(project_id)))
+        return {"status": "ok", "assurance": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/history")
+def get_history(request: Request, project_id: str):
+    try:
+        view = build_history_view(_services(request).repository(project_id), project_id)
+        return {"status": "ok", "history": view, **view}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/revisions/{revision}/diff")
+def get_revision_diff(request: Request, project_id: str, revision: int):
+    try:
+        repository = _services(request).repository(project_id)
+        after = repository.load_revision(project_id, revision)
+        if after is None:
+            raise NotFoundError(f"revision not found: {revision}")
+        before = repository.load_revision(project_id, revision - 1)
+        return {"status": "ok", "diff": build_revision_diff(before, after, revision=revision)}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.get("/projects/{project_id}/entities")
 def list_entities(request: Request, project_id: str, kind: str | None = None):
     try:
         parsed_kind = EntityKind(kind) if kind else None
         return {"status": "ok", "entities": [item.as_dict() for item in _services(request).model(project_id).entities(project_id, parsed_kind)]}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/entities/{entity_id}/impact")
+def get_entity_impact(request: Request, project_id: str, entity_id: str):
+    try:
+        generation = _services(request).generation(project_id)
+        impact = generation.impact_plan(project_id, (entity_id,))
+        controller = generation.controller_plan(
+            project_id,
+            changed_entity_ids=(entity_id,),
+        )
+        return {
+            "status": "ok",
+            "impact": impact.as_dict(),
+            "controller": controller,
+        }
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 
@@ -526,10 +1432,143 @@ async def patch_entity(request: Request, project_id: str, entity_id: str):
         fields = payload.get("field_patch", payload.get("fields", {}))
         if not isinstance(fields, Mapping):
             raise ContractViolation("field_patch must be an object")
-        graph = _services(request).model(project_id).graph(project_id)
-        patch = Patch.create(project_id, "user.entity_patch", (UpdateEntity(entity_id, fields),), "user entity edit", expected_revision)
-        revision = _services(request).model(project_id).apply_patch(project_id, patch, expected_revision)
-        return {"status": "ok", "revision": asdict(revision)}
+        forbidden = {"status", "producer"} & set(fields)
+        if forbidden:
+            raise ContractViolation(
+                "generic entity PATCH cannot modify lifecycle metadata; use ReviewService"
+            )
+        unknown = set(fields) - {"name", "payload", "statement"}
+        if unknown:
+            raise ContractViolation(f"manual entity edit fields are not reviewable: {sorted(unknown)}")
+        raw_payload = fields.get("payload")
+        if raw_payload is not None and not isinstance(raw_payload, Mapping):
+            raise ContractViolation("payload must be an object")
+        if entity_id not in _services(request).repository(project_id).load_graph(project_id).entity_index:
+            raise ContractViolation(f"entity not found: {entity_id}")
+        result = _services(request).review(project_id).edit_entity(
+            project_id,
+            entity_id,
+            statement=str(fields["statement"]) if fields.get("statement") is not None else None,
+            name=str(fields["name"]) if fields.get("name") is not None else None,
+            payload=dict(raw_payload) if isinstance(raw_payload, Mapping) else None,
+            expected_revision=expected_revision,
+        )
+        return {"status": "ok", "review": result.as_dict(), "revision": result.revision}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+async def _run_review_command(request: Request, project_id: str, entity_id: str, action: str):
+    payload = await _json_object(request)
+    service = _services(request).review(project_id)
+    expected = _expected_revision(payload)
+    if action == "accept":
+        result = service.accept_entity(project_id, entity_id, expected_revision=expected)
+    elif action == "reject":
+        result = service.reject_entity(project_id, entity_id, expected_revision=expected)
+    elif action == "lock":
+        result = service.lock_entity(project_id, entity_id, expected_revision=expected)
+    elif action == "unlock":
+        result = service.unlock_entity(project_id, entity_id, expected_revision=expected)
+    elif action == "edit":
+        raw_payload = payload.get("payload")
+        if raw_payload is not None and not isinstance(raw_payload, Mapping):
+            raise ContractViolation("payload must be an object")
+        result = service.edit_entity(project_id, entity_id, statement=str(payload["statement"]) if payload.get("statement") is not None else None, name=str(payload["name"]) if payload.get("name") is not None else None, payload=dict(raw_payload) if isinstance(raw_payload, Mapping) else None, expected_revision=expected)
+    elif action == "reanalyze":
+        return {"status": "ok", "reanalysis": service.request_reanalysis(project_id, entity_id, expected_revision=expected)}
+    else:
+        raise ContractViolation(f"unsupported review action: {action}")
+    response = {"status": "ok", "review": result.as_dict(), "revision": result.revision}
+    if action == "edit":
+        generation = _services(request).generation(project_id)
+        impact = generation.impact_plan(project_id, (entity_id,))
+        response["impact"] = impact.as_dict()
+        response["controller"] = generation.controller_plan(
+            project_id,
+            changed_entity_ids=(entity_id,),
+            include_llm=False,
+        )
+    return response
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/accept")
+async def accept_entity(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "accept")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/reject")
+async def reject_entity(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "reject")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/lock")
+async def lock_entity(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "lock")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/unlock")
+async def unlock_entity(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "unlock")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/edit")
+async def edit_entity(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "edit")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/continue")
+async def continue_entity_generation(request: Request, project_id: str, entity_id: str):
+    try:
+        payload = await _json_object(request)
+        decision = payload.get("controller_decision")
+        if decision is not None and not isinstance(decision, Mapping):
+            raise ContractViolation("controller_decision must be an object")
+        result = _services(request).generation(project_id).continue_generation(
+            project_id,
+            entity_id,
+            expected_revision=_expected_revision(payload),
+            controller_decision=dict(decision) if isinstance(decision, Mapping) else None,
+        )
+        return {"status": "ok", "continuation": result}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/reanalyze")
+async def request_entity_reanalysis(request: Request, project_id: str, entity_id: str):
+    try:
+        return await _run_review_command(request, project_id, entity_id, "reanalyze")
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/entities/{entity_id}/reanalyze/execute")
+async def execute_entity_reanalysis(request: Request, project_id: str, entity_id: str):
+    try:
+        payload = await _json_object(request)
+        expected = _expected_revision(payload)
+        result = _services(request).generation(project_id).reanalyze(
+            project_id,
+            entity_id,
+            expected_revision=expected,
+        )
+        return {"status": "ok", "reanalysis": result}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 
@@ -550,10 +1589,21 @@ def list_evidence(request: Request, project_id: str):
         return _error(exc)
 
 
+@resource_api.get("/projects/{project_id}/tools")
+def list_engineering_tools(request: Request, project_id: str):
+    try:
+        return {
+            "status": "ok",
+            "tools": list(_services(request).tools(project_id).list_tools()),
+        }
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
 @resource_api.post("/projects/{project_id}/evidence/search")
 async def search_evidence(request: Request, project_id: str):
     try:
-        payload = await request.json()
+        payload = await _request_json(request)
         if not isinstance(payload, Mapping):
             raise ContractViolation("evidence query must be an object")
         graph = _services(request).model(project_id).graph(project_id)
@@ -562,6 +1612,57 @@ async def search_evidence(request: Request, project_id: str):
         context = ContextBuilder().build(graph, tasks_for_phase(Phase.OPERATIONAL)[0])
         result = _services(request).evidence(project_id).search(KnowledgeGap("api", str(payload.get("query", ""))), context)
         return {"status": "ok", "candidates": [asdict(item) for item in result.candidates], "gaps": [asdict(item) for item in result.gaps], "workflow_blocked": result.workflow_blocked, "confidence": result.confidence}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/vv/{case_id}/execute")
+async def execute_vv(request: Request, project_id: str, case_id: str):
+    try:
+        payload = await _request_json(request)
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("V&V execution payload must be an object")
+        result = _services(request).vv(project_id).record_result(
+            project_id,
+            case_id,
+            outcome=str(payload.get("outcome", "")),
+            claim=str(payload.get("claim", "")),
+            excerpt=str(payload.get("excerpt", "")),
+            locator=str(payload.get("locator", "")),
+            source_type=str(payload.get("source_type", "vv_execution")),
+            expected_revision=payload.get("expected_revision"),
+            metadata=payload.get("metadata") if isinstance(payload.get("metadata"), Mapping) else None,
+            scenario_id=str(payload.get("scenario_id", "")).strip() or None,
+        )
+        execution = result.as_dict()
+        return {"status": "ok", "execution": execution, **execution}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/vv/{case_id}/tools/{tool_id}/execute")
+async def execute_engineering_tool(
+    request: Request,
+    project_id: str,
+    case_id: str,
+    tool_id: str,
+):
+    try:
+        payload = await _request_json(request)
+        if not isinstance(payload, Mapping):
+            raise ContractViolation("engineering tool payload must be an object")
+        parameters = payload.get("parameters", {})
+        if not isinstance(parameters, Mapping):
+            raise ContractViolation("engineering tool parameters must be an object")
+        result = _services(request).tools(project_id).execute(
+            project_id,
+            case_id,
+            tool_id,
+            parameters=parameters,
+            expected_revision=payload.get("expected_revision"),
+        )
+        tool_execution = result.as_dict()
+        return {"status": "ok", "tool_execution": tool_execution, **tool_execution}
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
 
@@ -629,6 +1730,85 @@ async def export_model(request: Request, project_id: str):
         return Response(content=content, media_type=media_type)
     except (ContractViolation, RflpError, OSError, ValueError) as exc:
         return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/deliverables")
+def get_deliverables(request: Request, project_id: str):
+    try:
+        package = _services(request).deliverables(project_id).build(project_id)
+        return {"status": "ok", "deliverable": package}
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.get("/projects/{project_id}/deliverables/download")
+def download_deliverables(request: Request, project_id: str):
+    try:
+        content, media_type = _services(request).deliverables(project_id).export_zip(project_id)
+        filename = f"{project_id}-engineering-deliverables.zip"
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except (ContractViolation, RflpError, OSError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/sysml/import")
+async def import_sysml(request: Request, project_id: str):
+    try:
+        text = (await request.body()).decode("utf-8")
+        return _append_sysml_import(request, project_id, text)
+    except (ContractViolation, RflpError, OSError, UnicodeDecodeError, ValueError) as exc:
+        return _error(exc)
+
+
+@resource_api.post("/projects/{project_id}/sysml/import/upload")
+async def upload_sysml(request: Request, project_id: str):
+    try:
+        form = await request.form()
+        upload = form.get("file")
+        if upload is None or (not isinstance(upload, UploadFile) and not hasattr(upload, "read")):
+            raise ContractViolation("multipart SysML field 'file' is required")
+        filename = str(getattr(upload, "filename", "")).casefold()
+        if not filename.endswith(".sysml"):
+            raise ContractViolation("uploaded SysML file must use the .sysml extension")
+        content = await upload.read()
+        return _append_sysml_import(request, project_id, content.decode("utf-8"))
+    except (ContractViolation, RflpError, OSError, UnicodeDecodeError, ValueError) as exc:
+        return _error(exc)
+
+
+def _append_sysml_import(request: Request, project_id: str, text: str) -> Mapping[str, object]:
+    imported = sysml_to_graph(text, project_id)
+    repository = _services(request).repository(project_id)
+    current = repository.load_graph(project_id)
+    existing_ids = {item.id for item in current.entities}
+    conflicts = sorted(existing_ids & {item.id for item in imported.entities})
+    if conflicts:
+        raise ContractViolation(f"SysML import conflicts with existing entity ids: {conflicts}")
+    operations: list[object] = [AddEntity(item) for item in imported.entities]
+    operations.extend(
+        Relate(item.source_id, item.predicate, item.target_id, item.evidence_ids)
+        for item in imported.relations
+    )
+    if not operations:
+        raise ContractViolation("SysML import contains no model records")
+    patch = Patch.create(
+        project_id,
+        "sysml.import",
+        tuple(operations),
+        "从 SysML v2 子集导入模型",
+        current.revision,
+    )
+    revision = repository.append_patch(project_id, patch, current.revision)
+    return {
+        "status": "ok",
+        "revision": revision.sequence,
+        "entity_count": len(imported.entities),
+        "relation_count": len(imported.relations),
+    }
 
 
 @resource_api.get("/model-profiles")

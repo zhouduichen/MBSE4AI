@@ -9,6 +9,7 @@ from typing import Mapping, Protocol
 from rflp_lite.domain.entities import Entity, EntityKind
 from rflp_lite.domain.model import Patch
 from rflp_lite.methodology.policy import PatchPolicy
+from rflp_lite.methodology.validation_feedback import ValidationFeedback
 
 
 class Phase(StrEnum):
@@ -23,6 +24,7 @@ class RunStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     DEGRADED = "degraded"
+    BLOCKED = "blocked"
     FAILED = "failed"
     COMPLETED = "completed"
     REPAIRING = "repairing"
@@ -33,8 +35,18 @@ class StepStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     DEGRADED = "degraded"
+    BLOCKED = "blocked"
     FAILED = "failed"
     COMPLETED = "completed"
+
+
+class FailureStage(StrEnum):
+    STRUCTURAL = "structural"
+    COMPILER = "compiler"
+    SEMANTIC = "semantic"
+    TRANSPORT = "transport"
+    CONCURRENCY = "concurrency"
+    INTERNAL = "internal"
 
 
 class FailureAction(StrEnum):
@@ -84,6 +96,9 @@ class TaskSpec:
     failure_routes: tuple[FailureRoute, ...] = ()
     completion_condition: CompletionCondition = field(default_factory=CompletionCondition)
     patch_policy: PatchPolicy = field(default_factory=PatchPolicy)
+    preconditions: tuple[str, ...] = ()
+    postconditions: tuple[str, ...] = ()
+    examples: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -103,6 +118,8 @@ class ContextBundle:
     relations: tuple[object, ...] = ()
     evidence: tuple[Mapping[str, object], ...] = ()
     token_estimate: int = 0
+    controller_decisions: tuple[Mapping[str, object], ...] = ()
+    methodology_guidance: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +138,7 @@ class TaskExecutionRequest:
     prompt_text: str = ""
     prompt_version: str = ""
     prompt_hash: str = ""
+    validation_feedback: tuple[ValidationFeedback, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +151,13 @@ class TaskExecutionResponse:
     output_hash: str = ""
     provider_id: str = ""
     model_id: str = ""
+    failure_stage: FailureStage | None = None
+    finish_reason: str = ""
+    usage: Mapping[str, object] = field(default_factory=dict)
+    assumptions: tuple[str, ...] = ()
+    open_questions: tuple[str, ...] = ()
+    decision_records: tuple[Mapping[str, object], ...] = ()
+    validation_feedback: tuple[ValidationFeedback, ...] = ()
 
 
 class TaskRuntime(Protocol):

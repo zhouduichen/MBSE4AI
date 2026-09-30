@@ -1,0 +1,77 @@
+{
+  "benchmark": "pr09-contract-conformance",
+  "created_at": "2026-09-10T07:46:26Z",
+  "metrics": {
+    "domain_validation_rate": 0.0,
+    "first_pass_success_rate": 0.0,
+    "json_parse_rate": 1.0,
+    "proposal_compile_rate": 0.0,
+    "schema_pass_rate": 0.6666666666666666,
+    "structural_retry_rate": 0.3333333333333333
+  },
+  "mode": "configured",
+  "model_id": "qwen3.5:9b-q8_0",
+  "profile_id": "windows-5080-ollama",
+  "provider_id": "ollama",
+  "repetitions": 1,
+  "result_path": "/Users/huangjiahao/Downloads/AI4MBSE/docs/superpowers/artifacts/pr09/contract-conformance-1789026386216970000.json",
+  "sample_count": 3,
+  "samples": [
+    {
+      "compiled": false,
+      "diagnostics": [
+        "{\"attempt\": 1, \"code\": \"proposal_compile\", \"message\": \"task cannot update fields outside write scope: ['kind', 'path', 'value']\", \"stage\": \"compiler\"}"
+      ],
+      "domain_valid": false,
+      "duration_ms": 5471,
+      "iteration": 1,
+      "json_parsed": true,
+      "schema_passed": true,
+      "structural_retries": 0,
+      "task_id": "system_definition"
+    },
+    {
+      "compiled": false,
+      "diagnostics": [
+        "{\"attempt\": 1, \"code\": \"schema_validation\", \"initial_raw_response\": \"{\\n  \\\"entities\\\": [\\n    {\\n      \\\"ref\\\": \\\"concern-e928996d52d16717\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-001\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-001\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    },\\n    {\\n      \\\"ref\\\": \\\"stakeholder-ab3d5865c5a51d25\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-002\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-002\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    },\\n    {\\n      \\\"ref\\\": \\\"concern-e928996d52d16717\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-003\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-003\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    },\\n    {\\n      \\\"ref\\\": \\\"requirement-22ea094c3cb26346\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-004\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-004\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    }\\n  ],\\n  \\\"relations\\\": [\\n    {\\n      \\\"source_ref\\\": \\\"stakeholder-ab3d5865c5a51d25\\\",\\n      \\\"predicate\\\": \\\"derivedFrom\\\",\\n      \\\"target_ref\\\": \\\"requirement-new-conformance-001\\\",\\n      \\\"evidence_ids\\\": []\\n    },\\n    {\\n      \\\"source_ref\\\": \\\"concern-e928996d52d16717\\\",\\n      \\\"predicate\\\": \\\"derivedFrom\\\",\\n      \\\"target_ref\\\": \\\"requirement-new-conformance-003\\\",\\n      \\\"evidence_ids\\\": []\\n    },\\n    {\\n      \\\"source_ref\\\": \\\"requirement-new-conformance-001\\\",\\n      \\\"predicate\\\": \\\"supportedBy\\\",\\n      \\\"target_ref\\\": \\\"stakeholder-ab3d5865c5a51d25\\\",\\n      \\\"evidence_ids\\\": []\\n    },\\n    {\\n      \\\"source_ref\\\": \\\"requirement-new-conformance-003\\\",\\n      \\\"predicate\\\": \\\"supportedBy\\\",\\n      \\\"target_ref\\\": \\\"concern-e928996d52d16717\\\",\\n      \\\"evidence_ids\\\": []\\n    }\\n  ],\\n  \\\"updates\\\": [\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-001\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-stakeholder 定义的合规性义务。\\\"\\n        }\\n      }\\n    },\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-002\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-stakeholder 定义的合规性义务。\\\"\\n        }\\n      }\\n    },\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-003\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-concern 定义的合规性义务。\\\"\\n        }\\n      }\\n    },\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-004\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-requirement 定义的合规性义务。\\\"\\n        }\\n      }\\n    }\\n  ],\\n  \\\"deprecations\\\": [],\\n  \\\"reason\\\": \\\"将 stakeholder 和 concern 转换为原子化、可追溯的需求条目，确保每条需求对应单一义务并保留来源链。由于输入证据为空，需求文本保持对来源的引用以维持可追溯性。\\\"\\n}\", \"message\": \"LLM response is not valid JSON after one repair\", \"model_id\": \"qwen3.5:9b-q8_0\", \"provider_id\": \"windows-5080-ollama\", \"raw_response\": \"{\\n  \\\"entities\\\": [\\n    {\\n      \\\"ref\\\": \\\"requirement-22ea094c3cb26346\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-001\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-001\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    },\\n    {\\n      \\\"ref\\\": \\\"stakeholder-ab3d5865c5a51d25\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-002\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-002\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    },\\n    {\\n      \\\"ref\\\": \\\"concern-e928996d52d16717\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-003\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-003\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    },\\n    {\\n      \\\"ref\\\": \\\"concern-e928996d52d16717\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-004\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-004\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    },\\n    {\\n      \\\"ref\\\": \\\"stakeholder-ab3d5865c5a51d25\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-005\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-005\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    },\\n    {\\n      \\\"ref\\\": \\\"concern-e928996d52d16717\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-006\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-006\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    },\\n    {\\n      \\\"ref\\\": \\\"requirement-22ea094c3cb26346\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-007\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-007\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    },\\n    {\\n      \\\"ref\\\": \\\"stakeholder-ab3d5865c5a51d25\\\",\\n      \\\"kind\\\": \\\"requirement\\\",\\n      \\\"name\\\": \\\"REQ-CONFORMANCE-008\\\",\\n      \\\"payload\\\": {\\n        \\\"id\\\": \\\"requirement-new-conformance-008\\\",\\n        \\\"source\\\": \\\"pr09-conformance\\\",\\n        \\\"producer\\\": \\\"rule\\\",\\n        \\\"status\\\": \\\"candidate\\\"\\n      }\\n    }\\n  ],\\n  \\\"relations\\\": [\\n    {\\n      \\\"source_ref\\\": \\\"stakeholder-ab3d5865c5a51d25\\\",\\n      \\\"predicate\\\": \\\"derivedFrom\\\",\\n      \\\"target_ref\\\": \\\"requirement-new-conformance-001\\\",\\n      \\\"evidence_ids\\\": []\\n    },\\n    {\\n      \\\"source_ref\\\": \\\"concern-e928996d52d16717\\\",\\n      \\\"predicate\\\": \\\"derivedFrom\\\",\\n      \\\"target_ref\\\": \\\"requirement-new-conformance-003\\\",\\n      \\\"evidence_ids\\\": []\\n    },\\n    {\\n      \\\"source_ref\\\": \\\"requirement-new-conformance-001\\\",\\n      \\\"predicate\\\": \\\"supportedBy\\\",\\n      \\\"target_ref\\\": \\\"stakeholder-ab3d5865c5a51d25\\\",\\n      \\\"evidence_ids\\\": []\\n    },\\n    {\\n      \\\"source_ref\\\": \\\"requirement-new-conformance-003\\\",\\n      \\\"predicate\\\": \\\"supportedBy\\\",\\n      \\\"target_ref\\\": \\\"concern-e928996d52d16717\\\",\\n      \\\"evidence_ids\\\": []\\n    },\\n    {\\n      \\\"source_ref\\\": \\\"stakeholder-ab3d5865c5a51d25\\\",\\n      \\\"predicate\\\": \\\"derivedFrom\\\",\\n      \\\"target_ref\\\": \\\"requirement-new-conformance-005\\\",\\n      \\\"evidence_ids\\\": []\\n    },\\n    {\\n      \\\"source_ref\\\": \\\"concern-e928996d52d16717\\\",\\n      \\\"predicate\\\": \\\"derivedFrom\\\",\\n      \\\"target_ref\\\": \\\"requirement-new-conformance-006\\\",\\n      \\\"evidence_ids\\\": []\\n    },\\n    {\\n      \\\"source_ref\\\": \\\"requirement-new-conformance-005\\\",\\n      \\\"predicate\\\": \\\"supportedBy\\\",\\n      \\\"target_ref\\\": \\\"stakeholder-ab3d5865c5a51d25\\\",\\n      \\\"evidence_ids\\\": []\\n    },\\n    {\\n      \\\"source_ref\\\": \\\"requirement-new-conformance-006\\\",\\n      \\\"predicate\\\": \\\"supportedBy\\\",\\n      \\\"target_ref\\\": \\\"concern-e928996d52d16717\\\",\\n      \\\"evidence_ids\\\": []\\n    }\\n  ],\\n  \\\"updates\\\": [\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-001\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-stakeholder 定义的合规性义务。\\\"\\n        }\\n      }\\n    },\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-002\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-stakeholder 定义的合规性义务。\\\"\\n        }\\n      }\\n    },\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-003\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-concern 定义的合规性义务。\\\"\\n        }\\n      }\\n    },\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-004\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-requirement 定义的合规性义务。\\\"\\n        }\\n      }\\n    },\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-005\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-stakeholder 定义的合规性义务。\\\"\\n        }\\n      }\\n    },\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-006\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-concern 定义的合规性义务。\\\"\\n        }\\n      }\\n    },\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-007\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-requirement 定义的合规性义务。\\\"\\n        }\\n      }\\n    },\\n    {\\n      \\\"entity_id\\\": \\\"requirement-new-conformance-008\\\",\\n      \\\"field_patch\\\": {\\n        \\\"payload\\\": {\\n          \\\"text\\\": \\\"系统必须满足 conformance-stakeholder 定义的合规性义务。\\\"\\n        }\\n      }\\n    }\\n  ],\\n  \\\"deprecations\\\": [],\\n  \\\"reason\\\": \\\"将 stakeholder 和 concern 转换为原子化、可追溯的需求条目，确保每条需求对应单一义务并保留来源链。由于输入证据为空，需求文本保持对来源的引用以维持可追溯性。\\\"\\n}\", \"retry_count\": 1, \"schema_hash\": \"71c67a987cc2111496815818618275d3b9c12d1644faf7a7264a4f359412810b\", \"stage\": \"structural\"}"
+      ],
+      "domain_valid": false,
+      "duration_ms": 52587,
+      "iteration": 1,
+      "json_parsed": true,
+      "schema_passed": false,
+      "structural_retries": 1,
+      "task_id": "stakeholder_requirements"
+    },
+    {
+      "compiled": false,
+      "diagnostics": [
+        "{\"attempt\": 1, \"code\": \"proposal_compile\", \"message\": \"task proposal reference is unknown: function-verify-conformance\", \"stage\": \"compiler\"}"
+      ],
+      "domain_valid": false,
+      "duration_ms": 8800,
+      "iteration": 1,
+      "json_parsed": true,
+      "schema_passed": true,
+      "structural_retries": 0,
+      "task_id": "function_identification"
+    }
+  ],
+  "sampling": {
+    "stream": false,
+    "temperature": 0,
+    "think": false,
+    "timeout_seconds": 60
+  },
+  "schema_hashes": {
+    "function_identification": "53aa63db061dd2cf1d05f3f73698af98503bf5ee52df8b384b533d1285dd9d0f",
+    "stakeholder_requirements": "71c67a987cc2111496815818618275d3b9c12d1644faf7a7264a4f359412810b",
+    "system_definition": "cb7a20bcd7de8667c187aa78d12010a2fa70958622b214c45805b82cfefedcb8"
+  },
+  "status": "completed",
+  "tasks": [
+    "system_definition",
+    "stakeholder_requirements",
+    "function_identification"
+  ]
+}

@@ -2,12 +2,12 @@
 {% block title %}MBSE 模型 · {{ project.id }}{% endblock %}
 {% block content %}
 <div class="page-heading">
-  <div><p class="eyebrow">关系追踪</p><h1>MBSE 模型</h1><p>项目 <strong>{{ project.id }}</strong> · 当前修订 {{ trace.revision }}</p></div>
+  <div><p class="eyebrow">关系追踪</p><h1>MBSE 模型</h1><p>项目 <strong>{{ project.id }}</strong> · 当前模型版本 {{ trace.revision }}</p></div>
   <span class="status-badge info">模型图</span>
 </div>
 
 <section class="panel trace-panel">
-  <div class="panel-head"><div><h2>需求 → 功能 → 逻辑 → 物理 → 验证</h2><p>点击节点查看对应的实体资源；缺失链路会作为追踪问题保留。</p></div><span class="count-badge">{{ trace.paths|length }} 条链路</span></div>
+  <div class="panel-head"><div><h2>需求 → 功能 → 逻辑 → 物理 → 验证 / 确认</h2><p>点击节点查看对应的实体资源；验证与确认分别展示，缺失链路会作为追踪问题保留。</p></div><span class="count-badge">{{ trace.paths|length }} 条链路</span></div>
   <div class="trace-legend">
     {% for stage in trace.stage_labels %}<span><i>{{ loop.index }}</i>{{ stage }}</span>{% endfor %}
   </div>
@@ -21,8 +21,46 @@
       {% if not loop.last %}<span class="trace-arrow" aria-hidden="true">→</span>{% endif %}
       {% endfor %}
     </div>
+    <div class="trace-nodes trace-vv">
+      <span class="trace-arrow" aria-hidden="true">V&amp;V</span>
+      {% if path.verification %}<a id="entity-{{ path.verification.id }}-vv" class="trace-node" href="{{ path.verification.href }}"><span>{{ path.verification.stage_label }}</span><strong>{{ path.verification.name }}</strong><small>{{ path.verification.kind_label }} · {{ path.verification.status_label }}</small></a>{% else %}<div class="trace-node trace-node-missing"><span>验证</span><strong>缺少链路</strong><small>质量门禁问题</small></div>{% endif %}
+      <span class="trace-arrow" aria-hidden="true">＋</span>
+      {% if path.validation %}<a id="entity-{{ path.validation.id }}-vv" class="trace-node" href="{{ path.validation.href }}"><span>{{ path.validation.stage_label }}</span><strong>{{ path.validation.name }}</strong><small>{{ path.validation.kind_label }} · {{ path.validation.status_label }}</small></a>{% else %}<div class="trace-node trace-node-missing"><span>确认</span><strong>缺少链路</strong><small>质量门禁问题</small></div>{% endif %}
+    </div>
   </article>
   {% else %}<div class="mini-empty">暂无需求实体可供追踪。</div>{% endfor %}
+</section>
+
+<section class="panel model-workbench-panel">
+  <div class="panel-head"><div><h2>模型分层工作台</h2><p>按工程层查看真实模型实体，并在此继续审查、编辑或重新分析。</p></div><span class="count-badge">{{ workbench.metrics.entity_count }} 个实体</span></div>
+  <div class="metric-row"><article><span>已分层</span><strong>{{ workbench.metrics.grouped_entity_count }}</strong></article><article><span>关系</span><strong>{{ workbench.metrics.relation_count }}</strong></article><article><span>未归类</span><strong>{{ workbench.metrics.ungrouped_entity_count }}</strong></article></div>
+  <div id="workbench-feedback" class="callout" hidden aria-live="polite"></div>
+  {% for group in workbench.groups %}
+  <section class="panel model-layer-panel" id="model-layer-{{ group.id }}">
+    <div class="panel-head"><div><h3>{{ group.title }}</h3><p>{{ group.description }}</p></div><span class="count-badge">{{ group.count }}</span></div>
+    {% if group.entities %}
+    <div class="module-grid">
+      {% for item in group.entities %}
+      <article id="entity-{{ item.id }}" class="card model-entity-card" data-entity-id="{{ item.id }}">
+        <div class="panel-head"><div><span class="status-badge info">{{ item.kind_label }}</span><h3>{{ item.name }}</h3></div><span class="status-badge {{ item.status }}">{{ item.status_label }}</span></div>
+        <div class="entity-meta"><span>来源 {{ item.source_count }}</span><span>证据 {{ item.evidence_count }}</span><span>关系 {{ item.relation_count }}</span>{% if item.issue_count %}<span class="status-badge failed">问题 {{ item.issue_count }}</span>{% endif %}</div>
+        <details class="advanced-details entity-identifier"><summary>查看工程标识（高级）</summary><code>{{ item.id }}</code></details>
+        <details class="entity-payload"><summary>查看模型属性</summary><pre>{{ item.payload|tojson(indent=2) }}</pre></details>
+        <div class="workbench-actions">
+          {% if item.status in ['candidate', 'validated'] %}<button class="button compact workbench-command" type="button" data-review-action="accept" data-entity-id="{{ item.id }}">接受</button><button class="button compact danger workbench-command" type="button" data-review-action="reject" data-entity-id="{{ item.id }}">拒绝</button>{% elif item.status == 'accepted' %}<button class="button compact workbench-command" type="button" data-review-action="lock" data-entity-id="{{ item.id }}">锁定</button>{% elif item.status == 'locked' %}<button class="button compact workbench-command" type="button" data-review-action="unlock" data-entity-id="{{ item.id }}">解锁</button>{% endif %}
+          {% if item.can_continue %}<button class="button compact primary workbench-command" type="button" data-review-action="continue" data-entity-id="{{ item.id }}">{{ item.continue_label }}</button>{% endif %}
+          {% if item.status != 'locked' %}<button class="button compact" type="button" data-action="edit" data-edit-toggle="{{ item.id }}">编辑</button>{% endif %}
+          <button class="button compact workbench-impact" type="button" data-entity-id="{{ item.id }}">查看影响分析</button>
+          <button class="button compact" type="button" data-review-action="reanalyze" data-entity-id="{{ item.id }}">重新分析</button>
+        </div>
+        <div class="entity-impact-panel callout info" data-impact-panel="{{ item.id }}" hidden aria-live="polite"></div>
+        {% if item.status != 'locked' %}<form class="entity-edit-form" data-edit-form="{{ item.id }}" hidden><label class="field">名称<input name="name" value="{{ item.name }}" required></label><label class="field">模型属性（JSON）<textarea name="payload" rows="8" required>{{ item.payload|tojson(indent=2) }}</textarea></label><div class="workbench-actions"><button class="button compact primary" type="submit">保存编辑</button><button class="button compact" type="button" data-edit-toggle="{{ item.id }}">取消</button></div></form>{% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}<div class="mini-empty">暂无{{ group.title }}实体</div>{% endif %}
+  </section>
+  {% endfor %}
 </section>
 
 {% if trace.issues %}
@@ -42,7 +80,7 @@
 </section>
 
 <section class="panel export-panel">
-  <div class="panel-head"><div><h2>导出模型</h2><p>下载当前项目的 JSON、Graphviz DOT、SVG 或 SysML 文本。</p></div><span class="status-badge info">当前修订 {{ trace.revision }}</span></div>
+  <div class="panel-head"><div><h2>导出模型</h2><p>下载当前项目的 JSON、Graphviz DOT、SVG 或 SysML 文本。</p></div><span class="status-badge info">当前模型版本 {{ trace.revision }}</span></div>
   <div class="workbench-actions export-actions">
     <button class="button" type="button" data-export-format="json">下载 JSON</button>
     <button class="button" type="button" data-export-format="dot">下载 DOT</button>
@@ -50,6 +88,15 @@
     <button class="button primary" type="button" data-export-format="sysml">下载 SysML</button>
   </div>
   <pre id="export-result" class="analysis-result" hidden></pre>
+</section>
+
+<section class="panel delivery-panel">
+  <div class="panel-head"><div><h2>完整工程交付物</h2><p>从同一份模型快照生成 SysML、需求、RFLP、追溯矩阵、验证与确认计划和架构报告。</p></div><span class="status-badge info">模型版本 {{ trace.revision }}</span></div>
+  <p class="table-secondary">Snapshot hash：<code>{{ snapshot_hash }}</code></p>
+  <div class="workbench-actions export-actions">
+    <a class="button primary" href="/projects/{{ project_id }}/deliverables/download">导出完整交付包</a>
+    <a class="button" href="/projects/{{ project_id }}/deliverables" target="_blank" rel="noreferrer">查看交付包 JSON</a>
+  </div>
 </section>
 
 <script>
@@ -84,6 +131,98 @@
       output.textContent = "导出失败：" + error;
       output.classList.add("warning");
     } finally { button.disabled = false; }
+  }));
+})();
+</script>
+<script>
+(() => {
+  const projectId = {{ project_id|tojson }};
+  const revision = {{ workbench.revision }};
+  const feedback = document.getElementById("workbench-feedback");
+  const showFeedback = (message) => {
+    feedback.hidden = false;
+    feedback.textContent = message;
+    feedback.classList.add("warning");
+  };
+  const readPayload = async (response) => {
+    try { return await response.json(); } catch (_) { return {}; }
+  };
+  document.querySelectorAll("[data-edit-toggle]").forEach((button) => button.addEventListener("click", () => {
+    const form = document.querySelector(`[data-edit-form="${CSS.escape(button.dataset.editToggle)}"]`);
+    if (form) form.hidden = !form.hidden;
+  }));
+  document.querySelectorAll(".workbench-command").forEach((button) => button.addEventListener("click", async () => {
+    button.disabled = true;
+    const action = button.dataset.reviewAction;
+    const endpoint = action === "reanalyze" ? "reanalyze/execute" : action;
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/entities/${encodeURIComponent(button.dataset.entityId)}/${endpoint}`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({expected_revision: revision})});
+      const data = await readPayload(response);
+      if (!response.ok || data.status !== "ok") throw new Error(data.message || data.error || "操作失败");
+      window.location.reload();
+    } catch (error) {
+      showFeedback(error.message);
+      button.disabled = false;
+    }
+  }));
+  const stageLabels = {
+    requirements: "需求分析",
+    functional: "功能分析",
+    logical: "逻辑架构",
+    physical: "物理架构",
+    verification_validation: "验证与确认",
+  };
+  const displayList = (values, fallback = "无") => {
+    if (!Array.isArray(values) || values.length === 0) return fallback;
+    return values.join("、");
+  };
+  document.querySelectorAll(".workbench-impact").forEach((button) => button.addEventListener("click", async () => {
+    const entityId = button.dataset.entityId;
+    const panel = document.querySelector(`[data-impact-panel="${CSS.escape(entityId)}"]`);
+    if (!panel) return;
+    button.disabled = true;
+    panel.hidden = false;
+    panel.classList.remove("warning");
+    panel.textContent = "正在计算 typed ModelGraph 影响链…";
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/entities/${encodeURIComponent(entityId)}/impact`);
+      const data = await readPayload(response);
+      if (!response.ok || data.status !== "ok") throw new Error(data.message || data.error || "读取影响分析失败");
+      const impact = data.impact || {};
+      const stages = (impact.impacted_stages || []).map((stage) => stageLabels[stage] || stage);
+      const tasks = impact.recommended_tasks || [];
+      const pathCount = Array.isArray(impact.impact_paths) ? impact.impact_paths.length : 0;
+      panel.textContent = [
+        `基于模型版本 ${impact.revision ?? "—"} 的影响分析`,
+        `受影响阶段：${displayList(stages)}`,
+        `受影响实体：${Array.isArray(impact.impacted_entity_ids) ? impact.impacted_entity_ids.length : 0} 个`,
+        `验证案例：${Array.isArray(impact.verification_case_ids) ? impact.verification_case_ids.length : 0} 个 · 确认案例：${Array.isArray(impact.validation_case_ids) ? impact.validation_case_ids.length : 0} 个`,
+        `建议下一步：${displayList(tasks)}`,
+        `可解释追溯路径：${pathCount} 条`,
+        impact.reason || "",
+      ].filter(Boolean).join("\n");
+    } catch (error) {
+      panel.textContent = "影响分析失败：" + error.message;
+      panel.classList.add("warning");
+    } finally {
+      button.disabled = false;
+    }
+  }));
+  document.querySelectorAll("[data-edit-form]").forEach((form) => form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    try {
+      const payload = JSON.parse(form.elements.payload.value);
+      if (!payload || Array.isArray(payload) || typeof payload !== "object") throw new Error("模型属性必须是 JSON 对象");
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/entities/${encodeURIComponent(form.dataset.editForm)}/edit`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({expected_revision: revision, name: form.elements.name.value.trim(), payload})});
+      const data = await readPayload(response);
+      if (!response.ok || data.status !== "ok") throw new Error(data.message || data.error || "保存编辑失败");
+      window.location.reload();
+    } catch (error) {
+      showFeedback(error.message);
+      button.disabled = false;
+    }
   }));
 })();
 </script>

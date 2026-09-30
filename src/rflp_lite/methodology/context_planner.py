@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
-import re
 from typing import Protocol
 
 from rflp_lite.domain.entities import Entity, EntityKind
 from rflp_lite.domain.model import ModelGraph, Relation
 from rflp_lite.methodology.contracts import ContextBundle, TaskSpec
 from rflp_lite.methodology.trace_rules import TRACE_RULES
+from rflp_lite.ports.token_budget import estimate_tokens
 
 
 class TokenEstimator(Protocol):
@@ -21,11 +20,7 @@ class HeuristicTokenEstimator:
     """Provider-neutral estimate that treats CJK characters and words fairly."""
 
     def estimate(self, value: object) -> int:
-        text = str(value)
-        cjk = len(re.findall(r"[\u3400-\u9fff]", text))
-        latin = len(re.findall(r"[A-Za-z0-9_]+", text))
-        punctuation = len(text) - cjk - sum(len(item) for item in re.findall(r"[A-Za-z0-9_]+", text))
-        return max(1, cjk + math.ceil(latin * 1.3) + math.ceil(max(0, punctuation) / 4)) if text else 0
+        return estimate_tokens(value)
 
 
 @dataclass(frozen=True, slots=True)
