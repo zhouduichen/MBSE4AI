@@ -104,6 +104,30 @@ def test_a_to_e_comparison_requires_three_repeats() -> None:
         )
 
 
+def test_comparison_rejects_reused_output_root_before_model_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "output"
+    output_root.mkdir()
+    (output_root / "old-report.json").write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        benchmark_runner_module,
+        "run_benchmark",
+        lambda *args, **kwargs: pytest.fail("model execution started before stale-root guard"),
+    )
+
+    with pytest.raises(ValueError, match="output root must be empty"):
+        run_scenario_comparison(
+            Path("tests/mbse_benchmark/cases"),
+            output_root,
+            repeats=3,
+            report_dir=tmp_path / "report",
+            profile="test-profile",
+            runtime_config={"model": "test-model", "provider": "test"},
+        )
+
+
 def test_comparison_rejects_a_vertical_budget_below_runtime_floor() -> None:
     with pytest.raises(ValueError, match="at least 256 tokens"):
         _comparison_runtime_config({"benchmark_token_budget": 128})

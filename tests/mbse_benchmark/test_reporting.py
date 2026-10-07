@@ -12,6 +12,7 @@ from tests.mbse_benchmark.runners.report_builder import (
     write_reports,
     write_scenario_comparison,
 )
+from tests.mbse_benchmark.runners import benchmark_runner as benchmark_runner_module
 from rflp_lite.methodology.coverage_status import coverage_result
 
 
@@ -71,6 +72,38 @@ def test_report_writer_emits_required_files_and_rejects_p0_failure(tmp_path: Pat
     assert (tmp_path / "failures.json").is_file()
     assert (tmp_path / "traceability_report.md").is_file()
     assert json.loads((tmp_path / "failures.json").read_text(encoding="utf-8"))[0]["status"] == "FAIL"
+
+
+def test_case_metadata_falls_back_to_repeat_metadata() -> None:
+    result = benchmark_runner_module._case_metadata(
+        "CASE-01",
+        [{
+            "metadata": {"prompt_hash": "p", "task_spec_hash": "t"},
+            "run_ledger": {},
+            "repeat_index": 1,
+        }],
+        track="llm",
+        profile="test",
+    )
+
+    assert result["prompt_hash"] == ["p"]
+    assert result["task_spec_hash"] == ["t"]
+
+
+def test_comparison_report_shows_artifact_audit_and_status() -> None:
+    rendered = render_scenario_comparison({
+        "status": "FAIL",
+        "input_artifact_audit": {
+            "checked_count": 75,
+            "all_present": False,
+            "all_exact": False,
+        },
+        "scenarios": {},
+    })
+
+    assert "Status: **FAIL**" in rendered
+    assert "artifact audit" in rendered
+    assert "all_present=False" in rendered
 
 
 def test_empty_coverage_is_not_applicable_and_reports_keep_the_value(tmp_path: Path) -> None:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from rflp_lite.domain.canonical import canonical_hash
@@ -23,7 +25,10 @@ from tests.mbse_benchmark.runners.experiment_contract import (
     input_artifact_sha256,
     model_visible_key_tokens,
 )
-from tests.mbse_benchmark.runners.scenario_pipeline import TASK_SPEC
+from tests.mbse_benchmark.runners.scenario_pipeline import (
+    EXTERNAL_EVALUATOR_ID,
+    TASK_SPEC,
+)
 from tests.mbse_benchmark.scenarios import BenchmarkScenario, scenario_contract
 
 
@@ -166,6 +171,9 @@ def test_failure_metadata_preserves_input_and_transport_telemetry() -> None:
         comparison_mode="natural",
         total_output_token_budget=None,
         execution_elapsed=1.5,
+        evaluation_spec_hash="evaluation-hash",
+        evaluator_id=EXTERNAL_EVALUATOR_ID,
+        request_guard_hash="guard-hash",
     )
 
     assert metadata["failure_metadata"] is True
@@ -176,6 +184,18 @@ def test_failure_metadata_preserves_input_and_transport_telemetry() -> None:
     assert metadata["telemetry"]["total_tokens"] == 30
     assert metadata["telemetry"]["provider_latency_ms"] == 1234
     assert metadata["telemetry"]["wall_latency_ms"] == 1500
+    assert metadata["evaluation_owner"] == EXTERNAL_EVALUATOR_ID
+    assert metadata["evaluation_spec_hash"] == "evaluation-hash"
+    assert metadata["ground_truth_model_visible"] is False
+    assert metadata["evaluation_boundary"] == {
+        "owner": EXTERNAL_EVALUATOR_ID,
+        "model_visible": False,
+        "ground_truth_payload_transmitted": False,
+        "guard_enforced": True,
+        "request_guard": "value_free_evaluator_key_tokens",
+        "request_guard_hash": "guard-hash",
+        "evaluation_spec_hash": "evaluation-hash",
+    }
 
 
 def test_run_case_persists_input_before_worker_start(tmp_path, monkeypatch) -> None:
@@ -212,6 +232,9 @@ def test_run_case_persists_input_before_worker_start(tmp_path, monkeypatch) -> N
     case_runner_module.run_case(case, tmp_path, repeat_index=1)
 
     assert (tmp_path / "repeat_01" / "input.json").read_bytes()
+    metadata = json.loads((tmp_path / "repeat_01" / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["ground_truth_model_visible"] is False
+    assert metadata["evaluation_boundary"]["guard_enforced"] is True
 
 
 def test_harness_model_guard_blocks_evaluator_payload_before_provider_call() -> None:

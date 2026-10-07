@@ -403,10 +403,16 @@ def write_reports(summary: Mapping[str, object], report_dir: Path) -> None:
 
 
 def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
+    artifact_audit = comparison.get("input_artifact_audit", {})
+    artifact_audit = artifact_audit if isinstance(artifact_audit, Mapping) else {}
     lines = [
         "# A–E Same-Model Benchmark Comparison",
         "",
         f"Status: **{comparison.get('status', 'not_recorded')}**",
+        "",
+        f"artifact audit: checked={artifact_audit.get('checked_count', 'N/A')}; "
+        f"all_present={artifact_audit.get('all_present', 'N/A')}; "
+        f"all_exact={artifact_audit.get('all_exact', 'N/A')}",
         "",
         f"Same model/provider: **{comparison.get('same_model_provider', 'N/A')}**; same input bytes: **{comparison.get('same_input', 'N/A')}**; same task spec: **{comparison.get('same_task_spec', 'N/A')}**; same evaluator: **{comparison.get('same_evaluator', 'N/A')}**; same normalizer: **{comparison.get('same_normalizer', 'N/A')}**; same evaluation spec: **{comparison.get('same_evaluation_spec', 'N/A')}**; ground truth isolated: **{comparison.get('ground_truth_isolated', 'N/A')}**",
         "",

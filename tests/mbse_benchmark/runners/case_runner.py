@@ -33,6 +33,7 @@ from tests.mbse_benchmark.runners.experiment_contract import (
     runtime_provider_id,
 )
 from tests.mbse_benchmark.runners.scenario_pipeline import (
+    EXTERNAL_EVALUATOR_ID,
     ModelGraphNormalizer,
     ScenarioRunner,
     TASK_SPEC,
@@ -85,6 +86,10 @@ def _failure_metadata(
     comparison_mode: str,
     total_output_token_budget: int | None,
     execution_elapsed: float,
+    evaluation_spec_hash: str = "",
+    evaluator_id: str = EXTERNAL_EVALUATOR_ID,
+    request_guard_hash: str = "",
+    execution_status: str = "failed",
 ) -> dict[str, object]:
     """Persist auditable evidence even when generation fails before a graph exists.
 
@@ -141,10 +146,23 @@ def _failure_metadata(
         "repair_enabled": contract.has_repair,
         "cas_enabled": contract.has_cas,
         "normalizer_id": ModelGraphNormalizer.normalizer_id,
+        "evaluation_owner": evaluator_id,
+        "evaluator_id": evaluator_id,
+        "evaluation_spec_hash": evaluation_spec_hash,
+        "ground_truth_model_visible": False,
+        "evaluation_boundary": {
+            "owner": evaluator_id,
+            "model_visible": False,
+            "ground_truth_payload_transmitted": False,
+            "guard_enforced": True,
+            "request_guard": "value_free_evaluator_key_tokens",
+            "request_guard_hash": request_guard_hash,
+            "evaluation_spec_hash": evaluation_spec_hash,
+        },
         "remote_fail_fast": bool(config.get("remote_fail_fast", False)),
         "comparison_mode": comparison_mode,
         "total_output_token_budget": total_output_token_budget,
-        "execution_status": "failed",
+        "execution_status": execution_status,
         "failure_metadata": True,
         "telemetry": telemetry.as_dict(),
     }
@@ -365,6 +383,9 @@ def _run_case_inner(
     scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
     comparison_mode: str = "natural",
     total_output_token_budget: int | None = None,
+    evaluation_spec_hash: str = "",
+    evaluator_id: str = EXTERNAL_EVALUATOR_ID,
+    request_guard_hash: str = "",
 ) -> None:
     started = time.time()
     case_id = str(case["case_id"])
@@ -608,6 +629,9 @@ def _run_case_inner(
                     comparison_mode=comparison_mode,
                     total_output_token_budget=total_output_token_budget,
                     execution_elapsed=float(execution["elapsed_seconds"]),
+                    evaluation_spec_hash=evaluation_spec_hash,
+                    evaluator_id=evaluator_id,
+                    request_guard_hash=request_guard_hash,
                 ),
             )
         _write_json(output_dir / "execution.json", execution)
@@ -625,6 +649,9 @@ def _child_entry(
     scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
     comparison_mode: str = "natural",
     total_output_token_budget: int | None = None,
+    evaluation_spec_hash: str = "",
+    evaluator_id: str = EXTERNAL_EVALUATOR_ID,
+    request_guard_hash: str = "",
 ) -> None:
     _run_case_inner(
         case,
@@ -635,6 +662,9 @@ def _child_entry(
         scenario,
         comparison_mode,
         total_output_token_budget,
+        evaluation_spec_hash,
+        evaluator_id,
+        request_guard_hash,
     )
 
 
@@ -650,6 +680,9 @@ def run_case(
     scenario: str = BenchmarkScenario.E_FULL_HARNESS.value,
     comparison_mode: str = "natural",
     total_output_token_budget: int | None = None,
+    evaluation_spec_hash: str = "",
+    evaluator_id: str = EXTERNAL_EVALUATOR_ID,
+    request_guard_hash: str = "",
 ) -> dict[str, object]:
     """Run one isolated real-system case and always return a result record."""
 
@@ -671,6 +704,9 @@ def run_case(
             scenario,
             comparison_mode,
             total_output_token_budget,
+            evaluation_spec_hash,
+            evaluator_id,
+            request_guard_hash,
         ),
     )
     started = time.time()
@@ -689,6 +725,22 @@ def run_case(
             "exception": f"case exceeded {timeout_seconds}s",
         }
         _write_json(output_dir / "execution.json", execution)
+        _write_json(
+            output_dir / "metadata.json",
+            _failure_metadata(
+                envelope,
+                scenario_contract(scenario),
+                runtime_config,
+                telemetry_events=[],
+                comparison_mode=comparison_mode,
+                total_output_token_budget=total_output_token_budget,
+                execution_elapsed=float(execution["elapsed_seconds"]),
+                evaluation_spec_hash=evaluation_spec_hash,
+                evaluator_id=evaluator_id,
+                request_guard_hash=request_guard_hash,
+                execution_status=str(execution["status"]),
+            ),
+        )
     elif not (output_dir / "execution.json").exists():
         execution = {
             "status": "failed",
@@ -700,6 +752,21 @@ def run_case(
             "exception": "worker exited before writing execution.json",
         }
         _write_json(output_dir / "execution.json", execution)
+        _write_json(
+            output_dir / "metadata.json",
+            _failure_metadata(
+                envelope,
+                scenario_contract(scenario),
+                runtime_config,
+                telemetry_events=[],
+                comparison_mode=comparison_mode,
+                total_output_token_budget=total_output_token_budget,
+                execution_elapsed=float(execution["elapsed_seconds"]),
+                evaluation_spec_hash=evaluation_spec_hash,
+                evaluator_id=evaluator_id,
+                request_guard_hash=request_guard_hash,
+            ),
+        )
     execution = json.loads((output_dir / "execution.json").read_text(encoding="utf-8"))
     execution["repeat_index"] = repeat_index
     _write_json(output_dir / "execution.json", execution)

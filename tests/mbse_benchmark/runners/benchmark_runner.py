@@ -230,6 +230,9 @@ def run_benchmark(
                 scenario=contract.scenario.value,
                 comparison_mode=comparison_mode,
                 total_output_token_budget=total_output_token_budget,
+                evaluation_spec_hash=evaluator.evaluation_spec_hash,
+                evaluator_id=evaluator.evaluator_id,
+                request_guard_hash=evaluator.request_guard_hash,
             )
             for index in range(1, max(1, repeats) + 1)
         ]
@@ -243,6 +246,7 @@ def run_benchmark(
                 metadata["evaluation_spec_hash"] = evaluator.evaluation_spec_hash
                 metadata["case_id"] = case_id
                 metadata["repeat_index"] = repeat_result.get("repeat_index")
+                metadata["artifact_dir"] = str(repeat_result.get("output_dir", ""))
             graph = (
                 normalizer.normalize(
                     repeat_result.get("graph", {}),
@@ -443,6 +447,7 @@ def run_scenario_comparison(
 
     if int(repeats) < 3:
         raise ValueError("A–E comparison requires at least three repeats")
+    _assert_fresh_comparison_root(output_root)
     validate_ablation_contracts()
     shared_evaluator = ExternalEvaluator.from_expected_dir(
         cases_dir.parent / "expected",
@@ -795,17 +800,34 @@ def _case_metadata(
         for item in repeat_results
         if isinstance(item.get("metadata"), Mapping)
     ]
+    prompt_hashes = {
+        str(item.get("prompt_hash", ""))
+        for item in ledgers + run_metadata
+        if isinstance(item, Mapping) and item.get("prompt_hash")
+    }
+    task_spec_hashes = {
+        str(item.get("task_spec_hash", ""))
+        for item in ledgers + run_metadata
+        if isinstance(item, Mapping) and item.get("task_spec_hash")
+    }
     return {
         "track": track,
         "case": case_id,
         "profile": profile or "offline-rule",
         "repeat": [int(item.get("repeat_index", 0)) for item in repeat_results],
         "methodology_version": sorted({str(item.get("methodology_version", "")) for item in ledgers if item.get("methodology_version")}),
-        "prompt_hash": sorted({str(item.get("prompt_hash", "")) for item in ledgers if item.get("prompt_hash")}),
-        "task_spec_hash": sorted({str(item.get("task_spec_hash", "")) for item in ledgers if item.get("task_spec_hash")}),
+        "prompt_hash": sorted(prompt_hashes),
+        "task_spec_hash": sorted(task_spec_hashes),
         "evaluation_spec_hash": sorted({str(item.get("evaluation_spec_hash", "")) for item in run_metadata if item.get("evaluation_spec_hash")}),
         "run_metadata": run_metadata,
     }
+
+
+def _assert_fresh_comparison_root(output_root: Path) -> None:
+    """Prevent a comparison from mixing a new run with stale artifacts."""
+
+    if output_root.exists() and any(output_root.iterdir()):
+        raise ValueError("A–E comparison output root must be empty")
 
 
 def _repeat_metric_record(
