@@ -467,6 +467,13 @@ campaign。这样保留了旧实验的不可变证据，也避免把报告层修
 这是真实 5080 runtime 的修复后开关证据；该 C smoke 的质量终态仍为
 `REJECTED`（C 有意关闭 verifier），不把质量拒绝改写为 comparison PASS。
 
+同一最新 commit `769ca96` 还执行了 GitHub Integration contract-only dispatch
+`37788927886`：`integration contract` 与 `external prerequisite readiness` 均
+成功，offline integration contract 和 robustness benchmark 实际运行；因为本次
+dispatch 明确将 LLM、FreeCAD、GPU 三个外部目标设为 false，三个外部 acceptance
+job 被跳过。这证明 workflow 可执行且不会伪造外部 PASS；真实 external runner
+仍必须在配置 target 后由 readiness gate 放行。
+
 ## 2026-10-08 Windows RTX 5080 Qwen：CASE-01 run01 partial evidence
 
 5080 节点恢复后，使用 Tailscale IP `100.88.143.10` 重新验证了真实 Ollama
