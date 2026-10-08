@@ -247,6 +247,13 @@ def run_benchmark(
                 metadata["case_id"] = case_id
                 metadata["repeat_index"] = repeat_result.get("repeat_index")
                 metadata["artifact_dir"] = str(repeat_result.get("output_dir", ""))
+                # Persist comparison controls on every successful repeat, not
+                # only on failure metadata.  The comparison audit consumes
+                # these per-repeat fields to prove budget matching; relying on
+                # the top-level report would allow missing controls to be
+                # mistaken for an enforced total-output cap.
+                metadata["comparison_mode"] = comparison_mode
+                metadata["total_output_token_budget"] = total_output_token_budget
             graph = (
                 normalizer.normalize(
                     repeat_result.get("graph", {}),

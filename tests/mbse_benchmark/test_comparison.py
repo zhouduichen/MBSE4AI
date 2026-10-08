@@ -8,6 +8,7 @@ import pytest
 from tests.mbse_benchmark.runners.benchmark_runner import (
     _comparison_runtime_config,
     _persisted_input_audit,
+    run_benchmark,
     run_scenario_comparison,
 )
 from tests.mbse_benchmark.runners import benchmark_runner as benchmark_runner_module
@@ -279,6 +280,90 @@ def test_comparison_runtime_forces_real_provider_failures_to_fail_closed() -> No
 
     assert budget == 3000
     assert shared["remote_fail_fast"] is True
+
+
+def test_budget_controls_are_persisted_on_successful_repeat_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    graph = {
+        "project_id": "case-01",
+        "revision": 0,
+        "entities": [],
+        "relations": [],
+    }
+    envelope = BenchmarkInputEnvelope.from_case(CASE)
+
+    def fake_run_case(case, output_dir, *, repeat_index, **kwargs):
+        del case, kwargs
+        repeat_dir = output_dir / f"repeat_{repeat_index:02d}"
+        repeat_dir.mkdir(parents=True, exist_ok=True)
+        contract = scenario_contract(BenchmarkScenario.E_FULL_HARNESS)
+        metadata = {
+            "scenario": contract.scenario.value,
+            "model": "test-model",
+            "provider": "test-provider",
+            "prompt_hash": "prompt",
+            "task_spec_hash": "task",
+            "temperature": 0.0,
+            "input_hash": envelope.input_hash,
+            "input_byte_length": len(envelope.canonical_bytes),
+            "input_sha256": envelope.input_hash,
+            "input_artifact_byte_length": len(envelope.canonical_bytes) + 1,
+            "input_artifact_sha256": input_artifact_sha256(envelope),
+            "benchmark_token_budget": 3000,
+            "graph_hash": "graph",
+            "verifier_enabled": True,
+            "gate_enabled": True,
+            "repair_enabled": True,
+            "cas_enabled": True,
+            "repair_runtime_controls": {
+                "structured_output_repair": True,
+                "vertical_feedback": True,
+                "automatic_operational_completion": True,
+                "vertical_completion_bridge": True,
+            },
+            "telemetry": {
+                "call_count": 1,
+                "repair_call_count": 0,
+                "failed_call_count": 0,
+                "input_tokens": 10,
+                "output_tokens": 12,
+                "total_tokens": 22,
+                "token_usage_status": "available",
+                "provider_latency_ms": 5,
+                "wall_latency_ms": 7,
+                "cost_status": "available",
+                "estimated_cost_usd": 0.0,
+                "budget_within_cap": True,
+            },
+        }
+        return {
+            "case_id": "CASE-01",
+            "repeat_index": repeat_index,
+            "output_dir": str(repeat_dir),
+            "execution": {"status": "completed"},
+            "graph": graph,
+            "metadata": metadata,
+        }
+
+    monkeypatch.setattr(benchmark_runner_module, "run_case", fake_run_case)
+
+    summary = run_benchmark(
+        Path("tests/mbse_benchmark/cases"),
+        tmp_path / "results",
+        repeats=1,
+        report_dir=tmp_path / "reports",
+        selected_case="CASE-01",
+        track="harness",
+        scenario=BenchmarkScenario.E_FULL_HARNESS.value,
+        comparison_mode="budget_matched",
+        total_output_token_budget=50,
+    )
+
+    record = summary["metadata"]["scenario_metadata"][0]
+    assert record["comparison_mode"] == "budget_matched"
+    assert record["total_output_token_budget"] == 50
 
 
 def test_comparison_rejects_hidden_repair_calls_in_disabled_scenarios(
