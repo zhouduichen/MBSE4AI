@@ -369,6 +369,41 @@ v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计�
 
 本地离线测试、contract job、skip 状态和 SSH 可达性检查都不能替代第 15 项的 GitHub integration evidence。
 
+## 2026-10-08 Windows RTX 5080 Qwen：CASE-01 run01 partial evidence
+
+5080 节点恢复后，使用 Tailscale IP `100.88.143.10` 重新验证了真实 Ollama
+链路：`/api/tags` 返回 `qwen3.5:9b-q8_0`，`/v1/models` 返回同一模型，最小
+非流式 `/api/chat` 请求返回 `OK`，并产生真实 Ollama telemetry（prompt 17、生成
+2 tokens）。MagicDNS hostname 的 `11434` 路径不稳定，因此实验使用设计文档规定的
+Tailscale IP，而不是 hostname。
+
+随后启动了一个全新目录的 CASE-01 A–E natural comparison：
+
+```text
+profile: windows-5080-ollama
+provider/model: Windows 5080 Ollama / qwen3.5:9b-q8_0
+command: --track llm --compare-a-e --path vertical --case CASE-01
+         --repeats 3 --timeout 5400 --benchmark-token-budget 8192
+         --comparison-mode natural
+results: /tmp/ai4mbse-5080-qwen-20261008-run01-results
+reports: /tmp/ai4mbse-5080-qwen-20261008-run01-reports
+```
+
+该次 comparison 未完成，不能作为 Harness 收益结论：
+
+| Scenario | Repeat 状态 | 真实 telemetry | 终态 |
+|---|---|---|---|
+| A Bare one-shot | 3/3 完成 provider call | 每次 1 call、656 input、8192 output、8848 total tokens；151.9–166.4s | `StructuredOutputFailure`：JSON 在输出上限截断 |
+| B Bare staged | 2/3 完成 provider call；第 3 次在 endpoint 中断后由操作员停止 | 完成 repeat 每次 2 calls、15682 total tokens；231.6–236.4s | `StructuredOutputFailure`；B3=`KeyboardInterrupt` |
+| C/D/E | 未启动 | 无 | 不产生质量结论 |
+
+运行中 5080 的 `11434` 曾短暂超时，随后 `/api/tags` 恢复但 `/api/ps` 显示没有
+加载模型；B3 子进程仍持有旧连接，继续等待不会形成可审计的完整 repeat，因此只
+停止了本机 benchmark 进程。远端 Ollama、Windows 主机和任何共享 GPU 任务均未被
+停止或修改；已落盘的失败 artifact 保留在上述 results 目录。该记录证明当前
+5080 具备真实推理能力，但还没有形成稳定覆盖完整 A–E 的实验窗口，不能把这次
+partial run 计入第 11 或第 15 项的通过证据。
+
 ## 2026-10-08 14:42 当前远端可达性审计
 
 本次只读核查没有把“5080 恢复”当作实验前置条件通过：
