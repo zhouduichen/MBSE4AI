@@ -14,6 +14,7 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 - worker timeout/exit 的失败 metadata 仍保留 ExternalEvaluator boundary、evaluation spec hash 与 request-guard hash；
 - report builder 在 summary 中输出 artifact audit，并在 metadata 缺失时从 run ledger/repeat metadata 回退读取 prompt/task hash；
 - Integration readiness 在启动外部 job 前校验完整 SSH bridge（target/host/user/jump/key/known_hosts/端口），缺失配置直接 fail-closed；
+- Integration readiness 与 Controller launcher 统一 worker lease 生命周期语义：过期或 owner 已退出的 scheduler lease 不再永久阻塞；存活 owner 的 GPU overlap、handoff/release marker 和缺失/畸形 lease 仍 fail-closed，并有 7 个回归测试覆盖；
 - A/B/C/D/E 的所有 model-side repair 路径统一受 scenario control 管理：包括 adapter-level structured-output repair；比较器新增 `repair_control_observed`，声明关闭但遥测出现 repair call 时整体 FAIL；
 - 每个 A–E repeat metadata 记录 `structured_output_repair`、`vertical_feedback`、`automatic_operational_completion`、`vertical_completion_bridge` 的实际值；缺失或与 scenario contract 不一致时 comparison fail-closed；
 - 成功与失败 metadata 都有对应回归测试；隐藏 repair call、开关错配和失败样本缺少控制证据都会被测试或 comparison 拒绝；

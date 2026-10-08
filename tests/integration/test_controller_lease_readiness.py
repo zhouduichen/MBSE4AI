@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from scripts.controller_lease_readiness import assess_lease
@@ -34,6 +35,60 @@ def test_assess_lease_accepts_unexpired_disjoint_worker_lease(tmp_path: Path) ->
 def test_assess_lease_rejects_gpu_overlap(tmp_path: Path) -> None:
     _controller(tmp_path)
     _write(tmp_path / ".h3-worker-gpu-lease.json", {"allocated_gpus": [0, 1]})
+
+    ready, message = assess_lease(tmp_path, now=100.0)
+
+    assert not ready
+    assert message == "WAIT:controller-worker-gpu-overlap=[0]"
+
+
+def test_assess_lease_ignores_expired_worker_lease(tmp_path: Path) -> None:
+    _controller(tmp_path)
+    _write(
+        tmp_path / ".h3-worker-gpu-lease.json",
+        {
+            "allocated_gpus": [0, 1, 2, 3],
+            "created_at": 10.0,
+            "expires_at": 20.0,
+            "owner_pid": 999999999,
+        },
+    )
+
+    ready, message = assess_lease(tmp_path, now=100.0)
+
+    assert ready
+    assert message == "READY:controller_gpus=[0],worker_gpus=[]"
+
+
+def test_assess_lease_ignores_worker_lease_after_owner_exit(tmp_path: Path) -> None:
+    _controller(tmp_path)
+    _write(
+        tmp_path / ".h3-worker-gpu-lease.json",
+        {
+            "allocated_gpus": [0],
+            "created_at": 90.0,
+            "expires_at": 200.0,
+            "owner_pid": 999999999,
+        },
+    )
+
+    ready, message = assess_lease(tmp_path, now=100.0)
+
+    assert ready
+    assert message == "READY:controller_gpus=[0],worker_gpus=[]"
+
+
+def test_assess_lease_keeps_live_worker_overlap_blocked(tmp_path: Path) -> None:
+    _controller(tmp_path)
+    _write(
+        tmp_path / ".h3-worker-gpu-lease.json",
+        {
+            "allocated_gpus": [0],
+            "created_at": 90.0,
+            "expires_at": 200.0,
+            "owner_pid": os.getpid(),
+        },
+    )
 
     ready, message = assess_lease(tmp_path, now=100.0)
 

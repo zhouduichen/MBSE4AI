@@ -5,10 +5,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import time
 from typing import Any, Mapping
 from urllib.request import Request, urlopen
+
+
+_WORKER_LEASE_MAX_AGE_SECONDS = 24 * 60 * 60
 
 
 def _read_object(path: Path) -> Mapping[str, Any] | None:
@@ -28,6 +32,70 @@ def _gpu_set(value: object) -> set[int] | None:
             return None
         result.add(item)
     return result
+
+
+def _process_is_live(pid: int) -> bool | None:
+    """Return process liveness, treating a Linux zombie as not live.
+
+    ``None`` means the platform did not expose enough information.  Readiness
+    stays fail-closed for that result instead of reclaiming a possibly live
+    worker lease.
+    """
+
+    proc_stat = Path(f"/proc/{pid}/stat")
+    if proc_stat.exists():
+        try:
+            fields = proc_stat.read_text(encoding="utf-8").split()
+        except (OSError, UnicodeDecodeError):
+            return None
+        if len(fields) >= 3:
+            return fields[2] != "Z"
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return None
+    return True
+
+
+def _active_worker_gpus(
+    worker: Mapping[str, Any],
+    *,
+    now: float | None,
+) -> set[int] | None:
+    """Return GPUs held by a live worker lease.
+
+    Legacy marker files without lifecycle metadata remain active and therefore
+    fail closed.  New scheduler markers carry timestamps and an owner PID;
+    expired markers or markers whose owner has exited are safe to ignore, in
+    line with the Controller launcher's allocation policy.
+    """
+
+    worker_gpus = _gpu_set(worker.get("allocated_gpus", []))
+    if worker_gpus is None:
+        return None
+    lifecycle_fields = {"created_at", "expires_at", "owner_pid"}
+    if not lifecycle_fields & worker.keys():
+        return worker_gpus
+    try:
+        created_at = float(worker["created_at"])
+        expires_at = float(worker["expires_at"])
+        owner_pid = int(worker["owner_pid"])
+    except (KeyError, TypeError, ValueError):
+        return worker_gpus
+    if created_at <= 0 or expires_at <= 0 or owner_pid <= 0:
+        return worker_gpus
+    current = time.time() if now is None else float(now)
+    if current > expires_at or current - created_at > _WORKER_LEASE_MAX_AGE_SECONDS:
+        return set()
+    owner_live = _process_is_live(owner_pid)
+    if owner_live is False:
+        return set()
+    return worker_gpus
 
 
 def assess_lease(state_root: Path, *, now: float | None = None) -> tuple[bool, str]:
@@ -58,7 +126,7 @@ def assess_lease(state_root: Path, *, now: float | None = None) -> tuple[bool, s
     worker = _read_object(worker_path) if worker_path.exists() else {}
     if worker is None:
         return False, "WAIT:worker-lease-invalid"
-    worker_gpus = _gpu_set(worker.get("allocated_gpus", []))
+    worker_gpus = _active_worker_gpus(worker, now=now)
     if worker_gpus is None:
         return False, "WAIT:worker-gpu-set-invalid"
     overlap = sorted(controller_gpus & worker_gpus)
