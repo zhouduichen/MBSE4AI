@@ -540,6 +540,7 @@ def run_scenario_comparison(
                 "gate_enabled": first.get("gate_enabled"),
                 "repair_enabled": first.get("repair_enabled"),
                 "cas_enabled": first.get("cas_enabled"),
+                "repair_runtime_controls": first.get("repair_runtime_controls"),
                 "remote_fail_fast": first.get("remote_fail_fast"),
             },
         }
@@ -670,8 +671,20 @@ def run_scenario_comparison(
         )
         for scenario, expected in comparison["controls"].items()
     )
+    repair_control_names = (
+        "structured_output_repair",
+        "vertical_feedback",
+        "automatic_operational_completion",
+        "vertical_completion_bridge",
+    )
     comparison["repair_control_observed"] = bool(all_records) and all(
         isinstance(record.get("telemetry"), Mapping)
+        and isinstance(record.get("repair_runtime_controls"), Mapping)
+        and all(
+            record["repair_runtime_controls"].get(name)
+            is record.get("repair_enabled")
+            for name in repair_control_names
+        )
         and (
             record.get("repair_enabled") is True
             or int(record["telemetry"].get("repair_call_count", 0) or 0) == 0

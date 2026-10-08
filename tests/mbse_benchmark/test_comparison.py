@@ -167,6 +167,13 @@ def _fake_comparison_record(scenario: str, repeat_index: int, mode: str) -> dict
         "gate_enabled": contract.gate_enabled,
         "repair_enabled": contract.repair_enabled,
         "cas_enabled": contract.cas_enabled,
+        "scenario": scenario,
+        "repair_runtime_controls": {
+            "structured_output_repair": contract.repair_enabled,
+            "vertical_feedback": contract.repair_enabled,
+            "automatic_operational_completion": contract.repair_enabled,
+            "vertical_completion_bridge": contract.repair_enabled,
+        },
         "graph_hash": f"graph-{scenario}-{repeat_index}",
         "execution_status": "completed",
         "metric_record": {

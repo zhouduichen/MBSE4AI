@@ -77,6 +77,20 @@ def _write_canonical_input(path: Path, envelope: BenchmarkInputEnvelope) -> None
     path.write_bytes(envelope.canonical_bytes + b"\n")
 
 
+def _repair_runtime_controls(config: Mapping[str, object]) -> dict[str, bool | None]:
+    """Persist the effective model-side repair controls for audit purposes."""
+
+    return {
+        name: value if isinstance(value, bool) else None
+        for name, value in (
+            ("structured_output_repair", config.get("structured_output_repair")),
+            ("vertical_feedback", config.get("vertical_feedback")),
+            ("automatic_operational_completion", config.get("automatic_operational_completion")),
+            ("vertical_completion_bridge", config.get("vertical_completion_bridge")),
+        )
+    }
+
+
 def _failure_metadata(
     input_envelope: BenchmarkInputEnvelope,
     contract,
@@ -160,6 +174,7 @@ def _failure_metadata(
             "evaluation_spec_hash": evaluation_spec_hash,
         },
         "remote_fail_fast": bool(config.get("remote_fail_fast", False)),
+        "repair_runtime_controls": _repair_runtime_controls(config),
         "comparison_mode": comparison_mode,
         "total_output_token_budget": total_output_token_budget,
         "execution_status": execution_status,
@@ -472,6 +487,9 @@ def _run_case_inner(
             _write_json(output_dir / "audit.json", {"events": []})
             metadata = scenario_output.metadata.as_dict()
             metadata["normalization_audit"] = scenario_output.normalization_audit.as_dict()
+            metadata["repair_runtime_controls"] = _repair_runtime_controls(
+                effective_runtime_config
+            )
             metadata["remote_fail_fast"] = bool(
                 effective_runtime_config.get("remote_fail_fast", False)
             )
@@ -863,6 +881,7 @@ def _harness_metadata(
         "repair_enabled": contract.has_repair,
         "cas_enabled": contract.has_cas,
         "remote_fail_fast": bool(config.get("remote_fail_fast", False)),
+        "repair_runtime_controls": _repair_runtime_controls(config),
         "telemetry": telemetry.as_dict(),
     }
 
