@@ -449,6 +449,24 @@ admin enforcement。PR #2 仍显示 `REVIEW_REQUIRED` / `BLOCKED`，因此没有
 `repair_control_observed=true` 和完整 A–E PASS，仍需在 5080 可用窗口重新执行一组
 campaign。这样保留了旧实验的不可变证据，也避免把报告层修复误写成新的模型实验结果。
 
+随后用同一 5080/Qwen profile 执行了一个 C 场景真实 smoke：
+`/tmp/ai4mbse-5080-qwen-20261008-repair-smoke-results`。该 repeat 的
+`execution_status=completed`、`call_count=6`、`total_tokens=43503`、
+`wall_latency_ms=49430`，并且 metadata 现在明确记录：
+
+```json
+{
+  "repair_enabled": true,
+  "structured_output_repair": true,
+  "vertical_feedback": true,
+  "automatic_operational_completion": true,
+  "vertical_completion_bridge": true
+}
+```
+
+这是真实 5080 runtime 的修复后开关证据；该 C smoke 的质量终态仍为
+`REJECTED`（C 有意关闭 verifier），不把质量拒绝改写为 comparison PASS。
+
 ## 2026-10-08 Windows RTX 5080 Qwen：CASE-01 run01 partial evidence
 
 5080 节点恢复后，使用 Tailscale IP `100.88.143.10` 重新验证了真实 Ollama
