@@ -341,7 +341,8 @@ def run_benchmark(
         validation["repeat_statistics"] = summarize_repeats([
             item.get("metric_record", {})
             for item in repeat_results
-            if isinstance(item.get("metric_record"), Mapping)
+            if _repeat_record_is_usable(item)
+            and isinstance(item.get("metric_record"), Mapping)
         ])
         validation["metadata"] = _case_metadata(case_id, repeat_results, track=track, profile=profile)
         (case_dir / "validation.json").write_text(
@@ -524,7 +525,8 @@ def run_scenario_comparison(
                 "metric_statistics": summarize_repeats([
                     item.get("metric_record", {})
                     for item in records
-                    if isinstance(item.get("metric_record"), Mapping)
+                    if _repeat_record_is_usable(item)
+                    and isinstance(item.get("metric_record"), Mapping)
                 ]),
                 "repeat_records": records,
                 "semantic_metrics": summary.get("semantic_metrics", {}),
@@ -571,6 +573,15 @@ def run_scenario_comparison(
         selected_cases = tuple(
             case for case in selected_cases if str(case["case_id"]) == selected_case
         )
+    expected_record_count = len(selected_cases) * max(1, repeats)
+    for scenario, records in records_by_scenario.items():
+        payload = comparison["scenarios"].get(scenario, {})
+        metadata = payload.get("metadata", {}) if isinstance(payload, Mapping) else {}
+        if isinstance(metadata, dict):
+            metadata["repeat_audit"] = _repeat_evidence_audit(
+                records,
+                expected_record_count=expected_record_count,
+            )
     comparison["input_artifact_audit"] = _persisted_input_audit(
         output_root,
         selected_cases,
@@ -724,29 +735,52 @@ def run_scenario_comparison(
         and record["telemetry"].get("estimated_cost_usd", -1) >= 0
         for record in all_records
     )
-    comparison["quality_cost_points"] = [
-        {
+    comparison["quality_cost_points"] = []
+    for scenario, payload in comparison["scenarios"].items():
+        metadata = payload.get("metadata", {}) if isinstance(payload, Mapping) else {}
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        metric_statistics = metadata.get("metric_statistics", {})
+        telemetry_statistics = metadata.get("telemetry_statistics", {})
+        quality_count = _stat_count(
+            metric_statistics,
+            "semantic.end_to_end_traceability",
+        )
+        cost_count = _stat_count(telemetry_statistics, "estimated_cost_usd")
+        repeat_audit = metadata.get("repeat_audit", {})
+        repeat_audit = repeat_audit if isinstance(repeat_audit, Mapping) else {}
+        repeat_complete = repeat_audit.get("status") == "complete"
+        completed_count = int(repeat_audit.get("completed_record_count", 0) or 0)
+        observed_count = int(repeat_audit.get("observed_record_count", 0) or 0)
+        cost_status = _cost_status(metadata.get("repeat_records", ()))
+        quality_valid = (
+            repeat_complete
+            and completed_count > 0
+            and quality_count == completed_count
+        )
+        cost_valid = (
+            repeat_complete
+            and observed_count > 0
+            and cost_count == observed_count
+            and cost_status == "available"
+        )
+        comparison["quality_cost_points"].append({
             "scenario": scenario,
-            "quality": _stat_mean(
-                payload.get("metadata", {}).get("metric_statistics", {})
-                if isinstance(payload.get("metadata"), Mapping)
-                else {},
-                "semantic.end_to_end_traceability",
+            "quality": (
+                _stat_mean(metric_statistics, "semantic.end_to_end_traceability")
+                if quality_valid
+                else None
             ),
-            "cost": _stat_mean(
-                payload.get("metadata", {}).get("telemetry_statistics", {})
-                if isinstance(payload.get("metadata"), Mapping)
-                else {},
-                "estimated_cost_usd",
+            "cost": (
+                _stat_mean(telemetry_statistics, "estimated_cost_usd")
+                if cost_valid
+                else None
             ),
-            "cost_status": _cost_status(
-                payload.get("metadata", {}).get("repeat_records", ())
-                if isinstance(payload.get("metadata"), Mapping)
-                else (),
-            ),
-        }
-        for scenario, payload in comparison["scenarios"].items()
-    ]
+            "quality_count": quality_count,
+            "cost_count": cost_count,
+            "quality_status": "available" if quality_valid else "incomplete",
+            "cost_status": cost_status if cost_valid else "incomplete",
+            "repeat_status": repeat_audit.get("status", "incomplete"),
+        })
     required_invariants = (
         "same_model_provider",
         "same_input",
@@ -789,6 +823,91 @@ def _stat_mean(statistics: object, key: str) -> float | None:
         return None
     mean_value = value.get("mean")
     return float(mean_value) if isinstance(mean_value, (int, float)) else None
+
+
+def _stat_count(statistics: object, key: str) -> int:
+    if not isinstance(statistics, Mapping):
+        return 0
+    value = statistics.get(key)
+    if not isinstance(value, Mapping):
+        return 0
+    count = value.get("count")
+    return int(count) if isinstance(count, (int, float)) else 0
+
+
+def _record_telemetry(record: Mapping[str, object]) -> Mapping[str, object]:
+    telemetry = record.get("telemetry")
+    if isinstance(telemetry, Mapping):
+        return telemetry
+    metadata = record.get("metadata")
+    if isinstance(metadata, Mapping) and isinstance(metadata.get("telemetry"), Mapping):
+        return metadata["telemetry"]
+    return {}
+
+
+def _record_execution_status(record: Mapping[str, object]) -> str:
+    status = record.get("execution_status")
+    if isinstance(status, str):
+        return status
+    execution = record.get("execution")
+    if isinstance(execution, Mapping):
+        return str(execution.get("status", ""))
+    return ""
+
+
+def _record_has_graph(record: Mapping[str, object]) -> bool:
+    if record.get("graph_hash"):
+        return True
+    graph = record.get("graph")
+    if isinstance(graph, Mapping):
+        return bool(graph.get("snapshot_hash"))
+    return bool(graph)
+
+
+def _repeat_record_is_usable(record: Mapping[str, object]) -> bool:
+    telemetry = _record_telemetry(record)
+    return (
+        _record_execution_status(record) == "completed"
+        and _record_has_graph(record)
+        and int(telemetry.get("failed_call_count", 0) or 0) == 0
+    )
+
+
+def _repeat_evidence_audit(
+    records: object,
+    *,
+    expected_record_count: int,
+) -> dict[str, object]:
+    observed = (
+        [item for item in records if isinstance(item, Mapping)]
+        if isinstance(records, (list, tuple))
+        else []
+    )
+    completed = [item for item in observed if _repeat_record_is_usable(item)]
+    usable_metrics = [
+        item for item in completed
+        if isinstance(item.get("metric_record"), Mapping)
+    ]
+    cost_observations = [
+        item for item in observed
+        if _record_telemetry(item).get("cost_status") == "available"
+        and isinstance(_record_telemetry(item).get("estimated_cost_usd"), (int, float))
+    ]
+    failed_count = len(observed) - len(completed)
+    status = (
+        "complete"
+        if len(observed) == expected_record_count and failed_count == 0
+        else "incomplete"
+    )
+    return {
+        "expected_record_count": expected_record_count,
+        "observed_record_count": len(observed),
+        "completed_record_count": len(completed),
+        "failed_record_count": failed_count,
+        "usable_metric_record_count": len(usable_metrics),
+        "cost_observation_count": len(cost_observations),
+        "status": status,
+    }
 
 
 def _cost_status(records: object) -> str:

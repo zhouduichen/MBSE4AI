@@ -462,8 +462,30 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
             f"comparison_mode={metadata.get('comparison_mode', 'natural')}, "
             f"token_usage={metadata.get('token_usage', 'N/A')}, "
             f"latency_ms={metadata.get('latency_ms', 'N/A')}, "
+            f"repeat_audit={metadata.get('repeat_audit', 'N/A')}, "
             f"telemetry_statistics={metadata.get('telemetry_statistics', 'N/A')}, "
             f"metric_statistics={metadata.get('metric_statistics', 'N/A')}"
+        )
+    lines.extend([
+        "",
+        "## Repeat evidence audit",
+        "",
+        "| Scenario | Expected | Observed | Completed | Failed | Usable metric | Cost observations | Status |",
+        "| -------- | -------: | -------: | ---------: | -----: | ------------: | ----------------: | ------ |",
+    ])
+    for scenario, payload in scenarios.items() if isinstance(scenarios, Mapping) else ():
+        metadata = payload.get("metadata", {}) if isinstance(payload, Mapping) else {}
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        audit = metadata.get("repeat_audit", {})
+        audit = audit if isinstance(audit, Mapping) else {}
+        lines.append(
+            f"| {scenario} | {audit.get('expected_record_count', 'N/A')} | "
+            f"{audit.get('observed_record_count', 'N/A')} | "
+            f"{audit.get('completed_record_count', 'N/A')} | "
+            f"{audit.get('failed_record_count', 'N/A')} | "
+            f"{audit.get('usable_metric_record_count', 'N/A')} | "
+            f"{audit.get('cost_observation_count', 'N/A')} | "
+            f"{audit.get('status', 'incomplete')} |"
         )
     lines.extend([
         "",
@@ -508,12 +530,21 @@ def render_scenario_comparison(comparison: Mapping[str, object]) -> str:
         )
     quality_cost = comparison.get("quality_cost_points", ())
     if isinstance(quality_cost, (list, tuple)):
-        lines.extend(["", "## Quality-Cost", "", "| Scenario | Quality | Cost | Cost status |", "| -------- | -------: | ----: | ----------- |"])
+        lines.extend([
+            "",
+            "## Quality-Cost",
+            "",
+            "| Scenario | Quality | Quality n | Quality status | Cost | Cost n | Cost status | Repeat status |",
+            "| -------- | -------: | --------: | -------------- | ----: | ------: | ----------- | ------------ |",
+        ])
         for point in quality_cost:
             if isinstance(point, Mapping):
                 lines.append(
                     f"| {point.get('scenario', '')} | {point.get('quality', 'N/A')} | "
-                    f"{point.get('cost', 'N/A')} | {point.get('cost_status', 'unavailable')} |"
+                    f"{point.get('quality_count', 'N/A')} | {point.get('quality_status', 'incomplete')} | "
+                    f"{point.get('cost', 'N/A')} | {point.get('cost_count', 'N/A')} | "
+                    f"{point.get('cost_status', 'incomplete')} | "
+                    f"{point.get('repeat_status', 'incomplete')} |"
                 )
     return "\n".join(lines) + "\n"
 

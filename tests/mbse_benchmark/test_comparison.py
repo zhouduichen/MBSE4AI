@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -420,3 +421,77 @@ def test_comparison_rejects_missing_temperature(
             },
             comparison_mode="natural",
         )
+
+
+def test_failed_repeat_is_excluded_from_quality_and_reported_as_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cases = (CASE,)
+
+    def fake_run_benchmark(*args, **kwargs):
+        scenario = str(kwargs["scenario"])
+        records = [_fake_comparison_record(scenario, index, "natural") for index in range(1, 4)]
+        if scenario == BenchmarkScenario.A_BARE_ONE_SHOT.value:
+            records[0]["execution_status"] = "failed"
+            records[0]["graph_hash"] = None
+            records[0]["metric_record"]["semantic.end_to_end_traceability"] = 0.0
+            records[0]["telemetry"]["failed_call_count"] = 1
+        return {
+            "score": {"final_status": "ACCEPTED"},
+            "metrics": {},
+            "semantic_metrics": {"end_to_end_traceability": 0.5},
+            "governance_metrics": {},
+            "metadata": {"scenario_metadata": records},
+        }
+
+    monkeypatch.setattr(benchmark_runner_module, "run_benchmark", fake_run_benchmark)
+    monkeypatch.setattr(benchmark_runner_module, "load_cases", lambda _path: cases)
+    monkeypatch.setattr(
+        benchmark_runner_module,
+        "_persisted_input_audit",
+        lambda *args, **kwargs: {
+            "checked_count": 15,
+            "all_present": True,
+            "all_exact": True,
+            "records": [],
+        },
+    )
+
+    report_dir = tmp_path / "report"
+    with pytest.raises(ValueError, match="execution_complete"):
+        run_scenario_comparison(
+            Path("tests/mbse_benchmark/cases"),
+            tmp_path / "output",
+            repeats=3,
+            report_dir=report_dir,
+            profile="test-profile",
+            runtime_config={
+                "id": "profile-test",
+                "provider": "openai-compatible",
+                "model": "test-model",
+            },
+        )
+
+    comparison = json.loads(
+        (report_dir / "a_to_e_comparison.json").read_text(encoding="utf-8")
+    )
+    scenario = comparison["scenarios"][BenchmarkScenario.A_BARE_ONE_SHOT.value]
+    assert scenario["metadata"]["repeat_audit"] == {
+        "expected_record_count": 3,
+        "observed_record_count": 3,
+        "completed_record_count": 2,
+        "failed_record_count": 1,
+        "usable_metric_record_count": 2,
+        "cost_observation_count": 3,
+        "status": "incomplete",
+    }
+    assert scenario["metadata"]["metric_statistics"]["semantic.end_to_end_traceability"]["count"] == 2
+    point = next(
+        item for item in comparison["quality_cost_points"]
+        if item["scenario"] == BenchmarkScenario.A_BARE_ONE_SHOT.value
+    )
+    assert point["quality"] is None
+    assert point["quality_count"] == 2
+    assert point["quality_status"] == "incomplete"
+    assert point["repeat_status"] == "incomplete"
