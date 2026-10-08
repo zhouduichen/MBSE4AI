@@ -404,6 +404,16 @@ reports: /tmp/ai4mbse-5080-qwen-20261008-run01-reports
 5080 具备真实推理能力，但还没有形成稳定覆盖完整 A–E 的实验窗口，不能把这次
 partial run 计入第 11 或第 15 项的通过证据。
 
+对 6 个已落盘 repeat 做 artifact-level audit 的结果为：全部为 1549 bytes，
+input artifact SHA-256 均为
+`70e5f128a4cecdfce30fec9a05340c0e18431c93055870d30d7fbd05b6540669`，内部
+`input_hash` 均为
+`e5ab4f5b3c6b719491c716a7fdb0e3613ecd4e28c672665acb1891d02a87de10`；6 个
+metadata 都记录同一个 `windows-5080-ollama`/`qwen3.5:9b-q8_0`，且
+`evaluation_owner=ExternalEvaluator:v0.3.2`、`ground_truth_model_visible=false`、
+`evaluation_boundary.guard_enforced=true`。这证明已完成样本的公平输入与评估边界
+没有因服务中断而丢失，但不改变 comparison 尚未完整执行的结论。
+
 ## 2026-10-08 14:42 当前远端可达性审计
 
 本次只读核查没有把“5080 恢复”当作实验前置条件通过：
