@@ -1,14 +1,14 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
 更新时间：2026-10-08 CST
-代码审计提交：`3480c3d`
+代码审计提交：`1361e78`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
 
 ## 2026-10-08 当前收口
 
-当前代码审计提交为 `3480c3d`（`ci: fail scheduled collector on missing campaign`）。本次收口已完成：
+当前代码审计提交为 `1361e78`（`ci: expose budget matched integration mode`）。本次收口已完成：
 
 - A–E comparison output root 必须为空，拒绝复用或混入旧 repeat artifact；
 - worker timeout/exit 的失败 metadata 仍保留 ExternalEvaluator boundary、evaluation spec hash 与 request-guard hash；
@@ -19,8 +19,9 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 - 成功与失败 metadata 都有对应回归测试；隐藏 repair call、开关错配和失败样本缺少控制证据都会被测试或 comparison 拒绝；
 - repeat statistics 只统计 `completed + graph + failed_call_count=0` 的有效 repeat；失败 repeat 不再把空图指标带入质量均值；每个 scenario 记录 expected/observed/completed/failed/usable-metric/cost-observation audit；Quality–Cost 点在 repeat 不完整或样本数不一致时输出 `null` 与 `incomplete`，不再把部分结果伪装成可比较点；
 - scheduled remote evidence collector 不再因缺少 profile 而整体 skipped；定时运行找不到 campaign 时明确 FAIL，手动运行则记录 `NO_CAMPAIGN` 后返回，避免把 schedule 空跑误读为有效证据；
+- Integration workflow 的手动 dispatch 现在显式支持 `natural` 与 `budget_matched`；后者要求正整数 `total_output_token_budget`，schedule 强制使用 `natural`，并将选择写入 detached campaign manifest/CLI；
 - 本地 gate 全部通过：pytest、ruff、compileall、lint-imports、architecture metrics、robustness benchmark；
-- GitHub `CI / quality` 已对实现 head `4d28580` 的 push 与 PR 均通过（见下方对应 run 链接）；后续仅文档同步提交不改变这组实现证据。
+- 本地契约测试和完整质量门禁已通过；`1361e78` 的 GitHub `CI / quality` 远端结果待本次推送后补录，不能用此前 head 的 CI 结果替代。
 
 本次本地验证结果：完整 pytest `100% PASS`（2 个既有 skip）；Ruff、compileall、lint-imports、architecture budget、robustness benchmark 均 PASS。新增回归测试覆盖“失败 repeat 不进入质量统计、Quality–Cost 标记 incomplete、audit 计数不把失败当作 0”。
 
@@ -39,7 +40,7 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 | 7 | total token usage | REAL EVIDENCE; OVERALL FAIL-CLOSED | run16 A–E 均有真实 telemetry：A/B/C/D/E mean total tokens 分别为 `4269 / 32760 / 92520 / 127952.33 / 340293`；整体仍因 execution incomplete 保持 invariant FAIL |
 | 8 | model call count | REAL EVIDENCE; OVERALL FAIL-CLOSED | run16 A/B/C/D/E mean calls=`1 / 5 / 11.33 / 18 / 42.33`；E 的 calls 也已记录，但 comparison 仍因失败重复保持整体 fail-closed |
 | 9 | latency/cost | LATENCY REAL; COST UNAVAILABLE | run16 A–E wall latency mean 约 `321s / 1186s / 664s / 1135s / 2872s`；cost status=`unavailable`，没有伪造价格或成本 |
-| 10 | natural 与 budget-matched | NATURAL REAL; BUDGET CONTRACT ONLY | run14 使用 natural mode、共同 per-call cap=8192 且 A–E profile 同步；budget-matched 仍只有契约验证，不能用 natural run 代替 |
+| 10 | natural 与 budget-matched | NATURAL REAL; BUDGET DISPATCHABLE; REAL BUDGET-MATCHED NOT VERIFIED | run14 使用 natural mode、共同 per-call cap=8192 且 A–E profile 同步；当前手动 dispatch 可选择 `budget_matched` 并必须提供正整数 total budget，schedule/default 仍为 `natural`；尚无真实 budget-matched campaign 证据，不能用 natural run 代替 |
 | 11 | 3–5 repeats 与统计 | VERIFIED; FAIL-CLOSED | run16 A–E 均有 3 个 repeat 目录并生成 mean/std/CI95；D 为 1 completed+2 failed，E 为 3 failed，故整体 execution complete 仍为 false |
 | 12 | GitHub CI 真实 PASS | VERIFIED | 实现 head `4d28580` 的 push run [`37720573975`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37720573975) 与 PR run [`37720578337`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37720578337) 的 `CI / quality` 均成功；PR 仍需人工 review，不能据此自动合并 |
 | 13 | main 要求 CI / quality | VERIFIED | GitHub API 当前返回 `strict=true`、required context=`CI / quality`、required approvals=1、`enforce_admins=true` |
