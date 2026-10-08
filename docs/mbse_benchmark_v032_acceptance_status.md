@@ -532,3 +532,54 @@ metadata 都记录同一个 `windows-5080-ollama`/`qwen3.5:9b-q8_0`，且
 
 这只是远端可达性与资源占用证据，不是新的 A–E 实验结果。第 15 项仍需真实可访问的
 5080/LLM 入口或稳定的远端 vLLM reservation，并在同一 manifest 下完成完整 campaign。
+
+## 2026-10-09 Windows RTX 5080 Qwen：budget-matched CASE-01 campaign
+
+5080 节点恢复后，在同一 `qwen3.5:9b-q8_0` / Ollama profile 上完成了一组
+budget-matched A–E campaign。该 campaign 使用同一输入、task spec、模型/provider、
+temperature、`ModelGraph` normalizer、external evaluator 和 evaluation spec；15 个
+repeat artifact 的输入均存在且字节级一致（15/15），输入 artifact SHA-256 为
+`70e5f128a4cecdfce30fec9a05340c0e18431c93055870d30d7fbd05b6540669`，内部
+`input_hash` 为
+`e5ab4f5b3c6b719491c716a7fdb0e3613ecd4e28c672665acb1891d02a87de10`。所有场景均为
+真实 provider calls，且 `ground_truth_isolated=true`、`repair_control_observed=true`。
+
+```text
+profile: windows-5080-ollama-32768
+provider/model: Windows 5080 Ollama / qwen3.5:9b-q8_0
+comparison_mode: budget_matched
+total_output_token_budget: 32768
+command: --track llm --profile windows-5080-ollama-32768 --compare-a-e
+         --path vertical --case CASE-01 --repeats 3 --timeout 1800
+         --benchmark-token-budget 32768 --comparison-mode budget_matched
+         --total-output-token-budget 32768
+results: /tmp/ai4mbse-5080-qwen-20261008-budget32768-results
+reports: /tmp/ai4mbse-5080-qwen-20261008-budget32768-reports
+authoritative report: reports/llm/windows-5080-ollama-32768/a_to_e_comparison.json
+```
+
+该组实验的权威 comparison 仍为 `FAIL`，不能作为 Harness 收益结论：
+
+| Scenario | Repeat 状态 | 平均 calls | 平均 total tokens | 终态 |
+|---|---:|---:|---:|---|
+| A Bare one-shot | 3/3 完成 | 1 | 13,925 | `REJECTED` |
+| B Bare staged | 0/3 usable；3 次均触及 32,768 output cap | 1 | 33,446 | `StructuredOutputFailure` |
+| C Harness − Verifier | 3/3 完成 | 6 | 43,503 | `REJECTED` |
+| D Harness − Repair | 3/3 完成 | 6 | 43,503 | `REJECTED` |
+| E Full Harness | 3/3 完成 with warnings | 23 | 164,649 | `REJECTED` |
+
+comparison invariant failures 为 `budget_comparable`、`budget_enforced` 和
+`execution_complete`。B 的失败是可审计的真实 cap-boundary：三次均为
+`StructuredOutputFailure`，output tokens 恰为 32,768；E 三次都完成并记录了真实
+verifier/repair/CAS controls，但在该总预算下消耗到 cap。A–E 的 shared model,
+provider, task spec, evaluator, normalizer, evaluation spec 和 temperature checks
+均通过；本组结果因此证明了真实调用、输入隔离、控制开关和 token/latency/cost
+telemetry，尚未证明 Harness 相对 Bare 的性能收益。
+
+artifact audit 进一步发现，`budget_comparable=false` 与 `budget_enforced=false`
+并非 provider 没有遵守上限，而是成功 repeat 的 metadata 没有持久化
+`comparison_mode` 和 `total_output_token_budget`；失败 metadata 原本已包含这些
+字段。commit `830c402` 已在成功 repeat 路径补齐字段，并增加回归测试
+`test_budget_controls_are_persisted_on_successful_repeat_metadata`。本次旧 report
+作为不可变实验记录保留，不回写成 PASS；要取得修复后的权威 comparison，需要在
+5080 可用窗口重新执行 campaign。该修复后的 GitHub PR quality check 已通过。
