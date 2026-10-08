@@ -599,7 +599,7 @@ def _run_case_inner(
             input_envelope,
             contract,
             graph,
-            runtime_config,
+            effective_runtime_config,
             ledger_metadata,
             telemetry_events=telemetry_events,
             comparison_mode=comparison_mode,
