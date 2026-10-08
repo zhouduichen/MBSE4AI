@@ -1,21 +1,22 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
 更新时间：2026-10-08 CST
-审计提交：`c960ee9`
+代码审计提交：`3fae734`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
 
 ## 2026-10-08 当前收口
 
-当前审计提交为 `c960ee9`（`docs: record integration readiness hardening`）。本次收口已完成：
+当前代码审计提交为 `3fae734`（`test: enforce repair ablation telemetry`）。本次收口已完成：
 
 - A–E comparison output root 必须为空，拒绝复用或混入旧 repeat artifact；
 - worker timeout/exit 的失败 metadata 仍保留 ExternalEvaluator boundary、evaluation spec hash 与 request-guard hash；
 - report builder 在 summary 中输出 artifact audit，并在 metadata 缺失时从 run ledger/repeat metadata 回退读取 prompt/task hash；
 - Integration readiness 在启动外部 job 前校验完整 SSH bridge（target/host/user/jump/key/known_hosts/端口），缺失配置直接 fail-closed；
+- A/B/C/D/E 的所有 model-side repair 路径统一受 scenario control 管理：包括 adapter-level structured-output repair；比较器新增 `repair_control_observed`，声明关闭但遥测出现 repair call 时整体 FAIL；
 - 本地 gate 全部通过：pytest、ruff、compileall、lint-imports、architecture metrics、robustness benchmark；
-- GitHub `CI / quality` 对 push 与 PR 均通过（见下方当前 run 链接）。
+- GitHub `CI / quality` 已对 `3fae734` 的 push 与 PR 均通过（见下方当前 run 链接）。
 
 但这不等于真实 A–E 实验完成。最新 5080/Qwen campaign 的 comparison 为 `FAIL`，且发现历史 report 与 A–D raw artifact 目录不一致；该证据不能用于宣称 Harness 收益，新的 stale-root guard 用于阻止同类混入再次发生。
 
@@ -27,14 +28,14 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 | 2 | Ground truth 仅 ExternalEvaluator 可访问 | VERIFIED | run16 与 run25 均记录 `ground_truth_isolated=true`、`same_evaluator=true`、`same_evaluation_spec=true`；run25 的 75 个 artifact 均记录 evaluator guard evidence |
 | 3 | A/B 无法声明 Accepted/User authority | VERIFIED | run16 的 A/B authority claims 被 ExternalEvaluator 记录（A=18、B=53），没有被模型声明直接采信；A/B 的 release/technical closure 均未通过 |
 | 4 | Semantic 与 Governance metrics 分离 | VERIFIED | run16 同时生成 semantic projection 与 governance authority/Technical Closure/Release Closure 分支；D/E 的 Technical Closure mean pass=1、Release Closure mean pass=0 |
-| 5 | C/D/E 正交 Ablation | VERIFIED; OVERALL FAIL | run16 metadata 记录 C=`verifier=false, gate=true, repair=true, CAS=true`，D=`verifier=true, gate=true, repair=false, CAS=true`，E 全开；controls 已可审计，但 execution 不完整，整体仍 fail-closed |
+| 5 | C/D/E 正交 Ablation | VERIFIED; OVERALL FAIL | run16 metadata 记录 C=`verifier=false, gate=true, repair=true, CAS=true`，D=`verifier=true, gate=true, repair=false, CAS=true`，E 全开；当前代码另外校验 `repair_control_observed`，controls 已可审计，但 execution 不完整，整体仍 fail-closed |
 | 6 | verifier/gate/repair/CAS 开关可审计 | VERIFIED | run16 A–E 均生成独立 control 字段；E 的 provider fail-fast 不能被补推成成功，但不影响 controls 审计 |
 | 7 | total token usage | REAL EVIDENCE; OVERALL FAIL-CLOSED | run16 A–E 均有真实 telemetry：A/B/C/D/E mean total tokens 分别为 `4269 / 32760 / 92520 / 127952.33 / 340293`；整体仍因 execution incomplete 保持 invariant FAIL |
 | 8 | model call count | REAL EVIDENCE; OVERALL FAIL-CLOSED | run16 A/B/C/D/E mean calls=`1 / 5 / 11.33 / 18 / 42.33`；E 的 calls 也已记录，但 comparison 仍因失败重复保持整体 fail-closed |
 | 9 | latency/cost | LATENCY REAL; COST UNAVAILABLE | run16 A–E wall latency mean 约 `321s / 1186s / 664s / 1135s / 2872s`；cost status=`unavailable`，没有伪造价格或成本 |
 | 10 | natural 与 budget-matched | NATURAL REAL; BUDGET CONTRACT ONLY | run14 使用 natural mode、共同 per-call cap=8192 且 A–E profile 同步；budget-matched 仍只有契约验证，不能用 natural run 代替 |
 | 11 | 3–5 repeats 与统计 | VERIFIED; FAIL-CLOSED | run16 A–E 均有 3 个 repeat 目录并生成 mean/std/CI95；D 为 1 completed+2 failed，E 为 3 failed，故整体 execution complete 仍为 false |
-| 12 | GitHub CI 真实 PASS | VERIFIED | 当前提交 `c960ee9` 的 push run [`37706055766`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37706055766) 与 PR run [`37706059976`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37706059976) 的 `CI / quality` 均成功；PR 仍需人工 review，不能据此自动合并 |
+| 12 | GitHub CI 真实 PASS | VERIFIED | `3fae734` 的 push run [`37707269108`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37707269108) 与 PR run [`37707273628`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37707273628) 的 `CI / quality` 均成功；PR 仍需人工 review，不能据此自动合并 |
 | 13 | main 要求 CI / quality | VERIFIED | GitHub API 当前返回 `strict=true`、required context=`CI / quality`、required approvals=1、`enforce_admins=true` |
 | 14 | Integration schedule 不空跑 | NOT VERIFIED | `.github/workflows/integration.yml` 在当前 PR 分支包含 schedule/readiness/remote jobs，但 GitHub API 对 `main` 返回该 workflow 不存在，且没有 scheduled event 的权威 run evidence；因此不能把 PR 分支配置写成已生效的主线 schedule |
 | 15 | Remote LLM/FreeCAD/GPU 真实 workflow | PARTIAL; A–E TERMINAL FAIL | 历史 run `36524219363` 真实 PASS FreeCAD/GPU acceptance；历史 remote A–E run 均 fail-closed。最新 5080/Qwen campaign 也未形成完整 A–E PASS，并暴露 report/raw artifact 混入，不能宣称 Harness 收益或实验结论 |
