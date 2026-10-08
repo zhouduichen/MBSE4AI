@@ -365,9 +365,64 @@ marker、不重启训练 worker，也不把失败结果改写为 PASS。
 
 ## 当前结论
 
-v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；Windows RTX 5080/Qwen 的 CASE-01 切片进一步证明，在可用的真实模型服务上，A–E 可以完成三次调度并生成完整 telemetry，且 comparison invariants 全部通过。该切片仍不能替代五个 case 的完整 campaign，也不能把 A–D 的质量拒绝或 E 的 Release Closure `FAIL` 改写成 Harness 收益已经全面证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 及本次 5080 运行共同说明，空闲窗口策略必须保留完整 manifest、telemetry 和 fail-closed 终态，不能用短暂 `:8000` 健康、局部成功或仅检查服务存活代替完整证据。第 14 项仍需要 scheduled event 的权威 run，第 15 项仍需要五个 case 的真实 remote LLM 完整 A–E 质量/成本证据。
+v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；Windows RTX 5080/Qwen 的最新 CASE-01 run04 已完成 A–E 各 3 repeats 并生成完整 telemetry，但 comparison 仍按 fail-closed 规则为 `FAIL`：B 的自然 staged 输出在 32768 上限截断，且远端 profile 的 repair runtime switch 没有被实际观测为开启。该切片仍不能替代五个 case 的完整 campaign，也不能把 A–D 的质量拒绝或 E 的 Release Closure `FAIL` 改写成 Harness 收益已经全面证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 及本次 5080 运行共同说明，空闲窗口策略必须保留完整 manifest、telemetry 和 fail-closed 终态，不能用短暂 `:8000` 健康、局部成功或仅检查服务存活代替完整证据。第 14 项仍需要 scheduled event 的权威 run，第 15 项仍需要五个 case 的真实 remote LLM 完整 A–E 质量/成本证据。
 
 本地离线测试、contract job、skip 状态和 SSH 可达性检查都不能替代第 15 项的 GitHub integration evidence。
+
+## 2026-10-08 Windows RTX 5080 Qwen：CASE-01 run04 完整 A–E natural campaign
+
+5080 恢复后，使用 direct Ollama endpoint `http://100.88.143.10:11434/v1`、模型
+`qwen3.5:9b-q8_0` 和用户级 profile `windows-5080-ollama-32768` 完成了
+CASE-01 的 A–E、每组 3 repeats。该 profile 使用 `max_output_tokens=32768`、远端
+模型实际 `context_length=65536`；所有 15 个 repeat 都是真实 5080 调用，不是
+deterministic fallback。
+
+```text
+command: .venv/bin/python tests/mbse_benchmark/run_benchmark.py \
+  --track llm --profile windows-5080-ollama-32768 --compare-a-e \
+  --path vertical --case CASE-01 --repeats 3 --timeout 5400 \
+  --benchmark-token-budget 32768 --comparison-mode natural \
+  --output-root /tmp/ai4mbse-5080-qwen-20261008-run04-results \
+  --report-dir /tmp/ai4mbse-5080-qwen-20261008-run04-reports
+```
+
+报告目录为 `/tmp/ai4mbse-5080-qwen-20261008-run04-reports/llm/`
+（`a_to_e_comparison.json`、`reproducibility_manifest.json` 和各 scenario 的
+`metrics.json`）。这次 campaign 的 comparison 终态是 `FAIL`，这是 fail-closed
+结果，不是实验进程崩溃：
+
+- 15/15 input artifacts 存在且字节级一致；artifact SHA-256 为
+  `70e5f128a4cecdfce30fec9a05340c0e18431c93055870d30d7fbd05b6540669`，内部
+  `input_hash` 为 `e5ab4f5b3c6b719491c716a7fdb0e3613ecd4e28c672665acb1891d02a87de10`。
+- `ground_truth_isolated=true`、`same_model_provider=true`、`same_task_spec=true`、
+  `same_evaluator=true`、`same_normalizer=true`、`same_evaluation_spec=true`、
+  `same_temperature=true`、`real_calls_observed=true`、`token_usage_observed=true`、
+  `latency_observed=true`、`cost_observed=true`；ExternalEvaluator 没有收到
+  ground-truth payload。
+- A–E 的 ablation contract 为 true，控制开关分别记录在 comparison report 中。
+- A、C、D、E 各自 3/3 完成；B 3/3 都是真实调用，但在 32768 output cap 截断，
+  `StructuredOutputFailure`，因此 B 的 semantic metrics 为 `N/A`，不能当作 0。
+- 唯一两个 fail-closed invariant 是 `execution_complete`（B 截断）和
+  `repair_control_observed`：5080 profile 的 metadata 对 C/E 声明 repair=true，
+  但实际 adapter telemetry 为 `structured_output_repair=null`、
+  `vertical_feedback=false`、`vertical_completion_bridge=false`，说明远端 profile
+  没有真正把 repair 开关传到运行时。这是当前下一步需要修复的工程缺口，不能把
+  C/D/E 的 ablation 结果直接宣称为完备结论。
+
+| Scenario | 终态 | calls mean | total tokens mean | wall latency mean | Semantic RFLP / trace | Technical / Release Closure |
+|---|---|---:|---:|---:|---:|---:|
+| A Bare one-shot | completed / quality rejected | 1 | 13,925 | 257.0 s | 0.0 / 0.0 | 0.0 / 0.0 |
+| B Bare staged | 3/3 truncated | 1 | 33,446 | 654.4 s | N/A / N/A | N/A / N/A |
+| C Harness − Verifier | completed / quality rejected | 6 | 43,503 | 36.6 s | 0.0 / 0.0 | 0.0 / 0.0 |
+| D Harness − Repair | completed / quality rejected | 6 | 43,503 | 32.7 s | 0.0 / 0.0 | 0.0 / 0.0 |
+| E Full Harness | completed / quality rejected | 28 | 244,375 | 1,405.7 s | 1.0 / 1.0 | 1.0 / 0.0 |
+
+每个 scenario 均产生 3-repeat mean/std/95% CI；完整统计留在
+`a_to_e_comparison.md` 与 `metrics.json`。E 的 `TechnicalClosure` 三次均通过，
+但 `ReleaseClosure` 三次均失败，因为下游事实仍为 `VALIDATED` 而非
+`ACCEPTED/LOCKED`；这验证了 Technical/Release 双 gate 语义分离。E 的 CAS
+stale-write rejection 也三次通过。该 run 是可复现的 CASE-01 真实证据，但由于
+B 的自然预算失败和 repair switch 观测缺口，尚不能作为 v0.3.2 全部验收通过。
 
 ## 2026-10-08 Windows RTX 5080 Qwen：CASE-01 run01 partial evidence
 
