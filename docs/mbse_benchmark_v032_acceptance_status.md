@@ -337,6 +337,30 @@ E 的统一 ModelGraph 语义指标（RFLP/trace/verification coverage 与
 CASE-01 的 5080/Qwen 切片已经完成，不代表五个 case 的完整 campaign 或
 v0.3.2 的全部验收项已经完成。
 
+## 2026-10-08 vLLM 恢复后的两次 direct campaign：仍被 worker handoff 中断
+
+本次确认 `Jiayu-intern` 上的 Controller vLLM 在训练 worker 释放 GPU 后可以恢复：
+`127.0.0.1:8000/v1/models` 正常返回 `qwen3.5-controller`。随后使用同一个
+`qwen3.5-controller`、同一个 `jiayuinter-vllm-v032-remote-8192` profile、自然
+预算、5 个 case、3 repeats 和 detached `remote_llm_campaign.py` wrapper 启动了
+新的 A–E campaign；没有复用上一轮结果目录。
+
+- `github-37723762084`：vLLM 在 A–E 首个长请求期间被 scheduler 以
+  `campaign holds Controller lane for worker handoff` 正常停止；75 个 repeat
+  最终均为 `TransportFailure/RemoteDisconnected`，campaign `state=failed`、
+  `exit_code=1`。
+- `direct-20261008-1425`：vLLM 恢复后重新启动，产生 75 个独立 execution
+  artifact，但新的 Wan worker 很快取得 `[0,1,2,3]`；launcher 在
+  `14:23:54 CST` 主动停止 vLLM，campaign 同样以 `state=failed`、`exit_code=1`
+  结束，75/75 execution 均为失败，不能作为质量、token 或成本比较。
+
+两次运行都保留了原始 manifest、status、execution 和 report 文件；这证明恢复
+后的 endpoint 可访问，但当前服务器仍缺少 campaign 期间的 scheduler-level
+reservation，不能把“vLLM 已监听”或“campaign submission PASS”当作真实 A–E
+完成。下一次完整 remote campaign 需要先获得整批实验窗口的 GPU reservation，
+或实现带 manifest/ repeat checkpoint 的可审计 resume；本次不删除 scheduler
+marker、不重启训练 worker，也不把失败结果改写为 PASS。
+
 ## 当前结论
 
 v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；Windows RTX 5080/Qwen 的 CASE-01 切片进一步证明，在可用的真实模型服务上，A–E 可以完成三次调度并生成完整 telemetry，且 comparison invariants 全部通过。该切片仍不能替代五个 case 的完整 campaign，也不能把 A–D 的质量拒绝或 E 的 Release Closure `FAIL` 改写成 Harness 收益已经全面证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 及本次 5080 运行共同说明，空闲窗口策略必须保留完整 manifest、telemetry 和 fail-closed 终态，不能用短暂 `:8000` 健康、局部成功或仅检查服务存活代替完整证据。第 14 项仍需要 scheduled event 的权威 run，第 15 项仍需要五个 case 的真实 remote LLM 完整 A–E 质量/成本证据。
