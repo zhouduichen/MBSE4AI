@@ -424,6 +424,31 @@ command: .venv/bin/python tests/mbse_benchmark/run_benchmark.py \
 stale-write rejection 也三次通过。该 run 是可复现的 CASE-01 真实证据，但由于
 B 的自然预算失败和 repair switch 观测缺口，尚不能作为 v0.3.2 全部验收通过。
 
+## 2026-10-08 run04 后的 repair telemetry 修复与 GitHub quality evidence
+
+run04 的 `repair_control_observed=false` 已定位为 benchmark metadata bug：Harness
+实际构造模型时使用了注入 Scenario Contract 后的 `effective_runtime_config`，但
+`_harness_metadata()` 之前误接收原始 profile config，导致报告把 C/E 的有效 repair
+开关写成 `null/false`。commit `c0b46bf` 已改为记录 effective config，并补充了
+C/D/E repair-control 回归测试；它没有把 ablation 开关持久化到用户 profile。
+
+本地验证结果：完整 pytest 通过（含 2 个既有 skip）、Ruff、compileall、lint-imports、
+architecture budget 和 robustness benchmark 均通过。GitHub 上同一 commit 的
+两个真实 quality checks 也已完成 PASS：
+
+- push run `37788076279`：`CI / quality` success；
+- PR run `37788088712`：`CI / quality` success，包含 pytest、Ruff、compileall、
+  lint-imports、architecture budget 和 robustness benchmark。
+
+GitHub branch protection 当前权威状态为：`main` 要求 `CI / quality`、strict
+status checks、至少 1 个 approving review，并启用 stale-review dismissal 和
+admin enforcement。PR #2 仍显示 `REVIEW_REQUIRED` / `BLOCKED`，因此没有绕过评审
+合并。
+
+这次修复尚未把旧 run04 的远端 artifact 改写为新 PASS；要取得新的真实
+`repair_control_observed=true` 和完整 A–E PASS，仍需在 5080 可用窗口重新执行一组
+campaign。这样保留了旧实验的不可变证据，也避免把报告层修复误写成新的模型实验结果。
+
 ## 2026-10-08 Windows RTX 5080 Qwen：CASE-01 run01 partial evidence
 
 5080 节点恢复后，使用 Tailscale IP `100.88.143.10` 重新验证了真实 Ollama
