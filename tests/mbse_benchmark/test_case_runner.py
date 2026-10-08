@@ -117,7 +117,15 @@ def test_harness_metadata_uses_the_same_profile_identity_as_bare_adapter() -> No
         }),
         scenario_contract(BenchmarkScenario.E_FULL_HARNESS),
         ModelGraph("case-01", (), (), 0),
-        {"id": "profile-a", "provider": "openai-compatible", "model": "model-a"},
+        {
+            "id": "profile-a",
+            "provider": "openai-compatible",
+            "model": "model-a",
+            "structured_output_repair": True,
+            "vertical_feedback": True,
+            "automatic_operational_completion": True,
+            "vertical_completion_bridge": True,
+        },
         {},
         telemetry_events=[],
         comparison_mode="natural",
@@ -128,6 +136,12 @@ def test_harness_metadata_uses_the_same_profile_identity_as_bare_adapter() -> No
     assert metadata["provider"] == "profile-a"
     assert metadata["task_spec_hash"] == canonical_hash(TASK_SPEC)
     assert metadata["runtime_task_spec_hash"] == ""
+    assert metadata["repair_runtime_controls"] == {
+        "structured_output_repair": True,
+        "vertical_feedback": True,
+        "automatic_operational_completion": True,
+        "vertical_completion_bridge": True,
+    }
     assert metadata["input_artifact_byte_length"] == len(
         BenchmarkInputEnvelope.from_case({
             "case_id": "CASE-01",
@@ -158,6 +172,10 @@ def test_failure_metadata_preserves_input_and_transport_telemetry() -> None:
             "model": "model-a",
             "benchmark_token_budget": 8192,
             "temperature": 0.0,
+            "structured_output_repair": False,
+            "vertical_feedback": False,
+            "automatic_operational_completion": False,
+            "vertical_completion_bridge": False,
         },
         telemetry_events=[GenerationCallEvent(
             "bare",
@@ -184,6 +202,12 @@ def test_failure_metadata_preserves_input_and_transport_telemetry() -> None:
     assert metadata["telemetry"]["total_tokens"] == 30
     assert metadata["telemetry"]["provider_latency_ms"] == 1234
     assert metadata["telemetry"]["wall_latency_ms"] == 1500
+    assert metadata["repair_runtime_controls"] == {
+        "structured_output_repair": False,
+        "vertical_feedback": False,
+        "automatic_operational_completion": False,
+        "vertical_completion_bridge": False,
+    }
     assert metadata["evaluation_owner"] == EXTERNAL_EVALUATOR_ID
     assert metadata["evaluation_spec_hash"] == "evaluation-hash"
     assert metadata["ground_truth_model_visible"] is False
