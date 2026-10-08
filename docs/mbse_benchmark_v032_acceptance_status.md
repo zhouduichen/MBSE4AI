@@ -1,14 +1,14 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
 更新时间：2026-10-08 CST
-代码审计提交：`30a6561`
+代码审计提交：`3f7c2f4`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
 
 ## 2026-10-08 当前收口
 
-当前代码审计提交为 `30a6561`（`test: guard failed repair control evidence`）。本次收口已完成：
+当前代码审计提交为 `3f7c2f4`（`test: fail closed on incomplete repeat statistics`）。本次收口已完成：
 
 - A–E comparison output root 必须为空，拒绝复用或混入旧 repeat artifact；
 - worker timeout/exit 的失败 metadata 仍保留 ExternalEvaluator boundary、evaluation spec hash 与 request-guard hash；
@@ -17,8 +17,11 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 - A/B/C/D/E 的所有 model-side repair 路径统一受 scenario control 管理：包括 adapter-level structured-output repair；比较器新增 `repair_control_observed`，声明关闭但遥测出现 repair call 时整体 FAIL；
 - 每个 A–E repeat metadata 记录 `structured_output_repair`、`vertical_feedback`、`automatic_operational_completion`、`vertical_completion_bridge` 的实际值；缺失或与 scenario contract 不一致时 comparison fail-closed；
 - 成功与失败 metadata 都有对应回归测试；隐藏 repair call、开关错配和失败样本缺少控制证据都会被测试或 comparison 拒绝；
+- repeat statistics 只统计 `completed + graph + failed_call_count=0` 的有效 repeat；失败 repeat 不再把空图指标带入质量均值；每个 scenario 记录 expected/observed/completed/failed/usable-metric/cost-observation audit；Quality–Cost 点在 repeat 不完整或样本数不一致时输出 `null` 与 `incomplete`，不再把部分结果伪装成可比较点；
 - 本地 gate 全部通过：pytest、ruff、compileall、lint-imports、architecture metrics、robustness benchmark；
-- GitHub `CI / quality` 已对 `3fae734` 的 push 与 PR 均通过（见下方当前 run 链接）。
+- GitHub `CI / quality` 已对前一提交的 push 与 PR 通过；本提交推送后将以新的 head run 复核（见下方当前 run 链接）。
+
+本次本地验证结果：完整 pytest `100% PASS`（2 个既有 skip）；Ruff、compileall、lint-imports、architecture budget、robustness benchmark 均 PASS。新增回归测试覆盖“失败 repeat 不进入质量统计、Quality–Cost 标记 incomplete、audit 计数不把失败当作 0”。
 
 但这不等于真实 A–E 实验完成。最新 5080/Qwen campaign 的 comparison 为 `FAIL`，且发现历史 report 与 A–D raw artifact 目录不一致；该证据不能用于宣称 Harness 收益，新的 stale-root guard 用于阻止同类混入再次发生。
 
