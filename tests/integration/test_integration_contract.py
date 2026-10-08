@@ -50,7 +50,7 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert '"--timeout", os.environ["AI4MBSE_LLM_CASE_TIMEOUT_SECONDS"]' in text
     assert '"--benchmark-token-budget", os.environ["AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET"]' in text
     assert "case timeout must be at least the 900s provider timeout" in text
-    assert '"--comparison-mode", "natural"' in text
+    assert '"--comparison-mode", comparison_mode' in text
     assert "Submit detached same-model A–E campaign" in text
     assert "remote_llm_campaign.py' run --manifest" in text
     assert "submission PASS is not experiment evidence" in text
@@ -59,6 +59,23 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert "refusing to claim a GPU acceptance PASS" in text
     assert "tests/integration/test_gpu_acceptance.py" in text
     assert "AI4MBSE_GPU_ACCEPTANCE" in text
+
+
+def test_dispatch_exposes_natural_and_budget_matched_comparison_controls() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "comparison_mode:" in text
+    assert "budget_matched" in text
+    assert "total_output_token_budget:" in text
+    assert "AI4MBSE_COMPARISON_MODE" in text
+    assert "AI4MBSE_TOTAL_OUTPUT_TOKEN_BUDGET" in text
+    assert "comparison mode must be natural or budget_matched" in text
+    assert "total output token budget is required for budget_matched" in text
+    assert "total output token budget is only valid for budget_matched" in text
+    assert 'echo "- comparison mode: ${comparison_mode}"' in text
+    assert "--total-output-token-budget" in text
+    assert '"comparison_mode": comparison_mode' in text
+    assert '"total_output_token_budget": total_output_token_budget' in text
 
 
 def test_readiness_validates_the_complete_ssh_bridge_before_external_jobs() -> None:

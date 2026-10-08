@@ -12,6 +12,19 @@ on:
         required: true
         default: true
         type: boolean
+      comparison_mode:
+        description: "A–E comparison budget mode"
+        required: true
+        default: natural
+        type: choice
+        options:
+          - natural
+          - budget_matched
+      total_output_token_budget:
+        description: "Per-repeat total output-token cap for budget_matched"
+        required: false
+        default: ""
+        type: string
       run_freecad:
         description: "Run opt-in FreeCAD acceptance on a labelled runner"
         required: true
@@ -177,6 +190,8 @@ jobs:
       AI4MBSE_LLM_CASE_TIMEOUT_SECONDS: ${{ vars.AI4MBSE_LLM_CASE_TIMEOUT_SECONDS || '2700' }}
       AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET: ${{ vars.AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET || '4096' }}
       AI4MBSE_LLM_READINESS_TIMEOUT_SECONDS: ${{ vars.AI4MBSE_LLM_READINESS_TIMEOUT_SECONDS || '1200' }}
+      INPUT_COMPARISON_MODE: ${{ inputs.comparison_mode || 'natural' }}
+      INPUT_TOTAL_OUTPUT_TOKEN_BUDGET: ${{ inputs.total_output_token_budget || '' }}
       AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT: ${{ vars.AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT || '/data/models/harness4h3-v27-code/evidence/student-campaign' }}
       AI4MBSE_REMOTE_CAMPAIGN_ROOT: ${{ vars.AI4MBSE_REMOTE_CAMPAIGN_ROOT || format('{0}/ai4mbse-campaigns', vars.AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT || '/data/models/harness4h3-v27-code/evidence/student-campaign') }}
       AI4MBSE_REMOTE_SSH_TARGET: ${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}
@@ -264,17 +279,43 @@ jobs:
           set -euo pipefail
           case_timeout="$AI4MBSE_LLM_CASE_TIMEOUT_SECONDS"
           token_budget="$AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET"
+          comparison_mode="$INPUT_COMPARISON_MODE"
+          total_output_token_budget="$INPUT_TOTAL_OUTPUT_TOKEN_BUDGET"
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            comparison_mode="natural"
+            total_output_token_budget=""
+          fi
           [[ "$case_timeout" =~ ^[0-9]+$ ]] || { echo "case timeout must be an integer" >&2; exit 1; }
           [[ "$token_budget" =~ ^[0-9]+$ ]] || { echo "benchmark token budget must be an integer" >&2; exit 1; }
           (( case_timeout >= 900 )) || { echo "case timeout must be at least the 900s provider timeout" >&2; exit 1; }
           (( token_budget >= 256 )) || { echo "benchmark token budget must be at least 256 tokens" >&2; exit 1; }
+          case "$comparison_mode" in
+            natural|budget_matched) ;;
+            *) echo "comparison mode must be natural or budget_matched" >&2; exit 1 ;;
+          esac
+          if [ "$comparison_mode" = "budget_matched" ]; then
+            [[ "$total_output_token_budget" =~ ^[1-9][0-9]*$ ]] || {
+              echo "total output token budget is required for budget_matched" >&2
+              exit 1
+            }
+          elif [ -n "$total_output_token_budget" ]; then
+            echo "total output token budget is only valid for budget_matched" >&2
+            exit 1
+          fi
+          echo "AI4MBSE_COMPARISON_MODE=$comparison_mode" >> "$GITHUB_ENV"
+          echo "AI4MBSE_TOTAL_OUTPUT_TOKEN_BUDGET=$total_output_token_budget" >> "$GITHUB_ENV"
           {
             echo "## Remote LLM comparison controls"
             echo "- provider request timeout: profile-defined (maximum 900s)"
             echo "- benchmark case timeout: ${case_timeout}s"
             echo "- per-call output token budget: ${token_budget}"
+            echo "- comparison mode: ${comparison_mode}"
+            if [ -n "$total_output_token_budget" ]; then
+              echo "- total output token budget: ${total_output_token_budget}"
+            else
+              echo "- total output token budget: not applicable"
+            fi
             echo "- stable vLLM lease readiness timeout: ${AI4MBSE_LLM_READINESS_TIMEOUT_SECONDS}s"
-            echo "- comparison mode: natural"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Wait for stable remote vLLM lease
         shell: bash
@@ -308,7 +349,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ai4mbse-remote-submission"
           manifest="$RUNNER_TEMP/ai4mbse-remote-submission/manifest.json"
           export CAMPAIGN_ID="github-${GITHUB_RUN_ID}"
-          export REMOTE_ROOT AI4MBSE_LLM_PROFILE AI4MBSE_LLM_CASE_TIMEOUT_SECONDS AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET AI4MBSE_REMOTE_CAMPAIGN_ROOT
+          export REMOTE_ROOT AI4MBSE_LLM_PROFILE AI4MBSE_LLM_CASE_TIMEOUT_SECONDS AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET AI4MBSE_REMOTE_CAMPAIGN_ROOT AI4MBSE_COMPARISON_MODE AI4MBSE_TOTAL_OUTPUT_TOKEN_BUDGET
           python3 - "$manifest" <<'PY'
           import json
           import os
@@ -319,6 +360,8 @@ jobs:
           campaign_root = os.environ["AI4MBSE_REMOTE_CAMPAIGN_ROOT"]
           campaign_id = os.environ["CAMPAIGN_ID"]
           profile = os.environ["AI4MBSE_LLM_PROFILE"]
+          comparison_mode = os.environ["AI4MBSE_COMPARISON_MODE"]
+          total_output_token_budget = os.environ["AI4MBSE_TOTAL_OUTPUT_TOKEN_BUDGET"] or None
           command = [
               "/home/intern/miniconda3/envs/sglang_h3/bin/python",
               f"{root}/repo/tests/mbse_benchmark/run_benchmark.py",
@@ -329,16 +372,19 @@ jobs:
               "--repeats", "3",
               "--timeout", os.environ["AI4MBSE_LLM_CASE_TIMEOUT_SECONDS"],
               "--benchmark-token-budget", os.environ["AI4MBSE_LLM_BENCHMARK_TOKEN_BUDGET"],
-              "--comparison-mode", "natural",
+              "--comparison-mode", comparison_mode,
               "--output-root", f"{root}/results",
               "--report-dir", f"{root}/reports",
           ]
+          if total_output_token_budget is not None:
+              command.extend(["--total-output-token-budget", total_output_token_budget])
           payload = {
               "campaign_id": campaign_id,
               "run_id": os.environ.get("GITHUB_RUN_ID"),
               "created_at": datetime.now(timezone.utc).isoformat(),
               "profile": profile,
-              "comparison_mode": "natural",
+              "comparison_mode": comparison_mode,
+              "total_output_token_budget": total_output_token_budget,
               "command": command,
               "cwd": root + "/repo",
               "env": {
