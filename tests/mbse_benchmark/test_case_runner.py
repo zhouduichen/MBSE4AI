@@ -14,6 +14,7 @@ from rflp_lite.ports.generative_model import (
 from tests.mbse_benchmark.runners.case_runner import (
     _EvaluatorBoundaryModel,
     _apply_scenario_runtime_controls,
+    _bare_closure_summary,
     _failure_metadata,
     _harness_metadata,
     _run_analysis,
@@ -103,6 +104,18 @@ def test_lifecycle_benchmark_path_keeps_legacy_workflow_entrypoint() -> None:
     assert result == "lifecycle-result"
     assert services.analysis_service.calls == ["case-04"]
     assert services.generation_service.calls == []
+
+
+def test_bare_artifact_exposes_technical_and_release_closure_separately() -> None:
+    graph = ModelGraph("case-01", (), (), 0)
+
+    summary = _bare_closure_summary(graph)
+
+    assert summary["technical_closure"]["gate"] == "technical"
+    assert summary["release_closure"]["gate"] == "release"
+    assert summary["technical_closure"]["passed"] is False
+    assert summary["release_closure"]["passed"] is False
+    assert summary["closure"] == summary["release_closure"]
 
 
 def test_harness_metadata_uses_the_same_profile_identity_as_bare_adapter() -> None:

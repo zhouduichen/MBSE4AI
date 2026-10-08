@@ -18,7 +18,10 @@ from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
 from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.runtime.structured_model import StructuredModelRuntime
 from rflp_lite.methodology.coverage_matrix import build_requirement_coverage
-from rflp_lite.methodology.closure import evaluate_strict_closure
+from rflp_lite.methodology.closure import (
+    evaluate_release_closure,
+    evaluate_technical_closure,
+)
 from rflp_lite.repository.sqlite import SQLiteModelRepository
 from tests.mbse_benchmark.scenarios import (
     BenchmarkScenario,
@@ -390,6 +393,24 @@ def _run_cas_probe(repository, project_id: str) -> dict[str, object]:
         return {"stale_write_rejected": False, "first_revision": 1}
 
 
+def _bare_closure_summary(graph) -> dict[str, object]:
+    """Expose both Closure gates for a bare-model artifact.
+
+    ``strict`` was historically an alias for ReleaseClosure.  Keeping the
+    compatibility field avoids breaking existing report consumers, while the
+    explicit fields make it impossible to confuse automation-ready technical
+    facts with formally releasable engineering facts.
+    """
+
+    technical = evaluate_technical_closure(graph)
+    release = evaluate_release_closure(graph)
+    return {
+        "technical_closure": technical.as_dict(),
+        "release_closure": release.as_dict(),
+        "closure": release.as_dict(),
+    }
+
+
 def _run_case_inner(
     case: Mapping[str, object],
     output_dir: Path,
@@ -458,7 +479,7 @@ def _run_case_inner(
                 model_visible_key_tokens=model_visible_key_tokens,
             )
             graph = scenario_output.graph
-            closure = evaluate_strict_closure(graph)
+            closures = _bare_closure_summary(graph)
             summary = {
                 "run_id": f"{project_id}-{contract.scenario.value}",
                 "project_id": project_id,
@@ -466,11 +487,9 @@ def _run_case_inner(
                 "phase": "bare_model",
                 "completed_tasks": [],
                 "diagnostics": ["bare scenario: configured model call; repository, verifier, repair and CAS bypassed"],
-                "closure": {
-                    "status": "completed" if closure.passed else "blocked",
-                    "issues": [item.as_dict() for item in closure.issues],
-                    "manifest": None,
-                },
+                "technical_closure": closures["technical_closure"],
+                "release_closure": closures["release_closure"],
+                "closure": closures["closure"],
                 "scenario_controls": {
                     "verifier": contract.has_verifier,
                     "gate": contract.gate_enabled,
