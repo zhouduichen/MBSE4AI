@@ -86,6 +86,10 @@ def test_remote_collector_is_scheduled_and_fail_closed() -> None:
 
     assert "schedule:" in collector
     assert 'cron: "47 * * * *"' in collector
+    assert "github.event_name == 'schedule'" in collector
+    assert "scheduled collector found no remote campaign" in collector
+    assert "scheduled collector: FAIL (no remote campaign)" in collector
+    assert "manual collector: no remote campaign is available; recorded NO_CAMPAIGN" in collector
     assert "campaign is still running; this collector records PENDING" in collector
     assert 'state != "completed"' in collector
     assert 'comparison.get("status") != "PASS"' in collector

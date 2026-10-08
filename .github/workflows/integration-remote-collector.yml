@@ -21,7 +21,9 @@ jobs:
   collect:
     name: remote LLM A–E evidence collector
     runs-on: [self-hosted, macOS, X64, remote-bridge, llm]
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && vars.AI4MBSE_LLM_PROFILE != '') }}
+    # Keep scheduled runs observable even when repository configuration is
+    # incomplete. A skipped scheduled job would look like a green no-op.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     env:
       AI4MBSE_LLM_PROFILE: ${{ vars.AI4MBSE_LLM_PROFILE }}
       AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT: ${{ vars.AI4MBSE_REMOTE_CONTROLLER_STATE_ROOT || '/data/models/harness4h3-v27-code/evidence/student-campaign' }}
@@ -72,7 +74,12 @@ jobs:
           fi
           if [ -z "$campaign_id" ]; then
             printf '%s\n' '{"state":"no_campaign","evidence_ready":false}' > "$local_root/status.json"
-            echo "- no remote campaign is available; collector performed a truthful no-op" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+              echo "::error::scheduled collector found no remote campaign; refusing to pass an empty evidence run"
+              echo "- scheduled collector: FAIL (no remote campaign)" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "- manual collector: no remote campaign is available; recorded NO_CAMPAIGN" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           case "$campaign_id" in
