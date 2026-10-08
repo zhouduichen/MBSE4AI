@@ -1,14 +1,14 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
 更新时间：2026-10-08 CST
-代码审计提交：`1361e78`
+代码审计提交：`0b2b277`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
 
 ## 2026-10-08 当前收口
 
-当前代码审计提交为 `1361e78`（`ci: expose budget matched integration mode`）。本次收口已完成：
+当前代码审计提交为 `0b2b277`（`fix: ignore stale worker leases in readiness`）。本次收口已完成：
 
 - A–E comparison output root 必须为空，拒绝复用或混入旧 repeat artifact；
 - worker timeout/exit 的失败 metadata 仍保留 ExternalEvaluator boundary、evaluation spec hash 与 request-guard hash；
@@ -367,3 +367,17 @@ marker、不重启训练 worker，也不把失败结果改写为 PASS。
 v0.3.2 的实验边界、隔离规则、per-call/total 预算公平性、统计、统一 Coverage 语义和 CI 机制已经进入可审计状态；Windows RTX 5080/Qwen 的 CASE-01 切片进一步证明，在可用的真实模型服务上，A–E 可以完成三次调度并生成完整 telemetry，且 comparison invariants 全部通过。该切片仍不能替代五个 case 的完整 campaign，也不能把 A–D 的质量拒绝或 E 的 Release Closure `FAIL` 改写成 Harness 收益已经全面证明。空 enum schema bug 已在 `00a78db` 修复并通过 CI；run15/run16 及本次 5080 运行共同说明，空闲窗口策略必须保留完整 manifest、telemetry 和 fail-closed 终态，不能用短暂 `:8000` 健康、局部成功或仅检查服务存活代替完整证据。第 14 项仍需要 scheduled event 的权威 run，第 15 项仍需要五个 case 的真实 remote LLM 完整 A–E 质量/成本证据。
 
 本地离线测试、contract job、skip 状态和 SSH 可达性检查都不能替代第 15 项的 GitHub integration evidence。
+
+## 2026-10-08 14:42 当前远端可达性审计
+
+本次只读核查没有把“5080 恢复”当作实验前置条件通过：
+
+- 本机 SSH 配置没有 `Jiayu-intern` 别名，直接连接失败；
+- 历史 5080 Tailscale 主机名 `autoresearch-5080.tail2530b8.ts.net` 可解析到
+  `100.88.143.10`，但 SSH `22`、Ollama `11434` 以及历史 HTTPS 端口均连接超时；
+- 当前可达的 `ai4mbse-remote` 实际报告为 4× NVIDIA L40，不是 RTX 5080；其 GPU0/GPU3
+  利用率为 100%，Wan campaign 仍在运行，`127.0.0.1:8000` 未监听；
+- 本次没有删除 scheduler marker、停止 Wan、重启 vLLM 或启动 A–E campaign。
+
+这只是远端可达性与资源占用证据，不是新的 A–E 实验结果。第 15 项仍需真实可访问的
+5080/LLM 入口或稳定的远端 vLLM reservation，并在同一 manifest 下完成完整 campaign。
