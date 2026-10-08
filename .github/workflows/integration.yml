@@ -87,6 +87,12 @@ jobs:
       FREECAD_ENABLED: ${{ inputs.run_freecad || vars.AI4MBSE_FREECAD_ENABLED }}
       GPU_ENABLED: ${{ inputs.run_gpu || vars.AI4MBSE_GPU_ENABLED }}
       REMOTE_SSH_TARGET: ${{ vars.AI4MBSE_REMOTE_SSH_TARGET }}
+      REMOTE_SSH_HOST: ${{ vars.AI4MBSE_REMOTE_SSH_HOST }}
+      REMOTE_SSH_PORT: ${{ vars.AI4MBSE_REMOTE_SSH_PORT || '22' }}
+      REMOTE_SSH_USER: ${{ vars.AI4MBSE_REMOTE_SSH_USER }}
+      REMOTE_SSH_JUMP_HOST: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_HOST }}
+      REMOTE_SSH_JUMP_PORT: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_PORT || '22' }}
+      REMOTE_SSH_JUMP_USER: ${{ vars.AI4MBSE_REMOTE_SSH_JUMP_USER }}
       REMOTE_SSH_PRIVATE_KEY: ${{ secrets.AI4MBSE_REMOTE_SSH_PRIVATE_KEY }}
       REMOTE_SSH_KNOWN_HOSTS: ${{ secrets.AI4MBSE_REMOTE_SSH_KNOWN_HOSTS }}
       FREECAD_COMMAND: ${{ secrets.AI4MBSE_FREECAD_COMMAND }}
@@ -99,21 +105,36 @@ jobs:
           errors=0
           targets=0
 
+          check_ssh_bridge() {
+            local target_name="$1"
+            local name
+            for name in REMOTE_SSH_TARGET REMOTE_SSH_HOST REMOTE_SSH_USER REMOTE_SSH_JUMP_HOST REMOTE_SSH_JUMP_USER REMOTE_SSH_PRIVATE_KEY REMOTE_SSH_KNOWN_HOSTS; do
+              if [ -z "${!name}" ]; then
+                echo "::error::${target_name} target is selected but $name is missing."
+                errors=$((errors + 1))
+              fi
+            done
+            for name in REMOTE_SSH_PORT REMOTE_SSH_JUMP_PORT; do
+              if ! [[ "${!name}" =~ ^[0-9]+$ ]] || (( ${!name} < 1 || ${!name} > 65535 )); then
+                echo "::error::${target_name} target is selected but $name is not a valid TCP port."
+                errors=$((errors + 1))
+              fi
+            done
+          }
+
           if [ -n "$LLM_PROFILE" ]; then
             targets=$((targets + 1))
             if [ -z "$LLM_PROFILE_JSON" ]; then
               echo "::error::Remote LLM target is selected but AI4MBSE_LLM_PROFILE_JSON is missing."
               errors=$((errors + 1))
             fi
-            if [ -z "$REMOTE_SSH_TARGET" ] || [ -z "$REMOTE_SSH_PRIVATE_KEY" ] || [ -z "$REMOTE_SSH_KNOWN_HOSTS" ]; then
-              echo "::error::Remote LLM target is selected but the SSH bridge is not configured."
-              errors=$((errors + 1))
-            fi
+            check_ssh_bridge "Remote LLM"
           fi
 
           if [ "$FREECAD_ENABLED" = "true" ]; then
             targets=$((targets + 1))
-            for name in REMOTE_SSH_TARGET REMOTE_SSH_PRIVATE_KEY REMOTE_SSH_KNOWN_HOSTS FREECAD_COMMAND CAD_REMOTE_ROOT; do
+            check_ssh_bridge "FreeCAD"
+            for name in FREECAD_COMMAND CAD_REMOTE_ROOT; do
               if [ -z "${!name}" ]; then
                 echo "::error::FreeCAD target is enabled but $name is missing."
                 errors=$((errors + 1))
@@ -124,10 +145,7 @@ jobs:
 
           if [ "$GPU_ENABLED" = "true" ]; then
             targets=$((targets + 1))
-            if [ -z "$REMOTE_SSH_TARGET" ] || [ -z "$REMOTE_SSH_PRIVATE_KEY" ] || [ -z "$REMOTE_SSH_KNOWN_HOSTS" ]; then
-              echo "::error::GPU target is selected but the SSH bridge is not configured."
-              errors=$((errors + 1))
-            fi
+            check_ssh_bridge "GPU"
             echo "- GPU runner: label routing will be enforced by the target job" >> "$GITHUB_STEP_SUMMARY"
           fi
 

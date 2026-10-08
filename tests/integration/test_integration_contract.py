@@ -61,6 +61,26 @@ def test_external_jobs_are_explicitly_labelled_and_do_not_use_offline_fallback()
     assert "AI4MBSE_GPU_ACCEPTANCE" in text
 
 
+def test_readiness_validates_the_complete_ssh_bridge_before_external_jobs() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    readiness = text.split("  readiness:", 1)[1].split("  remote-llm:", 1)[0]
+
+    for name in (
+        "REMOTE_SSH_TARGET",
+        "REMOTE_SSH_HOST",
+        "REMOTE_SSH_PORT",
+        "REMOTE_SSH_USER",
+        "REMOTE_SSH_JUMP_HOST",
+        "REMOTE_SSH_JUMP_PORT",
+        "REMOTE_SSH_JUMP_USER",
+        "REMOTE_SSH_PRIVATE_KEY",
+        "REMOTE_SSH_KNOWN_HOSTS",
+    ):
+        assert name in readiness
+    assert "check_ssh_bridge" in readiness
+    assert "not a valid TCP port" in readiness
+
+
 def test_remote_collector_is_scheduled_and_fail_closed() -> None:
     collector = Path(".github/workflows/integration-remote-collector.yml").read_text(encoding="utf-8")
 
