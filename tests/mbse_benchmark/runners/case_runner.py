@@ -172,18 +172,19 @@ def _apply_scenario_runtime_controls(
     runtime_config: Mapping[str, object],
     contract,
 ) -> dict[str, object]:
-    """Bind Harness repair behavior to the declared A–E control.
+    """Bind every model-side repair path to the declared A–E control.
 
-    The product runtime exposes bounded feedback and the deterministic
-    completion bridge as profile options.  A comparison must not silently
-    inherit a profile's latency-oriented defaults, otherwise D would claim
-    ``repair_enabled=false`` while still issuing repair/completion passes or E
-    would claim the full path while those passes were disabled.
+    The product runtime exposes bounded feedback, deterministic completion,
+    and adapter-level structured-output repair as profile options.  A
+    comparison must not silently inherit a profile's latency-oriented
+    defaults, otherwise a scenario can claim ``repair_enabled=false`` while
+    still issuing a repair/completion pass.
     """
 
     config = dict(runtime_config)
     repair_enabled = bool(contract.repair_enabled)
     config.update({
+        "structured_output_repair": repair_enabled,
         "vertical_feedback": repair_enabled,
         "automatic_operational_completion": repair_enabled,
         "vertical_completion_bridge": repair_enabled,
@@ -412,7 +413,7 @@ def _run_case_inner(
     services = None
     telemetry_events: list[object] = []
     try:
-        if effective_runtime_config is not None and contract.generation_shape == "harness":
+        if effective_runtime_config is not None:
             effective_runtime_config = _apply_scenario_runtime_controls(
                 effective_runtime_config,
                 contract,

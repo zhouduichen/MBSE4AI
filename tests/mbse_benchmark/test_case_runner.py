@@ -270,6 +270,7 @@ def test_harness_model_guard_blocks_evaluator_payload_before_provider_call() -> 
 
 def test_scenario_runtime_controls_make_repair_ablation_operational() -> None:
     base = {
+        "structured_output_repair": True,
         "vertical_feedback": False,
         "automatic_operational_completion": False,
         "vertical_completion_bridge": False,
@@ -285,8 +286,10 @@ def test_scenario_runtime_controls_make_repair_ablation_operational() -> None:
     )
 
     assert repair_enabled["vertical_feedback"] is True
+    assert repair_enabled["structured_output_repair"] is True
     assert repair_enabled["automatic_operational_completion"] is True
     assert repair_enabled["vertical_completion_bridge"] is True
     assert repair_disabled["vertical_feedback"] is False
+    assert repair_disabled["structured_output_repair"] is False
     assert repair_disabled["automatic_operational_completion"] is False
     assert repair_disabled["vertical_completion_bridge"] is False

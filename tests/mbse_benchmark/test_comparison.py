@@ -175,6 +175,7 @@ def _fake_comparison_record(scenario: str, repeat_index: int, mode: str) -> dict
         },
         "telemetry": {
             "call_count": 1,
+            "repair_call_count": 0,
             "input_tokens": 8,
             "output_tokens": 12,
             "total_tokens": 20,
@@ -248,6 +249,7 @@ def test_comparison_aggregator_records_all_evidence_invariants(
     assert comparison["call_budget_comparable"] is True
     assert comparison["ground_truth_isolated"] is True
     assert comparison["ablation_contract_valid"] is True
+    assert comparison["repair_control_observed"] is True
     assert comparison["token_usage_observed"] is True
     assert comparison["latency_observed"] is True
     assert comparison["cost_observed"] is True
@@ -269,6 +271,53 @@ def test_comparison_runtime_forces_real_provider_failures_to_fail_closed() -> No
 
     assert budget == 3000
     assert shared["remote_fail_fast"] is True
+
+
+def test_comparison_rejects_hidden_repair_calls_in_disabled_scenarios(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cases = (CASE,)
+
+    def fake_run_benchmark(*args, **kwargs):
+        scenario = str(kwargs["scenario"])
+        records = [_fake_comparison_record(scenario, index, "natural") for index in range(1, 4)]
+        if scenario == BenchmarkScenario.D_HARNESS_NO_REPAIR.value:
+            records[0]["telemetry"]["repair_call_count"] = 1
+        return {
+            "score": {"final_status": "ACCEPTED"},
+            "metrics": {},
+            "semantic_metrics": {"end_to_end_traceability": 0.5},
+            "governance_metrics": {},
+            "metadata": {"scenario_metadata": records},
+        }
+
+    monkeypatch.setattr(benchmark_runner_module, "run_benchmark", fake_run_benchmark)
+    monkeypatch.setattr(benchmark_runner_module, "load_cases", lambda _path: cases)
+    monkeypatch.setattr(
+        benchmark_runner_module,
+        "_persisted_input_audit",
+        lambda *args, **kwargs: {
+            "checked_count": 15,
+            "all_present": True,
+            "all_exact": True,
+            "records": [],
+        },
+    )
+
+    with pytest.raises(ValueError, match="repair_control_observed"):
+        benchmark_runner_module.run_scenario_comparison(
+            Path("tests/mbse_benchmark/cases"),
+            tmp_path / "output",
+            repeats=3,
+            report_dir=tmp_path / "report",
+            profile="test-profile",
+            runtime_config={
+                "id": "profile-test",
+                "provider": "openai-compatible",
+                "model": "test-model",
+            },
+        )
 
 
 def test_comparison_rejects_missing_temperature(

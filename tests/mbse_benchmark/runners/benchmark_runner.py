@@ -670,6 +670,14 @@ def run_scenario_comparison(
         )
         for scenario, expected in comparison["controls"].items()
     )
+    comparison["repair_control_observed"] = bool(all_records) and all(
+        isinstance(record.get("telemetry"), Mapping)
+        and (
+            record.get("repair_enabled") is True
+            or int(record["telemetry"].get("repair_call_count", 0) or 0) == 0
+        )
+        for record in all_records
+    )
     comparison["execution_complete"] = bool(all_records) and all(
         record.get("execution_status") == "completed"
         and bool(record.get("graph_hash"))
@@ -739,6 +747,7 @@ def run_scenario_comparison(
         "budget_comparable",
         "budget_enforced",
         "ablation_contract_valid",
+        "repair_control_observed",
         "execution_complete",
         "real_calls_observed",
         "token_usage_observed",

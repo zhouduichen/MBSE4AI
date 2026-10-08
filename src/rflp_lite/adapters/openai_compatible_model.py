@@ -1153,6 +1153,10 @@ class OpenAICompatibleModel:
             if isinstance(configured_fail_fast, bool)
             else False
         )
+        configured_repair = self._config.get("structured_output_repair")
+        self.structured_output_repair_enabled = (
+            configured_repair if isinstance(configured_repair, bool) else True
+        )
 
     @staticmethod
     def _parse_json(raw: object) -> object:
@@ -1307,6 +1311,18 @@ class OpenAICompatibleModel:
             )
             return payload, repaired, final_raw
         except _InvalidStructuredResponse as initial_error:
+            if not self.structured_output_repair_enabled:
+                raise StructuredOutputFailure(
+                    f"{_REPAIR_FAILURE}: {initial_error}",
+                    code=initial_error.code,
+                    raw_response=str(raw or ""),
+                    initial_raw_response=str(raw or ""),
+                    schema_hash=canonical_hash(request.response_schema),
+                    provider_id=self._provider_id,
+                    model_id=str(self._config.get("model", "")),
+                    finish_reason=str(getattr(raw, "done_reason", "")),
+                    usage=getattr(raw, "usage", {}),
+                ) from initial_error
             if request.lens_id.startswith("vertical."):
                 recovered_payload = _recover_vertical_json(raw)
                 if recovered_payload is not None:

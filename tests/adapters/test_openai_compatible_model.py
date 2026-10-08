@@ -133,6 +133,15 @@ def test_openai_compatible_model_can_disable_deterministic_completion_bridge():
     assert model.automatic_vertical_stage_completion_bridge is False
 
 
+def test_openai_compatible_model_can_disable_structural_repair():
+    model = OpenAICompatibleModel({
+        "model": "remote",
+        "structured_output_repair": False,
+    })
+
+    assert model.structured_output_repair_enabled is False
+
+
 def test_vertical_structural_repair_includes_typed_gap_and_validation_issue():
     calls = []
 
@@ -241,6 +250,31 @@ def test_adapter_telemetry_counts_structural_repair_transport_attempt():
     assert [event.attempt_kind for event in events] == ["initial", "structural_repair"]
     assert all(event.status == "completed" for event in events)
     assert len(calls) == 2
+
+
+def test_adapter_does_not_issue_structural_repair_when_disabled():
+    calls = []
+    events = []
+
+    def complete(_config, _messages, *, max_tokens=None):
+        calls.append(max_tokens)
+        return "not-json"
+
+    model = OpenAICompatibleModel(
+        {
+            "model": "local",
+            "structured_output_repair": False,
+        },
+        complete=complete,
+        telemetry_sink=events.append,
+    )
+
+    with pytest.raises(StructuredOutputFailure) as error:
+        model.complete_json(request())
+
+    assert error.value.retry_count == 0
+    assert len(calls) == 1
+    assert [event.attempt_kind for event in events] == ["initial"]
 
 
 def test_budget_matched_adapter_stops_after_measured_output_cap():
