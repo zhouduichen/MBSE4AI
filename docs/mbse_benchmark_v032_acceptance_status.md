@@ -635,3 +635,12 @@ repair runtime controls 全部为 true。A 平均 13,925 total tokens，C/D 分�
 `execution_complete=true`，需要在保持相同模型、输入、normalizer、evaluator 和
 ablation 定义的前提下，为 staged baseline 选择足够大的可审计预算，并重新执行
 完整 campaign。
+
+随后做了一个不计入 A–E comparison 的 B-only 预算探针，将命令行预算设为 65,536。
+结果仍为 `StructuredOutputFailure`，artifact telemetry 显示实际 output 仍为
+32,768；原因是现有 profile `windows-5080-ollama-32768` 的
+`max_output_tokens=32768`、`local_max_tokens=32768`，runner 会取请求预算与 profile
+cap 的最小值。该 probe 因此不是一次有效的 65k provider 实验，也没有改变前述
+32k comparison 结论。若要进一步验证 staged baseline，需要新建独立的
+`max_output_tokens=65536` / `context_window=65536` profile，并用该 profile 重新
+执行完整 A–E，避免改变已经存档的 32k profile 语义。
