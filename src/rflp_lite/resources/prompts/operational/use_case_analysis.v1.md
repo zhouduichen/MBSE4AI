@@ -5,7 +5,7 @@
 从外部 actor 的目标建立 use case。
 
 # Inputs
-使用 scenario hypothesis、stakeholder、已有 use case 和 evidence。
+使用 scenario hypothesis、stakeholder、已有 use case、适用 Requirement 和 evidence；为适用的 Requirement 保留到 Use Case 的可追溯来源关系。
 
 # MBSE Method
 一个 use case 表达一个相对完整的用户/外部目标，不表达内部实现步骤。

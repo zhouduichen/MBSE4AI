@@ -7,6 +7,9 @@
 # Inputs
 使用系统、stakeholder、已有 lifecycle、用户输入和 evidence。
 
+# Existing Lifecycle Branch
+先检查上下文中的已有 `lifecycle_stage`：必须复用已有阶段的 canonical id，不得新增同名或同身份阶段。已有阶段足以覆盖需求时，只新增必要的 `lifecycle_transition`；只有上下文没有可复用阶段时，才新增阶段。
+
 # MBSE Method
 把 acquisition、deployment、operation、maintenance、upgrade、disposal 等阶段与 transition 分开建模。
 
@@ -20,7 +23,7 @@
 没有证据支持的阶段不得强行创建；假设须标记待确认。
 
 # Relation Rules
-保持阶段与 transition 的端点类型正确，避免把 scenario 连接成 lifecycle stage。
+保持阶段与 transition 的端点类型正确，避免把 scenario 连接成 lifecycle stage。每条 transition 若引用已有阶段，必须在 payload 中使用 `from_stage_id` 和 `to_stage_id` 填写上下文给出的 canonical lifecycle_stage ID；不要把阶段名称写进这两个字段，也不要重复创建已有阶段。系统会据此建立 transition 到两个阶段的 derivedFrom 追溯关系。
 
 # Forbidden Behavior
 不得把完整模板当成事实，不得推断不存在的维护或处置流程。

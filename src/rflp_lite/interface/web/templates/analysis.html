@@ -5,24 +5,31 @@
   <div>
     <p class="eyebrow">AI4MBSE 生命周期工作台</p>
     <h1>分析工作台</h1>
-    <p>项目 <strong>{{ project.id }}</strong> · 当前修订 <code>{{ current_revision }}</code></p>
+    <p>项目 <strong>{{ project.id }}</strong> · 当前模型版本 <code>{{ current_revision }}</code></p>
   </div>
   <span class="status-badge {% if global_gate.passed %}accepted{% else %}candidate{% endif %}">{{ runtime.mode_label }}</span>
 </div>
 
 <div class="metric-grid workflow-metrics" aria-label="分析状态">
   <article class="metric"><span>项目</span><strong>{{ project.id }}</strong><small>当前工作项目</small></article>
-  <article class="metric"><span>当前修订</span><strong>{{ current_revision }}</strong><small>模型图快照</small></article>
-  <article class="metric"><span>活动模型</span><strong>{{ runtime.model_label }}</strong><small>{{ runtime.provider_label }} · {{ runtime.profile_label }}</small></article>
-  <article class="metric"><span>运行状态</span><strong>{{ latest_run.status_label if latest_run else '待运行' }}</strong><small>{% if latest_run %}{{ latest_run.run_id }}{% else %}尚未运行{% endif %}</small></article>
+  <article class="metric"><span>当前模型版本</span><strong>{{ current_revision }}</strong><small>模型图快照</small></article>
+  <article class="metric"><span>活动模型 · 本次模型</span><strong>{{ runtime.model_label }}</strong><small>{{ runtime.model_location_label }} · {{ runtime.provider_label }} · {{ runtime.profile_label }}</small></article>
+  <article class="metric"><span>运行状态</span><strong>{{ latest_run.status_label if latest_run else '待运行' }}</strong><small>{% if latest_run %}最近一次模型生成{% else %}尚未运行{% endif %}</small></article>
   <article class="metric"><span>全局质量门禁</span><strong>{{ global_gate.status_label }}</strong><small>{{ global_gate.issues|length }} 个问题</small></article>
 </div>
 
 <section class="panel intake-panel">
   <div class="panel-head">
-    <div><h2>输入需求</h2><p>先提交一条需求或上传需求文档，再运行生命周期分析。</p></div>
+    <div><h2>输入需求或模型</h2><p>先提交需求、上传文档或导入已有模型，再生成完整 MBSE 模型。</p></div>
     <span class="status-badge {% if has_analysis_input %}accepted{% else %}candidate{% endif %}">{% if has_analysis_input %}已有输入{% else %}等待输入{% endif %}</span>
   </div>
+  <form id="goal-input-form" class="intake-form goal-form">
+    <label class="field" for="project-goal">系统目标 / 项目使命
+      <textarea id="project-goal" rows="3" placeholder="例如：建设一个可在校园内安全完成配送并支持人工接管的系统">{{ project_goal }}</textarea>
+    </label>
+    <span class="form-hint">目标会同时进入 System mission/objectives，并形成一条可追溯的候选目标需求。</span>
+    <button class="button" type="submit">保存项目目标</button>
+  </form>
   <div class="two-column workflow-columns">
     <form id="requirement-input-form" class="intake-form">
       <label class="field" for="requirement-text">需求描述
@@ -32,18 +39,26 @@
     </form>
     <form id="document-upload-form" class="intake-form">
       <label class="field" for="document-file">需求文档
-        <input id="document-file" type="file" accept=".txt,.md,.markdown,.docx,.pdf" required>
+        <input id="document-file" type="file" accept=".txt,.md,.markdown,.docx,.pdf,.json" required>
       </label>
-      <span class="form-hint">支持 TXT、Markdown、DOCX、PDF。</span>
+      <span class="form-hint">支持 TXT、Markdown、DOCX、PDF、JSON fixture。</span>
       <button class="button" type="submit">上传文档</button>
     </form>
   </div>
+  <form id="sysml-upload-form" class="intake-form">
+    <label class="field" for="sysml-file">已有 SysML 模型
+      <input id="sysml-file" type="file" accept=".sysml" required>
+    </label>
+    <span class="form-hint">导入已有 SysML v2 子集模型，导入模型也可以作为分析输入，并可继续生成、编辑和导出。</span>
+    <button class="button" type="submit">导入已有 SysML 模型</button>
+  </form>
   <pre id="intake-result" class="analysis-result" hidden></pre>
+  <div class="workbench-actions"><a class="button" href="/ui/projects/{{ project.id }}/requirements-use-case">打开需求与用例智能提取 →</a><span class="form-hint">先形成可审查的需求、约束、用例和活动框架，再进入完整 RFLP 生成。</span></div>
 </section>
 
 <section class="panel workflow-panel">
   <div class="panel-head">
-    <div><h2>生命周期阶段</h2><p>运行场景 → 功能分析 → 逻辑/物理架构 → 验证与确认 → 封版归档</p></div>
+    <div><h2>生命周期阶段</h2><p>需求 → 功能 → 逻辑 → 物理 → 验证与确认；默认生成完整五阶段纵向模型</p></div>
     <span class="status-badge info">{{ runtime.mode_label }}</span>
   </div>
   <div class="phase-rail" aria-label="生命周期阶段">
@@ -56,13 +71,66 @@
     {% endfor %}
   </div>
   <form id="analysis-form" class="workbench-actions">
-    <button class="button primary" type="submit" data-mode="pipeline"{% if not has_analysis_input %} disabled title="请先提交需求或上传文档"{% endif %}>运行完整流程</button>
-    {% for phase in phases if phase.phase != 'closure' %}<button class="button" type="button" data-phase="{{ phase.phase }}"{% if not has_analysis_input %} disabled title="请先提交需求或上传文档"{% endif %}>执行{{ phase.action_label }}</button>{% endfor %}
+    <label class="field compact-field" for="analysis-profile">本次生成使用的模型
+      <select id="analysis-profile">
+        <option value="">使用活动配置{% if active_profile_id %}（{{ active_profile_id }}）{% else %}（离线规则）{% endif %}</option>
+        {% for profile in model_profiles %}<option value="{{ profile.id }}"{% if not profile.enabled %} disabled{% endif %}>{{ profile.label or profile.id }} · {{ profile.model }} · {% if profile.model_location == 'remote' %}远程模型{% else %}本机模型{% endif %}{% if profile.id == active_profile_id %}（活动）{% endif %}{% if not profile.enabled %}（已停用）{% endif %}</option>{% endfor %}
+      </select>
+    </label>
+    <span class="form-hint">仅影响本次分析，不会切换活动配置；Profile 详情和凭据请在设置页管理。</span>
+    <button class="button primary" type="submit" data-mode="generate"{% if not has_analysis_input %} disabled title="请先提交需求、上传文档或导入已有模型"{% endif %}>生成完整 MBSE 模型</button>
+    {% for phase in phases if phase.phase != 'closure' %}<button class="button" type="button" data-phase="{{ phase.phase }}"{% if not has_analysis_input %} disabled title="请先提交需求、上传文档或导入已有模型"{% endif %}>执行{{ phase.action_label }}</button>{% endfor %}
     <label class="checkbox-control"><input id="force-run" type="checkbox"{% if not has_analysis_input %} disabled{% endif %}> 强制新运行</label>
     <span class="htmx-indicator" id="analysis-indicator"><span class="spinner"></span> 正在运行…</span>
+    <span class="form-hint" id="analysis-progress-text" aria-live="polite">当前阶段：等待运行</span>
   </form>
   <pre id="analysis-result" class="analysis-result" hidden></pre>
 </section>
+
+{% if latest_run and ((latest_run.mode == 'generate' and latest_run.stage_results) or (latest_run.mode == 'pipeline' and latest_run.methodology)) %}
+<section class="panel generation-summary">
+  <div class="panel-head"><div><h2>{% if latest_run.mode == 'pipeline' %}完整生命周期结果{% else %}完整模型生成结果{% endif %}</h2><p>{% if latest_run.mode == 'pipeline' %}当前 ModelGraph 已汇总为 R → F → L → P → V&amp;V 工程结果，并可继续迭代。{% else %}自然语言需求已按 R → F → L → P → V&amp;V 纵向形成可编辑模型。{% endif %}</p></div><span class="status-badge {% if latest_run.status == 'completed' %}accepted{% else %}candidate{% endif %}">{{ latest_run.status_label }}</span></div>
+  {% if latest_run.stage_results %}
+  <div class="phase-rail" aria-label="模型生成阶段">
+    {% for stage in latest_run.stage_results %}
+    <article class="phase-node phase-{{ stage.status }}"><span class="phase-index">{{ loop.index }}</span><div><strong>{{ stage.stage_label }}</strong><small>{{ stage.entity_count }} 个实体 · {{ stage.relation_count }} 条关系</small><small>{{ stage.quality_summary }} · {{ stage.next_step_label }}</small>{% if stage.requirement_coverage %}<small>逐条需求覆盖：{{ stage.requirement_coverage_summary }}</small>{% if stage.requirement_coverage_missing_ids %}<details class="stage-coverage-details"><summary>查看待补全需求</summary><small>{{ stage.requirement_coverage_missing_ids|join('、') }}</small></details>{% endif %}{% endif %}</div><span class="status-badge {% if stage.status == 'completed' and stage.quality_status == 'passed' %}accepted{% else %}candidate{% endif %}">{{ stage.status_label }}</span></article>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if latest_run.traceability %}
+  <div class="metric-row"><article><span>RFLP 链路完整</span><strong>{{ latest_run.traceability.rflp_complete_count }}</strong></article><article><span>验证计划完整</span><strong>{{ latest_run.traceability.verification_complete_count }}</strong></article><article><span>确认计划完整</span><strong>{{ latest_run.traceability.validation_complete_count }}</strong></article><article><span>端到端闭环</span><strong>{{ latest_run.traceability.end_to_end_complete_count }}</strong></article></div>
+  {% endif %}
+  {% if latest_run.methodology %}
+  <div class="module-subsection"><div class="panel-head"><div><h3>工程检查</h3><p>{{ latest_run.methodology.summary }}。检查结果用于决定下一步，不会静默改写已接受模型。</p></div><span class="count-badge">{{ latest_run.methodology.findings|length }} 项</span></div>
+    <div class="metric-row">{% for metric in latest_run.methodology.metric_cards %}<article><span>{{ metric.label }}</span><strong>{{ metric.value }}</strong></article>{% endfor %}</div>
+    {% set architecture = latest_run.methodology.metrics.get('architecture_synthesis', {}) %}
+    {% set logical = architecture.get('logical', {}) %}
+    {% set physical = architecture.get('physical', {}) %}
+    {% if logical.get('candidates') or physical.get('rows') %}
+    <div class="two-column workflow-columns architecture-evidence">
+      <div class="card">
+        <div class="panel-head"><div><h3>逻辑架构候选</h3><p>按功能依赖、功能流和共享状态比较分区。</p></div><span class="count-badge">{{ logical.get('candidate_count', 0) }} 个</span></div>
+        {% if logical.get('candidates') %}<div class="compact-list">{% for candidate in logical.get('candidates', []) %}<article><span><strong>逻辑方案 {{ loop.index }}</strong><small>评分 {{ candidate.score }} · 内聚 {{ candidate.cohesion }} · 耦合 {{ candidate.coupling }}</small><small>跨组件交互 {{ candidate.cross_component_exchange_count }} · 共享状态切分 {{ candidate.shared_state_cut_count }}</small></span>{% if loop.first %}<span class="status-badge accepted">推荐</span>{% endif %}</article>{% endfor %}</div>{% else %}<div class="mini-empty">暂无逻辑架构候选</div>{% endif %}
+      </div>
+      <div class="card">
+        <div class="panel-head"><div><h3>物理可行性矩阵</h3><p>约束传播、缺失测量和冲突结果。</p></div><span class="count-badge">{{ physical.get('candidate_count', 0) }} 行</span></div>
+        {% if physical.get('rows') %}<div class="compact-list">{% for row in physical.get('rows', []) %}<article><span><strong>物理候选 {{ loop.index }}</strong><small>状态 {{ {'feasible': '可行', 'infeasible': '不可行', 'needs_measurement': '待测量'}.get(row.status, row.status) }} · 评分 {{ row.score }}</small>{% if row.propagated_constraints %}<small>已传播约束：{{ row.propagated_constraints }}</small>{% endif %}{% if row.missing_fields %}<small>待测量：{{ row.missing_fields|join('、') }}</small>{% endif %}</span><span class="status-badge {% if row.status == 'feasible' %}accepted{% elif row.status == 'infeasible' %}failed{% else %}candidate{% endif %}">{{ {'feasible': '可行', 'infeasible': '不可行', 'needs_measurement': '待测量'}.get(row.status, row.status) }}</span></article>{% endfor %}</div>{% else %}<div class="mini-empty">暂无物理可行性记录</div>{% endif %}
+        {% if physical.get('budget_analyses') %}<div class="module-subsection"><div class="panel-head"><div><h4>系统资源预算</h4><p>汇总同一需求作用域内的物理候选，区分合计超限与测量缺口。</p></div><span class="count-badge">{{ physical.get('budget_analyses')|length }} 项</span></div><div class="compact-list">{% for budget in physical.get('budget_analyses', []) %}<article><span><strong>{{ budget.requirement_id }}</strong><small>状态 {{ {'feasible': '可行', 'infeasible': '超限', 'needs_measurement': '待测量'}.get(budget.status, budget.status) }} · 物理候选 {{ budget.physical_ids|join('、') }}</small>{% for field, details in budget.fields.items() %}<small>{{ field }} 合计 {{ details.total }}（{{ details.value_count }} 个已知值）</small>{% endfor %}{% if budget.missing_fields %}<small>待测量：{{ budget.missing_fields|join('、') }}</small>{% endif %}</span><span class="status-badge {% if budget.status == 'feasible' %}accepted{% elif budget.status == 'infeasible' %}failed{% else %}candidate{% endif %}">{{ {'feasible': '可行', 'infeasible': '超限', 'needs_measurement': '待测量'}.get(budget.status, budget.status) }}</span></article>{% endfor %}</div></div>{% endif %}
+      </div>
+    </div>
+    {% endif %}
+    {% if latest_run.methodology.findings %}<div class="compact-list">{% for finding in latest_run.methodology.findings %}<article><span class="status-badge {% if finding.severity == 'error' %}failed{% else %}candidate{% endif %}">{{ finding.severity_label }}</span><span><strong>{{ finding.code_label }}</strong><small>{{ finding.stage_label }} · {{ finding.message }}</small><small>建议：{{ finding.recommended_action_label }}</small></span></article>{% endfor %}</div>{% endif %}
+    {% if latest_run.methodology.recommended_task_labels %}<div class="callout info"><strong>建议下一步</strong>：{{ latest_run.methodology.recommended_task_labels|join('、') }}</div>{% endif %}
+    {% if latest_run.controller %}<div class="module-subsection controller-panel"><div class="panel-head"><div><h3>下一步工程动作</h3><p>根据当前模型缺口选择下一步动作；方案权衡在用户决策前不会改写模型。</p><button class="button compact primary" id="controller-iterate" type="button">自动推进可安全执行动作</button></div><span class="status-badge {% if latest_run.controller.status == 'complete' %}accepted{% else %}candidate{% endif %}">{{ latest_run.controller.status_label }}</span></div>
+      {% if latest_run.controller.llm_proposal %}{% set proposal = latest_run.controller.llm_proposal %}<div class="callout info controller-proposal"><strong>{{ proposal.status_label }}</strong>{% if proposal.rationale %}：{{ proposal.rationale }}{% endif %}{% if proposal.assumptions %}<small>前提：{{ proposal.assumptions|join('；') }}</small>{% endif %}{% if proposal.open_questions %}<small>待确认：{{ proposal.open_questions|join('；') }}</small>{% endif %}</div>{% endif %}
+      {% if latest_run.controller.actions %}<div class="compact-list">{% for action in latest_run.controller.actions %}<article class="controller-action"><span><span class="status-badge {% if action.priority == 'P0' %}failed{% else %}candidate{% endif %}">{{ action.priority_label }}</span><strong>{{ action.kind_label }}</strong><small>{{ action.stage_label }} · {{ action.reason_label }}</small></span>{% if action.kind == 'trade_study' %}<span class="controller-options">{% for option in action.options %}<button class="button compact controller-execute" type="button" data-action-id="{{ action.id }}" data-option-id="{{ option.id }}">{{ option.option_label }}<small>{{ option.reentry_stage_label }}</small></button>{% endfor %}</span>{% else %}<button class="button compact controller-execute" type="button" data-action-id="{{ action.id }}">执行</button>{% endif %}</article>{% endfor %}</div>{% else %}<div class="mini-empty">当前没有待处理工程动作</div>{% endif %}
+      <pre id="controller-result" class="analysis-result" hidden></pre>
+    </div>{% endif %}
+  </div>
+  {% endif %}
+  {% if latest_run.warnings_label %}<div class="callout warning">{{ latest_run.warnings_label|join(' · ') }}</div>{% endif %}
+</section>
+{% endif %}
 
 <div class="analysis-layout">
   <aside class="analysis-sidebar" aria-label="分析模块">
@@ -86,7 +154,7 @@
         {% for record in module.records %}
         <article>
           <span class="status-badge info">{{ record.status_label }}</span>
-          <div><strong>{{ record.label }} · {{ record.name }}</strong><p>{{ record.detail }}</p>{% if record.id %}<code>{{ record.id }}</code>{% endif %}</div>
+          <div><strong>{{ record.label }} · {{ record.name }}</strong><p>{{ record.detail }}</p></div>
         </article>
         {% endfor %}
       </div>
@@ -116,19 +184,23 @@
 
       {% if module.id == 'runs' %}
       <div class="module-subsection">
+        <div class="callout info"><strong>生成进度</strong>：阶段状态、追溯质量和 Controller 动作请查看上方摘要。</div>
+        <details class="advanced-details">
+          <summary>展开运行诊断（高级）</summary>
         <div class="two-column workflow-columns">
           <div class="card">
             <div class="panel-head"><div><h3>当前任务</h3><p>任务上下文、证据和执行台账。</p></div><span class="status-badge info">{{ current_task.status_label }}</span></div>
             <div class="task-focus-title"><span class="task-kicker">{{ current_task.phase_label }}</span><strong>{{ current_task.task_label }}</strong></div>
             <div class="ledger-grid"><div><span>证据</span><strong>{{ current_task.evidence_count }}</strong></div><div><span>尝试次数</span><strong>{{ current_task.attempt }}</strong></div><div><span>补丁</span><strong class="ledger-code">{{ current_task.patch_id }}</strong></div><div><span>校验</span><strong>{{ current_task.validation }}</strong></div></div>
-            <dl class="detail-list"><dt>服务 / 模型</dt><dd>{{ current_task.provider_label }} / {{ current_task.model_label }}</dd><dt>输入上下文</dt><dd>{{ current_task.input_context.entity_count }} 个实体 · {{ current_task.input_context.relation_count }} 条关系 · 修订 {{ current_task.input_context.revision }}</dd><dt>令牌估算</dt><dd>{{ current_task.input_context.token_estimate }}</dd></dl>
+            <dl class="detail-list"><dt>服务 / 模型</dt><dd>{{ current_task.provider_label }} / {{ current_task.model_label }}</dd><dt>输入上下文</dt><dd>{{ current_task.input_context.entity_count }} 个实体 · {{ current_task.input_context.relation_count }} 条关系 · 修订 {{ current_task.input_context.revision }}</dd><dt>令牌估算</dt><dd>{{ current_task.input_context.token_estimate }}</dd><dt>失败层</dt><dd>{{ current_task.failure_stage_label or '—' }}{% if current_task.failure_code %} · <code>{{ current_task.failure_code }}</code>{% endif %}</dd></dl>
             {% if current_task.diagnostics %}<div class="callout warning">{{ current_task.diagnostics|join(' · ') }}</div>{% endif %}
           </div>
           <div class="card">
             <div class="panel-head"><div><h3>运行台账</h3><p>当前运行、任务状态和诊断信息。</p></div><span class="count-badge">{{ latest_run.steps|length if latest_run else 0 }} 步</span></div>
-            {% if latest_run %}<div class="compact-list run-ledger-list">{% for step in latest_run.steps %}<article><span><strong>{{ step.task_label }}</strong><small class="table-secondary">第 {{ step.attempt }} 次尝试 · {{ step.input_hash or '无输入哈希' }}</small></span><span class="status-badge {% if step.status == 'completed' %}accepted{% elif step.status in ['failed', 'degraded'] %}rejected{% else %}candidate{% endif %}">{{ step.status_label }}</span></article>{% endfor %}</div>{% else %}<div class="mini-empty">尚未记录运行步骤</div>{% endif %}
+            {% if latest_run %}<div class="compact-list run-ledger-list">{% for step in latest_run.steps %}<article><span><strong>{{ step.task_label }}</strong><small class="table-secondary">第 {{ step.attempt }} 次尝试 · {{ step.input_hash or '无输入哈希' }}</small></span><span class="status-badge {% if step.status == 'completed' %}accepted{% elif step.status in ['failed', 'degraded'] %}rejected{% elif step.status == 'blocked' %}blocked{% else %}candidate{% endif %}">{{ step.status_label }}</span></article>{% endfor %}</div>{% else %}<div class="mini-empty">尚未记录运行步骤</div>{% endif %}
           </div>
         </div>
+        </details>
       </div>
       {% endif %}
     </section>
@@ -145,7 +217,7 @@
 
   <section class="panel closure-panel">
     <div class="panel-head"><div><h2>封版归档</h2><p>查看已接受修订、清单和导出状态。</p></div><span class="status-badge {% if closure.status == 'completed' %}accepted{% else %}candidate{% endif %}">{{ closure.status_label or closure.status }}</span></div>
-    <dl class="detail-list"><dt>已接受修订</dt><dd>{{ closure.accepted_revision if closure.accepted_revision is not none else '—' }}</dd><dt>封版清单</dt><dd><code>{{ closure.manifest or '尚未生成' }}</code></dd><dt>全局质量门禁</dt><dd>{{ global_gate.status_label }}</dd><dt>模型哈希</dt><dd class="break-all"><code>{{ graph_hash }}</code></dd></dl>
+    <dl class="detail-list"><dt>已接受版本</dt><dd>{{ closure.accepted_revision if closure.accepted_revision is not none else '—' }}</dd><dt>封版清单</dt><dd><code>{{ closure.manifest or '尚未生成' }}</code></dd><dt>全局质量门禁</dt><dd>{{ global_gate.status_label }}</dd><dt>模型哈希</dt><dd class="break-all"><code>{{ graph_hash }}</code></dd></dl>
   </section>
 </div>
 
@@ -155,10 +227,14 @@
   const form = document.getElementById("analysis-form");
   const output = document.getElementById("analysis-result");
   const indicator = document.getElementById("analysis-indicator");
+  const progressText = document.getElementById("analysis-progress-text");
   const forceRun = document.getElementById("force-run");
+  const profileSelect = document.getElementById("analysis-profile");
   const intakeResult = document.getElementById("intake-result");
   const requirementInputForm = document.getElementById("requirement-input-form");
+  const goalInputForm = document.getElementById("goal-input-form");
   const documentUploadForm = document.getElementById("document-upload-form");
+  const sysmlUploadForm = document.getElementById("sysml-upload-form");
   const moduleCards = document.querySelectorAll(".analysis-module-card");
   const modulePanels = document.querySelectorAll("[data-module-panel]");
 
@@ -177,6 +253,22 @@
     intakeResult.textContent = JSON.stringify(payload, null, 2);
     intakeResult.classList.toggle("warning", payload.status !== "ok");
   }
+
+  goalInputForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const goal = document.getElementById("project-goal").value.trim();
+    if (!goal) return;
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/goal`, {
+        method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({goal}),
+      });
+      const payload = await response.json();
+      showIntakeResult(payload);
+      if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+    } catch (error) {
+      showIntakeResult({status: "failed", message: "请求失败：" + error});
+    }
+  });
 
   requirementInputForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -210,24 +302,93 @@
     }
   });
 
+  sysmlUploadForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const file = document.getElementById("sysml-file").files[0];
+    if (!file) return;
+    const body = new FormData();
+    body.append("file", file);
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/sysml/import/upload`, {method: "POST", body});
+      const payload = await response.json();
+      showIntakeResult(payload);
+      if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+    } catch (error) {
+      showIntakeResult({status: "failed", message: "请求失败：" + error});
+    }
+  });
+
+  function setAnalysisBusy(busy) {
+    indicator.style.display = busy ? "inline-flex" : "none";
+    form.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
+  }
+
+  function showGenerationProgress(run) {
+    const progress = run?.progress || {};
+    const label = progress.current_stage_label || (run?.status === "completed" ? "已完成" : "准备运行");
+    const completed = progress.completed_stages ?? 0;
+    const total = progress.total_stages ?? 5;
+    progressText.textContent = `当前阶段：${label} · 已完成 ${completed}/${total} 个阶段`;
+    output.hidden = false;
+    output.textContent = progressText.textContent;
+  }
+
+  async function pollGeneration(progressUrl) {
+    const terminalStates = new Set(["completed", "failed", "blocked", "degraded", "cancelled"]);
+    for (let attempt = 0; attempt < 900; attempt += 1) {
+      const response = await fetch(progressUrl);
+      const payload = await response.json();
+      if (!response.ok || payload.status !== "ok") {
+        throw new Error(payload.message || "无法读取生成进度");
+      }
+      const run = payload.run || {};
+      showGenerationProgress(run);
+      if (terminalStates.has(run.status)) {
+        if (run.status === "completed") {
+          window.setTimeout(() => window.location.reload(), 300);
+        } else {
+          output.classList.add("warning");
+          output.textContent = `生成未完成：${run.diagnostics?.join("；") || run.status}`;
+        }
+        return;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    }
+    output.classList.add("warning");
+    output.textContent = "生成仍在后台运行，请稍后打开运行记录查看。";
+  }
+
   async function runAnalysis(mode, phase) {
     output.hidden = false;
     output.textContent = "正在运行…";
-    indicator.style.display = "inline-flex";
+    progressText.textContent = "当前阶段：准备运行";
+    output.classList.remove("warning");
+    setAnalysisBusy(true);
     const body = {mode, force_run: forceRun.checked};
     if (phase) body.phase = phase;
+    if (profileSelect?.value) body.profile_id = profileSelect.value;
     try {
-      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/analysis`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
+      const endpoint = mode === "generate"
+        ? `/projects/${encodeURIComponent(projectId)}/analysis/runs`
+        : `/projects/${encodeURIComponent(projectId)}/analysis`;
+      const response = await fetch(endpoint, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
       const payload = await response.json();
-      output.textContent = JSON.stringify(payload, null, 2);
-      output.classList.toggle("warning", payload.status !== "ok");
-      if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+      if (mode === "generate") {
+        if (!response.ok || payload.status !== "accepted" || !payload.run?.progress_url) {
+          throw new Error(payload.message || "无法启动完整模型生成");
+        }
+        await pollGeneration(payload.run.progress_url);
+      } else {
+        output.textContent = JSON.stringify(payload, null, 2);
+        output.classList.toggle("warning", payload.status !== "ok");
+        if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
+      }
     } catch (error) {
       output.textContent = "请求失败：" + error;
       output.classList.add("warning");
-    } finally { indicator.style.display = "none"; }
+    } finally { setAnalysisBusy(false); }
   }
-  form.addEventListener("submit", (event) => { event.preventDefault(); runAnalysis("pipeline", null); });
+  form.addEventListener("submit", (event) => { event.preventDefault(); runAnalysis("generate", null); });
   form.querySelectorAll("[data-phase]").forEach((button) => button.addEventListener("click", () => runAnalysis("phase", button.dataset.phase)));
   document.querySelectorAll(".repair-button").forEach((button) => button.addEventListener("click", async () => {
     const repairOutput = document.getElementById("repair-result");
@@ -240,6 +401,41 @@
       repairOutput.classList.toggle("warning", payload.status !== "ok");
       if (payload.status === "ok") window.setTimeout(() => window.location.reload(), 300);
     } catch (error) { repairOutput.textContent = "请求失败：" + error; repairOutput.classList.add("warning"); }
+  }));
+  document.getElementById("controller-iterate")?.addEventListener("click", async () => {
+    const output = document.getElementById("controller-result");
+    output.hidden = false;
+    output.textContent = "Controller 正在自动推进安全动作…";
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/controller/iterate`, {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({max_iterations: 3, expected_revision: {{ current_revision|tojson }}}),
+      });
+      const payload = await response.json();
+      output.textContent = JSON.stringify(payload, null, 2);
+      output.classList.toggle("warning", payload.status !== "ok");
+      if (payload.status === "ok" && payload.controller && payload.controller.revision !== {{ current_revision|tojson }}) {
+        window.setTimeout(() => window.location.reload(), 300);
+      }
+    } catch (error) {
+      output.textContent = "请求失败：" + error;
+      output.classList.add("warning");
+    }
+  });
+  document.querySelectorAll(".controller-execute").forEach((button) => button.addEventListener("click", async () => {
+    const controllerOutput = document.getElementById("controller-result");
+    controllerOutput.hidden = false;
+    controllerOutput.textContent = "正在执行 Controller 动作…";
+    try {
+      const body = {action_id: button.dataset.actionId, expected_revision: {{ current_revision|tojson }}};
+      if (button.dataset.optionId) body.option_id = button.dataset.optionId;
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/controller/execute`, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
+      const payload = await response.json();
+      controllerOutput.textContent = JSON.stringify(payload, null, 2);
+      controllerOutput.classList.toggle("warning", payload.status !== "ok");
+      if (payload.status === "ok" && payload.controller && payload.controller.execution_status === "completed") window.setTimeout(() => window.location.reload(), 300);
+    } catch (error) { controllerOutput.textContent = "请求失败：" + error; controllerOutput.classList.add("warning"); }
   }));
 })();
 </script>

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "design-intent-draft.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "statement", "target_kind", "target_name", "parameters", "material", "connections", "context_model_ids", "source_requirement_ids", "clarifications", "recommendations", "diagnostics"],
+  "properties": {
+    "schema_version": {"const": "design-intent-draft.v1"},
+    "statement": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "target_kind": {"type": "string", "minLength": 1, "maxLength": 80},
+    "target_name": {"type": "string", "minLength": 1, "maxLength": 240},
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "value", "unit", "source"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 80},
+          "value": {"type": "number"},
+          "unit": {"type": "string", "maxLength": 24},
+          "source": {"enum": ["explicit", "inferred"]}
+        }
+      }
+    },
+    "material": {"type": "string", "maxLength": 160},
+    "connections": {"type": "array", "items": {"type": "string", "maxLength": 500}},
+    "context_model_ids": {"type": "array", "items": {"type": "string", "maxLength": 160}},
+    "source_requirement_ids": {"type": "array", "items": {"type": "string", "maxLength": 160}},
+    "clarifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "ambiguity", "options", "recommendation", "rationale", "severity"],
+        "properties": {
+          "question": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "ambiguity": {"type": "string", "minLength": 1, "maxLength": 500},
+          "options": {"type": "array", "items": {"type": "string", "maxLength": 200}},
+          "recommendation": {"type": "string", "maxLength": 200},
+          "rationale": {"type": "string", "maxLength": 500},
+          "severity": {"enum": ["low", "medium", "high"]}
+        }
+      }
+    },
+    "recommendations": {"type": "array", "items": {"type": "string", "maxLength": 500}},
+    "structure_options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "category", "applicability", "rationale", "status"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 120},
+          "label": {"type": "string", "minLength": 1, "maxLength": 240},
+          "category": {"type": "string", "minLength": 1, "maxLength": 120},
+          "applicability": {"type": "string", "minLength": 1, "maxLength": 500},
+          "rationale": {"type": "string", "minLength": 1, "maxLength": 500},
+          "status": {"const": "recommendation"}
+        }
+      }
+    },
+    "diagnostics": {"type": "array", "items": {"type": "string", "maxLength": 500}}
+  }
+}

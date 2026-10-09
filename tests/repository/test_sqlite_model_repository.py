@@ -4,7 +4,8 @@ import pytest
 
 from rflp_lite.domain.entities import EntityKind, EntityStatus, make_entity
 from rflp_lite.domain.errors import ConcurrentModificationError, ContractViolation
-from rflp_lite.domain.model import Patch, UpdateEntity
+from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
+from rflp_lite.domain.relations import RelationPredicate
 from rflp_lite.repository.sqlite import SQLiteModelRepository
 
 
@@ -56,13 +57,100 @@ def test_append_patch_creates_revision_and_loads_typed_graph(tmp_path):
     with pytest.raises(ContractViolation, match="entity not found"):
         repository.append_patch("p1", patch, 0)
 
-    from rflp_lite.domain.model import AddEntity
     good = Patch.create("p1", "system.define", (AddEntity(entity),), "define", 0)
     revision = repository.append_patch("p1", good, 0)
     graph = repository.load_graph("p1")
     assert revision.sequence == 1
     assert graph.revision == 1
     assert graph.entities[0].kind is EntityKind.SYSTEM
+
+
+def test_append_patch_materializes_referenced_evidence_in_same_revision(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    repository.save_evidence(
+        "p1",
+        {
+            "id": "evidence-requirement",
+            "source_type": "document_region",
+            "source_id": "spec-1",
+            "locator": "page-4",
+            "claim": "续航要求",
+            "excerpt": "系统续航应达到 8 小时",
+            "relevance": 0.98,
+        },
+    )
+    repository.save_evidence(
+        "p1",
+        {
+            "id": "evidence-relation",
+            "source_type": "test",
+            "source_id": "test-1",
+            "locator": "result-1",
+            "claim": "功能满足需求",
+            "excerpt": "测试结果满足需求目标",
+            "relevance": 1.0,
+        },
+    )
+    function = make_entity(EntityKind.FUNCTION, "管理续航")
+    requirement = make_entity(
+        EntityKind.REQUIREMENT,
+        "续航要求",
+        evidence_ids=("evidence-requirement",),
+    )
+    patch = Patch.create(
+        "p1",
+        "requirement.define",
+        (
+            AddEntity(function),
+            AddEntity(requirement),
+            Relate(
+                requirement.id,
+                RelationPredicate.SATISFIED_BY,
+                function.id,
+                ("evidence-relation",),
+            ),
+        ),
+        "define requirement with evidence",
+        0,
+    )
+
+    revision = repository.append_patch("p1", patch, 0)
+
+    graph = repository.load_graph("p1")
+    evidence = {
+        item.id: item
+        for item in graph.entities
+        if item.kind is EntityKind.EVIDENCE
+    }
+    assert revision.sequence == graph.revision == 1
+    assert set(evidence) == {"evidence-requirement", "evidence-relation"}
+    assert evidence["evidence-requirement"].payload["excerpt"] == "系统续航应达到 8 小时"
+    assert evidence["evidence-requirement"].meta.created_revision == 1
+    assert evidence["evidence-relation"].meta.updated_revision == 1
+    assert len([item for item in graph.entities if item.kind is EntityKind.EVIDENCE]) == 2
+    audit = repository.list_audit_events("p1")[-1]
+    assert audit["payload"]["materialized_evidence_ids"] == [
+        "evidence-relation",
+        "evidence-requirement",
+    ]
+
+
+def test_unreferenced_evidence_stays_external_until_a_model_patch_references_it(tmp_path):
+    repository = SQLiteModelRepository(tmp_path / "model.db")
+    repository.ensure_project("p1")
+    repository.save_evidence(
+        "p1",
+        {
+            "id": "evidence-unattached",
+            "source_type": "search",
+            "claim": "未绑定证据",
+            "excerpt": "检索结果",
+        },
+    )
+
+    assert repository.load_graph("p1").entities == ()
+    assert repository.load_graph("p1").revision == 0
 
 
 def test_append_patch_rejects_stale_revision(tmp_path):

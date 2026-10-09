@@ -29,3 +29,6 @@ class SettingsService:
 
     def active_config(self) -> dict[str, object] | None:
         return self.profiles.active_config()
+
+    def profile_config(self, profile_id: str) -> Mapping[str, object]:
+        return self.profiles.config_for_profile(profile_id)

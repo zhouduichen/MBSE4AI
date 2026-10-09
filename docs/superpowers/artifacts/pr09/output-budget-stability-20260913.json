@@ -1,0 +1,72 @@
+{
+  "experiment": "Real-model Structured Execution Reliability",
+  "date": "2026-09-13",
+  "baseline_commit": "7bf00c2f9ab2e31287a7539b08e2ad7ee25258e4",
+  "chain": ["system_definition", "stakeholder_analysis", "stakeholder_requirements"],
+  "known_2000_baseline": {
+    "source": "structured-execution-forensics-20260913.json",
+    "runs": 5,
+    "terminal_structural_truncated": 4,
+    "terminal_compiler_duplicate_local_ref": 1,
+    "terminal_transport_failures": 0,
+    "chain_completed_runs": 0,
+    "note": "The earlier 2000-token runs were full-lifecycle runs; this is the reference baseline, not a repeated narrow-chain run."
+  },
+  "budget_3000": {
+    "source": "output-budget-3000-20260913.json",
+    "runs": 5,
+    "chain_completed_runs": 0,
+    "failure_classes": {
+      "compiler.proposal_compile": 2,
+      "structural.json_decode": 1,
+      "transport.network_error": 2
+    },
+    "task_status": {"failed": 5, "blocked": 10},
+    "initial_max_tokens": [3000],
+    "repair_max_tokens": [3000],
+    "decision": "not_determinable"
+  },
+  "budget_4000": {
+    "source": "output-budget-4000-20260913.json",
+    "runs": 5,
+    "status": "completed",
+    "chain_completed_runs": 0,
+    "failure_classes": {"compiler.proposal_compile": 5},
+    "task_status": {"failed": 5, "blocked": 10},
+    "initial_max_tokens": [4000],
+    "repair_max_tokens": [],
+    "finish_reason": {"stop": 5},
+    "duplicate_local_ref_count": 5,
+    "structural_retry_exhausted": 0,
+    "provider_transport_failures": 0,
+    "decision": "output_cap_not_root_cause_for_system_definition"
+  },
+  "provider_preflight": {
+    "endpoint": "http://100.88.143.10:11434",
+    "observed": "healthy_before_4000_matrix",
+    "checks": ["/api/tags", "/v1/models"],
+    "http_status": 200,
+    "model_confirmed": "qwen3.5:9b-q8_0"
+  },
+  "conclusion": {
+    "output_budget_sufficiency": {
+      "system_definition": "not_the_root_cause",
+      "downstream_tasks": "not_tested_because_system_definition_blocks_the_chain"
+    },
+    "current_narrow_chain_blocker": "system_definition duplicate local_ref compiler failure",
+    "what_is_supported": [
+      "3000-token requests reached the provider with initial and structural-repair max_tokens both equal to 3000.",
+      "The same duplicate local_ref compiler failure appeared twice at 3000, independently of truncation.",
+      "All 3000-token failures still propagated to downstream BLOCKED tasks and produced zero repository revision delta.",
+      "The 4000-token matrix ran with zero transport failures and reproduced the same compiler failure in all five repetitions.",
+      "The 4000-token system_definition response used 684/4000 generated tokens (17.1%), so output-cap exhaustion cannot explain this blocker."
+    ],
+    "what_is_not_supported": [
+      "3000 is sufficient for the sequential chain.",
+      "3000 is insufficient because of output truncation.",
+      "4000 removes the system_definition compiler failure.",
+      "The downstream tasks are structurally reliable at 4000; they were never reached."
+    ],
+    "next_action": "Do not raise the output cap further for this blocker. Investigate the system_definition prompt/context contract and duplicate-local-ref generation, then rerun the narrow chain only after that issue is addressed or explicitly accepted; do not enter the MBSE semantic benchmark yet."
+  }
+}

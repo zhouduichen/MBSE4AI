@@ -1,0 +1,593 @@
+"""Orchestration for intent-to-CAD execution and ModelGraph integration."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from rflp_lite.application.detail_design_store import DetailDesignStore
+from rflp_lite.application.design_intent import DesignIntentDraft, DesignIntentService
+from rflp_lite.application.requirement_scope import root_requirement_ids
+from rflp_lite.domain.canonical import canonical_hash, to_primitive
+from rflp_lite.domain.detail_design import (
+    CadExecutionPlan,
+    CadOperation,
+    ClarificationQuestion,
+    DesignIntent,
+)
+from rflp_lite.domain.entities import EntityKind, EntityStatus, Producer, make_entity
+from rflp_lite.domain.errors import ContractViolation, NotFoundError
+from rflp_lite.domain.model import AddEntity, Patch, Relate, UpdateEntity
+from rflp_lite.domain.relations import RelationPredicate
+from rflp_lite.ports.cad import CadOperationResult, CadPort
+
+
+def _mapping(value: object) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _intent_from_payload(payload: Mapping[str, Any]) -> DesignIntent:
+    raw = _mapping(payload.get("intent")) or payload
+    raw_parameters = raw.get("parameters", ())
+    if isinstance(raw_parameters, Mapping):
+        parameters = tuple((str(key), value) for key, value in raw_parameters.items())
+    else:
+        parameters = tuple(
+            (str(item.get("name")), item.get("value"))
+            for item in raw_parameters
+            if isinstance(item, Mapping) and item.get("name")
+        )
+    structure_options = tuple(
+        {
+            str(key): str(value)
+            for key, value in item.items()
+            if key in {"id", "label", "category", "applicability", "rationale", "status"}
+        }
+        for item in raw.get("structure_options", ())
+        if isinstance(item, Mapping) and item.get("id")
+    )
+    return DesignIntent(
+        id=str(raw.get("id", payload.get("draft_id", "intent-unknown"))),
+        statement=str(raw.get("statement", "")),
+        target_kind=str(raw.get("target_kind", "part")),
+        target_name=str(raw.get("target_name", "待确认零件")),
+        parameters=parameters,
+        material=str(raw.get("material", "")),
+        connection_requirements=tuple(str(item) for item in raw.get("connection_requirements", raw.get("connections", ()))),
+        context_model_ids=tuple(str(item) for item in raw.get("context_model_ids", ())),
+        source_requirement_ids=tuple(str(item) for item in raw.get("source_requirement_ids", ())),
+        confidence=float(raw.get("confidence", 0.0)),
+        provenance=str(raw.get("provenance", "rule")),
+        structure_options=structure_options,
+    )
+
+
+def _clarifications(payload: Mapping[str, Any]) -> tuple[ClarificationQuestion, ...]:
+    raw = payload.get("clarifications", ())
+    return tuple(
+        ClarificationQuestion(
+            id=str(item.get("id", f"clarification-{canonical_hash(item)[:12]}")),
+            question=str(item.get("question", "")),
+            ambiguity=str(item.get("ambiguity", "")),
+            options=tuple(str(option) for option in item.get("options", ())),
+            recommendation=str(item.get("recommendation", "")),
+            rationale=str(item.get("rationale", "")),
+            severity=str(item.get("severity", "high")),
+            status=str(item.get("status", "open")),
+        )
+        for item in raw
+        if isinstance(item, Mapping)
+    )
+
+
+def _draft_from_payload(payload: Mapping[str, Any]) -> DesignIntentDraft:
+    intent = _intent_from_payload(payload)
+    return DesignIntentDraft(
+        draft_id=str(payload.get("draft_id", "")),
+        project_id=str(payload.get("project_id", "")),
+        input_hash=str(payload.get("input_hash", "")),
+        status=str(payload.get("status", "needs_clarification")),
+        payload=dict(payload),
+        intent=intent,
+        clarifications=_clarifications(payload),
+        provider_id=str(payload.get("provider_id", "")),
+        model_id=str(payload.get("model_id", "")),
+        diagnostics=tuple(str(item) for item in payload.get("diagnostics", ())),
+        created_at=float(payload.get("created_at", 0.0)),
+    )
+
+
+def _plan_from_payload(payload: Mapping[str, Any]) -> CadExecutionPlan:
+    operations = tuple(
+        CadOperation(
+            id=str(item.get("id", "")),
+            operation=str(item.get("operation", "")),
+            parameters=tuple((str(key), value) for key, value in _mapping(item.get("parameters")).items()),
+            depends_on=tuple(str(value) for value in item.get("depends_on", ())),
+            expected_result=str(item.get("expected_result", "")),
+            reversible=bool(item.get("reversible", True)),
+        )
+        for item in payload.get("operations", ())
+        if isinstance(item, Mapping)
+    )
+    return CadExecutionPlan(
+        id=str(payload.get("id", "")),
+        intent_id=str(payload.get("intent_id", "")),
+        operations=operations,
+        risks=tuple(str(item) for item in payload.get("risks", ())),
+        status=str(payload.get("status", "draft")),
+        approval_status=str(payload.get("approval_status", "pending")),
+        preview_hash=str(payload.get("preview_hash", "")),
+        model_context_ids=tuple(str(item) for item in payload.get("model_context_ids", ())),
+        source_requirement_ids=tuple(str(item) for item in payload.get("source_requirement_ids", ())),
+        selected_structure_option_id=str(payload.get("selected_structure_option_id", "")),
+    )
+
+
+def _number(parameters: Mapping[str, Any], name: str) -> float | None:
+    value = parameters.get(name)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if float(value) > 0 else None
+
+
+def _context_model_ids(graph, source_requirement_ids: tuple[str, ...]) -> tuple[str, ...]:
+    source_ids = {str(item) for item in source_requirement_ids if str(item).strip()}
+    selected: list[str] = []
+    approved: list[str] = []
+    for entity in graph.entities:
+        if entity.kind is not EntityKind.PHYSICAL_BLOCK or entity.meta.status is EntityStatus.DEPRECATED:
+            continue
+        raw_sources = entity.payload.get("source_requirement_ids", ())
+        model_sources = (
+            {str(item) for item in raw_sources if str(item).strip()}
+            if isinstance(raw_sources, (list, tuple, set))
+            else set()
+        )
+        if source_ids and source_ids.intersection(model_sources):
+            selected.append(entity.id)
+            if entity.meta.status in {EntityStatus.ACCEPTED, EntityStatus.LOCKED}:
+                approved.append(entity.id)
+        elif not source_ids and entity.meta.status in {EntityStatus.ACCEPTED, EntityStatus.LOCKED}:
+            selected.append(entity.id)
+            approved.append(entity.id)
+    return tuple(sorted(dict.fromkeys(approved or selected)))
+
+
+_RIBBED_STRUCTURE_OPTIONS = frozenset({"bracket-gusseted-plate", "base-ribbed-plate"})
+_BLOCK_STRUCTURE_OPTIONS = frozenset({"bracket-machined-block", "base-machined-block"})
+
+
+def _structure_operations(
+    intent: DesignIntent,
+    selected_structure_option_id: str,
+    length: float | None,
+    width: float | None,
+    height: float | None,
+) -> tuple[CadOperation, ...]:
+    if not selected_structure_option_id or not all(value is not None for value in (length, width, height)):
+        return ()
+    assert length is not None and width is not None and height is not None
+    part_id = intent.id
+    if selected_structure_option_id in _RIBBED_STRUCTURE_OPTIONS:
+        rib_length = max(length * 0.85, 2.0)
+        rib_width = max(width * 0.08, 2.0)
+        rib_height = max(height * 2.0, 2.0)
+        rib_x = max(length * 0.075, 0.5)
+        return tuple(
+            CadOperation(
+                f"add-rib-{index}",
+                "add_rib",
+                (
+                    ("part_id", part_id),
+                    ("length_mm", rib_length),
+                    ("width_mm", rib_width),
+                    ("height_mm", rib_height),
+                    ("x_mm", rib_x),
+                    ("y_mm", max(width * fraction, 0.5)),
+                    ("z_mm", height),
+                    ("structure_option_id", selected_structure_option_id),
+                ),
+                ("create-box",) if index == 1 else ("add-rib-1",),
+                "增加参数化加强筋",
+            )
+            for index, fraction in ((1, 0.20), (2, 0.72))
+        )
+    if selected_structure_option_id in _BLOCK_STRUCTURE_OPTIONS:
+        return (
+            CadOperation(
+                "add-fillet",
+                "add_fillet",
+                (
+                    ("part_id", part_id),
+                    ("radius_mm", max(min(length, width, height) * 0.08, 0.5)),
+                    ("structure_option_id", selected_structure_option_id),
+                ),
+                ("create-box",),
+                "对整体块式结构增加参数化圆角",
+            ),
+        )
+    return ()
+
+
+def _plan_operations(intent: DesignIntent, selected_structure_option_id: str = "") -> tuple[CadOperation, ...]:
+    values = dict(intent.parameters)
+    operations: list[CadOperation] = [
+        CadOperation(
+            "create-part",
+            "create_part",
+            (("part_id", intent.id),),
+            (),
+            "创建参数化零件文档",
+        )
+    ]
+    length = _number(values, "length_mm")
+    width = _number(values, "width_mm")
+    height = _number(values, "height_mm")
+    profile_operations = _profile_operations(intent, values)
+    if profile_operations:
+        operations.extend(profile_operations)
+    elif length and width and height:
+        operations.append(
+            CadOperation(
+                "create-box",
+                "create_box",
+                (
+                    ("part_id", intent.id),
+                    ("length_mm", length),
+                    ("width_mm", width),
+                    ("height_mm", height),
+                ),
+                ("create-part",),
+                "创建基础包络实体",
+            )
+        )
+        operations.extend(_structure_operations(intent, selected_structure_option_id, length, width, height))
+    diameter = _number(values, "diameter_mm") or _number(values, "bore_diameter_mm")
+    if diameter and "孔" in intent.statement and intent.target_kind != "gear":
+        dependency = operations[-1].id
+        operations.append(
+            CadOperation(
+                "add-hole",
+                "add_hole",
+                (
+                    ("part_id", intent.id),
+                    ("diameter_mm", diameter),
+                    ("depth_mm", height or diameter * 2),
+                    ("x_mm", (length or diameter) / 2),
+                    ("y_mm", (width or diameter) / 2),
+                ),
+                (dependency,),
+                "创建孔特征",
+            )
+        )
+    if intent.material:
+        operations.append(
+            CadOperation(
+                "set-material",
+                "set_material",
+                (("part_id", intent.id), ("material", intent.material)),
+                (operations[-1].id,),
+                "写入材料属性",
+            )
+        )
+    return tuple(operations)
+
+
+def _profile_operations(intent: DesignIntent, values: Mapping[str, Any]) -> tuple[CadOperation, ...]:
+    part_id = intent.id
+    length = _number(values, "length_mm")
+    width = _number(values, "width_mm")
+    height = _number(values, "height_mm")
+    if intent.target_kind == "housing" and all(value is not None for value in (length, width, height)):
+        wall = _number(values, "wall_thickness_mm")
+        if wall is None or wall * 2 >= min(length, width, height):
+            return ()
+        return (
+            CadOperation(
+                "create-shell",
+                "create_shell",
+                (
+                    ("part_id", part_id),
+                    ("length_mm", length),
+                    ("width_mm", width),
+                    ("height_mm", height),
+                    ("wall_thickness_mm", wall),
+                ),
+                ("create-part",),
+                "创建带内腔和壁厚的参数化壳体",
+            ),
+        )
+    if intent.target_kind == "shaft" and length and _number(values, "diameter_mm"):
+        diameter = _number(values, "diameter_mm")
+        operations = [CadOperation(
+            "create-shaft",
+            "create_cylinder",
+            (("part_id", part_id), ("diameter_mm", diameter), ("height_mm", length), ("profile", "shaft")),
+            ("create-part",),
+            "创建参数化等径轴基体",
+        )]
+        step_diameter = _number(values, "step_diameter_mm")
+        step_length = _number(values, "step_length_mm")
+        if step_diameter and step_length and step_diameter < diameter and step_length < length:
+            operations.append(CadOperation(
+                "add-shaft-step",
+                "add_shaft_step",
+                (
+                    ("part_id", part_id),
+                    ("diameter_mm", step_diameter),
+                    ("length_mm", step_length),
+                    ("offset_mm", length - step_length),
+                    ("base_diameter_mm", diameter),
+                ),
+                ("create-shaft",),
+                "增加参数化阶梯轴段",
+            ))
+        return tuple(operations)
+    if intent.target_kind == "gear":
+        module = _number(values, "module")
+        teeth = _number(values, "teeth")
+        face_width = _number(values, "face_width_mm")
+        if module and teeth and face_width and teeth >= 6:
+            bore = _number(values, "bore_diameter_mm") or 0.0
+            return (
+                CadOperation(
+                    "create-gear",
+                    "create_gear",
+                    (
+                        ("part_id", part_id),
+                        ("module", module),
+                        ("teeth", teeth),
+                        ("face_width_mm", face_width),
+                        ("bore_diameter_mm", bore),
+                        ("outside_diameter_mm", module * (teeth + 2.0)),
+                    ),
+                    ("create-part",),
+                    "创建参数化齿轮坯和齿形候选特征",
+                ),
+            )
+    return ()
+
+
+class CadWorkflowService:
+    """Review-gated design-intent, CAD-preview and graph-application workflow."""
+
+    def __init__(
+        self,
+        repository,
+        project_id: str,
+        *,
+        cad: CadPort,
+        intent_service: DesignIntentService,
+    ) -> None:
+        self.repository = repository
+        self.project_id = project_id
+        self.cad = cad
+        self.intent_service = intent_service
+        self.store = DetailDesignStore(repository, project_id)
+
+    def capabilities(self) -> dict[str, Any]:
+        return self.cad.capabilities().as_dict()
+
+    def create_intent(
+        self,
+        text: str,
+        *,
+        source_requirement_ids: tuple[str, ...] = (),
+    ) -> DesignIntentDraft:
+        graph = self.repository.load_graph(self.project_id)
+        effective_source_ids = source_requirement_ids or root_requirement_ids(graph)
+        context_model_ids = _context_model_ids(graph, effective_source_ids)
+        draft = self.intent_service.create_draft(
+            self.project_id,
+            text,
+            source_requirement_ids=effective_source_ids,
+            context_model_ids=context_model_ids,
+        )
+        self.store.save("design_intent_draft", draft.as_dict())
+        return draft
+
+    def drafts(self) -> tuple[DesignIntentDraft, ...]:
+        return tuple(_draft_from_payload(item) for item in self.store.records("design_intent_draft"))
+
+    def get_draft(self, draft_id: str) -> DesignIntentDraft:
+        raw = self.store.latest("design_intent_draft", draft_id)
+        if raw is None:
+            raise NotFoundError(f"design intent draft not found: {draft_id}")
+        return _draft_from_payload(raw)
+
+    def create_plan(self, draft_id: str, *, selected_structure_option_id: str = "") -> dict[str, Any]:
+        draft = self.get_draft(draft_id)
+        selected_option_id = str(selected_structure_option_id).strip()
+        known_option_ids = {str(item.get("id", "")) for item in draft.intent.structure_options}
+        if selected_option_id and selected_option_id not in known_option_ids:
+            raise ContractViolation(f"unknown structure option: {selected_option_id}")
+        operations = _plan_operations(draft.intent, selected_option_id)
+        plan_id = f"cad-plan-{canonical_hash((self.project_id, draft.intent.id, operations, selected_option_id))[:16]}"
+        status = "needs_clarification" if any(item.severity == "high" for item in draft.clarifications) else "ready"
+        plan = CadExecutionPlan(
+            id=plan_id,
+            intent_id=draft.intent.id,
+            operations=operations,
+            risks=tuple(item.ambiguity for item in draft.clarifications),
+            status=status,
+            approval_status="pending",
+            source_requirement_ids=draft.intent.source_requirement_ids,
+            model_context_ids=draft.intent.context_model_ids,
+            selected_structure_option_id=selected_option_id,
+        )
+        preview: CadOperationResult | None = None
+        diagnostics: tuple[str, ...] = ()
+        try:
+            preview = self.cad.preview_plan(plan)
+        except ContractViolation as exc:
+            diagnostics = (str(exc),)
+        if preview is not None:
+            plan = CadExecutionPlan(
+                id=plan.id,
+                intent_id=plan.intent_id,
+                operations=plan.operations,
+                risks=plan.risks,
+                status=plan.status,
+                approval_status=plan.approval_status,
+                preview_hash=preview.model.artifact_hash,
+                model_context_ids=plan.model_context_ids,
+                source_requirement_ids=plan.source_requirement_ids,
+                selected_structure_option_id=plan.selected_structure_option_id,
+            )
+        record = {
+            **plan.as_dict(),
+            "draft_id": draft.draft_id,
+            "intent": draft.intent.as_dict(),
+            "preview": to_primitive(preview.model_payload) if preview else None,
+            "diagnostics": list(diagnostics) + list(preview.diagnostics if preview else ()),
+            "capabilities": self.capabilities(),
+        }
+        self.store.save("cad_execution_plan", record)
+        return record
+
+    def plans(self) -> tuple[dict[str, Any], ...]:
+        return self.store.records("cad_execution_plan")
+
+    def get_plan(self, plan_id: str) -> dict[str, Any]:
+        record = self.store.latest("cad_execution_plan", plan_id)
+        if record is None:
+            raise NotFoundError(f"CAD plan not found: {plan_id}")
+        return record
+
+    def approve_plan(self, plan_id: str) -> dict[str, Any]:
+        record = self.get_plan(plan_id)
+        draft = self.get_draft(str(record.get("draft_id", "")))
+        if any(item.severity == "high" and item.status == "open" for item in draft.clarifications):
+            raise ContractViolation("CAD plan cannot be approved while high-severity clarifications are open")
+        plan = _plan_from_payload(record)
+        approved = CadExecutionPlan(
+            id=plan.id,
+            intent_id=plan.intent_id,
+            operations=plan.operations,
+            risks=plan.risks,
+            status="approved",
+            approval_status="approved",
+            preview_hash=plan.preview_hash,
+            model_context_ids=plan.model_context_ids,
+            source_requirement_ids=plan.source_requirement_ids,
+            selected_structure_option_id=plan.selected_structure_option_id,
+        )
+        updated = {**record, **approved.as_dict(), "approval_event": "approved"}
+        self.store.save("cad_execution_plan", updated)
+        self.store.record_audit("cad.plan_approved", {"plan_id": plan_id, "plan_hash": approved.plan_hash})
+        return updated
+
+    def execute_plan(self, plan_id: str) -> dict[str, Any]:
+        record = self.get_plan(plan_id)
+        plan = _plan_from_payload(record)
+        if plan.approval_status != "approved":
+            raise ContractViolation("CAD plan must be approved before execution")
+        existing = next((item for item in reversed(self.store.records("cad_model")) if item.get("plan_id") == plan_id), None)
+        if existing is not None and str(existing.get("plan_hash", "")) == plan.plan_hash:
+            return {**existing, "idempotent": True}
+        result = self.cad.execute_plan(plan)
+        output = {
+            "id": result.model.id,
+            "plan_id": plan.id,
+            "plan_hash": plan.plan_hash,
+            "intent_id": plan.intent_id,
+            "selected_structure_option_id": plan.selected_structure_option_id,
+            "model": result.model.as_dict(),
+            "model_payload": to_primitive(result.model_payload),
+            "diagnostics": list(result.diagnostics),
+            "capabilities": self.capabilities(),
+        }
+        self.store.save("cad_model", output)
+        self.store.record_audit("cad.model_executed", {"model_id": result.model.id, "plan_id": plan.id})
+        return output
+
+    def models(self) -> tuple[dict[str, Any], ...]:
+        return self.store.records("cad_model")
+
+    def get_model(self, model_id: str) -> dict[str, Any]:
+        record = self.store.latest("cad_model", model_id)
+        if record is None:
+            raise NotFoundError(f"CAD model not found: {model_id}")
+        return record
+
+    def apply_model(self, model_id: str) -> dict[str, Any]:
+        model_record = self.get_model(model_id)
+        graph = self.repository.load_graph(self.project_id)
+        intent = self.get_draft_for_intent(str(model_record.get("intent_id", ""))).intent
+        reference = _mapping(model_record.get("model"))
+        review = next(
+            (
+                item for item in reversed(self.store.records("design_review"))
+                if str(item.get("model_id", "")) == model_id
+            ),
+            None,
+        )
+        design_payload = {
+            "representation_kind": "cad_model",
+            "design_intent": intent.as_dict(),
+            "cad_model_reference": dict(reference),
+            "cad_model_payload": model_record.get("model_payload", {}),
+            "source_requirement_ids": list(intent.source_requirement_ids),
+            "context_model_ids": list(intent.context_model_ids),
+            "selected_structure_option_id": str(model_record.get("selected_structure_option_id", "")),
+        }
+        if review is not None:
+            design_payload["design_review"] = dict(review)
+        entity = make_entity(
+            EntityKind.PHYSICAL_BLOCK,
+            intent.target_name,
+            design_payload,
+            status=EntityStatus.ACCEPTED,
+            producer=Producer.LLM if intent.provenance == "llm" else Producer.RULE,
+            confidence=intent.confidence,
+            source_ids=(intent.id, model_id),
+            revision=graph.revision,
+        )
+        existing = graph.entity_index.get(entity.id)
+        if existing is not None:
+            current_review = existing.payload.get("design_review")
+            if review is None or isinstance(current_review, Mapping) and current_review.get("id") == review.get("id"):
+                return {"model": model_record, "entity": existing.as_dict(), "idempotent": True, "revision": graph.revision}
+            patch = Patch.create(
+                self.project_id,
+                "cad.apply_model",
+                (UpdateEntity(existing.id, {"payload": {"design_review": dict(review)}}),),
+                f"回接 CAD 模型审查 {model_id}",
+                graph.revision,
+            )
+            revision = self.repository.append_patch(self.project_id, patch, graph.revision)
+            updated = self.repository.load_graph(self.project_id).entity_index[existing.id]
+            self.store.record_audit(
+                "cad.model_review_attached",
+                {"model_id": model_id, "entity_id": existing.id, "review_id": review.get("id"), "revision": revision.sequence},
+            )
+            return {"model": model_record, "entity": updated.as_dict(), "revision": to_primitive(revision)}
+        operations: list[Any] = [AddEntity(entity)]
+        operations.extend(
+            Relate(requirement_id, RelationPredicate.SATISFIED_BY, entity.id)
+            for requirement_id in intent.source_requirement_ids
+            if requirement_id in graph.entity_index
+        )
+        patch = Patch.create(
+            self.project_id,
+            "cad.apply_model",
+            tuple(operations),
+            f"应用 CAD 模型 {model_id}",
+            graph.revision,
+        )
+        revision = self.repository.append_patch(self.project_id, patch, graph.revision)
+        self.store.record_audit(
+            "cad.model_applied",
+            {"model_id": model_id, "entity_id": entity.id, "revision": revision.sequence},
+        )
+        return {"model": model_record, "entity": entity.as_dict(), "revision": to_primitive(revision)}
+
+    def get_draft_for_intent(self, intent_id: str) -> DesignIntentDraft:
+        for draft in reversed(self.drafts()):
+            if draft.intent.id == intent_id:
+                return draft
+        raise NotFoundError(f"design intent not found: {intent_id}")
+
+
+__all__ = ["CadWorkflowService"]

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Documents · {{ project_id }}{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Documents</p><h1>项目文档</h1><p>本地输入文件与验收 fixture · 项目 {{ project_id }}</p></div><a class="button primary" href="/ui/projects/{{ project_id }}/analysis">进入分析工作台</a></div>
+<section class="metric-grid"><article class="metric"><span>Documents</span><strong>{{ documents|length }}</strong><small>项目 inputs/ 文件</small></article><article class="metric"><span>Workspace</span><strong>Local</strong><small>只读文档索引</small></article><article class="metric"><span>Review chain</span><strong>Ready</strong><small>文档 → 分析 → 审查</small></article></section>
+<section class="panel"><div class="panel-head"><div><h2>输入文件</h2><p>文件保留在项目工作区；上传与解析入口位于 Analysis。</p></div><a class="button compact" href="/ui/projects/{{ project_id }}/analysis">上传或提交需求</a></div><div class="table-wrap"><table class="engineering-table"><thead><tr><th>文件</th><th>类型</th><th>大小</th><th>位置</th><th>下一步</th></tr></thead><tbody>{% for item in documents %}<tr><td><strong>{{ item.name }}</strong></td><td><span class="status-badge info">{{ item.kind }}</span></td><td>{{ item.size_label }}</td><td><code>{{ item.relative_path }}</code></td><td><a class="button compact" href="/ui/projects/{{ project_id }}/analysis">打开 Analysis</a></td></tr>{% else %}<tr><td colspan="5" class="table-empty">暂无输入文件；请先进入 Analysis 上传需求文档。</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

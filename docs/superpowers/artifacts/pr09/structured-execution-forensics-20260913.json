@@ -1,0 +1,445 @@
+{
+  "report": "PR09 real-model structured execution reliability forensics",
+  "date": "2026-09-13",
+  "source_report": "docs/superpowers/artifacts/pr09/lifecycle-stability-20260911.json",
+  "baseline": {
+    "commit": "7bf00c2f9ab2e31287a7539b08e2ad7ee25258e4",
+    "message": "feat(runtime): harden structured proposal execution boundary",
+    "harness_modified_during_runs": false
+  },
+  "experiment": {
+    "run_workspace": "/tmp/ai4mbse-pr09-lifecycle-20260911.2ZQa7T",
+    "fixture": "/Users/huangjiahao/Downloads/AI4MBSE/tests/e2e/fixtures/campus_delivery_robot.json",
+    "task_count_per_run": 23,
+    "runs_examined": 5,
+    "provider": {
+      "display_name": "Windows 5080 Ollama",
+      "provider_id": "ollama",
+      "runtime_provider_id": "windows-5080-ollama",
+      "model": "qwen3.5:9b-q8_0",
+      "base_url": "http://100.88.143.10:11434/v1",
+      "readiness_at_run": "connected"
+    },
+    "profile_and_budget": {
+      "profile_id": "windows-5080-ollama",
+      "profile_file_context_window": null,
+      "profile_file_max_output_tokens": null,
+      "source_ollama_preset_context_window": 8192,
+      "source_ollama_preset_max_output_tokens": 2048,
+      "effective_workflow_context_budget": 2000,
+      "effective_workflow_output_budget": 2000,
+      "budget_note": "The active custom profile omitted context_window and max_output_tokens; WorkflowRunner therefore used its 2000-token fallbacks. The per-attempt context_window and max_output_tokens fields below mean these effective workflow budgets, not profile-file values."
+    }
+  },
+  "field_definitions": {
+    "initial_raw_response_hash": "SHA-256 recorded for the first provider response before the bounded structural retry; it is null for successful steps because successful raw responses are not persisted in step diagnostics.",
+    "raw_response_hash": "SHA-256 recorded for the terminal provider response or captured compiler-input response.",
+    "prompt_eval_count": "Provider-reported prompt input token count; used as the available persisted context/prompt usage signal.",
+    "eval_count": "Provider-reported generated token count.",
+    "total_duration_ms": "Provider total_duration converted from nanoseconds to milliseconds.",
+    "context_window": "Effective WorkflowRunner context planning budget for the request: 2000.",
+    "max_output_tokens": "Effective WorkflowRunner output budget for the request: 2000.",
+    "request_output_budget": "The token_budget passed into TaskExecutor.request/execute: 2000.",
+    "retry_usage_limit": "Usage for the first structural-retry call was not persisted separately; terminal usage is directly observed."
+  },
+  "runs": [
+    {
+      "label": "A",
+      "project": "run-a",
+      "run_id": "run-633ecce9a9716e1e",
+      "run_status": "degraded",
+      "task_status": {
+        "completed": 1,
+        "degraded": 0,
+        "failed": 1,
+        "blocked": 21,
+        "queued": 0,
+        "running": 0
+      },
+      "completed_tasks": ["stakeholder_analysis"],
+      "failure_task_id": "stakeholder_requirements",
+      "secondary_run_diagnostics": ["system_definition: identity_conflict"],
+      "repository": {
+        "initial_revision": 1,
+        "final_revision": 2,
+        "initial_entities": 16,
+        "final_entities": 21,
+        "initial_relations": 28,
+        "final_relations": 33,
+        "run_patches": 1,
+        "open_issues": 0
+      },
+      "terminal_failure": {
+        "task_id": "stakeholder_requirements",
+        "stage": "structural",
+        "code": "truncated",
+        "classification": "structural.truncated",
+        "finish_reason": "length",
+        "retry_count": 1,
+        "initial_raw_response_hash": "e3c98be873ce8786bd54c49bcaed0048ebf9145495fee13deba0e2fe7bbd69ab",
+        "initial_raw_response_size": 5155,
+        "raw_response_hash": "c92236bdcda77c404e93696a190d14f02f68d2b594d224926055852ac2b610e1",
+        "raw_response_size": 5162,
+        "schema_hash": "1251ce0d99fad6156c027c1e30ff190b05174227fe7c048d4d8c68e9284e0606",
+        "prompt_eval_count": 3861,
+        "eval_count": 2000,
+        "total_duration_ms": 40887.647,
+        "context_window": 2000,
+        "max_output_tokens": 2000,
+        "request_output_budget": 2000,
+        "prompt_template_id": "operational.stakeholder_requirements",
+        "prompt_version": "v1",
+        "prompt_hash": "f6068e4dcb9cfa0240b87e0b8ac0f45b3e0dc07aa9af597c098493a62272aa23",
+        "context_hash": "e302cc682f1d1bff943a866d78349bb84c94396496f46c30f76478f7fe4852b4",
+        "task_spec_hash": "65e44e58638be703d349beb26778ec28e595f24a0e4d7538e461e70014999326"
+      }
+    },
+    {
+      "label": "B",
+      "project": "run-b",
+      "run_id": "run-f81ee0c54e2c2bb0",
+      "run_status": "degraded",
+      "task_status": {
+        "completed": 2,
+        "degraded": 0,
+        "failed": 1,
+        "blocked": 20,
+        "queued": 0,
+        "running": 0
+      },
+      "completed_tasks": ["stakeholder_analysis", "stakeholder_requirements"],
+      "failure_task_id": "scenario_exploration",
+      "secondary_run_diagnostics": ["system_definition: identity_conflict", "lifecycle_analysis: identity_conflict"],
+      "repository": {
+        "initial_revision": 1,
+        "final_revision": 3,
+        "initial_entities": 16,
+        "final_entities": 25,
+        "initial_relations": 28,
+        "final_relations": 37,
+        "run_patches": 2,
+        "open_issues": 0
+      },
+      "terminal_failure": {
+        "task_id": "scenario_exploration",
+        "stage": "structural",
+        "code": "truncated",
+        "classification": "structural.truncated",
+        "finish_reason": "length",
+        "retry_count": 1,
+        "initial_raw_response_hash": "ca60fe798784e18441b9e0aa25febfe38e81d21872cc91638ea9861e0829dcb4",
+        "initial_raw_response_size": 4827,
+        "raw_response_hash": "0f255a9655bfd46ada615cc32d2a5653ab37a38ab94e2d804afeb075dc1fd37a",
+        "raw_response_size": 4863,
+        "schema_hash": "51a31c0523645eb37b8f2fb2e70388a099861db6f19867b6d3d6beab6a121270",
+        "prompt_eval_count": 4867,
+        "eval_count": 2000,
+        "total_duration_ms": 41020.632,
+        "context_window": 2000,
+        "max_output_tokens": 2000,
+        "request_output_budget": 2000,
+        "prompt_template_id": "operational.scenario_exploration",
+        "prompt_version": "v1",
+        "prompt_hash": "f198473fe6adeb88248cb1547fe83f2b212d81bc54abe3fff633920145a5dac4",
+        "context_hash": "79a39bcaae2fa8b3d55735ff9bee644ac37da2f48a2c9c4388a98200d1b0fb11",
+        "task_spec_hash": "29c2ed724e4feaa8c56e5389caf6f9c8f860c6b71c19c41df2718eb023b404c6"
+      }
+    },
+    {
+      "label": "C",
+      "project": "run-c",
+      "run_id": "run-09701b4f03f308d2",
+      "run_status": "degraded",
+      "task_status": {
+        "completed": 2,
+        "degraded": 0,
+        "failed": 1,
+        "blocked": 20,
+        "queued": 0,
+        "running": 0
+      },
+      "completed_tasks": ["stakeholder_analysis", "stakeholder_requirements"],
+      "failure_task_id": "scenario_exploration",
+      "secondary_run_diagnostics": ["system_definition: identity_conflict", "lifecycle_analysis: identity_conflict"],
+      "repository": {
+        "initial_revision": 1,
+        "final_revision": 3,
+        "initial_entities": 16,
+        "final_entities": 27,
+        "initial_relations": 28,
+        "final_relations": 40,
+        "run_patches": 2,
+        "open_issues": 0
+      },
+      "terminal_failure": {
+        "task_id": "scenario_exploration",
+        "stage": "structural",
+        "code": "truncated",
+        "classification": "structural.truncated",
+        "finish_reason": "length",
+        "retry_count": 1,
+        "initial_raw_response_hash": "d2faf65d007d061800218a02a99a08c7bb51a2ade38d768878b492778ab297b4",
+        "initial_raw_response_size": 4795,
+        "raw_response_hash": "f664f9e3a1ad89cc33aff74e65bf5c835903a2c671bb474eb37208468e198ce7",
+        "raw_response_size": 4807,
+        "schema_hash": "51a31c0523645eb37b8f2fb2e70388a099861db6f19867b6d3d6beab6a121270",
+        "prompt_eval_count": 4865,
+        "eval_count": 2000,
+        "total_duration_ms": 41115.996,
+        "context_window": 2000,
+        "max_output_tokens": 2000,
+        "request_output_budget": 2000,
+        "prompt_template_id": "operational.scenario_exploration",
+        "prompt_version": "v1",
+        "prompt_hash": "f198473fe6adeb88248cb1547fe83f2b212d81bc54abe3fff633920145a5dac4",
+        "context_hash": "c9ddc2240b5d3ebe0903aaf3604e2969da7b1453e0f8b44f22d639a8a1aa90ac",
+        "task_spec_hash": "29c2ed724e4feaa8c56e5389caf6f9c8f860c6b71c19c41df2718eb023b404c6"
+      }
+    },
+    {
+      "label": "D",
+      "project": "run-d",
+      "run_id": "run-d494772c584422b2",
+      "run_status": "degraded",
+      "task_status": {
+        "completed": 2,
+        "degraded": 0,
+        "failed": 1,
+        "blocked": 20,
+        "queued": 0,
+        "running": 0
+      },
+      "completed_tasks": ["stakeholder_analysis", "stakeholder_requirements"],
+      "failure_task_id": "lifecycle_analysis",
+      "secondary_run_diagnostics": ["system_definition: identity_conflict"],
+      "repository": {
+        "initial_revision": 1,
+        "final_revision": 3,
+        "initial_entities": 16,
+        "final_entities": 29,
+        "initial_relations": 28,
+        "final_relations": 37,
+        "run_patches": 2,
+        "open_issues": 0
+      },
+      "terminal_failure": {
+        "task_id": "lifecycle_analysis",
+        "stage": "structural",
+        "code": "truncated",
+        "classification": "structural.truncated",
+        "finish_reason": "length",
+        "retry_count": 1,
+        "initial_raw_response_hash": "be9ded405b2a08e3e0400d98b934ed339720b1a81acd50315f2d4afc757af529",
+        "initial_raw_response_size": 4793,
+        "raw_response_hash": "2bc28b2f9ef41135d010a3cf2889c730f0a6f4427fcdd1e5436f5bbbcc2d468c",
+        "raw_response_size": 4952,
+        "schema_hash": "d5329e20a8e30943995fb427b06c5b6d267341145923f6dac3625cdb86870d42",
+        "prompt_eval_count": 3947,
+        "eval_count": 2000,
+        "total_duration_ms": 42081.213,
+        "context_window": 2000,
+        "max_output_tokens": 2000,
+        "request_output_budget": 2000,
+        "prompt_template_id": "operational.lifecycle_analysis",
+        "prompt_version": "v1",
+        "prompt_hash": "64cea3a67969c5936ef5d3a41b576c3dd083bb64f1bb006f957054d843287d8c",
+        "context_hash": "7dbea288bc41650e186e37ec6e583c44681f69f6aab934d2a0be9325ff8145a8",
+        "task_spec_hash": "389372a54be3af7d2020407877f517f6821c9d6930d53d79a33e26609a2616ee"
+      }
+    },
+    {
+      "label": "E",
+      "project": "run-e",
+      "run_id": "run-e56699ca9868c464",
+      "run_status": "degraded",
+      "task_status": {
+        "completed": 0,
+        "degraded": 0,
+        "failed": 1,
+        "blocked": 22,
+        "queued": 0,
+        "running": 0
+      },
+      "completed_tasks": [],
+      "failure_task_id": "system_definition",
+      "secondary_run_diagnostics": [],
+      "repository": {
+        "initial_revision": 1,
+        "final_revision": 1,
+        "initial_entities": 16,
+        "final_entities": 16,
+        "initial_relations": 28,
+        "final_relations": 28,
+        "run_patches": 0,
+        "open_issues": 0
+      },
+      "terminal_failure": {
+        "task_id": "system_definition",
+        "stage": "compiler",
+        "code": "proposal_compile",
+        "classification": "compiler.proposal_compile",
+        "finish_reason": "stop",
+        "retry_count": 0,
+        "initial_raw_response_hash": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "initial_raw_response_size": 0,
+        "raw_response_hash": "eba6516b2ee5202d332b0785265c921a29aa7835395633f3acd874a13355a5aa",
+        "raw_response_size": 786,
+        "schema_hash": "53b8c6b010df3b2290f013c91ff34449333d69adb771de6bce4f11ec721bf900",
+        "prompt_eval_count": 620,
+        "eval_count": 464,
+        "total_duration_ms": 9818.592,
+        "context_window": 2000,
+        "max_output_tokens": 2000,
+        "request_output_budget": 2000,
+        "prompt_template_id": "operational.system_definition",
+        "prompt_version": "v1",
+        "prompt_hash": "a1c4dc775426a2d57e2d2ecdb08f58c8626270998631cac8b02c9635117a9e86",
+        "context_hash": "1da517c94b07d6d3ac48203ebf3ac526958ec8bbea434cb563a590dc9d5c448d",
+        "task_spec_hash": "f8196b5d2e75e265ba79a29a0fd3c0c2329a874426dc892368b7c28154fac251"
+      }
+    }
+  ],
+  "provider_terminal_attempts": [
+    {"run": "A", "task_id": "stakeholder_analysis", "status": "completed", "finish_reason": "stop", "prompt_eval_count": 1318, "eval_count": 776, "total_duration_ms": 15946.149},
+    {"run": "A", "task_id": "stakeholder_requirements", "status": "failed", "finish_reason": "length", "prompt_eval_count": 3861, "eval_count": 2000, "total_duration_ms": 40887.647},
+    {"run": "B", "task_id": "stakeholder_analysis", "status": "completed", "finish_reason": "stop", "prompt_eval_count": 1314, "eval_count": 653, "total_duration_ms": 13529.398},
+    {"run": "B", "task_id": "stakeholder_requirements", "status": "completed", "finish_reason": "stop", "prompt_eval_count": 2071, "eval_count": 1305, "total_duration_ms": 27219.912},
+    {"run": "B", "task_id": "scenario_exploration", "status": "failed", "finish_reason": "length", "prompt_eval_count": 4867, "eval_count": 2000, "total_duration_ms": 41020.632},
+    {"run": "C", "task_id": "stakeholder_analysis", "status": "completed", "finish_reason": "stop", "prompt_eval_count": 1319, "eval_count": 775, "total_duration_ms": 15563.366},
+    {"run": "C", "task_id": "stakeholder_requirements", "status": "completed", "finish_reason": "stop", "prompt_eval_count": 2274, "eval_count": 1758, "total_duration_ms": 35102.661},
+    {"run": "C", "task_id": "scenario_exploration", "status": "failed", "finish_reason": "length", "prompt_eval_count": 4865, "eval_count": 2000, "total_duration_ms": 41115.996},
+    {"run": "D", "task_id": "stakeholder_analysis", "status": "completed", "finish_reason": "stop", "prompt_eval_count": 1319, "eval_count": 908, "total_duration_ms": 18801.649},
+    {"run": "D", "task_id": "stakeholder_requirements", "status": "completed", "finish_reason": "stop", "prompt_eval_count": 2514, "eval_count": 1165, "total_duration_ms": 24368.559},
+    {"run": "D", "task_id": "lifecycle_analysis", "status": "failed", "finish_reason": "length", "prompt_eval_count": 3947, "eval_count": 2000, "total_duration_ms": 42081.213},
+    {"run": "E", "task_id": "system_definition", "status": "failed", "finish_reason": "stop", "prompt_eval_count": 620, "eval_count": 464, "total_duration_ms": 9818.592}
+  ],
+  "classification": {
+    "task_slots": 115,
+    "task_status": {
+      "completed": 7,
+      "degraded": 0,
+      "failed": 5,
+      "blocked": 103,
+      "queued": 0,
+      "running": 0
+    },
+    "terminal_failure_classes": {
+      "structural": {
+        "truncated": 4,
+        "invalid_json": 0,
+        "schema_validation": 0,
+        "provider_grammar": 0
+      },
+      "compiler": {
+        "proposal_compile": 1
+      },
+      "transport": 0,
+      "semantic": 0
+    },
+    "llm_funnel": {
+      "task_attempts_with_provider_response": 12,
+      "provider_calls_including_structural_retries": 16,
+      "provider_success": 16,
+      "transport_timeout_or_connection_failure": 0,
+      "structural_first_pass_valid": 8,
+      "structural_retry_attempted": 4,
+      "structural_retry_recovered": 0,
+      "structural_retry_exhausted": 4,
+      "compiler_failures": 1,
+      "semantic_rejection_with_repair_context": 0,
+      "semantic_repair_invoked": 0,
+      "semantic_repair_recovered": 0,
+      "semantic_repair_exhausted": 0,
+      "secondary_identity_conflict_diagnostics": 6,
+      "terminal_response_latency_ms": {
+        "samples": 12,
+        "average": 27121.314,
+        "min": 9818.592,
+        "max": 42081.213
+      }
+    },
+    "secondary_diagnostics_note": "The six identity_conflict messages were persisted as run-level/domain diagnostics in runs A-D. They are reported separately and are not counted as the five terminal failure classes above."
+  },
+  "workflow_safety": {
+    "failed_tasks_with_output_patch": 0,
+    "blocked_tasks_with_output_patch": 0,
+    "invalid_repository_write_observed": 0,
+    "dependent_blocking_observed": true,
+    "semantic_repair_on_structural_or_compiler_failure": false,
+    "repository_revision_advance_matches_applied_run_patches": true,
+    "repository_initial_per_run": {
+      "revision": 1,
+      "entities": 16,
+      "relations": 28
+    },
+    "repository_run_patches_total": 7,
+    "repository_revision_advances_total": 7
+  },
+  "compiler_reproduction": {
+    "source_run": "E",
+    "run_id": "run-e56699ca9868c464",
+    "project_id": "run-e",
+    "task_id": "system_definition",
+    "captured_raw_response_hash": "eba6516b2ee5202d332b0785265c921a29aa7835395633f3acd874a13355a5aa",
+    "captured_raw_response_size": 786,
+    "payload_shape": {
+      "entities": 4,
+      "relations": 0,
+      "updates": 0,
+      "deprecations": 0
+    },
+    "duplicate_local_refs": {
+      "system-5b9833bef4d66e3a": 4
+    },
+    "relation_refs": [],
+    "replay": {
+      "method": "Read-only SQLite graph load plus current compile_task_proposal(request, payload); no repository write transaction was opened.",
+      "reproduced": true,
+      "exception_type": "ContractViolation",
+      "compiler_error": "duplicate task proposal local_ref: system-5b9833bef4d66e3a",
+      "auto_renamed": false,
+      "repository_mutated": false,
+      "before": {
+        "revision": 1,
+        "entities": 16,
+        "relations": 28
+      },
+      "after": {
+        "revision": 1,
+        "entities": 16,
+        "relations": 28
+      }
+    },
+    "interpretation": "The captured response is short, finished with stop, and contains valid JSON-shaped proposal fields, but repeats one local_ref four times. The compiler rejection is therefore distinct from output truncation and confirms that automatic renaming would be an unsafe policy choice."
+  },
+  "interpretation": {
+    "observed": [
+      "All four structural terminal failures are classified as truncated, have finish_reason=length, have terminal eval_count=2000, and exhausted one bounded structural retry.",
+      "No persisted terminal failure was invalid_json, schema_validation, provider_grammar, transport, or semantic-repair related.",
+      "The compiler failure has finish_reason=stop and eval_count=464; it is not an output-length failure.",
+      "No failed or blocked task carried a committable patch, and dependency blocking remained active.",
+      "The duplicate local_ref failure reproduces against the current compiler without repository mutation."
+    ],
+    "leading_hypothesis": {
+      "statement": "Output budget exhaustion is the leading explanation for the four structural failures.",
+      "support": [
+        "4/4 terminal structural responses report finish_reason=length.",
+        "4/4 terminal structural responses report eval_count=2000, equal to the effective request budget.",
+        "prompt_eval_count is 3861-4867 while raw terminal response sizes are 4807-5162 characters."
+      ],
+      "qualification": "This is not causal proof: usage for the initial retry call is not persisted separately, and provider response size is measured in characters rather than tokens."
+    },
+    "status": {
+      "PR09_execution_boundary": "PASS",
+      "repository_mutation_safety": "PASS",
+      "dependency_blocking": "PASS",
+      "transport_reliability_in_these_runs": "PASS",
+      "structured_model_reliability": "FAIL / INVESTIGATING",
+      "compiler_conformance": "PARTIAL",
+      "semantic_MBSE_execution": "NOT REACHED",
+      "semantic_repair_effectiveness": "NOT TESTED",
+      "full_lifecycle_acceptance": "PENDING"
+    },
+    "next_action": "Do not rerun the 23-task lifecycle yet. Run the planned narrow sequential stability experiment for system_definition, stakeholder_analysis, and stakeholder_requirements, with output/context budgets and task-level diagnostics held constant and recorded."
+  }
+}

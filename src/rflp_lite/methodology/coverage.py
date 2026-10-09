@@ -40,7 +40,9 @@ def evaluate(graph: ModelGraph) -> CoverageReport:
         gaps.append(CoverageGap("missing_requirement", "requirement"))
     if EntityKind.VERIFICATION_CASE not in kinds:
         gaps.append(CoverageGap("missing_verification", "verification"))
-    return CoverageReport(tuple(gaps), tuple(sorted({"stakeholder", "lifecycle", "scenario", "requirement", "verification"} - {gap.root_cause for gap in gaps})))
+    if EntityKind.VALIDATION_CASE not in kinds:
+        gaps.append(CoverageGap("missing_validation", "validation"))
+    return CoverageReport(tuple(gaps), tuple(sorted({"stakeholder", "lifecycle", "scenario", "requirement", "verification", "validation"} - {gap.root_cause for gap in gaps})))
 
 
 def is_saturated(new_effective_evidence: tuple[int, ...], threshold: int = 0, rounds: int = 2) -> bool:

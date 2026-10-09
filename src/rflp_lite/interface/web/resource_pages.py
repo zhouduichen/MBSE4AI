@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import asdict, is_dataclass
 from enum import Enum
+import json
 from pathlib import Path
 from typing import Mapping
 
@@ -12,15 +12,27 @@ from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 
 from rflp_lite.domain.canonical import canonical_hash
+from rflp_lite.domain.canonical import to_primitive
 from rflp_lite.domain.entities import EntityKind
 from rflp_lite.domain.model import ModelGraph
+from rflp_lite.application.model_generation import build_traceability_summary
 from rflp_lite.methodology.contracts import Phase
 from rflp_lite.methodology.gates import gate_for_phase, global_gate
 from rflp_lite.methodology.tasks import task_catalog, tasks_for_phase
+from rflp_lite.application.projections.assurance import build_assurance_view
+from rflp_lite.application.projections.behavior import build_behavior_view
+from rflp_lite.application.projections.history import build_history_view, build_revision_diff
+from rflp_lite.application.projections.operational import build_operational_view
+from rflp_lite.application.projections.requirements import build_requirement_detail, build_requirements_view
+from rflp_lite.application.projections.rflp import build_rflp_view
+from rflp_lite.application.projections.traceability import build_traceability_view
+from rflp_lite.application.projections.model_workbench import build_model_workbench_view
+from rflp_lite.diagrams.engineering.rflp import render_rflp_svg
 
 
 resource_pages = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
+View = dict[str, object]
 
 
 _PHASES: tuple[tuple[Phase, str], ...] = (
@@ -73,11 +85,13 @@ _STATUS_LABELS = {
     "degraded": "已降级",
     "failed": "失败",
     "completed": "已完成",
+    "needs_review": "需人工复核",
     "repairing": "修复中",
     "cancelled": "已取消",
     "candidate": "候选",
     "validated": "已验证",
     "accepted": "已接受",
+    "rejected": "已拒绝",
     "deprecated": "已弃用",
     "locked": "已锁定",
     "passed": "已通过",
@@ -113,6 +127,57 @@ _TASK_LABELS = {
     "reverse_feasibility": "反向可行性分析",
     "global_cross_analysis": "全局交叉分析",
 }
+_ENGINEERING_STAGE_LABELS = {
+    "requirements": "需求分析",
+    "functional": "功能分析",
+    "logical": "逻辑架构",
+    "physical": "物理架构",
+    "verification_validation": "验证与确认",
+    "operational": "运行场景",
+    "assurance": "验证与确认",
+    "logical_physical": "逻辑/物理架构",
+    "closure": "封版归档",
+}
+_VERTICAL_STAGE_LABELS = {
+    "requirements": "需求分析",
+    "functional": "功能分析",
+    "logical": "逻辑架构",
+    "physical": "物理架构",
+    "verification_validation": "验证与确认",
+}
+_CONTROLLER_KIND_LABELS = {
+    "collect_evidence": "补充执行证据",
+    "collect_input": "补充工程输入",
+    "reanalyze": "重新分析",
+    "trade_study": "方案权衡",
+}
+_CONTROLLER_STATUS_LABELS = {
+    "complete": "已完成",
+    "needs_action": "需要下一步",
+}
+_FINDING_LABELS = {
+    "physical_measurement_required": "物理参数待测量",
+    "physical_constraint_conflict": "物理约束存在冲突",
+    "physical_budget_conflict": "系统资源预算存在冲突",
+    "logical_partition_needs_review": "逻辑分区需要复核",
+    "verification_evidence_missing": "验证执行证据缺失",
+    "validation_evidence_missing": "确认执行证据缺失",
+    "verification_execution_failed": "验证执行未通过",
+    "validation_execution_failed": "确认执行未通过",
+}
+_PHYSICAL_FIELD_LABELS = {
+    "mass_kg": "质量",
+    "power_w": "功耗",
+    "compute": "算力",
+    "memory_mb": "内存",
+    "latency_ms": "时延",
+    "bandwidth_mbps": "带宽",
+    "cost": "成本",
+    "thermal": "热约束",
+    "reliability": "可靠性",
+    "availability": "可用性",
+    "endurance_h": "续航",
+}
 _ISSUE_LABELS = {
     "missing_stakeholder": "缺少利益相关方",
     "missing_lifecycle": "缺少生命周期",
@@ -125,6 +190,8 @@ _ISSUE_LABELS = {
     "broken_requirement_rflp_trace": "需求到 RFLP 的链路断裂",
     "missing_verification": "缺少验证用例",
     "broken_requirement_verification_trace": "需求到验证的链路断裂",
+    "missing_validation": "缺少确认用例",
+    "broken_requirement_validation_trace": "需求到确认的链路断裂",
 }
 _ROOT_CAUSE_LABELS = {
     "stakeholder": "利益相关方",
@@ -134,6 +201,7 @@ _ROOT_CAUSE_LABELS = {
     "function": "功能",
     "architecture": "逻辑/物理架构",
     "verification": "验证与确认",
+    "validation": "验证与确认",
     "evidence": "证据",
 }
 _ANALYSIS_MODULES = (
@@ -145,7 +213,7 @@ _ANALYSIS_MODULES = (
     ("architecture", "逻辑/物理架构", "逻辑组件、物理块、接口与状态", (EntityKind.LOGICAL_COMPONENT, EntityKind.PHYSICAL_BLOCK, EntityKind.INTERFACE, EntityKind.STATE)),
     ("verification", "验证与确认", "验证、确认、危险源与失效模式", (EntityKind.VERIFICATION_CASE, EntityKind.VALIDATION_CASE, EntityKind.HAZARD, EntityKind.FAILURE_MODE)),
     ("evidence", "证据与问题", "证据记录、质量门禁问题与修复入口", (EntityKind.EVIDENCE,)),
-    ("runs", "运行与审计", "当前任务、运行台账、修复与封版", ()),
+    ("runs", "运行与审计", "生成进度、质量反馈、修复与封版", ()),
 )
 _TRACE_STAGES: tuple[tuple[EntityKind, str], ...] = (
     (EntityKind.REQUIREMENT, "Requirement"),
@@ -160,6 +228,19 @@ _TRACE_STAGE_LABELS = {
     "Logical": "逻辑",
     "Physical": "物理",
     "Verification": "验证",
+    "Validation": "确认",
+}
+_TRACE_GAP_LABELS = {
+    "requirement": "Requirement",
+    "function": "Function",
+    "logical": "Logical",
+    "physical": "Physical",
+    "verification": "Verification",
+    "validation": "Validation",
+    "verification_scope": "Verification scope",
+    "validation_scope": "Validation scope",
+    "invalid_predicate": "Invalid predicate",
+    "rejected": "Rejected",
 }
 _ROOT_CAUSES = {
     "missing_stakeholder": "stakeholder",
@@ -173,6 +254,8 @@ _ROOT_CAUSES = {
     "broken_requirement_rflp_trace": "architecture",
     "missing_verification": "verification",
     "broken_requirement_verification_trace": "verification",
+    "missing_validation": "validation",
+    "broken_requirement_validation_trace": "validation",
 }
 _SUGGESTED_TASKS = {
     "stakeholder": "stakeholder_analysis",
@@ -182,6 +265,7 @@ _SUGGESTED_TASKS = {
     "function": "function_identification",
     "architecture": "logical_analysis",
     "verification": "verification_validation",
+    "validation": "verification_validation",
 }
 
 
@@ -256,7 +340,302 @@ def _phase_label(value: object) -> str:
 
 
 def _task_label(value: object) -> str:
-    return _label(_TASK_LABELS, value, "分析任务")
+    key = str(getattr(value, "value", value or ""))
+    if key.startswith("vertical."):
+        return _VERTICAL_STAGE_LABELS.get(key.removeprefix("vertical."), "分析阶段")
+    return _TASK_LABELS.get(key, "分析任务")
+
+
+def _engineering_stage_label(value: object) -> str:
+    key = str(getattr(value, "value", value or ""))
+    return _ENGINEERING_STAGE_LABELS.get(key, _phase_label(value))
+
+
+def _human_metric(value: object) -> str:
+    labels = {
+        "feasible": "可行",
+        "infeasible": "不可行",
+        "needs_measurement": "待测量",
+        "needs_review": "需复核",
+        "unknown": "未知",
+    }
+    if isinstance(value, float) and 0 <= value <= 1:
+        return f"{value:.0%}"
+    return labels.get(str(value), str(value) if value not in (None, "") else "—")
+
+
+def _completion_view(stage: Mapping[str, object]) -> View:
+    checks = stage.get("completion_checks", ())
+    values = checks if isinstance(checks, (tuple, list)) else ()
+    passed = sum(1 for item in values if _mapping(item).get("passed") is True)
+    total = len(values)
+    issues = stage.get("completion_issue_codes", ())
+    issue_count = len(issues) if isinstance(issues, (tuple, list)) else 0
+    if total and passed == total and not issue_count:
+        quality_status = "passed"
+        quality_summary = f"{total} 项检查全部通过"
+    elif total:
+        quality_status = "needs_review"
+        quality_summary = f"{passed}/{total} 项检查通过，需复核"
+    elif issue_count:
+        quality_status = "needs_review"
+        quality_summary = "需要复核当前阶段"
+    else:
+        quality_status = "pending"
+        quality_summary = "尚未形成质量结论"
+    return {
+        "quality_status": quality_status,
+        "quality_status_label": _status_label(quality_status),
+        "quality_summary": quality_summary,
+        "quality_check_count": total,
+        "quality_passed_count": passed,
+        "quality_issue_count": issue_count,
+    }
+
+
+def _requirement_coverage_view(stage: Mapping[str, object]) -> View:
+    checks = stage.get("completion_checks", ())
+    values = checks if isinstance(checks, (tuple, list)) else ()
+    coverage = next(
+        (
+            _mapping(item)
+            for item in values
+            if str(_mapping(item).get("id") or "").startswith("requirement_coverage:")
+        ),
+        {},
+    )
+    missing = coverage.get("missing_requirement_ids", ())
+    missing_ids = [str(item) for item in missing] if isinstance(missing, (tuple, list)) else []
+    passed = coverage.get("passed") is True
+    return {
+        "requirement_coverage": coverage,
+        "requirement_coverage_passed": passed,
+        "requirement_coverage_summary": (
+            "逐条需求覆盖完整" if passed else f"{len(missing_ids)} 条需求待补全"
+        ),
+        "requirement_coverage_missing_ids": missing_ids,
+    }
+
+
+def _decorate_stage_result(raw: object) -> View:
+    stage = _mapping(raw)
+    value = dict(stage)
+    stage_id = str(stage.get("stage") or "")
+    status = _status_value(stage.get("status"), "pending")
+    value.update(_completion_view(stage))
+    value.update(_requirement_coverage_view(stage))
+    value.update({
+        "stage_label": _VERTICAL_STAGE_LABELS.get(stage_id, _engineering_stage_label(stage_id)),
+        "status": status,
+        "status_label": _status_label(status),
+        "next_step_label": (
+            "进入下一阶段"
+            if status == "completed" and not value["quality_issue_count"]
+            else "检查并修复当前阶段后继续"
+        ),
+    })
+    return value
+
+
+def _decorate_finding(raw: object) -> View:
+    finding = _mapping(raw)
+    value = dict(finding)
+    code = str(finding.get("code") or "")
+    recommended = finding.get("recommended_actions", ())
+    first_action = next(iter(recommended), "") if isinstance(recommended, (tuple, list)) else ""
+    value.update({
+        "code_label": _FINDING_LABELS.get(code, "工程检查"),
+        "stage_label": _engineering_stage_label(finding.get("stage")),
+        "severity_label": {"error": "需要处理", "warning": "建议复核", "info": "提示"}.get(
+            str(finding.get("severity") or "info"), "提示"
+        ),
+        "recommended_action_label": _task_label(first_action) if first_action else "查看影响并决定下一步",
+    })
+    return value
+
+
+def _friendly_reason(value: object) -> str:
+    text = str(value or "")
+    replacements = {
+        "VerificationCase": "验证用例",
+        "ValidationCase": "确认用例",
+        "physical candidate": "物理候选",
+        "logical component": "逻辑组件",
+        "evidence": "执行证据",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    return text
+
+
+def _decorate_controller_action(raw: object) -> View:
+    action = _mapping(raw)
+    value = dict(action)
+    kind = str(action.get("kind") or "")
+    options = action.get("options", ())
+    decorated_options = []
+    for raw_option in options if isinstance(options, (tuple, list)) else ():
+        option = dict(_mapping(raw_option))
+        task_id = option.get("task_id")
+        conflict_fields = option.get("conflict_fields", ())
+        option.update({
+            "option_label": str(option.get("option") or "方案"),
+            "reentry_stage_label": _engineering_stage_label(
+                option.get("reentry_stage") or option.get("stage")
+            ),
+            "impact_label": str(option.get("impact") or "影响相关模型链路"),
+            "conflict_fields_label": "、".join(
+                _PHYSICAL_FIELD_LABELS.get(str(item), str(item))
+                for item in conflict_fields
+            ) if isinstance(conflict_fields, (tuple, list)) else "",
+            "next_step_label": _task_label(task_id) if task_id else "重新分析受影响链路",
+        })
+        decorated_options.append(option)
+    value.update({
+        "kind_label": _CONTROLLER_KIND_LABELS.get(kind, "工程动作"),
+        "stage_label": _engineering_stage_label(action.get("stage")),
+        "priority_label": "优先处理" if action.get("priority") == "P0" else "建议处理",
+        "reason_label": _friendly_reason(action.get("reason")),
+        "options": decorated_options,
+    })
+    return value
+
+
+def _decorate_controller(raw: object) -> View:
+    controller = _mapping(raw)
+    if not controller:
+        return {}
+    value = dict(controller)
+    actions = controller.get("actions", ())
+    decorated_actions = [
+        _decorate_controller_action(item)
+        for item in actions
+        if isinstance(item, Mapping) or is_dataclass(item)
+    ]
+    next_action = controller.get("next_action")
+    next_action_id = _mapping(next_action).get("id") if next_action else None
+    proposal = _mapping(controller.get("llm_proposal"))
+    if proposal:
+        proposal = {
+            **proposal,
+            "rationale": str(proposal.get("rationale") or "")[:800],
+            "assumptions": [str(item)[:200] for item in proposal.get("assumptions", ())][:4]
+            if isinstance(proposal.get("assumptions"), (tuple, list)) else [],
+            "open_questions": [str(item)[:200] for item in proposal.get("open_questions", ())][:4]
+            if isinstance(proposal.get("open_questions"), (tuple, list)) else [],
+            "status_label": {
+                "proposed": "AI 建议",
+                "fallback": "确定性 Controller",
+                "not_configured": "未配置模型",
+                "not_needed": "暂无建议",
+            }.get(str(proposal.get("status")), "Controller 建议"),
+        }
+    value.update({
+        "status_label": _CONTROLLER_STATUS_LABELS.get(
+            str(controller.get("status") or ""), _status_label(controller.get("status"))
+        ),
+        "actions": decorated_actions,
+        "next_action": next(
+            (item for item in decorated_actions if item.get("id") == next_action_id),
+            _decorate_controller_action(next_action) if next_action else None,
+        ),
+        "llm_proposal": proposal,
+    })
+    return value
+
+
+def _decorate_methodology(raw: object) -> View:
+    methodology = _mapping(raw)
+    if not methodology:
+        return {}
+    value = dict(methodology)
+    metrics = _mapping(methodology.get("metrics"))
+    findings = [
+        _decorate_finding(item)
+        for item in methodology.get("findings", ())
+        if isinstance(item, Mapping) or is_dataclass(item)
+    ]
+    recommended_tasks = methodology.get("recommended_tasks", ())
+    value.update({
+        "findings": findings,
+        "recommended_task_labels": [
+            _task_label(item) for item in recommended_tasks
+        ] if isinstance(recommended_tasks, (tuple, list)) else [],
+        "summary": (
+            f"发现 {len(findings)} 项需要处理或复核的工程结论"
+            if findings else "当前模型未发现需要额外处理的工程结论"
+        ),
+        "metric_cards": [
+            {
+                "label": "逻辑分配覆盖",
+                "value": _human_metric(metrics.get("logical_allocation_coverage")),
+            },
+            {
+                "label": "物理方案状态",
+                "value": _human_metric(metrics.get("physical_feasibility")),
+            },
+            {
+                "label": "验证与确认闭环",
+                "value": _human_metric(metrics.get("end_to_end_vv_coverage")),
+            },
+        ],
+    })
+    return value
+
+
+def _warning_label(value: object) -> str:
+    text = str(value or "")
+    if "internal completion issues" in text:
+        return "阶段质量检查需要复核"
+    if "semantic_invalid" in text:
+        return "模型语义需要人工复核"
+    if "missing required kinds" in text:
+        return "当前阶段仍缺少必要模型元素"
+    return text
+
+
+def _diagnostic_details(values: object) -> list[dict[str, object]]:
+    details: list[dict[str, object]] = []
+    if not isinstance(values, (tuple, list)):
+        return details
+    for value in values:
+        try:
+            item = json.loads(str(value))
+        except (TypeError, ValueError):
+            continue
+        if isinstance(item, dict) and item.get("stage"):
+            details.append(item)
+    return details
+
+
+def _diagnostic_display(values: object) -> list[str]:
+    if not isinstance(values, (tuple, list)):
+        return []
+    result: list[str] = []
+    stage_labels = {
+        "structural": "结构化输出",
+        "compiler": "Proposal 编译",
+        "semantic": "MBSE 语义",
+        "transport": "模型传输",
+        "concurrency": "并发冲突",
+        "internal": "内部执行错误",
+    }
+    for value in values:
+        text = str(value)
+        try:
+            item = json.loads(text)
+        except (TypeError, ValueError):
+            result.append(text)
+            continue
+        if not isinstance(item, Mapping) or not item.get("stage"):
+            result.append(text)
+            continue
+        stage = stage_labels.get(str(item.get("stage")), str(item.get("stage")))
+        code = str(item.get("code", "failure"))
+        size = item.get("raw_response_size")
+        suffix = f" · raw {size} 字符" if isinstance(size, int) else ""
+        result.append(f"{stage} · {code}{suffix}")
+    return result
 
 
 def _display_name(value: object, default: str = "未命名元素") -> str:
@@ -290,19 +669,33 @@ def _runtime_metadata(services, run: Mapping[str, object] | None = None) -> dict
         or active.get("id")
         or "offline-rule"
     )
+    selected = active
+    if profile_id == "offline-rule":
+        selected = {}
+    elif profile_id and profile_id != str(active.get("id") or ""):
+        try:
+            selected = _mapping(services.settings.config_for_profile(profile_id))
+        except Exception:
+            selected = active
     provider_id = str(
         run_data.get("provider_id")
         or run_data.get("provider")
         or recorded.get("provider_id")
-        or active.get("provider_id")
-        or active.get("provider")
-        or ("openai-compatible" if active else "offline")
+        or selected.get("provider_id")
+        or selected.get("provider")
+        or ("openai-compatible" if selected else "offline")
     )
     model_id = str(
         run_data.get("model_id")
         or recorded.get("model_id")
-        or active.get("model")
-        or ("rule-runtime" if not active else "")
+        or selected.get("model")
+        or ("rule-runtime" if not selected else "")
+    )
+    model_location = str(
+        run_data.get("model_location")
+        or recorded.get("model_location")
+        or selected.get("model_location")
+        or ("local" if selected.get("kind") == "local" else "remote" if selected else "local")
     )
     raw_mode = str(
         run_data.get("runtime_mode")
@@ -323,6 +716,8 @@ def _runtime_metadata(services, run: Mapping[str, object] | None = None) -> dict
         "provider_label": "离线规则" if provider_id == "offline" else provider_id,
         "model_id": model_id,
         "model_label": "规则引擎" if model_id == "rule-runtime" else model_id,
+        "model_location": model_location,
+        "model_location_label": {"local": "本机模型", "remote": "远程模型"}.get(model_location, "模型位置未标注"),
         "mode": mode,
         "mode_label": {"Injected Runtime": "注入运行时", "Configured Model": "已配置模型", "Offline Rule Mode": "离线规则模式"}.get(mode, mode),
         "configured": mode == "Configured Model",
@@ -340,7 +735,10 @@ def _normalize_run(raw: object) -> dict[str, object] | None:
         return None
     normalized = dict(value)
     normalized["run_id"] = run_id
-    normalized["phase"] = _status_value(value.get("phase"), "operational")
+    normalized["phase"] = _status_value(
+        value.get("phase"),
+        "vertical_generation" if value.get("mode") == "generate" else "operational",
+    )
     normalized["status"] = _status_value(value.get("status"), "queued")
     normalized["phase_label"] = _phase_label(normalized["phase"])
     normalized["status_label"] = _status_label(normalized["status"])
@@ -353,6 +751,11 @@ def _normalize_run(raw: object) -> dict[str, object] | None:
             continue
         step["task_label"] = _task_label(step.get("task_id"))
         step["status_label"] = _status_label(step.get("status"))
+        details = _diagnostic_details(step.get("diagnostics", ()))
+        if details:
+            step["diagnostic_details"] = details
+            step["failure_stage"] = str(details[0].get("stage", ""))
+            step["failure_code"] = str(details[0].get("code", ""))
         steps.append(step)
     normalized["steps"] = steps
     return normalized
@@ -405,6 +808,91 @@ def _latest_run(request: Request, services, project_id: str) -> dict[str, object
             return remembered
         return _repository_latest_run(services, project_id)
     return _repository_latest_run(services, project_id)
+
+
+def _decorate_generation_run(services, project_id: str, graph: ModelGraph, run):
+    if not run or not (
+        run.get("phase") == "vertical_generation"
+        or run.get("mode") == "generate"
+        or run.get("stage_results")
+    ):
+        return run
+    decorated = dict(run)
+    decorated["mode"] = "generate"
+    decorated["traceability"] = build_traceability_summary(graph).as_dict()
+    list_audit_events = getattr(services.repository(project_id), "list_audit_events", None)
+    if callable(list_audit_events) and not decorated.get("stage_results"):
+        events = list(list_audit_events(project_id))
+        if not decorated.get("methodology"):
+            for event in events:
+                if event.get("kind") != "model_generation.methodology_analyzed":
+                    continue
+                payload = _mapping(event.get("payload"))
+                if payload.get("run_id") != decorated.get("run_id"):
+                    continue
+                decorated["methodology"] = {
+                    key: payload.get(key)
+                    for key in (
+                        "findings", "metrics", "decisions", "impacted_entity_ids",
+                        "impacted_stages", "recommended_tasks", "impact_paths",
+                    )
+                }
+                break
+        if not decorated.get("controller"):
+            for event in events:
+                if event.get("kind") != "model_generation.controller_planned":
+                    continue
+                payload = _mapping(event.get("payload"))
+                if payload.get("run_id") != decorated.get("run_id"):
+                    continue
+                decorated["controller"] = {
+                    key: payload.get(key)
+                    for key in (
+                        "status", "objective", "findings", "actions", "next_action",
+                        "impacted_entity_ids", "impacted_stages", "llm_proposal",
+                    )
+                }
+                break
+        stage_results = []
+        for event in events:
+            if event.get("kind") != "model_generation.stage_completed":
+                continue
+            payload = _mapping(event.get("payload"))
+            if payload.get("run_id") != decorated.get("run_id"):
+                continue
+            stage_results.append({
+                key: payload.get(key)
+                for key in (
+                    "stage", "status", "revision", "entity_count", "relation_count",
+                    "assumptions", "open_questions", "diagnostics", "decision_records",
+                    "completion_checks", "completion_issue_codes",
+                )
+            })
+        if stage_results:
+            decorated["stage_results"] = stage_results
+    decorated["stage_results"] = [
+        _decorate_stage_result(item) for item in decorated.get("stage_results", ())
+    ]
+    decorated["warnings_label"] = [
+        _warning_label(item) for item in decorated.get("warnings", ())
+    ]
+    decorated["methodology"] = _decorate_methodology(decorated.get("methodology"))
+    decorated["controller"] = _decorate_controller(decorated.get("controller"))
+    return decorated
+
+
+def _decorate_pipeline_run(services, project_id: str, run):
+    if not run or run.get("mode") != "pipeline":
+        return run
+    decorated = dict(run)
+    if not decorated.get("methodology") or not decorated.get("controller"):
+        decorated.update(services.analysis(project_id).pipeline_report(project_id))
+    decorated["methodology"] = _decorate_methodology(decorated.get("methodology"))
+    decorated["controller"] = _decorate_controller(decorated.get("controller"))
+    decorated["warnings_label"] = [
+        _warning_label(item) for item in decorated.get("diagnostics", ())
+    ]
+    return decorated
 
 
 def _aggregate_pipeline_steps(services, project_id: str, run: dict[str, object] | None) -> dict[str, object] | None:
@@ -525,7 +1013,19 @@ def _current_task(services, project_id: str, graph: ModelGraph, run: Mapping[str
     except Exception:
         pass
     step_status = str(step.get("status", "queued")) if step else "queued"
-    diagnostics = [str(item) for item in (step.get("diagnostics", ()) if step else ())]
+    raw_diagnostics = [str(item) for item in (step.get("diagnostics", ()) if step else ())]
+    diagnostics = _diagnostic_display(raw_diagnostics)
+    diagnostic_details = _diagnostic_details(raw_diagnostics)
+    failure_stage = str(
+        step.get("failure_stage", "") if step else ""
+    ) or str(
+        diagnostic_details[0].get("stage", "") if diagnostic_details else ""
+    )
+    failure_code = str(
+        step.get("failure_code", "") if step else ""
+    ) or str(
+        diagnostic_details[0].get("code", "") if diagnostic_details else ""
+    )
     if step_status == "completed":
         validation = "已通过"
     elif diagnostics:
@@ -554,6 +1054,17 @@ def _current_task(services, project_id: str, graph: ModelGraph, run: Mapping[str
         "patch_id": patch_id,
         "validation": validation,
         "diagnostics": diagnostics,
+        "failure_stage": failure_stage,
+        "failure_stage_label": {
+            "structural": "结构化输出",
+            "compiler": "Proposal 编译",
+            "semantic": "MBSE 语义",
+            "transport": "模型传输",
+            "concurrency": "并发冲突",
+            "internal": "内部执行错误",
+        }.get(failure_stage, ""),
+        "failure_code": failure_code,
+        "diagnostic_details": diagnostic_details,
     }
 
 
@@ -617,7 +1128,7 @@ def _analysis_module_views(services, project_id: str, graph: ModelGraph, issues:
                 records.append(
                     {
                         "label": "最近一次运行",
-                        "name": str(run.get("run_id") or "未命名运行"),
+                        "name": "完整模型生成",
                         "detail": f"{run.get('phase_label', '生命周期')} · {run.get('status_label', '待处理')}",
                         "status_label": str(run.get("status_label") or "待处理"),
                     }
@@ -625,8 +1136,8 @@ def _analysis_module_views(services, project_id: str, graph: ModelGraph, issues:
                 records.extend(
                     {
                         "label": str(step.get("task_label") or "分析任务"),
-                        "name": "已执行",
-                        "detail": f"尝试第 {step.get('attempt', 0)} 次 · {step.get('input_hash') or '无输入哈希'}",
+                        "name": "阶段已执行",
+                        "detail": f"第 {step.get('attempt', 0)} 次尝试",
                         "status_label": str(step.get("status_label") or "待处理"),
                     }
                     for step in run.get("steps", ())
@@ -664,9 +1175,34 @@ def build_analysis_view(request: Request, project_id: str) -> dict[str, object]:
     services = _services(request)
     project = _mapping(services.projects.summary(project_id))
     graph = services.model(project_id).graph(project_id)
+    system = next(
+        (
+            item for item in graph.entities
+            if item.kind is EntityKind.SYSTEM and item.meta.status.value != "deprecated"
+        ),
+        None,
+    )
     has_analysis_input = services.projects.has_analysis_input(project_id)
     run = _aggregate_pipeline_steps(services, project_id, _latest_run(request, services, project_id))
+    run = _decorate_generation_run(services, project_id, graph, run)
+    run = _decorate_pipeline_run(services, project_id, run)
     runtime = _runtime_metadata(services, run)
+    try:
+        profile_snapshot = _mapping(services.settings.list_profiles())
+    except Exception:
+        profile_snapshot = {"active_id": None, "profiles": ()}
+    active_profile_id = str(profile_snapshot.get("active_id") or "")
+    model_profiles = [
+        {
+            key: profile.get(key)
+            for key in (
+                "id", "label", "kind", "model_location", "provider", "model", "enabled",
+            )
+        }
+        for item in profile_snapshot.get("profiles", ())
+        if isinstance(item, Mapping)
+        for profile in (_mapping(item),)
+    ]
     record_gates = _record_gate_results(run)
     gate_results: list[dict[str, object]] = []
     for phase, _label in _PHASES:
@@ -744,12 +1280,16 @@ def build_analysis_view(request: Request, project_id: str) -> dict[str, object]:
     view = {
         "project": {**project, "revision": graph.revision},
         "project_id": project_id,
+        "project_goal": str(system.payload.get("mission", "")) if system else "",
         "current_revision": graph.revision,
         "has_analysis_input": has_analysis_input,
         "graph_hash": graph.snapshot_hash,
         "runtime": runtime,
         "active_runtime": runtime,
         "active_model": runtime,
+        "model_profiles": model_profiles,
+        "active_profile_id": active_profile_id,
+        "selected_profile_id": active_profile_id,
         "run_status": latest_run.get("status", "ready") if latest_run else "ready",
         "latest_run": latest_run,
         "current_run": latest_run,
@@ -785,60 +1325,56 @@ def _trace_node(project_id: str, entity, stage: str) -> dict[str, object]:
     }
 
 
-def _kind_path(graph: ModelGraph, adjacency: Mapping[str, tuple[str, ...]], start_id: str, target_kind: EntityKind) -> tuple[str, ...] | None:
-    index = graph.entity_index
-    queue: deque[tuple[str, tuple[str, ...]]] = deque([(start_id, (start_id,))])
-    visited = {start_id}
-    while queue:
-        current, path = queue.popleft()
-        if current != start_id and index.get(current) and index[current].kind is target_kind:
-            return path
-        for target in adjacency.get(current, ()):
-            if target not in visited and target in index:
-                visited.add(target)
-                queue.append((target, path + (target,)))
-    return None
-
-
 def build_trace_view(request: Request, project_id: str) -> dict[str, object]:
     services = _services(request)
     graph = services.model(project_id).graph(project_id)
     index = graph.entity_index
-    adjacency: dict[str, list[str]] = {}
-    for relation in graph.relations:
-        adjacency.setdefault(relation.source_id, []).append(relation.target_id)
-    adjacency_tuple = {key: tuple(value) for key, value in adjacency.items()}
     paths: list[dict[str, object]] = []
     issues: list[dict[str, object]] = []
-    for requirement in sorted((item for item in graph.entities if item.kind is EntityKind.REQUIREMENT), key=lambda item: item.id):
-        ids: list[str | None] = [requirement.id]
-        function_path = _kind_path(graph, adjacency_tuple, requirement.id, EntityKind.FUNCTION)
-        ids.append(function_path[-1] if function_path else None)
-        logical_path = _kind_path(graph, adjacency_tuple, ids[-1], EntityKind.LOGICAL_COMPONENT) if ids[-1] else None
-        ids.append(logical_path[-1] if logical_path else None)
-        physical_path = _kind_path(graph, adjacency_tuple, ids[-1], EntityKind.PHYSICAL_BLOCK) if ids[-1] else None
-        ids.append(physical_path[-1] if physical_path else None)
-        verification_path = _kind_path(graph, adjacency_tuple, requirement.id, EntityKind.VERIFICATION_CASE)
-        ids.append(verification_path[-1] if verification_path else None)
+    traceability = build_traceability_view(graph, ())
+    for row in traceability["rows"]:
+        requirement = index.get(str(row["requirement_id"]))
+        if requirement is None:
+            continue
+        ids: list[str | None] = [
+            requirement.id,
+            (row["functions"] or (None,))[0],
+            (row["logical_components"] or (None,))[0],
+            (row["physical_blocks"] or (None,))[0],
+            (row["verification_cases"] or (None,))[0],
+        ]
+        validation_id = (row["validation_cases"] or (None,))[0]
+        validation_node = (
+            _trace_node(project_id, index[validation_id], "Validation")
+            if validation_id in index else None
+        )
         nodes: list[dict[str, object] | None] = []
-        missing: list[str] = []
+        missing = [
+            _TRACE_GAP_LABELS.get(str(gap), str(gap))
+            for gap in row["gaps"]
+        ]
         for entity_id, (_kind, stage) in zip(ids, _TRACE_STAGES):
             entity = index.get(entity_id) if entity_id else None
             nodes.append(_trace_node(project_id, entity, stage) if entity else None)
-            if entity is None:
-                missing.append(stage)
-                issues.append({
-                    "code": f"missing_trace_{stage.casefold()}",
-                    "message": f"{requirement.meta.name}暂无{stage}链路",
-                    "entity_ids": [requirement.id],
-                    "severity": "warning",
-                    "severity_label": "警告",
-                })
+        for gap in row["gaps"]:
+            label = _TRACE_GAP_LABELS.get(str(gap), str(gap))
+            issues.append({
+                "code": f"trace_{gap}",
+                "message": f"{requirement.meta.name}暂无{label}链路",
+                "entity_ids": [requirement.id],
+                "severity": "warning",
+                "severity_label": "警告",
+            })
         path: dict[str, object] = {
             "path_id": f"trace-{canonical_hash((project_id, requirement.id))[:12]}",
-            "complete": not missing,
+            "complete": row["status"] == "PASS",
             "missing": missing,
             "nodes": nodes,
+            "validation": validation_node,
+            "vv_complete": bool(
+                row["stage_coverage"]["verification"]
+                and row["stage_coverage"]["validation"]
+            ),
         }
         for node, (_kind, stage) in zip(nodes, _TRACE_STAGES):
             path[stage.casefold()] = node
@@ -849,6 +1385,8 @@ def build_trace_view(request: Request, project_id: str) -> dict[str, object]:
         "graph_hash": graph.snapshot_hash,
         "stages": [stage for _kind, stage in _TRACE_STAGES],
         "stage_labels": [_TRACE_STAGE_LABELS[label] for _kind, label in _TRACE_STAGES],
+        "vv_stages": ["Verification", "Validation"],
+        "vv_stage_labels": [_TRACE_STAGE_LABELS[label] for label in ("Verification", "Validation")],
         "paths": paths,
         "issues": issues,
     }
@@ -861,6 +1399,9 @@ def build_settings_view(request: Request) -> dict[str, object]:
     for item in settings.get("profiles", ()):
         profile = _mapping(item)
         profile["kind_label"] = {"local": "本地服务", "remote": "远程服务"}.get(str(profile.get("kind", "")), "服务")
+        model_location = str(profile.get("model_location") or ("local" if profile.get("kind") == "local" else "remote"))
+        profile["model_location"] = model_location
+        profile["model_location_label"] = {"local": "本机模型", "remote": "远程模型"}.get(model_location, "模型")
         profile["provider_label"] = {"ollama": "Ollama", "openai-compatible": "OpenAI 兼容"}.get(str(profile.get("provider", "")), str(profile.get("provider", "服务")))
         profile["credential_label"] = "已配置" if profile.get("api_key_configured") else "未配置"
         profile["enabled_label"] = "已启用" if profile.get("enabled", True) else "已停用"
@@ -884,11 +1425,70 @@ def analysis_page(request: Request, project_id: str):
     return templates.TemplateResponse(request=request, name="analysis.html", context={**view, "analysis": view, "active": "analysis"})
 
 
+@resource_pages.get("/ui/projects/{project_id}/engineering-flow", name="engineering_flow_page")
+def engineering_flow_page(request: Request, project_id: str):
+    services = _v2(request)
+    project = _mapping(services.projects.summary(project_id))
+    repository = services.repository(project_id)
+    region_counts: dict[str, int] = {}
+    for region in repository.list_source_regions(project_id):
+        document_id = str(region.get("document_id", "")).strip()
+        if document_id:
+            region_counts[document_id] = region_counts.get(document_id, 0) + 1
+    profile_snapshot = _mapping(services.settings.list_profiles())
+    model_profiles = [
+        {
+            key: profile.get(key)
+            for key in ("id", "label", "kind", "model_location", "provider", "model", "enabled")
+        }
+        for item in profile_snapshot.get("profiles", ())
+        if isinstance(item, Mapping)
+        for profile in (_mapping(item),)
+    ]
+    documents = [
+        {"id": document_id, "name": document_id, "region_count": count}
+        for document_id, count in sorted(region_counts.items())
+    ]
+    return templates.TemplateResponse(
+        request=request,
+        name="engineering-flow.html",
+        context={
+            "project": project,
+            "project_id": project_id,
+            "documents": documents,
+            "model_profiles": model_profiles,
+            "active_profile_id": str(profile_snapshot.get("active_id") or ""),
+            "active": "engineering-flow",
+        },
+    )
+
+
+@resource_pages.get("/ui/projects/{project_id}/documents", name="documents_page")
+def documents_page(request: Request, project_id: str):
+    services = _v2(request)
+    project = services.projects.summary(project_id)
+    input_root = services.projects.path(project_id) / "inputs"
+    documents = []
+    if input_root.is_dir():
+        for path in sorted((item for item in input_root.iterdir() if item.is_file()), key=lambda item: item.name.casefold()):
+            size = path.stat().st_size
+            documents.append({
+                "name": path.name,
+                "kind": path.suffix.removeprefix(".").upper() or "FILE",
+                "size_label": f"{size} B",
+                "relative_path": str(path.relative_to(services.projects.path(project_id))),
+            })
+    return templates.TemplateResponse(request=request, name="documents.html", context={"project": project, "project_id": project_id, "documents": documents, "active": "documents"})
+
+
 @resource_pages.get("/ui/projects/{project_id}/model", name="model_page")
 def model_page(request: Request, project_id: str):
     services = _v2(request)
     trace = build_trace_view(request, project_id)
-    return templates.TemplateResponse(request=request, name="model.html", context={"project": services.projects.summary(project_id), "project_id": project_id, "trace": trace, "active": "model"})
+    model = services.model(project_id)
+    graph = model.graph(project_id)
+    workbench = build_model_workbench_view(graph, tuple(model.issues(project_id)))
+    return templates.TemplateResponse(request=request, name="model.html", context={"project": services.projects.summary(project_id), "project_id": project_id, "trace": trace, "workbench": workbench, "snapshot_hash": graph.snapshot_hash, "active": "model"})
 
 
 @resource_pages.get("/ui/projects/{project_id}/evidence", name="evidence_page")
@@ -902,3 +1502,171 @@ def evidence_page(request: Request, project_id: str):
 def settings_page(request: Request):
     view = build_settings_view(request)
     return templates.TemplateResponse(request=request, name="settings.html", context={**view, "active": "settings"})
+
+
+def _review_context(request: Request, project_id: str) -> dict[str, object]:
+    services = _v2(request)
+    model = services.model(project_id)
+    graph = model.graph(project_id)
+    issues = tuple(model.issues(project_id))
+    return {"services": services, "graph": graph, "issues": issues}
+
+
+@resource_pages.get("/ui/projects/{project_id}/requirements", name="requirements_page")
+def requirements_page(request: Request, project_id: str, status: str | None = None, q: str | None = None):
+    context = _review_context(request, project_id)
+    view = build_requirements_view(context["graph"], context["issues"])
+    query = str(q or "").casefold().strip()
+    if status or query:
+        view["rows"] = [row for row in view["rows"] if (not status or row["status"] == status) and (not query or query in str(row["id"]).casefold() or query in str(row["name"]).casefold() or query in str(row["statement"]).casefold())]
+    return templates.TemplateResponse(request=request, name="requirements.html", context={**view, "project_id": project_id, "active": "requirements", "selected_status": status or "", "query": q or ""})
+
+
+@resource_pages.get("/ui/projects/{project_id}/requirements-use-case", name="requirements_use_case_page")
+def requirements_use_case_page(request: Request, project_id: str):
+    services = _v2(request)
+    repository = services.repository(project_id)
+    profile_snapshot = _mapping(services.settings.list_profiles())
+    profiles = [
+        _mapping(item)
+        for item in profile_snapshot.get("profiles", ())
+        if isinstance(item, Mapping)
+    ]
+    drafts = [item.as_dict() for item in services.requirements_use_case(project_id).list_drafts()]
+    available_document_ids = tuple(dict.fromkeys(
+        str(item.get("document_id", ""))
+        for item in repository.list_source_regions(project_id)
+        if str(item.get("document_id", "")).strip()
+    ))
+    graph = services.model(project_id).graph(project_id)
+    return templates.TemplateResponse(
+        request=request,
+        name="requirements-use-case.html",
+        context={
+            "project_id": project_id,
+            "revision": graph.revision,
+            "drafts": drafts,
+            "available_document_ids": available_document_ids,
+            "model_profiles": profiles,
+            "active_profile_id": str(profile_snapshot.get("active_id") or ""),
+            "active": "requirements-use-case",
+        },
+    )
+
+
+@resource_pages.get("/ui/projects/{project_id}/concept-design", name="concept_design_page")
+def concept_design_page(request: Request, project_id: str):
+    services = _v2(request)
+    latest = services.concept_design(project_id).latest()
+    return templates.TemplateResponse(
+        request=request,
+        name="concept-design.html",
+        context={
+            "project_id": project_id,
+            "active": "concept-design",
+            "run": to_primitive(latest) if latest is not None else None,
+        },
+    )
+
+
+@resource_pages.get("/ui/projects/{project_id}/cad-design", name="cad_design_page")
+def cad_design_page(request: Request, project_id: str):
+    services = _v2(request)
+    cad = services.cad_design(project_id)
+    profile_snapshot = _mapping(services.settings.list_profiles())
+    profiles = [
+        _mapping(item)
+        for item in profile_snapshot.get("profiles", ())
+        if isinstance(item, Mapping)
+        and str(item.get("base_url", "")).startswith(("http://", "https://"))
+        and (
+            str(item.get("model_location", "")).casefold() == "remote"
+            or str(item.get("base_url", "")).split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+            not in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+        )
+    ]
+    return templates.TemplateResponse(
+        request=request,
+        name="cad-design.html",
+        context={
+            "project_id": project_id,
+            "active": "cad-design",
+            "capabilities": cad.capabilities(),
+            "model_profiles": profiles,
+            "active_profile_id": str(profile_snapshot.get("active_id") or ""),
+            "drafts": [item.as_dict() for item in cad.drafts()],
+            "plans": list(cad.plans()),
+            "models": list(cad.models()),
+            "annotations": list(services.design_review(project_id).annotations()),
+            "reviews": list(services.design_review(project_id).reviews()),
+        },
+    )
+
+
+@resource_pages.get("/ui/projects/{project_id}/requirements/{entity_id}", name="requirement_detail_page")
+def requirement_detail_page(request: Request, project_id: str, entity_id: str):
+    context = _review_context(request, project_id)
+    detail = build_requirement_detail(context["graph"], entity_id, issues=context["issues"], evidence=tuple(context["services"].evidence(project_id).list(project_id)))
+    if detail is None:
+        from rflp_lite.domain.errors import NotFoundError
+        raise NotFoundError(f"requirement not found: {entity_id}")
+    return templates.TemplateResponse(request=request, name="requirement-detail.html", context={**detail, "project_id": project_id, "active": "requirements"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/traceability", name="traceability_page")
+def traceability_page(request: Request, project_id: str):
+    context = _review_context(request, project_id)
+    view = build_traceability_view(context["graph"], context["issues"])
+    return templates.TemplateResponse(request=request, name="traceability.html", context={**view, "project_id": project_id, "active": "traceability"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/rflp", name="rflp_page")
+def rflp_page(request: Request, project_id: str, requirement_id: str | None = None):
+    context = _review_context(request, project_id)
+    view = build_rflp_view(context["graph"], context["issues"], selected_requirement=requirement_id)
+    return templates.TemplateResponse(request=request, name="rflp.html", context={**view, "svg": render_rflp_svg(view), "project_id": project_id, "active": "rflp"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/operational", name="operational_page")
+def operational_page(request: Request, project_id: str):
+    context = _review_context(request, project_id)
+    view = build_operational_view(context["graph"], context["issues"])
+    return templates.TemplateResponse(request=request, name="operational.html", context={**view, "project_id": project_id, "active": "operational"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/behavior", name="behavior_page")
+def behavior_page(request: Request, project_id: str):
+    context = _review_context(request, project_id)
+    view = build_behavior_view(context["graph"], context["issues"])
+    return templates.TemplateResponse(request=request, name="behavior.html", context={**view, "project_id": project_id, "active": "behavior"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/assurance", name="assurance_page")
+def assurance_page(request: Request, project_id: str):
+    context = _review_context(request, project_id)
+    view = build_assurance_view(context["graph"], context["issues"])
+    controller = _decorate_controller(
+        _v2(request).generation(project_id).controller_plan(
+            project_id,
+            include_llm=False,
+        )
+    )
+    return templates.TemplateResponse(request=request, name="assurance.html", context={**view, "controller": controller, "project_id": project_id, "active": "assurance"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/history", name="history_page")
+def history_page(request: Request, project_id: str):
+    view = build_history_view(_v2(request).repository(project_id), project_id)
+    return templates.TemplateResponse(request=request, name="history.html", context={**view, "project_id": project_id, "active": "history"})
+
+
+@resource_pages.get("/ui/projects/{project_id}/history/revisions/{revision}/diff", name="revision_diff_page")
+def revision_diff_page(request: Request, project_id: str, revision: int):
+    repository = _v2(request).repository(project_id)
+    after = repository.load_revision(project_id, revision)
+    if after is None:
+        from rflp_lite.domain.errors import NotFoundError
+        raise NotFoundError(f"revision not found: {revision}")
+    before = repository.load_revision(project_id, revision - 1)
+    diff = build_revision_diff(before, after, revision=revision)
+    return templates.TemplateResponse(request=request, name="revision-diff.html", context={**diff, "project_id": project_id, "active": "history"})

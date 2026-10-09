@@ -125,6 +125,9 @@ code { font-family: var(--mono); font-size: .9em; }
 .inline-form input { width: 100%; height: 34px; margin-top: 5px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); }
 .intake-form textarea { width: 100%; margin-top: 7px; padding: 10px 12px; resize: vertical; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text); background: var(--panel); line-height: 1.55; }
 .intake-form input[type="file"] { height: auto; padding: 8px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); }
+.edit-form { margin: 0 0 18px; padding: 13px 14px; border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); background: var(--panel-tint); }
+.edit-form .field { margin-bottom: 8px; }
+.edit-form textarea { display: block; width: 100%; margin-top: 6px; padding: 9px 10px; resize: vertical; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text); background: var(--panel); line-height: 1.55; }
 .pack-selection { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel-tint); }
 .pack-selection strong { color: var(--ink); font-size: 12px; }
 .pack-selection small { color: var(--faint); font-size: 10px; line-height: 1.5; }
@@ -207,6 +210,7 @@ code { font-family: var(--mono); font-size: .9em; }
 .status-badge.failed, .status-badge.rejected, .status-badge.missing, .status-badge.unresolved, .status-badge.danger { color: var(--bad); border-color: var(--bad-border); background: var(--bad-soft); }
 .status-badge.planned, .status-badge.partial, .status-badge.candidate, .status-badge.extra, .status-badge.warning { color: var(--warn); border-color: var(--warn-border); background: var(--warn-soft); }
 .status-badge.info { color: var(--info); border-color: var(--acc-border); background: var(--acc-soft); }
+.status-badge.blocked { color: var(--muted); border-color: var(--line-strong); background: var(--panel-tint); }
 .status-badge.active, .status-badge.selected { color: var(--acc); border-color: var(--acc-border); background: var(--acc-soft); }
 .count-badge, .decision-pill, .planned-label { padding: 2px 8px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); background: var(--panel-tint); font-size: 10px; font-weight: 650; white-space: nowrap; }
 .decision-pill { color: var(--acc); border-color: var(--acc-border); background: var(--acc-soft); }
@@ -233,6 +237,13 @@ td code { font-size: 11px; }
 tr:last-child td { border-bottom: none; }
 .table-secondary { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .mono-value { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
+.cad-review-previews { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 12px 0; }
+.cad-review-previews h3 { margin: 0 0 6px; font-size: 12px; }
+.cad-review-previews .svg-preview { min-height: 80px; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: #fbfcfe; }
+.cad-clarifications { display: grid; gap: 8px; margin-top: 10px; }
+.cad-clarifications article { display: grid; gap: 5px; padding: 10px 12px; border: 1px solid var(--warn-border); border-radius: var(--radius); background: var(--panel); }
+.cad-clarifications article strong { color: var(--ink); font-size: 12px; }
+.cad-clarifications article small { color: var(--muted); font-size: 10px; }
 
 /* ---------- Lists & records ---------- */
 .compact-list { display: grid; gap: 6px; }
@@ -258,6 +269,40 @@ tr:last-child td { border-bottom: none; }
 .trace-list dl { display: grid; grid-template-columns: 90px 1fr; gap: 6px 10px; margin: 12px 0 0; font-size: 11px; }
 .trace-list dt { color: var(--muted); }
 .trace-list dd { margin: 0; }
+
+/* ---------- PR08 engineering review ---------- */
+.engineering-table { min-width: 980px; }
+.engineering-table th, .engineering-table td { white-space: normal; }
+.statement-cell { max-width: 300px; line-height: 1.5; }
+.filter-bar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.filter-bar label { min-width: 160px; color: var(--muted); font-size: 11px; }
+.filter-bar input, .filter-bar select { display: block; width: 100%; height: 32px; margin-top: 4px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text); background: var(--panel); }
+.compact-form { margin: 0; }
+.matrix-wrap { max-height: 640px; overflow: auto; }
+.matrix-wrap thead th { position: sticky; top: 0; z-index: 1; background: var(--panel); }
+.matrix-wrap tbody td:first-child { position: sticky; left: 0; z-index: 1; min-width: 190px; background: var(--panel); }
+.engineering-svg { overflow: auto; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius); background: #fbfcfe; }
+.engineering-svg svg { display: block; min-width: 1160px; }
+.requirement-statement { margin: 0 0 18px; padding: 15px 17px; border-left: 3px solid var(--acc); color: var(--ink); background: var(--acc-soft); font-size: 18px; line-height: 1.6; }
+.detail-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.detail-columns h3 { margin: 0 0 8px; font-size: 13px; }
+.detail-columns .card { margin-bottom: 7px; }
+.detail-columns .card strong, .detail-columns .card code { display: block; margin-top: 4px; }
+.issue-card { margin: 8px 0; padding: 11px 13px; border: 1px solid var(--bad-border); border-radius: var(--radius); background: var(--bad-soft); }
+.issue-card strong, .issue-card code { display: block; }
+.issue-card p { margin: 4px 0; color: var(--muted); font-size: 11px; }
+.scenario-card { margin-bottom: 9px; }
+.scenario-card .panel-head { margin-bottom: 5px; }
+.history-run { margin: 8px 0; padding: 11px 13px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-tint); }
+.history-run summary { cursor: pointer; color: var(--ink); font-size: 12px; font-weight: 650; }
+.diff-row { display: grid; grid-template-columns: 200px 1fr auto; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.diff-row:last-child { border-bottom: none; }
+.diff-row.added strong { color: var(--ok); }
+.diff-row.updated strong { color: var(--acc); }
+.diff-row.removed strong { color: var(--bad); }
+.diff-row del { color: var(--bad); }
+.diff-row ins { color: var(--ok); text-decoration: none; }
+@media (max-width: 850px) { .detail-columns { grid-template-columns: 1fr; } .diff-row { grid-template-columns: 1fr; gap: 3px; } }
 .timeline { display: grid; }
 .timeline article { display: grid; grid-template-columns: 34px 1fr; gap: 11px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .timeline article > span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--radius); color: var(--info); background: var(--acc-soft); font-size: 9px; font-weight: 700; }
@@ -545,6 +590,13 @@ tr:last-child td { border-bottom: none; }
 .checkbox-control { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .checkbox-control input { accent-color: var(--acc); }
 .workflow-columns { margin-top: 12px; }
+.stacked-form { display: grid; gap: 12px; }
+.stacked-form fieldset { min-width: 0; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.stacked-form legend { padding: 0 5px; color: var(--muted); font: 10px var(--mono); }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 7px; }
+.check-grid .checkbox-control { min-height: 42px; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-tint); }
+.check-grid .checkbox-control span { display: grid; gap: 3px; }
+.check-grid .checkbox-control small { color: var(--faint); font-size: 9px; }
 .task-focus { display: grid; gap: 12px; }
 .task-focus-title { display: grid; gap: 3px; padding: 12px; border: 1px solid var(--acc-border); border-radius: var(--radius-lg); background: var(--acc-soft); }
 .task-focus-title strong { color: var(--ink); font-family: var(--mono); font-size: 14px; overflow-wrap: anywhere; }

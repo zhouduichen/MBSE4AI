@@ -1,0 +1,147 @@
+from rflp_lite.application.requirement_intake import (
+    extract_requirement_constraints,
+    infer_requirement_entities,
+    infer_requirement_constraints,
+    infer_system_profile,
+    split_requirement_statements,
+)
+
+
+def test_extracts_compound_chinese_constraints_and_normalizes_units():
+    result = extract_requirement_constraints(
+        "系统功耗不超过 50 W，质量不大于 2 kg，续航不少于 10 h"
+    )
+
+    assert result["constraints"] == {
+        "max_power_w": 50.0,
+        "max_mass_kg": 2.0,
+        "min_endurance_h": 10.0,
+    }
+    assert [item["field"] for item in result["constraint_provenance"]] == [
+        "power_w", "mass_kg", "endurance_h",
+    ]
+
+
+def test_extracts_chinese_denial_comparators_in_compound_constraints():
+    result = extract_requirement_constraints(
+        "系统功耗不得超过 50 W，续航不得少于 10 h"
+    )
+
+    assert result["constraints"] == {
+        "max_power_w": 50.0,
+        "min_endurance_h": 10.0,
+    }
+
+
+def test_extracts_english_comparators_and_converts_units():
+    result = extract_requirement_constraints(
+        "Power <= 0.5 kW; latency must be at most 2 s; bandwidth >= 1 Gbps"
+    )
+
+    assert result["constraints"] == {
+        "max_power_w": 500.0,
+        "max_latency_ms": 2000.0,
+        "min_bandwidth_mbps": 1000.0,
+    }
+
+
+def test_keeps_strictest_duplicate_bound_and_preserves_both_directions():
+    result = extract_requirement_constraints(
+        "功耗不超过 80 W，功耗不超过 50 W，功耗不少于 10 W"
+    )
+
+    assert result["constraints"] == {
+        "max_power_w": 50.0,
+        "min_power_w": 10.0,
+    }
+    assert len(result["constraint_provenance"]) == 2
+
+
+def test_does_not_infer_from_bare_numbers_or_version_text():
+    assert extract_requirement_constraints("系统版本 2.0，支持 3 个用户") == {}
+    assert extract_requirement_constraints("系统续航 10 小时") == {}
+
+
+def test_splitter_preserves_order_and_removes_list_prefixes():
+    assert split_requirement_statements(
+        "1. 系统应自主配送；\n- 系统应支持人工接管。\n系统应在 12.5 h 内完成。"
+    ) == (
+        "系统应自主配送",
+        "系统应支持人工接管",
+        "系统应在 12.5 h 内完成",
+    )
+
+
+def test_splitter_handles_english_sentence_boundaries_without_splitting_versions():
+    assert split_requirement_statements(
+        "The system shall stop safely. The system shall log v2.0."
+    ) == (
+        "The system shall stop safely",
+        "The system shall log v2.0",
+    )
+
+
+def test_splitter_ignores_blank_entries():
+    assert split_requirement_statements("；\n  \n系统应可用！") == ("系统应可用",)
+
+
+def test_infer_requirement_constraints_returns_reviewable_derived_candidates():
+    constraints = infer_requirement_constraints(
+        "系统应支持人工接管并在故障后安全运行，且保留审计留痕",
+        ("region-1",),
+    )
+
+    assert {item["field"] for item in constraints} == {
+        "human_override",
+        "fail_safe_behavior",
+        "audit_trail",
+    }
+    assert all(item["operator"] == "eq" for item in constraints)
+    assert all(item["value"] == 1.0 and item["unit"] == "boolean" for item in constraints)
+    assert all(item["source"] == "derived" for item in constraints)
+    assert all(item["source_refs"] == ["region-1"] for item in constraints)
+    assert all(0 < item["confidence"] < 0.5 and item["assumption"] for item in constraints)
+
+
+def test_infer_requirement_constraints_ignores_unrelated_text():
+    assert infer_requirement_constraints("系统应完成校园配送") == ()
+
+
+def test_infer_requirement_constraints_supports_common_english_engineering_phrases():
+    constraints = infer_requirement_constraints(
+        "The system shall support manual override, fail-safe behavior, fault tolerance, "
+        "continuous operation and an audit trail.",
+        ("region-english",),
+    )
+
+    assert {item["field"] for item in constraints} == {
+        "human_override",
+        "fail_safe_behavior",
+        "fault_tolerance",
+        "continuous_operation",
+        "audit_trail",
+    }
+    assert all(item["source_refs"] == ["region-english"] for item in constraints)
+    assert all(item["confidence"] == 0.35 for item in constraints)
+
+
+def test_infers_bounded_system_profile_and_reviewable_entities():
+    text = "校园无人配送机器人由操作员使用，维护人员负责维护，系统应故障安全并支持持续运行"
+
+    profile = infer_system_profile(text, ("region-1",))
+    entities = infer_requirement_entities(text, ("region-1",))
+
+    assert profile["name"] == "无人配送机器人"
+    assert profile["attributes"]["platform_type"] == "robot"
+    assert profile["attributes"]["operating_environment"] == ["校园"]
+    assert profile["attributes"]["mission_domain"] == ["配送", "维护"]
+    assert {item["local_ref"] for item in entities} == {
+        "actor_operator",
+        "actor_maintainer",
+        "concern_maintainability",
+        "concern_reliability",
+        "concern_safety",
+    }
+    assert all(item["source_refs"] == ["region-1"] for item in entities)
+    assert all(0 < item["confidence"] < 0.5 for item in entities)
+    assert all(item["attributes"]["capture_source"] == "derived" for item in entities)

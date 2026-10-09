@@ -5,13 +5,13 @@
 从 scenario、activity、concern 派生 system-level requirement。
 
 # Inputs
-使用活动、运营场景、stakeholder requirement、concern 和 evidence。
+使用活动、运营场景、Use Case、stakeholder requirement、concern 和 evidence。
 
 # MBSE Method
 明确派生关系和层级；system requirement 与 stakeholder requirement 分层，避免重复文本。
 
 # Required Coverage
-每条派生需求要有单一 obligation、来源 activity/scenario/concern 和可验证方向。
+每条派生需求要有单一 obligation、来源 activity/scenario/Use Case/concern 和可验证方向；保留 Requirement→Use Case/Activity 的来源关系。
 
 # Semantic Constraints
 只派生有来源的需求，不为填充模型生成无源需求。

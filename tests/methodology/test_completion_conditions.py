@@ -23,7 +23,7 @@ def test_completion_condition_can_require_a_named_trace():
     base = next(item for item in task_catalog() if item.id == "function_identification")
     task = replace(base, completion_condition=CompletionCondition(required_trace_rules=("r_to_f",)))
     requirement = make_entity(EntityKind.REQUIREMENT, "需求", {"obligation": "支持配送"}, status=EntityStatus.ACCEPTED)
-    function = make_entity(EntityKind.FUNCTION, "支持配送")
+    function = make_entity(EntityKind.FUNCTION, "支持配送", status=EntityStatus.VALIDATED)
     graph = ModelGraph("p1", (requirement, function), (Relation("r1", requirement.id, RelationPredicate.SATISFIED_BY, function.id),))
 
     result = evaluate_completion(task, graph)
