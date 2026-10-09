@@ -178,6 +178,56 @@ jobs:
             exit 1
           fi
 
+      - name: Wait for required labelled self-hosted runners
+        env:
+          ACTIONS_API_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_args=()
+          if [ -n "$LLM_PROFILE" ]; then
+            target_args+=(--target "remote-llm=self-hosted,macOS,X64,remote-bridge,llm")
+          fi
+          if [ "$FREECAD_ENABLED" = "true" ]; then
+            target_args+=(--target "freecad=self-hosted,macOS,X64,remote-bridge,freecad")
+          fi
+          if [ "$GPU_ENABLED" = "true" ]; then
+            target_args+=(--target "gpu=self-hosted,macOS,X64,remote-bridge,gpu")
+          fi
+          if [ "${#target_args[@]}" -eq 0 ]; then
+            echo "- labelled self-hosted runners: not requested" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          api_url="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runners?per_page=100"
+          readiness_path="$RUNNER_TEMP/ai4mbse-runner-readiness.json"
+          readiness_stdout="$RUNNER_TEMP/ai4mbse-runner-readiness.stdout"
+          set +e
+          python scripts/actions_runner_readiness.py \
+            --api-url "$api_url" \
+            --token "$ACTIONS_API_TOKEN" \
+            --timeout-seconds 600 \
+            --poll-seconds 20 \
+            --output "$readiness_path" \
+            "${target_args[@]}" | tee "$readiness_stdout"
+          readiness_status=${PIPESTATUS[0]}
+          set -e
+          if [ -f "$readiness_path" ]; then
+            cat "$readiness_path" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$readiness_status" -ne 0 ]; then
+            echo "- labelled self-hosted runners: FAIL (required labels are not online)" >> "$GITHUB_STEP_SUMMARY"
+            exit "$readiness_status"
+          fi
+          echo "- labelled self-hosted runners: PASS" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload runner readiness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-runner-readiness-${{ github.run_id }}
+          path: ${{ runner.temp }}/ai4mbse-runner-readiness.*
+          if-no-files-found: ignore
+
   remote-llm:
     name: remote LLM A–E campaign submission
     needs: [contract, readiness]

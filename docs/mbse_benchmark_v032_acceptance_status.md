@@ -736,3 +736,19 @@ Consolidated repeat evidence is 15/15 complete artifacts with the following tele
 宣称 Harness 已获得最终性能收益，因为当前 CASE-01 的 verification/validation
 缺口以及 Release Closure 的 Accepted/Locked 要求仍然使质量门失败。此前 32k B
 截断和 65k 超时 probe 继续作为历史 evidence 保留，不被本次结果覆盖。
+
+## 2026-10-09 Integration runner readiness gate
+
+为避免外部 runner 离线时留下永久 queued job，新增
+`scripts/actions_runner_readiness.py`。Integration 的 `readiness` job 现在按实际请求
+的 labels 检查 `remote-bridge/llm`、`remote-bridge/freecad` 和
+`remote-bridge/gpu` runner，最多轮询 600 秒；每个 target 必须有在线且 labels 完整
+的 runner 才能进入对应外部 job。超时会 fail-closed，并把完整 runner snapshot 写入
+job summary 和 `integration-runner-readiness-<run_id>` artifact；没有请求外部 target
+时则明确记录 `not requested`。
+
+该 gate 不会把 runner 离线伪装成 PASS，也不改变真实外部验收路径：runner 恢复后仍
+执行 Remote LLM、FreeCAD 和 GPU jobs；runner 不恢复时则得到可审计的 readiness
+FAIL，而不是无期限 queued。新增 3 个纯契约测试覆盖 online/label 匹配、轮询恢复和
+缺失 labels fail-closed；本地完整 pytest、Ruff、compileall、lint-imports、architecture
+budget、robustness 和 workflow YAML 语法检查均通过。
