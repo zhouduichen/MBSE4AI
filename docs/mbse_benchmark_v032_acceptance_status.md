@@ -758,3 +758,11 @@ concurrency group，使新 dispatch 在进入 contract/readiness 前就 pending�
 latest-run-wins：取消 stale queued/running 的 runner-bound workflow，避免旧 run
 阻塞新的 readiness 证据；detached Remote LLM campaign 仍由远端 campaign manifest
 和 collector 独立寻址，不依赖被取消的 GitHub job 生命周期。
+
+在真实 dispatch `37878518549` 中，readiness 已成功 checkout 并执行新脚本，但 GitHub
+API 返回 `403 Forbidden`。这是权限配置问题，不是 runner 状态结论：列出仓库
+self-hosted runners 的 REST endpoint 需要 repository `Administration: read`，而当前
+workflow 的普通 `GITHUB_TOKEN` 只有 `actions: read`。workflow 现优先读取可选 secret
+`AI4MBSE_ACTIONS_RUNNER_READ_TOKEN`，缺失或权限不足时将错误和 target labels 写入
+readiness artifact 并 fail-closed；配置一个只读 Administration token 后，才会继续
+执行真实 runner online/label 检查。该 token 不在仓库中生成或硬编码。

@@ -186,6 +186,7 @@ jobs:
       - name: Wait for required labelled self-hosted runners
         env:
           ACTIONS_API_TOKEN: ${{ github.token }}
+          ACTIONS_RUNNER_READ_TOKEN: ${{ secrets.AI4MBSE_ACTIONS_RUNNER_READ_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -206,10 +207,17 @@ jobs:
           api_url="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runners?per_page=100"
           readiness_path="$RUNNER_TEMP/ai4mbse-runner-readiness.json"
           readiness_stdout="$RUNNER_TEMP/ai4mbse-runner-readiness.stdout"
+          runner_token="$ACTIONS_API_TOKEN"
+          token_source="GITHUB_TOKEN"
+          if [ -n "$ACTIONS_RUNNER_READ_TOKEN" ]; then
+            runner_token="$ACTIONS_RUNNER_READ_TOKEN"
+            token_source="AI4MBSE_ACTIONS_RUNNER_READ_TOKEN"
+          fi
+          echo "- runner API token source: ${token_source}" >> "$GITHUB_STEP_SUMMARY"
           set +e
           python scripts/actions_runner_readiness.py \
             --api-url "$api_url" \
-            --token "$ACTIONS_API_TOKEN" \
+            --token "$runner_token" \
             --timeout-seconds 600 \
             --poll-seconds 20 \
             --output "$readiness_path" \

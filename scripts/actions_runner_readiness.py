@@ -125,7 +125,13 @@ def wait_for_runner_targets(
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--api-url", required=True)
-    parser.add_argument("--token", default=os.environ.get("GITHUB_TOKEN", ""))
+    parser.add_argument(
+        "--token",
+        default=os.environ.get(
+            "ACTIONS_RUNNER_READ_TOKEN",
+            os.environ.get("GITHUB_TOKEN", ""),
+        ),
+    )
     parser.add_argument("--target", action="append", default=[])
     parser.add_argument("--timeout-seconds", type=int, default=600)
     parser.add_argument("--poll-seconds", type=int, default=20)
@@ -148,6 +154,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             poll_seconds=args.poll_seconds,
         )
     except (ValueError, OSError) as exc:
+        result = {
+            "available": False,
+            "attempts": 1,
+            "error": str(exc),
+            "error_type": type(exc).__name__,
+            "targets": {
+                name: {
+                    "required_labels": list(labels),
+                    "available": False,
+                    "matches": [],
+                }
+                for name, labels in targets
+            },
+        }
+        serialized = json.dumps(result, ensure_ascii=False, sort_keys=True)
+        print(serialized)
+        if args.output:
+            args.output.write_text(serialized + "\n", encoding="utf-8")
         print(f"runner readiness error: {exc}", file=sys.stderr)
         return 2
     serialized = json.dumps(result, ensure_ascii=False, sort_keys=True)
