@@ -644,3 +644,38 @@ cap 的最小值。该 probe 因此不是一次有效的 65k provider 实验，�
 32k comparison 结论。若要进一步验证 staged baseline，需要新建独立的
 `max_output_tokens=65536` / `context_window=65536` profile，并用该 profile 重新
 执行完整 A–E，避免改变已经存档的 32k profile 语义。
+
+## 2026-10-09 65k staged probe 与真实 Integration dispatch
+
+为验证高预算是否能越过 B 的 32k JSON 截断，新增了本机实验 profile
+`windows-5080-ollama-65536`（独立于 32k profile，`context_window`、
+`max_output_tokens`、`local_max_tokens` 和 vertical batch cap 均为 65,536）。B-only
+probe 在同一 5080/Qwen 输入上运行一个 repeat，最终记录：
+
+```text
+results: /tmp/ai4mbse-5080-qwen-20261009-budget65536-b-probe2-results
+profile: windows-5080-ollama-65536
+comparison_mode: budget_matched
+total_output_token_budget: 65536
+execution_status: blocked
+exception: case exceeded 1800s
+call_count: 0
+total_tokens: 0
+```
+
+这不是成功的 staged baseline，也没有触发完整 A–E；它说明单纯提高 cap 会把问题从
+32k 截断转成不可接受的长尾/超时，不能据此宣称实验完成。原 32k profile 和
+32k campaign evidence 均未被覆盖。
+
+同一日从 PR 分支 head `1d32ef5` dispatch 了真实 Integration workflow
+[`37870875825`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37870875825)，
+使用 `natural`、remote LLM、FreeCAD、GPU 全部开启。结果：
+
+- `integration contract`：PASS，实际运行 offline integration contract 和 robustness benchmark；
+- `external prerequisite readiness`：PASS，完整 SSH bridge、LLM profile、FreeCAD/GPU target 配置通过；
+- `remote LLM A–E campaign submission`、`FreeCAD acceptance`、`GPU acceptance`：均已进入 queued，未 skipped；
+- GitHub runner API 当时仅发现 `mbse4ai-mac-remote-bridge`，labels 同时包含 `llm/gpu/freecad`，但 `status=offline`、`busy=false`。
+
+因此本次 dispatch 证明 workflow contract/readiness 真实可执行，但不能把 queued job
+写成 Remote LLM、FreeCAD 或 GPU PASS。外部验收仍等待 self-hosted runner 恢复；PR
+保持 review gate，`main` 内容 API 也尚未包含 PR 分支的 integration workflow。
