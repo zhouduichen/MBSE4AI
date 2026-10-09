@@ -583,3 +583,55 @@ artifact audit 进一步发现，`budget_comparable=false` 与 `budget_enforced=
 `test_budget_controls_are_persisted_on_successful_repeat_metadata`。本次旧 report
 作为不可变实验记录保留，不回写成 PASS；要取得修复后的权威 comparison，需要在
 5080 可用窗口重新执行 campaign。该修复后的 GitHub PR quality check 已通过。
+
+## 2026-10-09 Windows RTX 5080 Qwen：post-fix budget-matched result
+
+随后在同一恢复窗口、同一输入和同一命令口径下重新执行了 campaign，使用新的结果
+目录 `/tmp/ai4mbse-5080-qwen-20261009-budget32768-postfix-results` 和 report
+目录 `/tmp/ai4mbse-5080-qwen-20261009-budget32768-postfix-reports`。本次权威报告为
+`llm/windows-5080-ollama-32768/a_to_e_comparison.json`；15 个 repeat artifact
+均已生成，A/B/C/D/E 各 3 个，但 B 的 3 个 repeat 均因结构化 JSON 在 32,768
+output cap 截断而失败。因此 runner 按 fail-closed 规则退出并保留
+`execution_complete=false`，没有把不完整执行写成 PASS。
+
+修复后的核心 comparison invariants 为：
+
+```json
+{
+  "status": "FAIL",
+  "invariant_failures": ["execution_complete"],
+  "budget_comparable": true,
+  "budget_enforced": true,
+  "same_input": true,
+  "same_model_provider": true,
+  "same_task_spec": true,
+  "same_evaluator": true,
+  "same_normalizer": true,
+  "same_evaluation_spec": true,
+  "same_temperature": true,
+  "ground_truth_isolated": true,
+  "ablation_contract_valid": true,
+  "repair_control_observed": true,
+  "real_calls_observed": true,
+  "token_usage_observed": true,
+  "latency_observed": true,
+  "cost_observed": true
+}
+```
+
+A、C、D、E 各自均为 3/3 `completed`；B 为 3/3 `failed`，每次均记录
+`call_count=1`、`input_tokens=678`、`output_tokens=32768`、`total_tokens=33446`、
+`budget_exhausted=true`、`budget_within_cap=true`，异常为
+`StructuredOutputFailure: provider output was truncated`。E 三次均为
+`completed`/`completed_with_warnings`，每次 23 calls、131,881 input、32,768
+output、164,649 total tokens，且 `verifier=true`、`repair=true`、`CAS=true` 和四项
+repair runtime controls 全部为 true。A 平均 13,925 total tokens，C/D 分别平均
+43,503 total tokens；所有成功 repeat 的 comparison controls 已在 report metadata
+中出现，证明 `830c402` 修复有效。
+
+这次结果已经解决了上一组 report 的 `budget_comparable`/`budget_enforced` 元数据
+问题，但没有解决 B 在 32,768 cap 下的真实结构化输出截断；因此当前仍不能宣称
+完整 A–E comparison 通过，也不能据此宣称 Harness 收益。若要取得
+`execution_complete=true`，需要在保持相同模型、输入、normalizer、evaluator 和
+ablation 定义的前提下，为 staged baseline 选择足够大的可审计预算，并重新执行
+完整 campaign。
