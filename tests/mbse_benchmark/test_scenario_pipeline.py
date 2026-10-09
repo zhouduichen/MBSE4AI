@@ -95,6 +95,28 @@ def test_one_shot_and_staged_scenarios_call_the_same_model_without_expected_grap
     )
 
 
+def test_staged_prompt_scopes_each_delta_to_its_own_rflp_stage():
+    model = RecordingModel()
+    ScenarioRunner(ModelGraphNormalizer()).run(
+        CASE,
+        scenario_contract(BenchmarkScenario.B_BARE_STAGED),
+        model,
+        project_id="p1",
+    )
+
+    prompts = [request.system_prompt for request in model.requests]
+    assert "只生成 system、stakeholder、lifecycle_stage" in prompts[0]
+    assert "不生成 F/L/P/V&V 下游对象" in prompts[0]
+    assert "只生成 function 和 functional_scenario" in prompts[1]
+    assert "不生成 L/P/V&V 对象" in prompts[1]
+    assert "只生成 logical_component" in prompts[2]
+    assert "不生成 Physical、Verification 或 Validation 对象" in prompts[2]
+    assert "只生成 physical_block" in prompts[3]
+    assert "不生成 Verification 或 Validation 对象" in prompts[3]
+    assert "只生成 verification_case、validation_case" in prompts[4]
+    assert all("最小可审计 delta" in prompt for prompt in prompts)
+
+
 def test_bare_runner_rejects_evaluator_only_aliases_before_model_call():
     model = RecordingModel()
     case = {**CASE, "expectedGraph": {"shortcut": True}}

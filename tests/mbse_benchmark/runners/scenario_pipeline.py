@@ -635,14 +635,42 @@ def model_input_for_case(case: Mapping[str, object] | BenchmarkInputEnvelope) ->
     return dict(BenchmarkInputEnvelope.from_case(case).payload)
 
 
+_STAGED_STAGE_GUIDANCE: Mapping[str, str] = {
+    "requirements": (
+        "本阶段只生成 system、stakeholder、lifecycle_stage、scenario_hypothesis 和 requirement；"
+        "只保留输入中声明的对象，每个声明项最多一个 entity，不生成 F/L/P/V&V 下游对象。"
+    ),
+    "functional": (
+        "本阶段只生成 function 和 functional_scenario，以及把 current_graph 中已有 Requirement/"
+        "Function 连接起来所需的 satisfiedBy、derivedFrom、participatesIn 关系；不生成 L/P/V&V 对象。"
+    ),
+    "logical": (
+        "本阶段只生成 logical_component，以及 Function→Logical 的 allocatedTo/derivedFrom 关系；"
+        "不生成 Physical、Verification 或 Validation 对象。"
+    ),
+    "physical": (
+        "本阶段只生成 physical_block，以及 Logical→Physical 的 allocatedTo/derivedFrom 关系；"
+        "不生成 Verification 或 Validation 对象。"
+    ),
+    "verification_validation": (
+        "本阶段只生成 verification_case、validation_case，以及 Requirement/Use Case→V&V 的"
+        "verifiedBy、validatedBy 或 supportedBy 关系。"
+    ),
+}
+
+
 def _system_prompt(stage: str) -> str:
     if stage == "one_shot":
         return "根据 case_input 一次性生成完整 ModelGraph，覆盖 R→F→L→P→V&V；只返回 JSON，不要输出解释文字，不要读取或假设任何 expected graph。"
+    guidance = _STAGED_STAGE_GUIDANCE.get(stage, "")
     return (
         f"根据 case_input 生成 {stage} 阶段可观察的 ModelGraph 增量；"
         "只返回 JSON object，且只包含本阶段新增的 entities 和 relations；"
         "不要返回 project_id 或 revision，不要重复 current_graph 中已有对象，"
         "不要输出解释文字，不要读取或假设任何 expected graph。"
+        f"{guidance}"
+        "使用最小可审计 delta：payload 只保留完成该阶段和追溯所需的短字段，"
+        "不要重复 case_input、current_graph 或同义解释文本。"
     )
 
 
