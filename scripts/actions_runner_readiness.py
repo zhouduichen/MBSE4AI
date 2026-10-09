@@ -9,6 +9,7 @@ import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
@@ -139,6 +140,34 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _error_result(
+    exc: Exception,
+    targets: Sequence[RunnerTarget],
+) -> dict[str, object]:
+    """Serialize a fail-closed error with actionable permission guidance."""
+
+    result: dict[str, object] = {
+        "available": False,
+        "attempts": 1,
+        "error": str(exc),
+        "error_type": type(exc).__name__,
+        "targets": {
+            name: {
+                "required_labels": list(labels),
+                "available": False,
+                "matches": [],
+            }
+            for name, labels in targets
+        },
+    }
+    if isinstance(exc, HTTPError) and exc.code == 403:
+        result["remediation"] = (
+            "Configure AI4MBSE_ACTIONS_RUNNER_READ_TOKEN with repository "
+            "Administration: read permission; GITHUB_TOKEN/actions: read is insufficient."
+        )
+    return result
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if not args.token:
@@ -154,20 +183,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             poll_seconds=args.poll_seconds,
         )
     except (ValueError, OSError) as exc:
-        result = {
-            "available": False,
-            "attempts": 1,
-            "error": str(exc),
-            "error_type": type(exc).__name__,
-            "targets": {
-                name: {
-                    "required_labels": list(labels),
-                    "available": False,
-                    "matches": [],
-                }
-                for name, labels in targets
-            },
-        }
+        result = _error_result(exc, targets)
         serialized = json.dumps(result, ensure_ascii=False, sort_keys=True)
         print(serialized)
         if args.output:

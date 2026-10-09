@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.error import HTTPError
+
 from scripts import actions_runner_readiness as readiness
 
 
@@ -79,3 +81,21 @@ def test_parse_target_rejects_missing_labels() -> None:
         assert "at least one label" in str(exc)
     else:
         raise AssertionError("missing runner labels must fail closed")
+
+
+def test_forbidden_runner_api_error_contains_secret_remediation() -> None:
+    error = HTTPError(
+        "https://api.github.test/runners",
+        403,
+        "Forbidden",
+        {},
+        None,
+    )
+
+    result = readiness._error_result(
+        error,
+        (("remote-llm", ("self-hosted", "llm")),),
+    )
+
+    assert "AI4MBSE_ACTIONS_RUNNER_READ_TOKEN" in result["remediation"]
+    assert "Administration: read" in result["remediation"]
