@@ -679,3 +679,60 @@ total_tokens: 0
 因此本次 dispatch 证明 workflow contract/readiness 真实可执行，但不能把 queued job
 写成 Remote LLM、FreeCAD 或 GPU PASS。外部验收仍等待 self-hosted runner 恢复；PR
 保持 review gate，`main` 内容 API 也尚未包含 PR 分支的 integration workflow。
+
+## 2026-10-09 Windows RTX 5080 Qwen：staged prompt 修复后的 A–E evidence
+
+为解决 B 在 32k budget 下的结构化输出截断，commit `f57fd10` 为 Bare staged
+baseline 增加了按阶段约束的最小 delta prompt：Requirements 只允许 R，上游到
+Functional 只允许 F，随后分别限制 L、P 和 V&V；同时禁止重复输出完整 case/current
+graph。新增回归测试
+`test_staged_prompt_scopes_each_delta_to_its_own_rflp_stage`，该 commit 的两条 GitHub
+CI workflow 均为 success。
+
+随后在 5080 / Qwen 同一 profile 上重新执行了预算匹配实验。A–D 的主批次在工作树
+异常消失前已经完成，E1/E2 已落盘；恢复 PR 分支工作树后只重跑缺失的 E3，并将其
+放入同一 evidence 目录。E3 使用完全相同的 model/provider、input、task spec、
+external evaluator、normalizer、temperature 和 budget controls，因此不改变比较口径。
+本地工作树的异常是实验主进程启动下一阶段时 `os.getcwd()` 收到
+`PermissionError`，不是 5080/vLLM 调用失败；原始和重跑 artifact 均保留。
+
+```text
+profile: windows-5080-ollama-32768
+provider/model: windows-5080-ollama-32768 / qwen3.5:9b-q8_0
+comparison_mode: budget_matched
+total_output_token_budget: 32768
+commit: f57fd10d7bcac6258a63a0a4b06513f3d5368283
+results: /tmp/ai4mbse-5080-qwen-20261009-budget32768-postfix2-results
+E3 retry: /tmp/ai4mbse-5080-qwen-20261009-budget32768-postfix2-e3-results
+E3 report: /tmp/ai4mbse-5080-qwen-20261009-budget32768-postfix2-e3-reports
+```
+
+Consolidated repeat evidence is 15/15 complete artifacts with the following telemetry：
+
+| Scenario | Repeat 状态 | Calls / repeat | Total tokens / repeat | External evaluator result |
+|---|---:|---:|---:|---|
+| A Bare one-shot | 3/3 completed | 1 | 13,925 | `trace_accuracy=0.0`, `RFLP_coverage=0.0` |
+| B Bare staged | 3/3 completed | 5 | 24,075 | `trace_accuracy=0.0`, `RFLP_coverage=0.0` |
+| C Harness − Verifier | 3/3 completed | 6 | 43,503 | `trace_accuracy=0.0`, `RFLP_coverage=0.0` |
+| D Harness − Repair | 3/3 completed | 6 | 43,503 | `trace_accuracy=0.0`, `RFLP_coverage=0.0` |
+| E Full Harness | 3/3 completed with warnings | 23 | 164,649 | `trace_accuracy=0.0`, `RFLP_coverage=1.0` |
+
+本批次的可复核事实包括：
+
+- 所有 repeat 的 `execution_status=completed`、`failed_call_count=0`，均有真实
+  provider calls、token usage、provider/wall latency 和零成本 telemetry；
+- A–E 使用相同 model/provider、input bytes/hash、task spec、evaluation spec、
+  evaluator、ModelGraph normalizer、temperature；`ground_truth_model_visible=false`
+  且 external evaluator guard 生效；
+- `call_budget_comparable=true`、`budget_comparable=true`、`budget_enforced=true`，
+  每个 repeat 均满足 `budget_within_cap=true`；E 的 `budget_exhausted=true` 表示
+  达到统一总预算后的正常收口，不是 provider exception；
+- A–E 的 `RFLP_coverage` 和 `trace_accuracy` 来自统一 external evaluator，未再把
+  baseline 指标写死为 0；E 的 RFLP 链已形成，但 V&V 仍不完整，且下游事实为
+  `VALIDATED`，所以 Technical/Release Closure 仍为 FAIL，最终质量状态为
+  `REJECTED`。
+
+这组证据证明了真实同模型 A–E 的可执行性、预算可比性和指标非硬编码；它还不能
+宣称 Harness 已获得最终性能收益，因为当前 CASE-01 的 verification/validation
+缺口以及 Release Closure 的 Accepted/Locked 要求仍然使质量门失败。此前 32k B
+截断和 65k 超时 probe 继续作为历史 evidence 保留，不被本次结果覆盖。
