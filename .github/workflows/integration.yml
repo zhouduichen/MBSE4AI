@@ -114,6 +114,8 @@ jobs:
       FREECAD_COMMAND: ${{ secrets.AI4MBSE_FREECAD_COMMAND }}
       CAD_REMOTE_ROOT: ${{ secrets.AI4MBSE_CAD_REMOTE_ROOT }}
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
       - name: Validate requested external targets
         shell: bash
         run: |
