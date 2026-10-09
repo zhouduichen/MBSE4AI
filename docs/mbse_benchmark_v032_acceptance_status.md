@@ -1,7 +1,7 @@
 # MBSE4AI v0.3.2 Fair Evaluation 验收状态
 
-更新时间：2026-10-08 CST
-代码审计提交：`0b2b277`
+更新时间：2026-10-09 CST
+代码审计提交：`4e8182f`
 PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 
 本文严格区分“代码契约已经验证”和“真实外部实验已经产生证据”。前者不能替代后者。
@@ -25,6 +25,7 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 - 本地 gate 全部通过：pytest、ruff、compileall、lint-imports、architecture metrics、robustness benchmark；
 - 本地契约测试和完整质量门禁已通过；实现提交 `1361e78` 所在 head `077f0bf` 的 GitHub `CI / quality` push run [`37721896714`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37721896714) 与 PR run [`37721900539`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37721900539) 均通过。
 - 最新文档收口提交 `b3661be` 的 GitHub push run [`37739513274`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37739513274) 与 PR run [`37739518213`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37739518213) 均已 `completed / success`；PR 仍保持人工 review 门槛，未合并到 `main`。
+- 当前 head `4e8182f` 的 GitHub push run [`37878683514`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37878683514) 与 PR run [`37878686548`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37878686548) 均已 `completed / success`；两次均执行完整 quality job。
 
 本次本地验证结果：完整 pytest `100% PASS`（2 个既有 skip）；Ruff、compileall、lint-imports、architecture budget、robustness benchmark 均 PASS。新增回归测试覆盖“失败 repeat 不进入质量统计、Quality–Cost 标记 incomplete、audit 计数不把失败当作 0”。
 
@@ -45,10 +46,10 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 | 9 | latency/cost | LATENCY REAL; COST UNAVAILABLE | run16 A–E wall latency mean 约 `321s / 1186s / 664s / 1135s / 2872s`；cost status=`unavailable`，没有伪造价格或成本 |
 | 10 | natural 与 budget-matched | NATURAL REAL; BUDGET DISPATCHABLE; REAL BUDGET-MATCHED NOT VERIFIED | run14 使用 natural mode、共同 per-call cap=8192 且 A–E profile 同步；当前手动 dispatch 可选择 `budget_matched` 并必须提供正整数 total budget，schedule/default 仍为 `natural`；尚无真实 budget-matched campaign 证据，不能用 natural run 代替 |
 | 11 | 3–5 repeats 与统计 | VERIFIED; FAIL-CLOSED | run16 A–E 均有 3 个 repeat 目录并生成 mean/std/CI95；D 为 1 completed+2 failed，E 为 3 failed，故整体 execution complete 仍为 false |
-| 12 | GitHub CI 真实 PASS | VERIFIED | `b3661be` 的 GitHub push run [`37739513274`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37739513274) 与 PR run [`37739518213`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37739518213) 均 `completed / success`；PR 仍需人工 review，不能据此自动合并 |
+| 12 | GitHub CI 真实 PASS | VERIFIED | 当前 head `4e8182f` 的 push run [`37878683514`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37878683514) 与 PR run [`37878686548`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37878686548) 均 `completed / success`；PR 仍需人工 review，不能据此自动合并 |
 | 13 | main 要求 CI / quality | VERIFIED | GitHub API 当前返回 `strict=true`、required context=`CI / quality`、required approvals=1、`enforce_admins=true` |
-| 14 | Integration schedule 不空跑 | PR CONTRACT VERIFIED; MAIN SCHEDULE NOT VERIFIED | PR 分支 run [`37722822215`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37722822215) 的 contract/readiness PASS，手动无目标运行未空跑通过；但 GitHub API 对 `main` 返回该 workflow 不存在，且没有 scheduled event 的权威 run evidence，因此不能把 PR 分支配置写成已生效的主线 schedule |
-| 15 | Remote LLM/FreeCAD/GPU 真实 workflow | PARTIAL; A–E TERMINAL FAIL | 历史 run `36524219363` 真实 PASS FreeCAD/GPU acceptance；历史 remote A–E run 均 fail-closed。最新 5080/Qwen campaign 也未形成完整 A–E PASS，并暴露 report/raw artifact 混入，不能宣称 Harness 收益或实验结论 |
+| 14 | Integration schedule 不空跑 | PR CONTRACT VERIFIED; MAIN SCHEDULE NOT VERIFIED | PR 分支 contract/readiness 已通过；当配置缺失时 readiness 会 fail-closed，不再把空跑写成 PASS。但 workflow 尚未合入 `main`，没有 scheduled event 的主线 run evidence |
+| 15 | Remote LLM/FreeCAD/GPU 真实 workflow | PARTIAL; RUNNER UNAVAILABLE | 5080/Qwen 本地真实 A–E 证据已保留；GitHub dispatch [`37878742143`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37878742143) 的 offline contract PASS，但 readiness 因 `GITHUB_TOKEN` 调用 runner API 返回 `403 Forbidden` 而 fail-closed，三个外部 job 被跳过。当前唯一 runner `mbse4ai-mac-remote-bridge` 为 `offline`；未配置 `AI4MBSE_ACTIONS_RUNNER_READ_TOKEN`，因此不能宣称远程 workflow 已完成 |
 
 ## 最新远端 run11（部分完成，不能替代完整 A–E）
 
@@ -766,3 +767,13 @@ workflow 的普通 `GITHUB_TOKEN` 只有 `actions: read`。workflow 现优先读
 `AI4MBSE_ACTIONS_RUNNER_READ_TOKEN`，缺失或权限不足时将错误和 target labels 写入
 readiness artifact 并 fail-closed；配置一个只读 Administration token 后，才会继续
 执行真实 runner online/label 检查。该 token 不在仓库中生成或硬编码。
+
+随后真实 dispatch [`37878742143`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37878742143)
+验证了这条失败路径：`integration contract` 为 PASS，readiness checkout、配置校验和
+artifact 上传均成功；runner API 返回结构化 `HTTPError 403`，因此 Remote LLM、GPU
+和 FreeCAD 三个 job 均为 skipped。当前通过 GitHub API 复核到的 runner 快照为：
+`mbse4ai-mac-remote-bridge`，labels=`self-hosted, macOS, X64, remote-bridge, llm,
+gpu, freecad`，status=`offline`。当前仓库 secrets 列表也没有
+`AI4MBSE_ACTIONS_RUNNER_READ_TOKEN`。这证明 readiness gate 能阻止错误地把“5080 本地
+实验”或“远程 runner 不可用”写成外部 workflow PASS，但第 15 项仍等待 runner 上线
+并配置只读 Administration token。
