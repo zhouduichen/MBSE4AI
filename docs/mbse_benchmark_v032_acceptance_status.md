@@ -49,7 +49,7 @@ PR：[zhouduichen/MBSE4AI#2](https://github.com/zhouduichen/MBSE4AI/pull/2)
 | 12 | GitHub CI 真实 PASS | VERIFIED | 当前 head `4e8182f` 的 push run [`37878683514`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37878683514) 与 PR run [`37878686548`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37878686548) 均 `completed / success`；PR 仍需人工 review，不能据此自动合并 |
 | 13 | main 要求 CI / quality | VERIFIED | GitHub API 当前返回 `strict=true`、required context=`CI / quality`、required approvals=1、`enforce_admins=true` |
 | 14 | Integration schedule 不空跑 | PR CONTRACT VERIFIED; MAIN SCHEDULE NOT VERIFIED | PR 分支 contract/readiness 已通过；当配置缺失时 readiness 会 fail-closed，不再把空跑写成 PASS。但 workflow 尚未合入 `main`，没有 scheduled event 的主线 run evidence |
-| 15 | Remote LLM/FreeCAD/GPU 真实 workflow | PARTIAL; RUNNER UNAVAILABLE | 5080/Qwen 本地真实 A–E 证据已保留；GitHub dispatch [`37878742143`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37878742143) 的 offline contract PASS，但 readiness 因 `GITHUB_TOKEN` 调用 runner API 返回 `403 Forbidden` 而 fail-closed，三个外部 job 被跳过。当前唯一 runner `mbse4ai-mac-remote-bridge` 为 `offline`；未配置 `AI4MBSE_ACTIONS_RUNNER_READ_TOKEN`，因此不能宣称远程 workflow 已完成 |
+| 15 | Remote LLM/FreeCAD/GPU 真实 workflow | PARTIAL; READINESS PERMISSION MISSING | 5080/Qwen 本地真实 A–E 证据已保留；GitHub dispatch [`37878742143`](https://github.com/zhouduichen/MBSE4AI/actions/runs/37878742143) 的 offline contract PASS，但 readiness 因 `GITHUB_TOKEN` 调用 runner API 返回 `403 Forbidden` 而 fail-closed，三个外部 job 被跳过。已恢复唯一 runner `mbse4ai-mac-remote-bridge` 为 `online`，但未配置 `AI4MBSE_ACTIONS_RUNNER_READ_TOKEN`，因此仍不能宣称远程 workflow 已完成 |
 
 ## 最新远端 run11（部分完成，不能替代完整 A–E）
 
@@ -777,3 +777,14 @@ gpu, freecad`，status=`offline`。当前仓库 secrets 列表也没有
 `AI4MBSE_ACTIONS_RUNNER_READ_TOKEN`。这证明 readiness gate 能阻止错误地把“5080 本地
 实验”或“远程 runner 不可用”写成外部 workflow PASS，但第 15 项仍等待 runner 上线
 并配置只读 Administration token。
+
+## 2026-10-09 runner 恢复
+
+进一步检查发现目标 runner 并非未注册：本机已有完整的
+`actions-runner-mbse4ai-osx` 配置和凭据，但 launchd 服务未安装，导致 runner 进程退出
+后长期显示 `offline`。没有读取或搬运凭据文件；仅使用既有 `svc.sh` 将该注册配置安装
+为当前用户的 LaunchAgent 并启动。GitHub API 随后复核为：
+`mbse4ai-mac-remote-bridge = online, busy=false`。这修复了 runner 生命周期问题，
+但 readiness job 仍需要仓库 secret `AI4MBSE_ACTIONS_RUNNER_READ_TOKEN` 才能通过
+`Administration: read` 的 runner API 权限检查；在该 secret 配置前，不触发真实外部
+LLM/FreeCAD/GPU job，避免把可用 runner 误判为已完成验收。
