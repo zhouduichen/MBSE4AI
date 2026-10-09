@@ -44,7 +44,10 @@ permissions:
 
 concurrency:
   group: mbse4ai-integration-external
-  cancel-in-progress: false
+  # A stale queued run must not block the next readiness check forever. The
+  # remote LLM campaign itself is detached and remains collector-addressable;
+  # runner-bound FreeCAD/GPU jobs are safe to cancel before they start.
+  cancel-in-progress: true
 
 jobs:
   contract:

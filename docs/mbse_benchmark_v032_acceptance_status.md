@@ -752,3 +752,9 @@ job summary 和 `integration-runner-readiness-<run_id>` artifact；没有请求�
 FAIL，而不是无期限 queued。新增 3 个纯契约测试覆盖 online/label 匹配、轮询恢复和
 缺失 labels fail-closed；本地完整 pytest、Ruff、compileall、lint-imports、architecture
 budget、robustness 和 workflow YAML 语法检查均通过。
+
+同一验证还发现旧 Integration run 会因原来的 `cancel-in-progress: false` 长期占用
+concurrency group，使新 dispatch 在进入 contract/readiness 前就 pending。现改为
+latest-run-wins：取消 stale queued/running 的 runner-bound workflow，避免旧 run
+阻塞新的 readiness 证据；detached Remote LLM campaign 仍由远端 campaign manifest
+和 collector 独立寻址，不依赖被取消的 GitHub job 生命周期。
